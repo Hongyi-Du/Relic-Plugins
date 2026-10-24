@@ -280,7 +280,6 @@ class App:
         if os.name == "nt":
             for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
                 try:
-                    import tkinter.font as tkfont
                     tkfont.nametofont(name).configure(family="Microsoft YaHei UI")
                 except tk.TclError:
                     pass

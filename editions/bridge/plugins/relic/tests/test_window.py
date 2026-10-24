@@ -19,6 +19,18 @@ CLAUDE_CHAT = "claude-chat:desktop"
 
 
 class DiscussionRoom(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.tk_root = tk.Tk()
+            cls.tk_root.withdraw()
+        except tk.TclError as error:
+            raise unittest.SkipTest(str(error))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tk_root.destroy()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.saved = dict(os.environ)
@@ -31,7 +43,9 @@ class DiscussionRoom(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         try:
-            self.app = window.App(store=self.store)
+            top = tk.Toplevel(self.tk_root)
+            with mock.patch.object(window.tk, "Tk", return_value=top):
+                self.app = window.App(store=self.store)
         except tk.TclError as error:  # no display
             self.skipTest(str(error))
         self.app.root.withdraw()
@@ -39,6 +53,8 @@ class DiscussionRoom(unittest.TestCase):
 
     def tearDown(self):
         try:
+            for callback in self.app.root.tk.call("after", "info"):
+                self.app.root.after_cancel(callback)
             self.app.root.destroy()
         except (AttributeError, tk.TclError):
             pass
