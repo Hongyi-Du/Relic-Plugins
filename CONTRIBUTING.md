@@ -4,6 +4,10 @@ Open an issue with edition, release, OS, Python and host versions plus minimal r
 
 报告问题时注明版本、系统、Python/宿主版本，提供最小脱敏复现。只改拥有相关行为的版本；独立 Codex 与 Bridge 数据库是不同实现。保留真实身份校验、投递/确认区分，以及不确定投递不能盲目重试的语义。
 
+Run these commands from a clone of the full repository. The six installation archives include only the scripts needed to install and use their edition.
+
+以下命令在完整源码仓库的根目录执行；六个安装包只包含安装和使用各自版本所需的脚本。
+
 ```bash
 python scripts/check.py
 python scripts/package.py --output dist
