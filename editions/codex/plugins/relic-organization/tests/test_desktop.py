@@ -1,4 +1,5 @@
 import json
+import faulthandler
 from pathlib import Path
 import sys
 import tempfile
@@ -81,6 +82,16 @@ class CatalogTests(unittest.TestCase):
 
 
 class NativeWindowTests(unittest.TestCase):
+    def setUp(self):
+        # An unexpected modal dialog must fail the fixture, not wait for a human on CI.
+        for name in ("showinfo", "showerror"):
+            dialog = patch("relic_org.desktop.messagebox." + name,
+                           side_effect=lambda *args, **kwargs: self.fail(f"Unexpected dialog: {args}"))
+            dialog.start()
+            self.addCleanup(dialog.stop)
+        faulthandler.dump_traceback_later(30)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
+
     def test_native_mode_dispatches_only_to_selected_root_and_waits_for_enrollment(self):
         class Bridge:
             inventory_info = {"catalog": "complete_local", "transport_available": True}

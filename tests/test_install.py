@@ -23,7 +23,7 @@ class InstallerTests(unittest.TestCase):
                 if edition in ('codex', 'bridge'):
                     data = installer.read_json(plugin / ('.mcp.json' if edition == 'codex' else 'codex.mcp.json'))
                     server = next(iter(data['mcpServers'].values()))
-                    self.assertEqual(server['command'], sys.executable)
+                    self.assertEqual(Path(server['command']).resolve(), Path(sys.executable).resolve())
                     self.assertEqual(server['args'][2], str(plugin / 'server.py'))
                 env = dict(__import__('os').environ, RELIC_HOME=str(Path(temp)/'bridge-data'),
                            RELIC_ORG_HOME=str(Path(temp)/'codex-data'),
@@ -42,7 +42,7 @@ class InstallerTests(unittest.TestCase):
                     for group in groups:
                         for hook in group['hooks']:
                             self.assertNotIn('args', hook)
-                            self.assertIn(Path(sys.executable).as_posix(), hook['command'])
+                            self.assertIn(Path(sys.executable).resolve().as_posix(), hook['command'])
                 hook_env = dict(env, PLUGIN_ROOT=str(plugin), CLAUDE_PLUGIN_ROOT=str(plugin))
                 event = json.dumps({'hook_event_name':'SessionStart','session_id':'release-fixture',
                                     'cwd':str(Path(temp))})
