@@ -45,6 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--test-id')
     args = parser.parse_args()
+    sys.path.insert(0, str(Path.cwd()))
     loader = unittest.TestLoader()
     discovered = list(cases(loader.discover('tests', pattern='test_*.py')))
     if args.test_id:
