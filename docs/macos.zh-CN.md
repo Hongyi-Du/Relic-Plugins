@@ -1,4 +1,6 @@
-# macOS 安装与内测范围
+# macOS 开发草稿 — 未发布
+
+**目前不提供 macOS 公开下载。**本次内测仅发布 Windows。macOS 代码与说明保留供后续真实 Mac 测试，CI 通过不能代替已登录宿主的桌面实机验收。
 
 [English](macos.en.md) · [完整使用指南](guide.zh-CN.md)
 
@@ -8,24 +10,11 @@
 
 安装并登录 Claude Code 和/或 Codex，确认同一个 Terminal 中 `claude --version` / `codex --version` 可用。macOS 安装器依赖 CLI 位于 PATH。可选 Bridge/Codex 面板需要 Tk，用 `python3 -c 'import tkinter'` 检查；缺失时选用包含 Tk 的 Python 发行版。核心 MCP 工具不依赖面板。
 
-## 安装下载包
+## 发布状态
 
-从 [Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1) 下载对应的 `relic-{claude,codex,bridge}-macos-v0.1.0-beta.1.tar.gz`。Bridge 示例：
+待真实 Mac 验证完成后，再定稿安装说明并提供下载包。当前阶段不提供公开安装入口。
 
-```bash
-mkdir -p "$HOME/Applications/Relic"
-tar -xzf relic-bridge-macos-v0.1.0-beta.1.tar.gz -C "$HOME/Applications/Relic"
-cd "$HOME/Applications/Relic/relic-bridge-macos-v0.1.0-beta.1"
-bash install.command
-```
-
-用 `shasum -a 256 <压缩包>` 可与 `SHA256SUMS.txt` 比较下载内容。安装器会让 MCP 与 hooks 使用当前真实 `python3` 路径，不要求额外建立 `python` 别名。Bridge 只安装到一个宿主时使用 `bash install.command --host claude` 或 `--host codex`。
-
-源码仓库运行 `bash install.command --edition bridge`。在 Terminal 中通过 `bash` 执行无需给下载的启动文件添加可执行权限。这是源码发行包，不是经过签名/公证的 macOS App 或 `.dmg` 安装镜像。
-
-重开宿主或开始新会话，审阅 hook 信任，并确保同一宿主只启用一个 Relic 版本。保留解压目录。安装 CLI 或修改环境后，从 Finder 启动的桌面应用可能需要重新启动。
-
-## macOS 内测版包含什么
+## 当前开发状态（未发布）
 
 | 功能 | 可用范围 |
 | --- | --- |
@@ -40,7 +29,7 @@ bash install.command
 
 本版不声称 Windows/macOS 桌面功能完全一致。自动测试检验可移植代码和受控测试替身，不等于测试过已登录的商业桌面应用。准确运行记录见 [验证记录](validation.md)。
 
-## 第一次跨宿主试用
+## 后续 Mac 实机验证
 
 在两个 Terminal 中使用相同的 Bridge 数据目录，例如先分别执行 `export RELIC_HOME="$HOME/.relic"`，再启动宿主。Claude Code 创建 Relic 组织并记下 ID；Codex 用另一个成员名加入相同 ID。互发一条短消息并调用 `inbox`，从两边检查文档与任务后再开始更大任务。
 

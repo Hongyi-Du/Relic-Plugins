@@ -1,5 +1,7 @@
 # Relic 完整使用指南
 
+**当前公开版本仅支持 Windows；macOS 尚未发布，等待真实 Mac 测试。**
+
 [English](guide.en.md) · [Windows](windows.zh-CN.md) · [macOS](macos.zh-CN.md) · [工具参考](reference.zh-CN.md)
 
 ## 1. 选择版本
@@ -12,7 +14,7 @@
 
 ## 2. 安装与检查
 
-按 [Windows](windows.zh-CN.md) 或 [macOS](macos.zh-CN.md) 指南安装。安装器会在使用者电脑上解析 Python 和服务器路径，让 hooks 使用同一个解释器，再调用宿主官方插件 CLI。安装器不会替你登录、购买额度、批准 hooks、停用已有插件或修改组织数据。
+按 [Windows 安装指南](windows.zh-CN.md) 安装；[macOS 文档](macos.zh-CN.md) 暂为未发布的开发草稿。安装器会在使用者电脑上解析 Python 和服务器路径，让 hooks 使用同一个解释器，再调用宿主官方插件 CLI。安装器不会替你登录、购买额度、批准 hooks、停用已有插件或修改组织数据。
 
 解压目录需要长期保留：Codex MCP 配置会引用其中的服务器文件。移动后要从新位置重新配置和安装。`--configure-only` 只准备文件，不向宿主安装。Bridge 使用 `--host codex` 或 `--host claude` 可只安装一边；另一边随后安装相同的 Bridge 版本即可。
 

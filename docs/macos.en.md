@@ -1,4 +1,6 @@
-# macOS installation and beta scope
+# macOS development draft — not released
+
+**No macOS download is currently published.** The current public beta is Windows-only. macOS development and documentation are retained for future testing on a real Mac; CI passes do not replace signed-in desktop acceptance.
 
 [中文](macos.zh-CN.md) · [User guide](guide.en.md)
 
@@ -8,24 +10,11 @@ Use Python **3.11+** from a maintained Python distribution, with `python3` avail
 
 Install and sign in to Claude Code and/or Codex. Ensure `claude --version` / `codex --version` works in the same Terminal. The macOS installer relies on the CLI being on PATH. For the optional Bridge/Codex panel, check `python3 -c 'import tkinter'`; if unavailable, use a Python distribution with Tk support. Core MCP tools do not need a panel.
 
-## Install the archive
+## Release status
 
-Download the selected `relic-{claude,codex,bridge}-macos-v0.1.0-beta.1.tar.gz` from the [release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1). For Bridge:
+Installation instructions and downloadable packages will be finalized after real Mac validation. No public installation is requested at this stage.
 
-```bash
-mkdir -p "$HOME/Applications/Relic"
-tar -xzf relic-bridge-macos-v0.1.0-beta.1.tar.gz -C "$HOME/Applications/Relic"
-cd "$HOME/Applications/Relic/relic-bridge-macos-v0.1.0-beta.1"
-bash install.command
-```
-
-Use `shasum -a 256 <archive>` and compare with `SHA256SUMS.txt` to verify the download. The installer uses the actual `python3` executable for both MCP and hooks; a separate `python` alias is unnecessary. Bridge can target only one installed host with `bash install.command --host claude` or `--host codex`.
-
-From a source checkout: `bash install.command --edition bridge`. Running `bash install.command` in Terminal does not require executable permissions on the downloaded launcher. The packages are source distributions, not signed/notarized macOS applications or `.dmg` installers.
-
-Restart the host or open a new session, review hook trust, and enable only one Relic edition per host. Keep the extracted folder in place. Restarting an app opened from Finder may be needed after installing CLI tools or changing your environment.
-
-## What this macOS beta provides
+## Development state (unreleased)
 
 | Feature | Availability |
 | --- | --- |
@@ -40,7 +29,7 @@ Restart the host or open a new session, review hook trust, and enable only one R
 
 There is no claim of Windows/macOS desktop feature parity. Automated tests verify portable code and fixtures, not a signed-in commercial desktop app. The exact run evidence is in [validation](validation.md).
 
-## First cross-host trial
+## Future real-Mac validation
 
 Use two Terminal sessions with the same Bridge data directory, for example export `RELIC_HOME="$HOME/.relic"` in both before starting the hosts. In Claude Code create a Relic organization and record its ID. In Codex join that ID under a different member name. Exchange a short message and call `inbox`; verify documents and tasks from both sides before starting a larger task.
 

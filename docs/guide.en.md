@@ -1,5 +1,7 @@
 # Relic user guide
 
+**Current public release: Windows only. macOS is not released and awaits real Mac testing.**
+
 [中文](guide.zh-CN.md) · [Windows](windows.en.md) · [macOS](macos.en.md) · [Reference](reference.en.md)
 
 ## 1. Choose the edition
@@ -12,7 +14,7 @@ Install one edition per host. Claude and Bridge both export a plugin named `reli
 
 ## 2. Install and check
 
-Use the [Windows](windows.en.md) or [macOS](macos.en.md) instructions. The installer resolves Python and server paths on the receiving machine, configures shell hooks with that same interpreter, then calls the official host plugin CLIs. It does not sign you in, purchase access, approve hooks, disable existing plugins, or modify organization data.
+Use the [Windows installation guide](windows.en.md). The [macOS document](macos.en.md) is an unreleased development draft. The installer resolves Python and server paths on the receiving machine, configures shell hooks with that same interpreter, then calls the official host plugin CLIs. It does not sign you in, purchase access, approve hooks, disable existing plugins, or modify organization data.
 
 Keep the extracted folder in place: Codex MCP configuration references the server there. If you move it, configure and install again from the new location. `--configure-only` prepares files without installing into either host. `--host codex` / `--host claude` installs Bridge into one host; use the same Bridge edition for the other host later.
 

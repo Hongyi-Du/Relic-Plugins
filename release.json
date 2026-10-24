@@ -15,5 +15,9 @@
       "version": "0.12.0-beta.1",
       "upstream_version": "0.12.0"
     }
-  }
+  },
+  "published_platforms": [
+    "windows"
+  ],
+  "macos_status": "unreleased_pending_real_mac_validation"
 }

@@ -2,6 +2,10 @@
 
 Release: **v0.1.0-beta.1**, prepared 2026-10-24.
 
+**Publication scope: Windows only.** macOS CI evidence below is retained as development history; macOS is not released and requires real Mac testing before publication.
+
+**发布范围：仅 Windows。**下方 macOS CI 结果保留为开发验证历史；macOS 尚未发布，需完成真实 Mac 测试后再发布。
+
 | Check / 检查 | Result / 结果 |
 | --- | --- |
 | Claude unit fixtures | 20 passed on Windows, Python 3.14 |

@@ -5,7 +5,7 @@
 First public beta distribution of the current internal Relic plugin family.
 
 - Claude 0.1.0-beta.1, Codex / GPT 0.6.0-beta.1, Bridge 0.12.0-beta.1.
-- Separate Windows ZIP and macOS tar.gz packages for each edition.
+- Windows ZIP packages are published for all three editions. macOS downloads are withdrawn pending development completion and real Mac validation.
 - Portable installer resolves Python/MCP/hook paths on the target computer; Claude MCP wiring and command-hook packaging are normalized.
 - Bilingual user guides, OS-specific installation, tool schemas, data guidance and troubleshooting.
 - Isolated tests avoid borrowing the invoking Codex session's identity or live organization store.
@@ -16,7 +16,7 @@ First public beta distribution of the current internal Relic plugin family.
 首次公开发布当前内部试用的 Relic 三版本插件：
 
 - Claude 0.1.0-beta.1、Codex / GPT 0.6.0-beta.1、Bridge 0.12.0-beta.1。
-- 每个版本提供 Windows ZIP 与 macOS tar.gz。
+- 三个版本仅公开发布 Windows ZIP；macOS 下载已撤下，待开发完善与真实 Mac 验证后再发布。
 - 安装器解析使用者电脑上的 Python/MCP/hook 路径，补全 Claude MCP 注册并规范命令 hook。
 - 提供完整中英文指南、两系统安装文档、工具 schema、数据说明和排错。
 - 测试与当前 Codex 会话身份、真实组织数据库隔离。
