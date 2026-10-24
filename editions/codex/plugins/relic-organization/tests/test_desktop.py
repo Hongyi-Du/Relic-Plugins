@@ -82,16 +82,6 @@ class CatalogTests(unittest.TestCase):
 
 
 class NativeWindowTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Keep one Tcl/Tk interpreter; repeated Tk() roots can stall Cocoa's event queue.
-        cls.tk_root = tk.Tk()
-        cls.tk_root.withdraw()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.tk_root.destroy()
-
     def setUp(self):
         # An unexpected modal dialog must fail the fixture, not wait for a human on CI.
         for name in ("showinfo", "showerror"):
@@ -115,7 +105,7 @@ class NativeWindowTests(unittest.TestCase):
             def close(self):
                 pass
         with tempfile.TemporaryDirectory() as tmp:
-            root = tk.Toplevel(self.tk_root)
+            root = tk.Tk()
             root.withdraw()
             bridge = Bridge()
             service = Service(Store(Path(tmp)/"test.db"), bridge, "current")
@@ -175,7 +165,7 @@ class NativeWindowTests(unittest.TestCase):
             def close(self):
                 pass
         with tempfile.TemporaryDirectory() as tmp:
-            root = tk.Toplevel(self.tk_root)
+            root = tk.Tk()
             root.withdraw()
             app = OrganizationWindow(root, Service(Store(Path(tmp)/"test.db"), Bridge(), "test"), maximize=False)
             try:

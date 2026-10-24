@@ -32,7 +32,7 @@ for name, folder in roots.items():
         timed_out = False
         with log_path.open('w', encoding='utf-8') as log:
             try:
-                proc = subprocess.run([sys.executable,'-B','-X','utf8','-m','unittest','discover','-v','-s','tests','-p','test_*.py'],
+                proc = subprocess.run([sys.executable,'-B','-X','utf8',str(ROOT/'scripts/run_fixture_suite.py')],
                                       cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
                 exit_code = proc.returncode
             except subprocess.TimeoutExpired:
