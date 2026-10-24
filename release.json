@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0-beta.1",
+  "date": "2026-10-24",
+  "repository": "https://github.com/Hongyi-Du/Relic-Plugins",
+  "editions": {
+    "claude": {
+      "version": "0.1.0-beta.1",
+      "upstream_version": "0.1.0"
+    },
+    "codex": {
+      "version": "0.6.0-beta.1",
+      "upstream_version": "0.6.0"
+    },
+    "bridge": {
+      "version": "0.12.0-beta.1",
+      "upstream_version": "0.12.0"
+    }
+  }
+}

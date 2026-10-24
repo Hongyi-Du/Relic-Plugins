@@ -1,0 +1,13 @@
+{
+  "name": "relic-claude",
+  "owner": {
+    "name": "Hongyi Du"
+  },
+  "plugins": [
+    {
+      "name": "relic",
+      "source": "./plugins/relic",
+      "description": "Relic Claude public beta"
+    }
+  ]
+}

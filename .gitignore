@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.sqlite3*
+*.db
+.env
+.env.*
+.relic-seat.json
+dist/
+test-results/
+.venv/
+.DS_Store
+.native-fixtures/

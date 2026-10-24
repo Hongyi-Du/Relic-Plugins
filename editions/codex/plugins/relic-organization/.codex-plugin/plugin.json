@@ -1,0 +1,24 @@
+{
+  "name": "relic-organization",
+  "version": "0.6.0-beta.1",
+  "description": "Persistent Relic organizations using native SubAgents or desktop chats, with reflection, weak coordination protocols and strong executable protocols.",
+  "author": {
+    "name": "Hongyi Du"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Relic Organization",
+    "shortDescription": "原生 SubAgent 或桌面聊天上的可学习组织",
+    "longDescription": "在窗口或聊天中组建原生 SubAgent 或桌面组织。成员自行协商分工与接口，从 episode 和 reflection 形成弱协作协议或强可执行协议，记录协议的实际使用、修订和废止。保留各自 workspace，不使用 SDL。",
+    "category": "Productivity",
+    "brandColor": "#812b43",
+    "composerIcon": "./assets/icon.svg",
+    "defaultPrompt": [
+      "$relic-organization 打开独立组织窗口。",
+      "$relic-organization 查看当前组织、共享任务和 protocol。",
+      "$relic-organization 由当前聊天负责，创建两个新成员组成组织，协作完成我描述的任务。"
+    ]
+  }
+}

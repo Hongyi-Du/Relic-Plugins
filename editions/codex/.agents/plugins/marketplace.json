@@ -1,0 +1,20 @@
+{
+  "name": "relic-codex",
+  "interface": {
+    "displayName": "Relic Codex"
+  },
+  "plugins": [
+    {
+      "name": "relic-organization",
+      "source": {
+        "source": "local",
+        "path": "./plugins/relic-organization"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

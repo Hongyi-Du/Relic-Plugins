@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "relic_organization": {
+      "command": "python3",
+      "args": [
+        "-X",
+        "utf8",
+        "./server.py"
+      ],
+      "env_vars": [
+        "CODEX_APP_TOOLS_PIPE_PATH",
+        "CODEX_THREAD_ID",
+        "CODEX_MCP_NODE_PATH",
+        "CODEX_CLI_PATH",
+        "RELIC_ORG_HOME",
+        "RELIC_CODEX_APP_SERVER",
+        "USERPROFILE",
+        "CODEX_HOME",
+        "PATH"
+      ],
+      "startup_timeout_sec": 15,
+      "tool_timeout_sec": 180
+    }
+  }
+}
