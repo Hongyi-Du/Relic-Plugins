@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--edition', choices=('all','claude','codex','bridge','packaging'), default='all')
 parser.add_argument('--output', type=Path, default=ROOT/'test-results')
+parser.add_argument('--timeout', type=int, default=300, help='Maximum seconds per isolated suite')
 args = parser.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
 roots = {'packaging':ROOT, 'claude':ROOT/'editions/claude/plugins/relic',
@@ -26,14 +27,21 @@ for name, folder in roots.items():
                    CODEX_HOME=str(Path(temp)/'codex'), PYTHONDONTWRITEBYTECODE='1',
                    TEMP=temp, TMP=temp, TMPDIR=temp)
         start = time.monotonic()
-        proc = subprocess.run([sys.executable,'-B','-X','utf8','-m','unittest','discover','-s','tests','-p','test_*.py'],
-                              cwd=folder, env=env, text=True, encoding='utf-8', errors='replace',
-                              capture_output=True, timeout=1200)
-        (args.output/f'{name}.log').write_text(proc.stdout+proc.stderr, encoding='utf-8')
-        result = {'edition':name, 'exit_code':proc.returncode, 'seconds':round(time.monotonic()-start,2)}
+        log_path = args.output/f'{name}.log'
+        print(f'Starting {name}; timeout={args.timeout}s; log={log_path}', flush=True)
+        timed_out = False
+        with log_path.open('w', encoding='utf-8') as log:
+            try:
+                proc = subprocess.run([sys.executable,'-B','-X','utf8','-m','unittest','discover','-v','-s','tests','-p','test_*.py'],
+                                      cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
+                exit_code = proc.returncode
+            except subprocess.TimeoutExpired:
+                timed_out, exit_code = True, 124
+        result = {'edition':name, 'exit_code':exit_code, 'timed_out':timed_out, 'seconds':round(time.monotonic()-start,2)}
         results.append(result)
         print(json.dumps(result), flush=True)
-        if proc.returncode:
-            print((proc.stdout+proc.stderr)[-9000:], flush=True)
+        (args.output/'results.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
+        if exit_code:
+            print(log_path.read_text(encoding='utf-8', errors='replace')[-12000:], flush=True)
 (args.output/'results.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
 raise SystemExit(any(r['exit_code'] for r in results))
