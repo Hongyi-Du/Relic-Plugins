@@ -17,10 +17,10 @@ Release: **v0.3.0-beta.1**, prepared 2026-10-27. One product, Relic (plugin 0.14
 | Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
 | Real-machine App run: an App server on a temporary `RELIC_HOME` started one Claude Code and one Codex member through the installed ACP adapters | Both called the Relic status tool and were answered as their own seats. The Claude Code session had one set of Relic tools (11, from the App's plugin folder; the installed copy was switched off). The Codex session used Codex's own Relic plugin; the App added no server. / 两个成员调用 Relic status 都以自己的席位作答；Claude Code 会话只有一套 Relic 工具（11 个，来自 App 的插件目录，已装的那份在会话里关掉）；Codex 会话用 Codex 自己的 Relic 插件，App 没有另加服务。 |
 | App page in headless Edge | The add-member dialog switches between its three ways, a member card shows its seat buttons, the input box is empty after sending; no console errors. / 添加成员对话框三种方式能切换，名片显示席位按钮，发送后输入框为空；控制台无报错。 |
-| Windows CI, Python 3.11 | to be recorded / 待记录 |
-| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+| Windows CI, Python 3.11 | 220 passed: packaging 4 + relic 216 / 220 个通过：packaging 4 + relic 216 |
+| macOS arm64 CI, Python 3.11 | 218 passed, 2 skipped: packaging 4 + relic 214; the two skipped fixtures are Windows-only (Codex's sandbox override, finding the installed Edge app) / 218 个通过、2 个跳过：packaging 4 + relic 214；跳过的两个只在 Windows 上有意义（Codex 的沙箱覆盖、查找已安装的 Edge 应用） |
 
-CI: to be recorded / 待记录.
+CI: both platform jobs passed in [run 40553955238](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40553955238) on source commit `ddf07be188f6ec1e403a20f8e08cced01223e270`. The published package is built from the next commit, which only records this result; the run's artifacts keep the per-suite logs. / 两个平台任务都在 [CI 40553955238](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40553955238) 通过，受测源码提交为 `ddf07be188f6ec1e403a20f8e08cced01223e270`；发布的下载包由下一个提交构建，该提交只记录这次结果；CI 附件保存逐套日志。
 
 The release checks make no model calls. macOS results remain development evidence only; macOS is not released.
 
