@@ -1,5 +1,27 @@
 # Validation / 验证记录
 
+## v0.2.0-beta.1
+
+Release: **v0.2.0-beta.1**, prepared 2026-10-27. Relic Bridge 0.13.0-beta.1 adds the Relic App; Claude and Codex are unchanged.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Claude unit fixtures | 20 passed on Windows, Python 3.14 |
+| Codex unit fixtures | 307 passed on Windows, Python 3.14 |
+| Bridge isolated unit fixtures | 210 passed on Windows, Python 3.14 (156 in v0.1.0-beta.1; the new fixtures cover the Relic App, threads, task reports and concurrent MCP calls) |
+| Installer, hook launch, MCP initialization and six extracted archives | 4 passed; Bridge archives contain `scripts/open_app.py` and the App, the others do not |
+| Relic App end to end, headless Microsoft Edge | 47 checks passed, no page errors: sending, mentions, quotes, threads, private chats, renaming, workspace and file preview, task reports, menus, shortcuts, back/forward, settings, installed-app mode, 人话 and 解读 from kept results |
+| Windows CI, Python 3.11 | 541 passed: packaging 4 + claude 20 + codex 307 + bridge 210 |
+| macOS arm64 CI, Python 3.11 | 541 passed: packaging 4 + claude 20 + codex 307 + bridge 210 |
+
+CI: [run 40458319380](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40458319380) on source commit `7127e06477e5cef368d9bd08d0ad25fd7ac0b1c2`.
+
+The end-to-end run used a copy of a real organization store with auto-wake off, plus an example organization whose members have no sessions; no live member was messaged and no session was renamed. Separately, 人话 and 解读 were tried once on a real organization's messages, which called the maintainer's Claude Code (`claude -p`, Sonnet). The release checks themselves make no model calls. macOS results remain development evidence only; macOS is not released.
+
+端到端测试使用真实组织存储的一份副本（自动唤醒关闭），外加一个成员都没有会话的示例组织；没有给真实成员发消息，也没有改任何会话的名字。另外在一个真实组织的消息上试过一次「人话」和「解读」，调用了维护者的 Claude Code（`claude -p`，Sonnet）。发布检查本身不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
+## v0.1.0-beta.1
+
 Release: **v0.1.0-beta.1**, prepared 2026-10-24.
 
 **Publication scope: Windows only.** macOS CI evidence below is retained as development history; macOS is not released and requires real Mac testing before publication.
