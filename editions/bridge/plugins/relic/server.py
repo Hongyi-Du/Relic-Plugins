@@ -6,11 +6,20 @@ tells the client that its tool list may have changed (notifications/tools/list_c
 if a module fails to load, the new tools are malformed or the new store cannot open, every module is put back as it
 was and the server goes on with the code it had. A failed call is reported to the caller as an error result; nothing
 ends the server.
+
+Calls are answered one at a time, in the order they arrive, except an inbox call that waits for a message. A lead and
+its relic:member subagents share this one server, so a member waiting in its inbox must not hold up the others: the
+wait runs on a thread of its own while the server goes on answering everyone else, including the member whose message
+ends the wait. relic_core code only runs under the lock CODE, which a reload takes too, so modules never change under
+a running call. A waiting call that the client cancels (notifications/cancelled), or that is still waiting when the
+client goes away (stdin closes), stops without reading anything: its messages stay unread for the member's next call.
 """
 import importlib
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,6 +31,10 @@ from relic_core.store import Store  # noqa: E402
 MODULES = ("relic_core", "relic_core.store", "relic_core.context", "relic_core.trajectory", "relic_core.sessions",
            "relic_core.runner", "relic_core.desktop", "relic_core.wake", "relic_core.api")
 
+CODE = threading.RLock()  # relic_core runs under it and a reload takes it, so modules never change under a call
+OUT = threading.Lock()  # one JSON-RPC message per line, whichever thread writes it
+POLL = 2.0  # seconds between two looks into the inbox of a waiting call (as often as relic_core.api.inbox looks)
+
 
 class Plugin:
     """relic_core as loaded by this process, reloaded when the files on disk change."""
@@ -32,7 +45,12 @@ class Plugin:
         self.store = Store()
 
     def fresh(self):
-        """Reload relic_core if its files changed since they were loaded; True when the tool list changed."""
+        """Reload relic_core if its files changed since they were loaded; True when the tool list changed. Holds CODE
+        throughout, so no call (a waiting inbox on its own thread included) runs relic_core code meanwhile."""
+        with CODE:
+            return self._reload()
+
+    def _reload(self):
         try:
             stamp = sys.modules["relic_core"].code_stamp()
         except Exception:  # the files cannot be looked at right now: keep what is loaded
@@ -87,12 +105,96 @@ def instructions():
 
 
 def send(message):
-    print(json.dumps(message, ensure_ascii=False), flush=True)
+    line = json.dumps(message, ensure_ascii=False)
+    with OUT:
+        print(line, flush=True)
+
+
+def ok_result(data):
+    text = data.get("context") or data.get("text") if isinstance(data, dict) else None
+    body = json.dumps(data, ensure_ascii=False, indent=1)
+    return {"content": [{"type": "text", "text": text + "\n\n" + body if text else body}]}
+
+
+def error_result(error):
+    known = type(error).__name__ in ("OrgError", "KeyError", "TypeError")
+    text = ("Relic: %s" % error) if known else ("Relic internal error (%s): %s" % (type(error).__name__, error))
+    return {"isError": True, "content": [{"type": "text", "text": text}]}
+
+
+def run_call(plugin, params):
+    """A tools/call answered on the spot."""
+    with CODE:
+        try:
+            return ok_result(plugin.api.call(plugin.store, params.get("name"), dict(params.get("arguments") or {}),
+                                             params.get("_meta")))
+        except Exception as error:
+            return error_result(error)
+
+
+def inbox_wait(plugin, params):
+    """Seconds a tools/call will wait in the inbox for a message; 0 for a call answered on the spot."""
+    if params.get("name") != "inbox":
+        return 0
+    try:
+        wait = int((params.get("arguments") or {}).get("wait") or 0)
+    except (TypeError, ValueError):
+        return 0  # answered on the spot, with the error the tool gives for it
+    with CODE:
+        limit = plugin.api.max_wait()
+    return max(0, min(wait, limit))
+
+
+class Waiter(threading.Thread):
+    """An inbox call that waits for a message, on a thread of its own so the server keeps answering everyone else."""
+
+    def __init__(self, plugin, rid, params, seconds, done):
+        super().__init__(name="relic-inbox-%s" % rid, daemon=True)
+        self.plugin, self.rid, self.params, self.seconds, self.done = plugin, rid, params, seconds, done
+        self.stop = threading.Event()  # set when the client cancels the call or goes away
+
+    def run(self):
+        try:
+            result = self.wait()
+            if result is not None:
+                send({"jsonrpc": "2.0", "id": self.rid, "result": result})
+        finally:
+            self.done(self.rid)
+
+    def wait(self):
+        """The call's result, or None when nobody will read it (then nothing was read or marked read)."""
+        args = dict(self.params.get("arguments") or {})
+        try:
+            with CODE:
+                actor = self.plugin.api.actor_of(args, self.params.get("_meta"))
+                self.plugin.store.require(actor)  # outside an organization the error comes at once, as before
+            deadline = time.monotonic() + self.seconds
+            while True:
+                with CODE:
+                    if self.stop.is_set():
+                        return None
+                    if self.plugin.store.unread(actor, mark=False, limit=1):
+                        break
+                left = deadline - time.monotonic()
+                if left <= 0 or self.stop.wait(min(POLL, left)):
+                    break
+            with CODE:
+                if self.stop.is_set():
+                    return None
+                return ok_result(self.plugin.api.inbox(self.plugin.store, actor))  # reads, marks read
+        except Exception as error:
+            return error_result(error)
 
 
 def main():
     plugin = Plugin()
     desktop.remember_env()  # inside a Codex desktop chat: the app's tool pipe, for waking chats the app has open
+    waiting, guard = {}, threading.Lock()  # request id -> Waiter still waiting
+
+    def finished(rid):
+        with guard:
+            waiting.pop(rid, None)
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -101,9 +203,16 @@ def main():
             req = json.loads(line)
         except ValueError:
             continue
-        if "id" not in req:
-            continue  # notifications
+        if not isinstance(req, dict):
+            continue
         method, params = req.get("method"), req.get("params") or {}
+        if "id" not in req:  # notifications
+            if method == "notifications/cancelled":
+                with guard:
+                    waiter = waiting.get(params.get("requestId"))
+                if waiter:
+                    waiter.stop.set()
+            continue
         if method == "initialize":
             result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
                       "capabilities": {"tools": {"listChanged": True}},
@@ -111,27 +220,32 @@ def main():
                       "instructions": instructions()}
         elif method == "tools/list":
             plugin.fresh()
-            result = {"tools": plugin.api.TOOLS}
+            with CODE:
+                result = {"tools": plugin.api.TOOLS}
         elif method == "ping":
             result = {}
         elif method == "tools/call":
             if plugin.fresh():
                 send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
-            name = params.get("name")
-            args = dict(params.get("arguments") or {})
-            try:
-                data = plugin.api.call(plugin.store, name, args, params.get("_meta"))
-                text = data.get("context") or data.get("text") if isinstance(data, dict) else None
-                body = json.dumps(data, ensure_ascii=False, indent=1)
-                result = {"content": [{"type": "text", "text": text + "\n\n" + body if text else body}]}
-            except Exception as error:
-                known = type(error).__name__ in ("OrgError", "KeyError", "TypeError")
-                text = ("Relic: %s" % error) if known else ("Relic internal error (%s): %s" % (type(error).__name__, error))
-                result = {"isError": True, "content": [{"type": "text", "text": text}]}
+            seconds = inbox_wait(plugin, params)
+            if seconds:
+                waiter = Waiter(plugin, req["id"], params, seconds, finished)
+                with guard:
+                    waiting[req["id"]] = waiter
+                waiter.start()
+                continue
+            result = run_call(plugin, params)
         else:
             send({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32601, "message": "Method not found"}})
             continue
         send({"jsonrpc": "2.0", "id": req["id"], "result": result})
+    # stdin closed: the client is gone, so nobody reads what the calls still waiting would answer
+    with guard:
+        pending = list(waiting.values())
+    for waiter in pending:
+        waiter.stop.set()
+    for waiter in pending:
+        waiter.join(timeout=10)
 
 
 if __name__ == "__main__":

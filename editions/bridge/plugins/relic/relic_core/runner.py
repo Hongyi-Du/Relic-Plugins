@@ -237,6 +237,8 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
         raise RuntimeError("%s is still working on its current turn." % member)
     seat = Store().get(org_id)["members"][member]
     config = seat.get("config") or {}
+    if config.get("surface") == "acp":
+        return app_turn(org_id, member, prompt, wake_from, wake_hop)
     if config.get("harness") == "claude-code" and config.get("surface") == "gui":
         if new_session or not seat.get("carrier") or seat.get("harness") != "claude-code" or "/" in seat["carrier"]:
             raise RuntimeError("Claude GUI turns require an existing main Desktop seat; GUI bootstrap is unsupported.")
@@ -276,6 +278,24 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     if state.get("status") == "running" and not state.get("pid"):
         state["pid"] = proc.pid  # the runner records itself too; this covers the moment before it starts
         write_state(org_id, member, state)
+    return True
+
+
+def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
+    """A seat the Relic App runs through ACP (config surface "acp"): the App hosts its session, so it takes the turn.
+    Raises when the App is not open; the wake-up is then retried with back-off like any failed start."""
+    import urllib.request
+    try:
+        info = json.loads((data_home() / "app.json").read_text(encoding="utf-8"))
+        request = urllib.request.Request(
+            "http://127.0.0.1:%d/api/org/%s/turn" % (int(info["port"]), org_id),
+            data=json.dumps({"member": member, "prompt": prompt, "wake_from": list(wake_from or []),
+                             "wake_hop": int(wake_hop or 0)}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-Relic-Token": info["token"]}, method="POST")
+        with urllib.request.urlopen(request, timeout=10) as reply:
+            json.loads(reply.read().decode("utf-8"))
+    except Exception as error:
+        raise RuntimeError("%s runs inside the Relic App, which is not open (%s)." % (member, error)) from None
     return True
 
 

@@ -40,6 +40,9 @@ class PackageTests(unittest.TestCase):
                     self.assertEqual(result.returncode,0,result.stderr)
                     self.assertIn('No plugin was installed',result.stdout)
                     self.assertEqual(json.loads((extracted/'edition.json').read_text())['edition'],item['edition'])
+                    bridge=item['edition']=='bridge'
+                    self.assertEqual((extracted/'scripts/open_app.py').is_file(),bridge)
+                    self.assertEqual((extracted/'plugins/relic/app/static/index.html').is_file(),bridge)
                     self.assertNotIn(b'\r', (extracted/'install.command').read_bytes())
 
 

@@ -26,7 +26,7 @@ def source_files(edition):
             files[path.relative_to(ROOT).as_posix()] = path.read_bytes()
     for name in SHARED:
         files[name] = (ROOT/name).read_bytes()
-    for name in SCRIPTS:
+    for name in SCRIPTS + (('open_app.py',) if edition == 'bridge' else ()):
         files['scripts/'+name] = (ROOT/'scripts'/name).read_bytes()
     files['install.ps1'] = (ROOT/'install.ps1').read_bytes()
     files['install.command'] = (ROOT/'install.command').read_bytes()
@@ -39,6 +39,8 @@ def source_files(edition):
         'Review and trust hooks in the host. Enable one Relic edition per host.\n\n'
         '需要 Python 3.11+ 与已经登录的宿主 CLI。安装后保留本目录，在宿主审阅并信任 hooks。'
         '同一宿主只启用一个 Relic 版本。\n\n'
+        'Bridge includes the Relic App, a desktop chat for organizations: `python -X utf8 scripts/open_app.py`. '
+        'Bridge 附带组织桌面聊天应用 Relic App：`python -X utf8 scripts/open_app.py`。\n\n'
         'Bridge macOS desktop auto-wake and ChatGPT relay are unavailable; use CLI peers or inbox. '
         'macOS Bridge 暂不支持桌面自动唤醒与 ChatGPT 转发，请使用 CLI 同伴或 inbox。\n\n'
         '[Windows EN](docs/windows.en.md) · [Windows 中文](docs/windows.zh-CN.md) · '
@@ -64,6 +66,7 @@ def validate(files):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,default=ROOT/'dist')
+    parser.add_argument('--platform',choices=('all','windows','macos'),default='all',help='Which packages to build')
     args=parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=True)
     version=json.loads((ROOT/'release.json').read_text())['version']
@@ -71,7 +74,7 @@ def main():
     for edition in ('claude','codex','bridge'):
         files=source_files(edition)
         validate(files)
-        for system in ('windows','macos'):
+        for system in [s for s in ('windows','macos') if args.platform in ('all',s)]:
             prefix=f'relic-{edition}-{system}-v{version}'
             path=args.output/(prefix+('.zip' if system=='windows' else '.tar.gz'))
             if system=='windows':

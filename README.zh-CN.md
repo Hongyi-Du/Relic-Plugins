@@ -1,22 +1,22 @@
 # Relic 插件 · 公开内测版
 
-[English](README.md) · [项目网站](https://hongyidu.ai/relic/zh/plugins) · [下载内测版](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1)
+[English](README.md) · [项目网站](https://hongyidu.ai/relic/zh/plugins) · [下载内测版](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.2.0-beta.1)
 
 **让 Claude Code 与 Codex 组成能持续工作的智能体组织。** Relic 提供共同消息、文档、任务、episode 和组织协议；成员换人后，组织仍能保留共同工作和已经采纳的规则。先给出任务，再让成员协商分工，把反复出现的协作问题转化为共同约定。
 
-这是正在内部试用的三个插件的首次公开发行，发布版本为 **v0.1.0-beta.1**，**本次只发布 Windows 下载包**；macOS 待开发完善并完成真实 Mac 测试后再发布。插件在本机运行，使用已有 Claude Code / Codex 登录；不附带模型额度或云端服务。
+这是第二个公开内测版 **v0.2.0-beta.1**：Relic Bridge 加入了给 Relic 组织用的桌面聊天应用 **Relic App**（见下文）。**本次仍只发布 Windows 下载包**；macOS 待开发完善并完成真实 Mac 测试后再发布。插件在本机运行，使用已有 Claude Code / Codex 登录；不附带模型额度或云端服务。
 
 | 版本 | 适用场景 | 组件版本 |
 | --- | --- | --- |
 | **Relic Claude** | Claude Code 独立会话、Claude Code 子智能体 | 0.1.0-beta.1 |
 | **Relic Codex / GPT** | Codex 原生子智能体、选定的 Codex 桌面聊天 | 0.6.0-beta.1 |
-| **Relic Bridge** | Claude Code 与 Codex 加入同一个本地组织 | 0.12.0-beta.1 |
+| **Relic Bridge** | Claude Code 与 Codex 加入同一个本地组织；Relic App | 0.13.0-beta.1 |
 
 Claude + GPT 混合组织请选择 **Bridge**。同一个宿主只启用一套 Relic。独立版本的数据格式不同，安装 Bridge 不会自动迁移已有组织。
 
 ## 安装
 
-准备 **Python 3.11+**、对应宿主的 CLI，以及已经登录的宿主账号；只有可选桌面面板需要 Tk。从 [Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1) 下载对应插件的 Windows ZIP，解压到准备长期保留的目录，然后执行：
+准备 **Python 3.11+**、对应宿主的 CLI，以及已经登录的宿主账号；只有可选桌面面板需要 Tk。从 [Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.2.0-beta.1) 下载对应插件的 Windows ZIP，解压到准备长期保留的目录，然后执行：
 
 ```powershell
 # Windows：在解压目录运行
@@ -33,6 +33,22 @@ python -X utf8 scripts/install.py --edition bridge
 重启宿主或开始新会话，再审阅并信任插件 hooks。Claude Code 中可以说“用 Relic 组成一个组织，完成这个任务”；安装 Bridge 的 Codex 中可以说“加入 Relic 组织 org_…，成员名 reviewer”。Codex 独立版使用 `$relic-organization`。
 
 **macOS 状态：未发布。**现有 CI 结果属于开发验证，不等于真实 Mac 桌面验收。完成 Mac 实机测试前不提供公开下载，现有说明保留为 [开发草稿](docs/macos.zh-CN.md)。
+
+## Relic App（Bridge）
+
+Bridge 0.13 带一个给 Relic 组织用的桌面聊天应用 **Relic App**（本内测版界面为中文）：
+
+- 群聊里是成员之间的全部消息，还有和每个成员的私聊、秘书；能读到会话记录的成员，私聊里显示它自己会话的全部对话，动作折叠；
+- **人话**把成员之间的话改写成不了解上下文也能看懂的话，**解读**用几句话讲清群里最近在干什么；
+- 话题与引用、成员工作区与文件预览、任务完成报告、语音输入，以及个人资料、外观、语言、通知、Harness 连接等设置。
+
+安装 Bridge 下载包后，这样打开：
+
+```powershell
+python -X utf8 scripts/open_app.py
+```
+
+它在本机 127.0.0.1 起一个服务，用 Microsoft Edge（或 Chrome）打开窗口。在窗口栏点「安装」，可以装成有自己窗口和标题栏的独立应用。「人话」「解读」和成员自动命名会用你已登录的 Claude Code 发起简短调用（`claude -p`），见 [隐私与数据](docs/privacy.zh-CN.md)。
 
 ## 完整文档
 

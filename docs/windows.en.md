@@ -11,7 +11,7 @@
 
 ## Download and install
 
-Download `relic-claude-windows-v0.1.0-beta.1.zip`, `relic-codex-windows-v0.1.0-beta.1.zip`, or `relic-bridge-windows-v0.1.0-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
+Download `relic-claude-windows-v0.2.0-beta.1.zip`, `relic-codex-windows-v0.2.0-beta.1.zip`, or `relic-bridge-windows-v0.2.0-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.2.0-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
 
 Extract into a permanent folder such as `C:\Tools\Relic\bridge`. Open PowerShell in the extracted folder:
 
@@ -29,9 +29,13 @@ Start a new host session and review hooks in plugin settings. If Codex reports i
 
 ```powershell
 python scripts/doctor.py
-# Bridge or Codex archive only:
+# Bridge archive only: the Relic App (desktop chat)
+python scripts/open_app.py
+# Bridge or Codex archive only: the Tk panel
 python scripts/open_panel.py
 ```
+
+The Relic App runs a local server on 127.0.0.1 and opens a Microsoft Edge (or Chrome) window. Click 安装 in its window bar to install it as an application; afterwards `open_app.py` opens the installed application. Its interface is in Chinese.
 
 In a source checkout those commands also need `--edition bridge` or `--edition codex`. For the Codex panel, invoke `org_panel` from a real desktop chat first to capture its current host context. Claude-only has no standalone panel; use `/relic:relic` or a natural-language request in Claude Code.
 

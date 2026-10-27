@@ -1,6 +1,6 @@
 {
   "name": "relic",
-  "version": "0.12.0-beta.1",
+  "version": "0.13.0-beta.1",
   "description": "Relic organizations across Codex and Claude Code: persistent members on either harness, shared work, organization-owned weak and strong protocols enforced on every member's tool calls.",
   "author": {
     "name": "Hongyi Du"

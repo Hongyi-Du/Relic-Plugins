@@ -12,8 +12,8 @@
 | `join` | `org_id`、`member`、可选 `role`；重新加入同名席位表示替换载体 |
 | `status` | 当前成员的组织、共同工作、协议与待办 |
 | `inbox` | 读取未读消息；Bridge 增加最长 600 秒的 `wait` |
-| `message` | `to: [成员名]` 或 `["all"]`、`body`、可选 `episode_id` |
-| `work` | `doc_read`、`doc_write`、`task`、`role`、`note` |
+| `message` | `to: [成员名]` 或 `["all"]`、`body`、可选 `episode_id`；Bridge 可用 `reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人） |
+| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`；Bridge 的 `task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字） |
 | `episode` | `open`、`close`、`reflect` |
 | `protocol` | `propose`、`vote`、`use`、`list`；用 `supersedes` / `retire_target` 修订/废止 |
 | `review` | `list`、`approve`；批准具体待审核的 `request_id` |

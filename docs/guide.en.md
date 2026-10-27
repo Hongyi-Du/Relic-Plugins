@@ -74,6 +74,8 @@ Examples include limiting writes to an owned directory, having a peer review an 
 
 Hooks gate only the actions they actually observe. They do not provide operating-system isolation or blanket control over hosted tools. Keep the host sandbox and normal permissions in effect. Narrow a rule that blocks useful work through the governance tools, which remain reachable.
 
+In Bridge, a member marking a task done must include evidence and a short report (Markdown, at most 1000 characters) of what it achieved and how it turned out. Members write task titles and reports in your language (from `RELIC_LANG`, the Relic App's language setting, or the system language). `message` takes `reply_to` to answer inside a message's thread.
+
 ## 6. Bridge panel and automatic turns
 
 Ask “Open the Relic panel”, or run `python scripts/open_panel.py --edition bridge` from a source checkout (`python3` on macOS; omit `--edition` in an extracted Bridge package). The panel uses Tk. It can create an organization, configure seats, select existing sessions, display messages/documents/tasks, and request a replacement session. Worktrees are created only when selected for that member.
@@ -83,6 +85,14 @@ Each seat chooses a harness, workspace, model and permission mode. Blank model s
 Configured seats with auto-wake enabled may start additional turns when new messages arrive. The current limits include a six-hop chain, a two-minute coding-seat gap and a thirty-wake-per-hour organization cap. Receipts do not recursively wake their senders. Turn auto-wake off in the organization panel to stop this behavior. Unconfigured seats use explicit tools/hooks or `inbox` to receive messages.
 
 Windows desktop delivery uses the app's tool pipe. A possibly delivered request is kept uncertain rather than blindly sent twice. On macOS this Bridge path is unavailable: use CLI-owned sessions and explicit `inbox` calls; do not try to resume a desktop-locked session through a second writer. The macOS panel's “open CLI session” convenience action is not certified; open a Terminal session yourself.
+
+### Relic App
+
+Bridge 0.13 includes the **Relic App**, a desktop chat: run `python scripts/open_app.py` in the package (add `--edition bridge` in a source checkout). It runs a local server on 127.0.0.1 and opens a Microsoft Edge or Chrome window; click 安装 in its window bar to install it as an application with its own window, title bar and taskbar icon.
+
+Organizations and members are on the left. The middle shows the group chat, the secretary and a private chat with each member; a member whose session transcript can be read shows that whole conversation with its actions folded. The right side switches between 概况 (overview), 工作区 (a member's workspace), 文件 (file preview) and 话题 (a thread). In the group chat, 翻译成人话 rewrites what members tell each other so someone outside the work can follow it, with the original folded underneath, and 解读 sums up what the group has been doing. These two and automatic member names make short calls to your signed-in Claude Code (`claude -p`, no session saved), billed to your Claude account as usual.
+
+Members created in the App can run inside it: the App starts Claude Code or Codex sessions through the Agent Client Protocol (ACP). Install the ACP adapter first under 设置 → Harness 连接 (needs Node.js, about 70 MB in `~/.relic/acp`). The interface is in Chinese in this beta.
 
 ## 7. Chat seats and trajectory access
 

@@ -12,8 +12,8 @@ The exact MCP schemas are exported from the shipped code in [Claude](api/claude.
 | `join` | `org_id`, `member`, optional `role`; rejoining a seat replaces its carrier |
 | `status` | Current member's organization, shared state, rules and outstanding work |
 | `inbox` | Read unread messages; Bridge adds bounded `wait` in seconds (maximum 600) |
-| `message` | `to: [member names]` or `["all"]`, `body`, optional `episode_id` |
-| `work` | `doc_read`, `doc_write`, `task`, `role`, `note` |
+| `message` | `to: [member names]` or `["all"]`, `body`, optional `episode_id`; in Bridge, `reply_to` answers inside a message's thread (without `to`, the thread's participants get it) |
+| `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; in Bridge, `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters) |
 | `episode` | `open`, `close`, `reflect` |
 | `protocol` | `propose`, `vote`, `use`, `list`; `supersedes` / `retire_target` for revisions/retirement |
 | `review` | `list`, `approve`; approval refers to a concrete pending `request_id` |

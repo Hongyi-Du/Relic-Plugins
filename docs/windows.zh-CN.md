@@ -11,7 +11,7 @@
 
 ## 下载与安装
 
-从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.1.0-beta.1) 下载 `relic-claude-windows-v0.1.0-beta.1.zip`、`relic-codex-windows-v0.1.0-beta.1.zip` 或 `relic-bridge-windows-v0.1.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
+从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.2.0-beta.1) 下载 `relic-claude-windows-v0.2.0-beta.1.zip`、`relic-codex-windows-v0.2.0-beta.1.zip` 或 `relic-bridge-windows-v0.2.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
 
 解压到长期保留的目录，例如 `C:\Tools\Relic\bridge`。在解压目录打开 PowerShell：
 
@@ -29,9 +29,13 @@ python -X utf8 scripts/install.py --host codex
 
 ```powershell
 python scripts/doctor.py
+# 仅 Bridge 下载包：Relic App（桌面聊天）
+python scripts/open_app.py
 # 仅 Bridge 或 Codex 下载包支持面板
 python scripts/open_panel.py
 ```
+
+Relic App 在本机 127.0.0.1 起一个服务，用 Microsoft Edge（或 Chrome）打开窗口。在窗口栏点「安装」可以装成独立应用，之后 `open_app.py` 会直接打开装好的应用。界面是中文。
 
 源码仓库里的命令还需加 `--edition bridge` 或 `--edition codex`。Codex 面板请先在真实桌面聊天中调用一次 `org_panel`，保存当前宿主通信上下文。Claude 独立版没有独立面板，在 Claude Code 中用 `/relic:relic` 或自然语言发起。
 

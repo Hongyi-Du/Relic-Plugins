@@ -46,23 +46,35 @@ TOOLS = [
          {"org_id": S, "member": S, "role": S}, ["org_id", "member"]),
     tool("status", "Your view of the organization: members and roles, active protocols, proposals to vote on, review "
          "requests, tasks, documents, reflection due, unread messages.", {}),
-    tool("message", "Send a message to members (list of names, or ['all']). Messages persist and are delivered to "
+    tool("message", "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who "
+         "reads and answers it in the Relic App. Messages persist and are delivered to "
          "recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured "
          "session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). "
          "A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text "
          "from plugins, so the person forwards it from the Relic window and it comes back to you as its message. "
          "When you need the answer in this turn, call inbox with wait afterwards.",
-         {"to": SL, "body": S, "episode_id": S}, ["to", "body"]),
+         {"to": dict(SL, description="Member names, ['all'] or ['human']. Leave it out only with reply_to."), "body": S,
+          "episode_id": S,
+          "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
+                                                         "without `to`, the thread's participants receive it."}},
+         ["body"]),
     tool("inbox", "Read your unread messages (marks them read). wait (seconds; the longest this client allows is "
          "applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging "
          "a member whose answer you need in this turn, and call it again if the answer has not come yet.",
          {"wait": {"type": "integer"}}),
     tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
-         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?} | "
-         "role {member?, role} | note {body} (private to you; not inherited by a replacement).",
+         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
+         "role {member?, role} | note {body} (private to you; not inherited by a replacement). "
+         "The person reads the tasks: write task titles in the person's language, and mark a task done with evidence "
+         "and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the "
+         "person's language too.",
          {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note"]}, "key": S, "body": S,
           "expected_revision": {"type": "integer"}, "task_id": S, "title": S, "owner": S, "status": S,
-          "evidence": SL, "member": S, "role": S}, ["op"]),
+          "evidence": SL,
+          "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
+                                        "or replaced later. A short report of what the task achieved and how it "
+                                        "turned out, in the person's language: Markdown, at most 1000 characters."),
+          "member": S, "role": S}, ["op"]),
     tool("episode", "Episodes bound a piece of work so the organization can learn from it. op=open {title, participants?} | "
          "close {episode_id, outcome: success|failure|partial|cancelled, summary, evidence?} | reflect {episode_id, body}. "
          "Reflect on friction you saw: what went wrong between members, what would prevent it next time.",
@@ -151,7 +163,8 @@ def handle_call(store, name, args, actor):
         unread = len(store.unread(actor, mark=False))
         return {"org_id": org["id"], "member": member, "context": render(store, org, member, unread)}
     if name == "message":
-        return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"))
+        return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"),
+                          reply_to=args.get("reply_to"))
     if name == "inbox":
         return inbox(store, actor, args.get("wait") or 0)
     if name == "work":

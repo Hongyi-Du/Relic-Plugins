@@ -11,14 +11,14 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Run isolated fixture suites and MCP launch checks
-        run: python -X utf8 scripts/check.py
+        run: python -X utf8 scripts/check.py --timeout 900
       - name: Verify release contents
         run: python -X utf8 scripts/package.py --output dist
       - uses: actions/upload-artifact@v4

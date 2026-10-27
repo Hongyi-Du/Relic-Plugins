@@ -1,6 +1,8 @@
 """Readable organization context for one member (injected by hooks and returned by status)."""
 import json
 
+from .store import language_name
+
 
 def _rule_text(rule):
     who = ""
@@ -35,6 +37,8 @@ def render(store, org, member, unread_count=None, full=True):
     roster = ", ".join("%s%s(%s)" % (m, ("[%s]" % s["role"]) if s.get("role") else "", s.get("harness", "claude-code"))
                        for m, s in org["members"].items())
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster))
+    lines.append("The person reads %s; write task titles, task reports and anything addressed to the person in that "
+                 "language." % language_name())
     if org.get("auto_wake", True):
         lines.append("Auto-wake is on: a member you message gets a turn in its own session automatically when that seat "
                      "has a configured session and is idle; others read it at their next tool call.")
@@ -93,8 +97,18 @@ def render(store, org, member, unread_count=None, full=True):
 
 
 def render_messages(messages):
-    return "\n".join("[msg %d from %s%s] %s" % (m["id"], m["from"], (" ep " + m["episode_id"]) if m.get("episode_id") else "",
-                                               m["body"]) for m in messages)
+    """One line per message: its id (what message reply_to takes), sender, episode and, for a reply, its thread."""
+    return "\n".join("[msg %d from %s%s%s] %s" % (m["id"], m["from"], (" ep " + m["episode_id"]) if m.get("episode_id") else "",
+                                                 _thread_of(m), m["body"]) for m in messages)
+
+
+def _thread_of(message):
+    """', in thread #12 ("start of message 12")' for a reply (store.unread gives it the start of its thread)."""
+    root = message.get("reply_to")
+    if not root:
+        return ""
+    start = (message.get("thread") or {}).get("snippet")
+    return ", in thread #%d%s" % (root, (' ("%s")' % start) if start else "")
 
 
 def dumps(value):

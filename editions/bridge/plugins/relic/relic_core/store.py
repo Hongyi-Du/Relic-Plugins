@@ -13,6 +13,7 @@ import contextlib
 import fnmatch
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -28,6 +29,9 @@ class OrgError(ValueError):
     pass
 
 
+HUMAN = "human"  # the person, as a message sender and recipient (not a seat)
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -40,6 +44,109 @@ def data_home():
     env = os.getenv("RELIC_HOME")
     # One store per machine, shared by every harness (Claude Code, Codex) whose members belong to the org.
     return Path(env) if env else Path.home() / ".relic"
+
+
+# --------------------------------------------------------------------------
+# The person's language: members write task titles, task reports and anything addressed to the person in it.
+# --------------------------------------------------------------------------
+LANGUAGE_NAMES = {"ar": "Arabic", "cs": "Czech", "da": "Danish", "de": "German", "el": "Greek", "en": "English",
+                  "es": "Spanish", "fa": "Persian", "fi": "Finnish", "fr": "French", "he": "Hebrew", "hi": "Hindi",
+                  "hu": "Hungarian", "id": "Indonesian", "it": "Italian", "ja": "Japanese", "ko": "Korean",
+                  "ms": "Malay", "nb": "Norwegian", "nl": "Dutch", "no": "Norwegian", "pl": "Polish",
+                  "pt": "Portuguese", "ro": "Romanian", "ru": "Russian", "sv": "Swedish", "th": "Thai",
+                  "tr": "Turkish", "uk": "Ukrainian", "vi": "Vietnamese", "zh": "Chinese"}
+LANGUAGE_TAG = re.compile(r"[a-z]{2,3}(-[a-z0-9]{1,8})*", re.I)
+
+
+def _language_tag(value):
+    """value as a language tag in its usual spelling ("zh_cn.UTF-8" -> "zh-CN"), or None when it is not one."""
+    text = str(value or "").strip().split(".")[0].split("@")[0].replace("_", "-")
+    if len(text) > 35 or not LANGUAGE_TAG.fullmatch(text):
+        return None  # "", "C", "POSIX", "Chinese (Simplified)_China" ...
+    head, *rest = text.split("-")
+    return "-".join([head.lower()] + [p.upper() if len(p) == 2 and p.isalpha() else
+                                      p.title() if len(p) == 4 and p.isalpha() else p.lower() for p in rest])
+
+
+def _windows_language(langid):
+    """A Windows LANGID (GetUserDefaultUILanguage) as a tag: 0x0804 -> zh-CN, 0x0404 -> zh-TW, 0x0409 -> en-US. An
+    unknown variant of a language counts as that language's main variant; None when the language is unknown."""
+    import locale
+    table = getattr(locale, "windows_locale", {})
+    name = table.get(langid) or table.get((langid & 0x3FF) | 0x400)
+    return _language_tag({"zh_CHS": "zh-Hans", "zh_CHT": "zh-Hant"}.get(name, name))
+
+
+def _system_language():
+    """The language of the system's user interface, en-US when it cannot be told."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            tag = _windows_language(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+        except Exception:
+            tag = None
+        if tag:
+            return tag
+    names = [os.environ.get(var) for var in ("LC_ALL", "LC_MESSAGES", "LANG")]
+    try:
+        import locale
+        names.append(locale.getlocale()[0])
+    except Exception:
+        pass
+    return next((tag for tag in map(_language_tag, names) if tag), "en-US")
+
+
+def person_language():
+    """The language the person reads, as a tag such as "zh-CN": RELIC_LANG; else the language chosen in the Relic App
+    ("lang" in ~/.relic/app/prefs.json; empty there means the system's); else the system's user interface language."""
+    tag = _language_tag(os.getenv("RELIC_LANG"))
+    if tag:
+        return tag
+    prefs = None
+    for attempt in range(3):
+        try:
+            prefs = json.loads((data_home() / "app" / "prefs.json").read_text(encoding="utf-8"))
+            break
+        except PermissionError:  # Windows: the App is replacing the file this instant
+            time.sleep(0.05)
+        except (OSError, ValueError):  # no App settings yet (the usual case), or a file being written
+            break
+    return (_language_tag(prefs.get("lang")) if isinstance(prefs, dict) else None) or _system_language()
+
+
+def language_name(tag=None):
+    """A language as members read it, e.g. "Simplified Chinese (zh-CN)"; without a tag, the person's language."""
+    tag = person_language() if tag is None else (_language_tag(tag) or str(tag))
+    parts = tag.lower().split("-")
+    name = LANGUAGE_NAMES.get(parts[0])
+    if parts[0] == "zh":
+        traditional = "hant" in parts or ("hans" not in parts and bool({"tw", "hk", "mo"} & set(parts)))
+        simplified = "hans" in parts or bool({"cn", "sg", "my"} & set(parts))
+        name = "Traditional Chinese" if traditional else "Simplified Chinese" if simplified else name
+    return "%s (%s)" % (name, tag) if name else tag
+
+
+# A task marked done carries a short report the person reads: what it achieved and how it turned out.
+REPORT_MAX = 1000
+
+
+def task_report(value):
+    """The report given with a task update, stripped ("" when there is none)."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise OrgError("report is text: a short Markdown report of at most %d characters." % REPORT_MAX)
+    value = value.strip()
+    if len(value) > REPORT_MAX:
+        raise OrgError("A task report is at most %d characters; this one has %d. Keep to what the task achieved and "
+                       "how it turned out." % (REPORT_MAX, len(value)))
+    return value
+
+
+def report_needed():
+    """What to write when a task becomes done (the person's language named)."""
+    return ("a report: a short report of what the task achieved and how it turned out (Markdown, at most %d "
+            "characters), written in %s, the language the person reads" % (REPORT_MAX, language_name()))
 
 
 def short_tool(tool):
@@ -100,6 +207,12 @@ def normalize(tool, tool_input):
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def snippet(text, width=60):
+    """The start of a message on one line, at most `width` characters (names the thread a reply belongs to)."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= width else flat[:width - 3].rstrip() + "..."
 
 
 # --------------------------------------------------------------------------
@@ -202,6 +315,13 @@ class Store:
             if "hop" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
                 try:
                     db.execute("ALTER TABLE messages ADD COLUMN hop INTEGER DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass  # another process added it a moment ago
+            # reply_to: the id of the thread's root message, for a reply inside a thread (NULL for every other message,
+            # including the rows older processes keep inserting without this column)
+            if "reply_to" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
+                try:
+                    db.execute("ALTER TABLE messages ADD COLUMN reply_to INTEGER")
                 except sqlite3.OperationalError:
                     pass  # another process added it a moment ago
 
@@ -372,15 +492,26 @@ class Store:
             org["members"][member]["config"] = config
             self._event(db, org_id, member, "member.configured", {k: v for k, v in config.items() if k != "env"})
 
-    def send_from_human(self, org_id, to, body):
+    def send_from_human(self, org_id, to, body, channel=None, reply_to=None):
+        """channel: where the person wrote it in the Relic App ("group" or "private"), kept on the event so the App
+        shows a group-chat message to one member in the group chat. reply_to: a reply inside the thread of that message
+        (see send); without `to`, the members in the thread get it."""
         org = self.get(org_id)
-        recipients = list(org["members"]) if not to or to == ["all"] else list(to)
-        if not body.strip() or set(recipients) - set(org["members"]):
-            raise OrgError("Pick members and write a message.")
         with self.db() as db:
-            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at) VALUES(?,?,?,?,?,?)",
-                             (org_id, "human", json.dumps(recipients), body, None, now()))
-            self._event(db, org_id, "human", "message.sent", {"id": cur.lastrowid, "to": recipients})
+            root = self._thread_root(db, org_id, reply_to)
+            if root and not to:
+                recipients = [m for m in self._thread_people(db, org_id, root) if m in org["members"]]
+                if not recipients:
+                    raise OrgError("No member is in thread #%d; pick members." % root)
+            else:
+                recipients = list(org["members"]) if not to or to == ["all"] else list(to)
+            if not body.strip() or set(recipients) - set(org["members"]):
+                raise OrgError("Pick members and write a message.")
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?)", (org_id, "human", json.dumps(recipients), body, None, now(), root))
+            self._event(db, org_id, "human", "message.sent", dict({"id": cur.lastrowid, "to": recipients},
+                                                                  **({"channel": channel} if channel else {}),
+                                                                  **({"reply_to": root} if root else {})))
         return cur.lastrowid
 
     def pending_count(self, org_id, member):
@@ -526,25 +657,72 @@ class Store:
             db.execute("INSERT OR REPLACE INTO actors VALUES(?,?,?,?)", (actor, org_id, member, now()))
 
     # ---------------- messages ----------------
-    def send(self, actor, to, body, episode_id=None):
+    # Threads work like Slack's, one level deep: a reply's reply_to is always the thread's root message, so answering a
+    # reply joins the same thread. Without explicit recipients a reply goes to everyone in the thread so far.
+    def _thread_root(self, db, org_id, reply_to):
+        """The root id of the thread that a reply to message `reply_to` belongs to; None when it answers no message."""
+        text = "" if reply_to is None else str(reply_to).strip().lstrip("#")
+        if text in ("", "0"):
+            return None
+        try:
+            parent = int(text)
+        except ValueError:
+            raise OrgError("reply_to is the id of the message you answer, e.g. 12.")
+        row = db.execute("SELECT org_id, reply_to FROM messages WHERE id=?", (parent,)).fetchone()
+        if not row or row[0] != org_id:
+            raise OrgError("There is no message #%d in this organization to reply to." % parent)
+        return row[1] or parent
+
+    def _thread_people(self, db, org_id, root):
+        """Everyone in a thread so far: the senders and recipients of its root and of each reply, in order of appearance
+        ("human" too when the person took part)."""
+        people = []
+        for sender, recipients in db.execute("SELECT sender, recipients FROM messages WHERE org_id=? AND (id=? OR "
+                                             "reply_to=?) ORDER BY id", (org_id, root, root)):
+            people += [sender] + json.loads(recipients or "[]")
+        return list(dict.fromkeys(people))
+
+    def _thread_heads(self, db, org_id, messages):
+        """Give each reply among `messages` the start of its thread: "thread": {id, from, snippet} of the root."""
+        roots = sorted({m["reply_to"] for m in messages if m.get("reply_to")})
+        if not roots:
+            return messages
+        heads = {r[0]: {"id": r[0], "from": r[1], "snippet": snippet(r[2])} for r in db.execute(
+            "SELECT id, sender, body FROM messages WHERE org_id=? AND id IN (%s)" % ",".join("?" * len(roots)),
+            [org_id] + roots)}
+        for m in messages:
+            if m.get("reply_to") in heads:
+                m["thread"] = heads[m["reply_to"]]
+        return messages
+
+    def send(self, actor, to, body, episode_id=None, reply_to=None):
+        """reply_to: answer inside the thread of that message; without `to`, everyone in the thread gets it."""
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
-        if not to or to == ["all"] or to == "all":
-            recipients = [m for m in org["members"] if m != member]
-        else:
-            recipients = list(dict.fromkeys(to if isinstance(to, list) else [to]))
-            unknown = set(recipients) - set(org["members"])
-            if unknown:
-                raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
-        if not recipients:
-            raise OrgError("No other members yet.")
         with self.db() as db:
-            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop) VALUES(?,?,?,?,?,?,?)",
-                             (org["id"], member, json.dumps(recipients), body, episode_id, now(),
-                              self._sender_hop(org["id"], member)))
-            self._event(db, org["id"], member, "message.sent", {"id": cur.lastrowid, "to": recipients})
-            return {"message_id": cur.lastrowid, "to": recipients}
+            root = self._thread_root(db, org["id"], reply_to)
+            if root and not to:
+                recipients = [m for m in self._thread_people(db, org["id"], root)
+                              if m != member and (m in org["members"] or m == HUMAN)]
+                if not recipients:
+                    raise OrgError("Nobody else is in thread #%d; name the recipients with to." % root)
+            elif not to or to == ["all"] or to == "all":
+                recipients = [m for m in org["members"] if m != member]
+            else:
+                recipients = list(dict.fromkeys(to if isinstance(to, list) else [to]))
+                # "human" is the person: they read and answer in the Relic App (and the Relic window's discussion room)
+                unknown = set(recipients) - set(org["members"]) - {HUMAN}
+                if unknown:
+                    raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
+            if not recipients:
+                raise OrgError("No other members yet.")
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?,?)", (org["id"], member, json.dumps(recipients), body, episode_id,
+                                                         now(), self._sender_hop(org["id"], member), root))
+            thread = {"reply_to": root} if root else {}
+            self._event(db, org["id"], member, "message.sent", dict({"id": cur.lastrowid, "to": recipients}, **thread))
+            return dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
 
     def _sender_hop(self, org_id, member):
         """A message sent during an automatically started turn carries that turn's wake depth (wake.MAX_HOPS)."""
@@ -568,50 +746,54 @@ class Store:
         with self.db() as db:
             # Filter by recipient before taking `limit`: messages to other members are never marked read by this one,
             # so a LIMIT in SQL could fill up with them and hide this member's own messages.
-            rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at FROM messages m
-                WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
+            rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
+                FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
                 (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
                 ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
             out = []
-            for mid, sender, recipients, body, ep, at in rows:
+            for mid, sender, recipients, body, ep, at, reply_to in rows:
                 rec = json.loads(recipients)
                 if member not in rec:
                     continue
-                out.append({"id": mid, "from": sender, "to": rec, "body": body, "episode_id": ep, "at": at})
+                out.append({"id": mid, "from": sender, "to": rec, "body": body, "episode_id": ep, "at": at,
+                            "reply_to": reply_to})
                 if mark:
                     db.execute("INSERT OR IGNORE INTO reads VALUES(?,?,?,?)", (org["id"], mid, member, now()))
                 if len(out) >= limit:
                     break
             if mark and out:
                 self._event(db, org["id"], member, "message.read", {"ids": [m["id"] for m in out]})
+            self._thread_heads(db, org["id"], out)  # a reply says which thread it answers
         return out
 
     def history(self, org_id, limit=30, after=0):
         """The latest `limit` messages, oldest first; with `after`, the first `limit` messages after that id (the
-        Relic window's discussion room adds them as they come)."""
+        Relic window's discussion room adds them as they come). reply_to: the thread's root for a reply, else None."""
         with self.db() as db:
             if after:
-                rows = db.execute("SELECT id,sender,recipients,body,at FROM messages WHERE org_id=? AND id>? ORDER BY id "
-                                  "LIMIT ?", (org_id, after, limit)).fetchall()
+                rows = db.execute("SELECT id,sender,recipients,body,at,reply_to FROM messages WHERE org_id=? AND id>? "
+                                  "ORDER BY id LIMIT ?", (org_id, after, limit)).fetchall()
             else:
-                rows = list(reversed(db.execute("SELECT id,sender,recipients,body,at FROM messages WHERE org_id=? "
-                                                "ORDER BY id DESC LIMIT ?", (org_id, limit)).fetchall()))
-        return [{"id": r[0], "from": r[1], "to": json.loads(r[2]), "body": r[3], "at": r[4]} for r in rows]
+                rows = list(reversed(db.execute("SELECT id,sender,recipients,body,at,reply_to FROM messages WHERE "
+                                                "org_id=? ORDER BY id DESC LIMIT ?", (org_id, limit)).fetchall()))
+        return [{"id": r[0], "from": r[1], "to": json.loads(r[2]), "body": r[3], "at": r[4], "reply_to": r[5]}
+                for r in rows]
 
     def unread_by_member(self, org_id, skip_prefix=None):
-        """{member: [{id, sender, hop, at}, ...]} over unread messages, oldest first; bodies starting with skip_prefix
-        (automatic receipts) are left out."""
+        """{member: [{id, sender, hop, at, reply_to}, ...]} over unread messages, oldest first; bodies starting with
+        skip_prefix (automatic receipts) are left out."""
         with self.db() as db:
-            rows = db.execute("SELECT id, sender, recipients, body, COALESCE(hop, 0), at FROM messages WHERE org_id=? "
-                              "ORDER BY id", (org_id,)).fetchall()
+            rows = db.execute("SELECT id, sender, recipients, body, COALESCE(hop, 0), at, reply_to FROM messages "
+                              "WHERE org_id=? ORDER BY id", (org_id,)).fetchall()
             read = {(r[0], r[1]) for r in db.execute("SELECT message_id, member FROM reads WHERE org_id=?", (org_id,))}
         out = {}
-        for mid, sender, recipients, body, hop, at in rows:
+        for mid, sender, recipients, body, hop, at, reply_to in rows:
             if skip_prefix and (body or "").startswith(skip_prefix):
                 continue
             for member in json.loads(recipients):
                 if member != sender and (mid, member) not in read:
-                    out.setdefault(member, []).append({"id": mid, "sender": sender, "hop": hop, "at": at})
+                    out.setdefault(member, []).append({"id": mid, "sender": sender, "hop": hop, "at": at,
+                                                       "reply_to": reply_to})
         return out
 
     def sent_since(self, org_id, member, since, skip_prefix=None):
@@ -622,20 +804,27 @@ class Store:
                               (org_id, member, since)).fetchall()
         return {m for r in rows if not (skip_prefix and (r[1] or "").startswith(skip_prefix)) for m in json.loads(r[0])}
 
-    def send_as(self, org_id, member, to, body, hop=0, relayed=False, via=None):
+    def send_as(self, org_id, member, to, body, hop=0, relayed=False, via=None, reply_to=None):
         """A message written on a seat's behalf by the plugin itself: an automatic receipt after a woken turn, or
         (relayed) the reply of a chat member that has no Relic tools, carrying the depth of the turn that wrote it.
-        via="human": the person brought the reply over (forward_reply)."""
+        via="human": the person brought the reply over (forward_reply). reply_to: a reply inside the thread of that
+        message (see send); without `to`, everyone in the thread gets it."""
         org = self.get(org_id)
-        recipients = [m for m in dict.fromkeys(to) if m in org["members"] and m != member]
-        if not recipients or not (body or "").strip():
+        if not (body or "").strip():
             return None
         with self.db() as db:
-            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop) VALUES(?,?,?,?,?,?,?)",
-                             (org_id, member, json.dumps(recipients), body, None, now(), int(hop or 0)))
+            root = self._thread_root(db, org_id, reply_to)
+            if root and not to:
+                to = self._thread_people(db, org_id, root)
+            recipients = [m for m in dict.fromkeys(to or []) if (m in org["members"] or m == HUMAN) and m != member]
+            if not recipients:
+                return None
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?,?)", (org_id, member, json.dumps(recipients), body, None, now(),
+                                                         int(hop or 0), root))
             self._event(db, org_id, member, "message.sent", dict(
                 {"id": cur.lastrowid, "to": recipients}, **({"relayed": True} if relayed else {"automatic": True}),
-                **({"via": via} if via else {})))
+                **({"via": via} if via else {}), **({"reply_to": root} if root else {})))
             return cur.lastrowid
 
     def mark_read(self, org_id, member, ids):
@@ -725,6 +914,7 @@ class Store:
                     org["tasks"][tid] = {"id": tid, "title": a["title"], "owner": a.get("owner") or member,
                                          "status": "open", "evidence": [], "created_by": member, "at": now()}
                 task = org["tasks"][tid]
+                was_done = task["status"] == "done"
                 for key in ("title", "owner", "status"):
                     if a.get(key):
                         task[key] = a[key]
@@ -734,10 +924,28 @@ class Store:
                     raise OrgError("status: open, working, blocked, done or dropped.")
                 if a.get("evidence"):
                     task["evidence"] = list(task["evidence"]) + list(a["evidence"])
+                report = task_report(a.get("report"))
+                # Becoming done takes evidence and a report written in this call; a task done before (tasks stored
+                # before reports existed included) needs none, and its report can be added or replaced later.
+                done_now = task["status"] == "done" and not was_done
+                needs = []
                 if task["status"] == "done" and not task["evidence"]:
-                    raise OrgError("Mark done with evidence (commit, test output, file).")
+                    needs.append("evidence (commit, test output, file)")
+                if done_now and not report:
+                    needs.append(report_needed())
+                if needs:
+                    raise OrgError("Mark done with %s." % " and ".join(needs))
+                if report and task["status"] != "done":
+                    raise OrgError("A report belongs to a done task: pass it with status done, or later on a task "
+                                   "that is already done.")
+                if done_now:
+                    task["done_at"] = now()
+                if report:
+                    task["report"] = report
                 task["at"] = now()
-                self._event(db, org["id"], member, "task.updated", {"id": tid, "status": task["status"], "owner": task["owner"]})
+                self._event(db, org["id"], member, "task.updated", dict(
+                    {"id": tid, "status": task["status"], "owner": task["owner"]},
+                    **({"report": True} if task.get("report") else {})))
                 return task
             if op == "role":
                 target = a.get("member") or member
