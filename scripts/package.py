@@ -103,11 +103,13 @@ def main():
               'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'files':len(files)}
         assets.append(item)
         print(f'{path.name}: {item["size"]} bytes, {len(files)} files')
-    (args.output/'SHA256SUMS.txt').write_text(''.join(f'{a["sha256"]}  {a["name"]}\n' for a in assets),encoding='utf-8')
+    # LF on every platform: `sha256sum -c` reads a CR as part of the file name
+    (args.output/'SHA256SUMS.txt').write_text(''.join(f'{a["sha256"]}  {a["name"]}\n' for a in assets),encoding='utf-8',
+                                              newline='\n')
     result=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
     manifest={'release':version,'source_commit':result.stdout.strip() if result.returncode==0 else None,
               'assets':assets,'macos_note':'CLI/core beta; desktop auto-wake and ChatGPT relay unavailable.'}
-    (args.output/'release-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+    (args.output/'release-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8',newline='\n')
 
 
 if __name__=='__main__':

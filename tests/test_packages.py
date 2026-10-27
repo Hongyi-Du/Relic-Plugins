@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -18,6 +19,11 @@ class PackageTests(unittest.TestCase):
                            check=True,capture_output=True)
             manifest=json.loads((target/'release-manifest.json').read_text())
             self.assertEqual(sorted(a['platform'] for a in manifest['assets']),['macos','windows'])
+            sums=(target/'SHA256SUMS.txt').read_bytes()
+            self.assertNotIn(b'\r',sums)  # `sha256sum -c` reads a CR as part of the file name
+            for line in sums.decode('ascii').splitlines():
+                digest,name=line.split('  ')
+                self.assertEqual(hashlib.sha256((target/name).read_bytes()).hexdigest(),digest)
             for item in manifest['assets']:
                 with self.subTest(asset=item['name']):
                     self.assertTrue(item['name'].startswith('relic-'+item['platform']+'-v'))
