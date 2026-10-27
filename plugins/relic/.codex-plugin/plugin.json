@@ -1,0 +1,17 @@
+{
+  "name": "relic",
+  "version": "0.14.0-beta.1",
+  "description": "Relic organizations across Codex and Claude Code: persistent members on either harness, shared work, organization-owned weak and strong protocols enforced on every member's tool calls.",
+  "author": {
+    "name": "Hongyi Du"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./codex.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Relic",
+    "shortDescription": "Codex 和 Claude Code 成员组成同一个 Relic 组织",
+    "longDescription": "Codex 会话和 Claude Code 会话加入同一个组织：共享消息、文档、任务、episode 和协议。强协议用同一套工具词汇（Bash、Edit、Write）在两边的工具调用上执行。",
+    "category": "Productivity"
+  }
+}

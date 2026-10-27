@@ -1,5 +1,40 @@
 # Validation / 验证记录
 
+## v0.3.0-beta.1
+
+Release: **v0.3.0-beta.1**, prepared 2026-10-27. One product, Relic (plugin 0.14.0-beta.1): the three editions of v0.2.0-beta.1 are merged, so the checks cover one plugin and one archive per platform.
+
+`scripts/check.py` runs two suites, each in its own process with a temporary `RELIC_HOME`, `CODEX_HOME` and temp folder and without the invoking session's `RELIC_*` and `CODEX_*` variables:
+
+- **relic** (`plugins/relic/tests`): the plugin's tools, MCP server, hooks, store, wake-ups, runner, desktop transport, chat members, trajectories, task reports and threads, the Relic App and its panes, and how the App brings Relic into the sessions it runs.
+- **packaging** (`tests`): the installer configures a folder whose path has spaces and Chinese characters, then starts the MCP server and a hook from it; it installs into the hosts it finds, disables the earlier Claude Code editions, stops when a named host is missing, and needs no host with `--host none`. The package test builds both archives, extracts each into a path with spaces and Chinese characters and runs `install.py --configure-only` there; the App and the marketplace must be present, `scripts/open_panel.py` absent, and `install.command` must keep LF line endings and mode 755.
+
+`scripts/package.py` builds one archive per platform, `relic-windows-v0.3.0-beta.1.zip` and `relic-macos-v0.3.0-beta.1.tar.gz`, plus `SHA256SUMS.txt` and `release-manifest.json`; only the Windows archive is published. CI runs the same two commands as before on Windows and macOS with Python 3.11.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 216 tests passed / 216 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Real-machine App run: an App server on a temporary `RELIC_HOME` started one Claude Code and one Codex member through the installed ACP adapters | Both called the Relic status tool and were answered as their own seats. The Claude Code session had one set of Relic tools (11, from the App's plugin folder; the installed copy was switched off). The Codex session used Codex's own Relic plugin; the App added no server. / 两个成员调用 Relic status 都以自己的席位作答；Claude Code 会话只有一套 Relic 工具（11 个，来自 App 的插件目录，已装的那份在会话里关掉）；Codex 会话用 Codex 自己的 Relic 插件，App 没有另加服务。 |
+| App page in headless Edge | The add-member dialog switches between its three ways, a member card shows its seat buttons, the input box is empty after sending; no console errors. / 添加成员对话框三种方式能切换，名片显示席位按钮，发送后输入框为空；控制台无报错。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+CI: to be recorded / 待记录.
+
+The release checks make no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.3.0-beta.1** 于 2026-10-27 准备发布。一个产品 Relic（插件 0.14.0-beta.1）：v0.2.0-beta.1 的三个版本已经合并，检查覆盖一个插件和每个系统一个下载包。
+
+`scripts/check.py` 运行两套测试，每套在独立进程中运行，使用临时的 `RELIC_HOME`、`CODEX_HOME` 和临时目录，并去掉调用会话的 `RELIC_*`、`CODEX_*` 变量：
+
+- **relic**（`plugins/relic/tests`）：插件的工具、MCP 服务、hooks、数据库、自动唤醒、runner、桌面通信、聊天成员、轨迹、任务报告和话题，Relic App 及其面板，以及 App 怎样把 Relic 带进它运行的会话。
+- **packaging**（`tests`）：安装器配置一个路径含空格和中文的目录，再从中启动 MCP 服务和一个 hook；它安装到找得到的宿主，停用较早的 Claude Code 版本，指定的宿主不存在时报错停止，`--host none` 时不需要任何宿主。打包测试构建两个下载包，分别解压到含空格和中文的路径并在那里运行 `install.py --configure-only`；App 和 marketplace 必须存在，`scripts/open_panel.py` 必须不存在，`install.command` 必须保持 LF 换行和 755 权限。
+
+`scripts/package.py` 为每个系统生成一个下载包：`relic-windows-v0.3.0-beta.1.zip` 和 `relic-macos-v0.3.0-beta.1.tar.gz`，外加 `SHA256SUMS.txt` 和 `release-manifest.json`；只发布 Windows 包。CI 仍在 Windows 和 macOS 上用 Python 3.11 运行同样的两条命令。
+
+发布检查不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.2.0-beta.1
 
 Release: **v0.2.0-beta.1**, prepared 2026-10-27. Relic Bridge 0.13.0-beta.1 adds the Relic App; Claude and Codex are unchanged.

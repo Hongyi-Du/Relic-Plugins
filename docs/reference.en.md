@@ -2,23 +2,25 @@
 
 [中文](reference.zh-CN.md) · [User guide](guide.en.md)
 
-The exact MCP schemas are exported from the shipped code in [Claude](api/claude.json), [Codex](api/codex.json), and [Bridge](api/bridge.json). Required fields, enums and descriptions in those files are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
+The exact MCP schemas are exported from the shipped code in [docs/api/relic.json](api/relic.json) (11 tools). Required fields, enums and descriptions in that file are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
 
-## Claude and Bridge
+## Tools
+
+Claude Code shows the tools as `mcp__plugin_relic_org__*`; Codex shows them as `mcp__relic_org__*`, and so does any session that the Relic App gives the Relic MCP server.
 
 | Tool | Operations and main fields |
 | --- | --- |
 | `create` | `name`, `purpose`, `member`, optional `role`, `governance: leader|peer` |
 | `join` | `org_id`, `member`, optional `role`; rejoining a seat replaces its carrier |
 | `status` | Current member's organization, shared state, rules and outstanding work |
-| `inbox` | Read unread messages; Bridge adds bounded `wait` in seconds (maximum 600) |
-| `message` | `to: [member names]` or `["all"]`, `body`, optional `episode_id`; in Bridge, `reply_to` answers inside a message's thread (without `to`, the thread's participants get it) |
-| `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; in Bridge, `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters) |
+| `inbox` | Read unread messages; bounded `wait` in seconds (maximum 600, lower with `RELIC_MAX_WAIT`) |
+| `message` | `to: [member names]`, `["all"]` or `["human"]` (the person, who reads it in the Relic App), `body`, optional `episode_id`; `reply_to` answers inside a message's thread (without `to`, the thread's participants get it) |
+| `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters) |
 | `episode` | `open`, `close`, `reflect` |
 | `protocol` | `propose`, `vote`, `use`, `list`; `supersedes` / `retire_target` for revisions/retirement |
 | `review` | `list`, `approve`; approval refers to a concrete pending `request_id` |
-| `panel` | Bridge only: open Tk organization window |
-| `trajectory` | Bridge only: `request`, `answer`, `list`; approval-controlled export |
+| `trajectory` | `request`, `answer`, `list`; approval-controlled export |
+| `panel` | Open the Relic App on the person's screen |
 
 Example shared document:
 
@@ -38,58 +40,33 @@ A strong rule's `effect` is `deny`, `require_review`, or `require_before`. Selec
 {"effect":"deny","tools":["Edit","Write"],"path_glob":"src/api/*","except_roles":["api-owner"],"reason":"Coordinate API changes with its owner."}
 ```
 
-This is an optional example, not an installed default. Bridge maps supported Codex shell calls to `Bash` and patches to `Edit`; every patch path is checked by its path selector. Hook coverage is host-dependent.
-
-## Standalone Codex / GPT
-
-| Tool | Purpose |
-| --- | --- |
-| `org_discover`, `org_panel` | Discover local sessions; open member selection panel |
-| `org_organize` | `start` / `status`, `request_id`, `data`; native or desktop formation |
-| `org_context` | Current executor's authorized state, native inbox/outbox and protocol activity |
-| `org_message` | `send`, `ack`, `dispatch`, `list`; edition-specific `data` payload |
-| `org_work` | Versioned documents, tasks, episodes, reflections and member-local notes |
-| `org_call` | Bounded text meeting with agenda, participants and 1–6 contribution rounds |
-| `org_protocol` | Propose, agree/comment/vote/adopt, record use, revise, retire |
-| `org_review` | Check a proposed action or record another member's exact-action review |
-| `org_benchmark` | Optional developer integration; separate benchmark resources required |
-| `org_scope_evolution` | Experimental developer registry for governed patch/scope overlays |
-
-Most operations use `{org_id,operation,data}`. Read the shipped [operations](https://github.com/Hongyi-Du/Relic-Plugins/blob/main/editions/codex/plugins/relic-organization/skills/relic-organization/references/operations.md) and [native subagents](https://github.com/Hongyi-Du/Relic-Plugins/blob/main/editions/codex/plugins/relic-organization/skills/relic-organization/references/native-subagents.md) references for nested payloads and receipt semantics.
-
-```json
-{"operation":"start","request_id":"a-fresh-request-id","data":{"runtime":"native_subagents","execution_mode":"native","name":"Docs team","task":"Review the documentation","new_members":2}}
-```
-
-This records formation; actual host spawning follows separately. For uncertain outcomes, reuse the same request and key rather than issuing a new request. Native delivery remains pending until the actual recipient acknowledges.
-
-Codex strong rules support `deny` and `require_peer_review`, with `tools`, optional `members`, `input_contains`, and `argument_equals`. Review receipts bind the exact arguments and protocol version, expire after one hour, and cannot be self-approved. Weak protocols have guidance, trigger and scope instead of blocking rules. A leader and required peers agree before activation; review the current governance setting rather than assuming a quorum.
+This is an optional example, not an installed default. Relic maps supported Codex shell calls to `Bash` and patches to `Edit`; every patch path is checked by its path selector. In a session the Relic App runs without Relic hooks, ACP tool calls are mapped the same way (shell commands to `Bash`; edits, deletions and moves to `Edit`; reads to `Read`; searches to `Grep`; fetches to `WebFetch`) and checked when the session asks for permission; an action the session takes without asking cannot be stopped. Hook coverage is host-dependent.
 
 ## Environment variables
 
 | Variable | Scope |
 | --- | --- |
-| `RELIC_HOME` | Claude / Bridge data directory; do not mix standalone Claude and Bridge stores |
-| `RELIC_ORG_HOME` | Standalone Codex data directory |
-| `RELIC_ORG`, `RELIC_MEMBER`, `RELIC_ROLE` | Explicit peer-seat startup for Claude/Bridge |
+| `RELIC_HOME` | Data directory, `~/.relic` by default: the organization store and everything else Relic keeps |
+| `RELIC_ACP_HOME` | Where the Relic App installs the ACP adapters; `RELIC_HOME/acp` by default |
+| `RELIC_ORG`, `RELIC_MEMBER`, `RELIC_ROLE` | Start a session in a seat: the SessionStart hook joins that seat |
+| `RELIC_SEAT`, `RELIC_SEAT_TOKEN` | Set by the Relic App for each session it starts: the seat (`<org id>/<member>`) and the token the App stored on the seat for that session. The Relic server answers as the seat's carrier while the token matches; do not set them by hand |
+| `RELIC_LANG` | The person's language for task titles and reports; otherwise the App's language setting, then the system language |
+| `RELIC_MAX_WAIT` | Lowers the inbox wait maximum; use 50 for the Claude Chat integration (the App uses at most 50 for the Relic server it gives a session) |
+| `RELIC_ACTOR` | Dedicated chat MCP configuration only (`claude-chat:<name>`); not a means to impersonate peers |
+| `RELIC_CODEX_WINDOWS_SANDBOX` | Windows sandbox for the Codex sessions Relic starts (`unelevated` by default; empty keeps Codex's own choice); host permissions still apply |
 | `CODEX_THREAD_ID`, `CODEX_APP_TOOLS_PIPE_PATH` | Supplied by the host, not copied from another session |
-| `CODEX_HOME` | Codex configuration root; inherited where supported |
+| `CODEX_HOME`, `CLAUDE_CONFIG_DIR` | Codex and Claude Code configuration roots; inherited where supported |
 | `CODEX_CLI_PATH` | Optional explicit Codex CLI path |
-| `RELIC_MAX_WAIT` | Bridge inbox maximum; use 50 for the Claude Chat integration |
-| `RELIC_ACTOR` | Dedicated standalone chat MCP configuration only; not a means to impersonate peers |
-| `RELIC_CODEX_WINDOWS_SANDBOX` | Bridge runner's Windows sandbox choice; host permissions still apply |
-| `RELIC_CODEX_APP_SERVER`, `CODEX_MCP_NODE_PATH` | Advanced standalone Codex desktop adapter overrides |
-| `RELIC_ORGANIZATIONBENCH_PATH` | Optional external developer benchmark checkout |
 
 Credentials are not required by the plugin itself. Per-member environment configuration may contain secrets, so treat the local database and backups as private.
 
 ## Packaging and host references
 
-Each edition is a local marketplace. The release installer prepares the machine-specific MCP and hook paths before registration. Do not install the unconfigured repository root as a single marketplace.
+The package folder is one local marketplace, `relic-bridge`, with one plugin, `relic`; the marketplace keeps the earlier Bridge name so Bridge installs upgrade in place. The installer writes this computer's Python and paths into the plugin before it registers the folder, so run the installer rather than adding the folder to a host by hand.
 
 - [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins): local marketplace discovery and plugin manifests.
 - [OpenAI submission boundary](https://developers.openai.com/plugins/deploy/submission): hook-dependent packages use manual desktop distribution; this release does not claim universal-directory approval.
 - [Claude plugin manifest](https://code.claude.com/docs/en/plugins-reference): plugin components and path variables.
 - [Claude hooks](https://code.claude.com/docs/en/hooks): command hook input/output and lifecycle.
 
-Documentation checked for this release on 2026-10-24. Host capabilities can change independently of Relic.
+Host documentation was last checked on 2026-10-24. Host capabilities can change independently of Relic.

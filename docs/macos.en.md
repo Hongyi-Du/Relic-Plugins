@@ -1,14 +1,14 @@
 # macOS development draft — not released
 
-**No macOS download is currently published.** The current public beta is Windows-only. macOS development and documentation are retained for future testing on a real Mac; CI passes do not replace signed-in desktop acceptance.
+**No macOS download is currently published.** The current public beta is Windows-only. CI builds the macOS package (`relic-macos-v<version>.tar.gz`), but it is not released. macOS development and documentation are retained for future testing on a real Mac; CI passes do not replace signed-in desktop acceptance.
 
 [中文](macos.zh-CN.md) · [User guide](guide.en.md)
 
 ## Prerequisites
 
-Use Python **3.11+** from a maintained Python distribution, with `python3` available in Terminal. The packages contain Python source, not architecture-specific binaries; Apple Silicon and Intel need a compatible Python and host installation. A native desktop session on each architecture has not been certified by this release.
+Use Python **3.11+** from a maintained Python distribution, with `python3` available in Terminal. The package contains Python source, not architecture-specific binaries; Apple Silicon and Intel need a compatible Python and host installation. A native desktop session on each architecture has not been certified by this release.
 
-Install and sign in to Claude Code and/or Codex. Ensure `claude --version` / `codex --version` works in the same Terminal. The macOS installer relies on the CLI being on PATH. For the optional Bridge/Codex panel, check `python3 -c 'import tkinter'`; if unavailable, use a Python distribution with Tk support. Core MCP tools do not need a panel.
+Install and sign in to Claude Code and/or Codex. Ensure `claude --version` / `codex --version` works in the same Terminal. The macOS installer, `bash install.command`, runs `scripts/install.py` with `python3` and takes the same options; it relies on the CLIs being on PATH. Members that run inside the Relic App also need Node.js for their ACP adapters.
 
 ## Release status
 
@@ -18,21 +18,20 @@ Installation instructions and downloadable packages will be finalized after real
 
 | Feature | Availability |
 | --- | --- |
-| Claude Code core organization, messages, documents, tasks, governance | Included; host hooks must be loaded |
-| Bridge shared store and Claude Code + Codex CLI members | Included; members share local `RELIC_HOME` |
-| Codex native subagent organizations | Included when the host exposes native collaboration and identity metadata |
-| Optional Tk panels | Source included; requires Tk/display; complete real-host GUI workflow not certified |
-| Codex edition's direct desktop transport | Uses installed host app-tools; real macOS desktop integration not certified |
-| Bridge wake-up of a Codex desktop-owned chat | Unavailable: current transport validates Windows named pipes |
-| Bridge ChatGPT chat relay | Unavailable on macOS |
-| Bridge “open CLI session” convenience button | Not certified; resume the member in Terminal yourself |
+| Relic tools and hooks in Claude Code and Codex CLI sessions: organizations, messages, documents, tasks, governance | Included; host hooks must be loaded; members share local `RELIC_HOME` |
+| Relic App | Source included; opens in the default browser unless `msedge` or `chrome` is on PATH; not tested on a Mac |
+| Members that run inside the App (ACP adapters) | Source included; needs Node.js; not tested on a Mac |
+| Desktop shortcut | Windows only; open the App with `python3 -X utf8 scripts/open_app.py` |
+| Wake-up of a Codex desktop-owned chat | Unavailable: current transport validates Windows named pipes |
+| ChatGPT chat members | Unavailable on macOS |
+| 打开会话 on a member's card | Not certified; resume the member in Terminal yourself |
 
 There is no claim of Windows/macOS desktop feature parity. Automated tests verify portable code and fixtures, not a signed-in commercial desktop app. The exact run evidence is in [validation](validation.md).
 
 ## Future real-Mac validation
 
-Use two Terminal sessions with the same Bridge data directory, for example export `RELIC_HOME="$HOME/.relic"` in both before starting the hosts. In Claude Code create a Relic organization and record its ID. In Codex join that ID under a different member name. Exchange a short message and call `inbox`; verify documents and tasks from both sides before starting a larger task.
+Use two Terminal sessions with the same Relic data directory, for example export `RELIC_HOME="$HOME/.relic"` in both before starting the hosts. In Claude Code create a Relic organization and record its ID. In Codex join that ID under a different member name. Exchange a short message and call `inbox`; verify documents and tasks from both sides before starting a larger task.
 
-Keep CLI-owned sessions separate from chats currently held open for writing by the desktop app. Explicit inbox polling works without Bridge's desktop auto-wake. Turn auto-wake off in the panel if you want fully manual turns.
+Keep CLI-owned sessions separate from chats currently held open for writing by the desktop app. Explicit inbox polling works without desktop auto-wake. Turn auto-wake off with the 自动唤醒 switch in the App's 概况 pane if you want fully manual turns.
 
-Diagnostics: `python3 scripts/doctor.py`. Panel: `python3 scripts/open_panel.py` (Bridge/Codex archive). In the repository add `--edition`. For backups, updating the marketplace path, rollback and removal, see the [user guide](guide.en.md#8-storage-updates-and-removal).
+Diagnostics: `python3 scripts/doctor.py`. The App: `python3 -X utf8 scripts/open_app.py`. For backups, updating the marketplace path, rollback and removal, see the [user guide](guide.en.md#8-storage-updates-and-removal).

@@ -4,37 +4,39 @@
 
 [中文](guide.zh-CN.md) · [Windows](windows.en.md) · [macOS](macos.en.md) · [Reference](reference.en.md)
 
-## 1. Choose the edition
+## 1. What Relic is
 
-**Claude** is the small Claude Code-only implementation. It supports a lead with Claude Code subagents and several peer Claude Code sessions. **Codex / GPT** uses Codex session identities, with either native subagents beneath one root or independently selected desktop chats. **Bridge** lets Claude Code and Codex share one local organization, with a member panel, session configuration, messaging, bounded auto-wake, and approved trajectory export.
+Relic is one product in one package: the **Relic plugin** for Claude Code and Codex, and the **Relic App**. The plugin gives a Claude Code or Codex session the Relic tools and hooks, so the session can form or join an organization. The App is a desktop chat for your organizations and the bridge between their members: members can run inside it as Claude Code or Codex sessions, and the App brings Relic into those sessions itself. Every member of an organization uses the same local store, whatever host it runs on.
 
-“GPT” here means **Codex coding sessions**. A normal ChatGPT web conversation does not gain local MCP tools by installing this package. Bridge's separate ChatGPT chat-seat integration has a manual reply-forwarding step and a Windows desktop dependency.
+“GPT” members here are **Codex coding sessions**. A ChatGPT conversation does not gain Relic tools by installing this package; a ChatGPT chat in the desktop app can hold a seat, with a manual reply-forwarding step (section 7).
 
-Install one edition per host. Claude and Bridge both export a plugin named `relic`; enabling both can duplicate tool names and hooks. Codex Organization and Bridge also inject different organization contexts. Disable the unused edition through the host's plugin manager. Do not point the standalone Codex database at a Bridge database: their schemas and governance APIs differ.
+v0.2.0-beta.1 had three editions: Relic Claude, Relic Codex / GPT and Relic Bridge. They are merged: Bridge became Relic. If you used one of them, read [section 9](#9-coming-from-an-earlier-edition).
 
 ## 2. Install and check
 
-Use the [Windows installation guide](windows.en.md). The [macOS document](macos.en.md) is an unreleased development draft. The installer resolves Python and server paths on the receiving machine, configures shell hooks with that same interpreter, then calls the official host plugin CLIs. It does not sign you in, purchase access, approve hooks, disable existing plugins, or modify organization data.
+Use the [Windows installation guide](windows.en.md). The [macOS document](macos.en.md) is an unreleased development draft. The installer resolves Python and server paths on the receiving machine and configures the plugin's MCP server and shell hooks with that same interpreter. Then, for each host, it calls the official host plugin CLI: `<cli> plugin marketplace add <folder>`, then `claude plugin install relic@relic-bridge` or `codex plugin add relic@relic-bridge`. In Claude Code it first disables the earlier editions that register the same tool names (`relic@relic-claude`, `relic@relic-local`; best effort). On Windows it makes a desktop shortcut named Relic that opens the App. It does not sign you in, purchase access, download anything, call a model, approve hooks or modify organization data.
 
-Keep the extracted folder in place: Codex MCP configuration references the server there. If you move it, configure and install again from the new location. `--configure-only` prepares files without installing into either host. `--host codex` / `--host claude` installs Bridge into one host; use the same Bridge edition for the other host later.
+Keep the extracted folder in place: the plugin's MCP configuration and the shortcut point to files there. If you move it, run the installer again from the new location. `--host` chooses the hosts: `auto` (the default) installs into every host whose CLI is found; `claude`, `codex` or `both` names them, and a named host that is not installed stops the installer with an error; `none` changes no host and leaves you with the App alone. `--configure-only` prepares the folder without changing any host or making a shortcut, `--no-shortcut` skips the shortcut, and `--open` opens the App when the installation is done.
 
-Start a new session after installation. Review the hooks in the host's plugin settings. When hooks are unavailable or untrusted, shared tools can remain usable, but automatic context and tool-call enforcement cannot be assumed. Check the host's actual loaded MCP tool list and perform one harmless trial task before giving the organization a large job.
+Members that run in the Relic App get Relic from the App, so their host needs no plugin. For other Claude Code and Codex sessions, including your own, start a new session after installation and review the hooks in the host's plugin settings. When hooks are unavailable or untrusted, shared tools can remain usable, but automatic context and tool-call enforcement cannot be assumed. Check the host's actual loaded MCP tool list and perform one harmless trial task before giving the organization a large job.
 
-## 3. Your first Claude or Bridge organization
+## 3. Your first organization
 
-In a Claude Code session with the plugin enabled:
+In a Claude Code or Codex session with the plugin enabled:
 
 > Use Relic to form a two-member organization for a small documentation task. I will give the task and workspace boundaries. Create the organization, report its ID, and wait for the other member to join.
 
-The lead calls `create` with `name`, `purpose`, `member`, optional `role`, and `governance` (`leader` or `peer`). Save the returned `org_id`. In a second session:
+The lead calls `create` with `name`, `purpose`, `member`, optional `role`, and `governance` (`leader` or `peer`). Save the returned `org_id`. In a second session, Claude Code or Codex:
 
 > Join Relic organization org_… as reviewer. Read the current organization state and coordinate with the lead.
 
-For Bridge, that second session can be Codex. Both members must use the same local `RELIC_HOME`. Claude Code calls `mcp__plugin_relic_org__*`; Codex with Bridge calls `mcp__relic_org__*`. Actual prefixes may be displayed differently by the host, so inspect its loaded tools.
+Both members must use the same local `RELIC_HOME`. Claude Code calls `mcp__plugin_relic_org__*`; Codex calls `mcp__relic_org__*`. Actual prefixes may be displayed differently by the host, so inspect its loaded tools.
 
-For a lead and Claude Code subagents, the `relic:member` agent definition is included. Give each child the actual organization ID, its member name, the task and constraints. Do not invent another session's actor ID. Hooks or host metadata supply identity.
+In the Relic App, 新建组织 creates an organization and 添加成员 adds its members (section 4).
 
-For existing independent sessions, `join` is the simplest onboarding route. Bridge also recognizes a workspace `.relic-seat.json`:
+For a lead and Claude Code subagents, the `relic:member` agent definition is included. Give each child the actual organization ID, its member name, the task and constraints. Do not invent another session's actor ID. Hooks or host metadata supply identity. A Codex subagent works inside its parent's seat.
+
+For existing independent sessions, `join` is the simplest onboarding route. A session started with `RELIC_ORG` and `RELIC_MEMBER` (optionally `RELIC_ROLE`) in its environment takes that seat when it starts, and so does a session whose workspace has a `.relic-seat.json`:
 
 ```json
 {"org":"org_actual_id","member":"reviewer","role":"review"}
@@ -42,17 +44,27 @@ For existing independent sessions, `join` is the simplest onboarding route. Brid
 
 Use a real returned organization ID. Keep seat files out of unrelated workspaces; multiple sessions intentionally joining the same member name represent replacement carriers, not separate members.
 
-## 4. Your first Codex organization
+## 4. Adding members in the Relic App
 
-With the standalone Codex edition enabled, use:
+添加成员 (in the sidebar, the 概况 pane, or 文件 → 添加成员…) offers three ways for a member to run:
 
-> $relic-organization Use native subagents to create two members for this task. Keep the current chat as the root, give each member a distinct responsibility, and verify their real host identities.
+- **在 App 里运行** (run in the App): the App hosts the member's session. Choose Claude Code or Codex, a model and a folder (by default `~/.relic/workspaces/<org>/<member>`); the member can also be made the organization's secretary. It takes its seat, reads the organization and waits for its task.
+- **命令行或桌面版** (command line or desktop app): the member's sessions run in Claude Code or Codex itself. Choose the model, reasoning effort, folder or a git worktree of its own, permission and environment variables. Relic starts its sessions and wakes it when messages arrive.
+- **已有会话** (existing session): a session already on this computer takes a seat: a Claude Code session, a Codex chat or a ChatGPT chat. It joins with its own context. 文件 → 把已有会话放进组织… opens this directly.
 
-The root first records formation through `org_organize`, then uses the host's real collaboration tools to spawn children. Each child joins using its own metadata. Creating the organization record alone does not spawn an agent. Native messages return outbox routes; a member must actually invoke the returned host route, and the receiver must acknowledge the message. If the host does not expose native collaboration, this runtime is unavailable.
+Members of the second and third kind are sessions of Claude Code or Codex itself and use the Relic plugin installed there; a ChatGPT chat needs none, because Relic acts for it. A blank model keeps the harness default. The plugin does not make its own model API calls; members' turns consume the host account's allowance or configured API billing.
 
-For independent desktop chats, ask `$relic-organization` to open the panel. Select existing chats or explicitly request new ones, choose a leader, then start the organization. Each member keeps its own workspace. Chat creation and messaging use the host's authorization and tool interfaces. Remote hosts and cloud ChatGPT conversations are outside this edition's local session catalog.
+A member's card (click its avatar) manages the seat: **开新会话** starts a fresh session (role, tasks and protocols stay; the old session's private notes do not), **打开会话** opens its session in a terminal or the desktop app, **改配置** changes its configuration, **离开席位** lets the session leave while the seat stays, and for a ChatGPT chat **转发回复** takes a reply you copied from the ChatGPT window (section 7).
 
-Quiet mode batches messages while a recipient is idle. It requires the notification setup described in the panel; the plugin does not silently change your global notification preferences. Individual desktop mode sends separate messages. A native organization cannot be switched into desktop mode.
+Members that run in the App are sessions of the Agent Client Protocol (ACP), started through the official adapters `@agentclientprotocol/claude-agent-acp@0.97.0` and `@agentclientprotocol/codex-acp@2.3.0`. Install them under 设置 → Harness 连接: npm puts them in `~/.relic/acp` (about 70 MB), so Node.js is required. They drive the Claude Code and Codex already on this computer. The App brings Relic into each session it runs:
+
+- A Claude Code session loads the plugin from the App's own folder. A Relic plugin installed in Claude Code is switched off in that session, so tools and hooks run once.
+- A Codex session uses Codex's own Relic plugin when it is enabled there; otherwise the App gives the session the Relic MCP server.
+- Each session is named by its seat. The App stores a token on the seat when it starts the session, and the Relic server it starts carries the seat and that token (`RELIC_SEAT`, `RELIC_SEAT_TOKEN`). The server speaks for the seat while the token matches.
+
+So members that run in the App need only Claude Code or Codex itself, installed and signed in. An App-run Claude Code session starts in permission mode `auto`; an App-run Codex session takes the mode that matches `sandbox_mode` in your Codex `config.toml`. Permission requests that Relic does not decide wait for your answer in the App. App-run members are woken only while the App's server runs; their sessions resume after it restarts.
+
+Another coding agent that speaks ACP can be added with one entry in `plugins/relic/app/harness.py`. 设置 → Harness 连接 lists agents of the ACP registry under 以后接入: CodeBuddy / WorkBuddy, GLM, Kimi, Qwen Code, Gemini CLI and OpenCode. For a session without Relic hooks (such an agent's, or a Codex session when the Relic plugin is not enabled in Codex or its hooks are not trusted), the App does the hooks' work: it allows Relic's own tool calls, checks strong protocols when the session asks for permission (an action the session takes without asking cannot be stopped), records finished tool calls as activity, closes the turn and gives one short turn for a reflection that is due.
 
 ## 5. Work, episodes and durable rules
 
@@ -68,68 +80,76 @@ Use shared documents for interfaces and decisions other members need. Writes inc
 
 Open an episode for a meaningful unit of work, close it with an honest outcome, then let each participant reflect on the coordination problems they actually encountered. Members can propose a protocol when the same problem recurs. No business protocols or target protocol count are installed by default.
 
-**Weak protocols** are shared guidance. **Strong protocols** add explicit executable conditions for supported tool calls. Claude/Bridge support `deny`, `require_review`, and `require_before`; the standalone Codex edition uses `deny` and `require_peer_review`. Their rule formats are not interchangeable. See the [reference](reference.en.md).
+**Weak protocols** are shared guidance. **Strong protocols** add explicit executable conditions for supported tool calls: `deny`, `require_review` and `require_before`. See the [reference](reference.en.md).
 
-Examples include limiting writes to an owned directory, having a peer review an exact publication command, or requiring a successful test after the last edit. Members propose, discuss and approve the rule through their edition's governance API. A proposal is not active enforcement. Revising or retiring a protocol preserves its history; recorded use should distinguish following, deviating and being inapplicable.
+Examples include limiting writes to an owned directory, having a peer review an exact publication command, or requiring a successful test after the last edit. Members propose, discuss and approve the rule with the `protocol` tool. A proposal is not active enforcement. Revising or retiring a protocol preserves its history; recorded use should distinguish following, deviating and being inapplicable.
 
 Hooks gate only the actions they actually observe. They do not provide operating-system isolation or blanket control over hosted tools. Keep the host sandbox and normal permissions in effect. Narrow a rule that blocks useful work through the governance tools, which remain reachable.
 
-In Bridge, a member marking a task done must include evidence and a short report (Markdown, at most 1000 characters) of what it achieved and how it turned out. Members write task titles and reports in your language (from `RELIC_LANG`, the Relic App's language setting, or the system language). `message` takes `reply_to` to answer inside a message's thread.
+A member marking a task done must include evidence and a short report (Markdown, at most 1000 characters) of what it achieved and how it turned out. Members write task titles and reports in your language (from `RELIC_LANG`, the Relic App's language setting, or the system language). `message` takes `reply_to` to answer inside a message's thread.
 
-## 6. Bridge panel and automatic turns
+## 6. The Relic App and automatic turns
 
-Ask “Open the Relic panel”, or run `python scripts/open_panel.py --edition bridge` from a source checkout (`python3` on macOS; omit `--edition` in an extracted Bridge package). The panel uses Tk. It can create an organization, configure seats, select existing sessions, display messages/documents/tasks, and request a replacement session. Worktrees are created only when selected for that member.
-
-Each seat chooses a harness, workspace, model and permission mode. Blank model selection keeps the harness default. The plugin does not make its own model API calls; model turns consume the host account's allowance or configured API billing.
-
-Configured seats with auto-wake enabled may start additional turns when new messages arrive. The current limits include a six-hop chain, a two-minute coding-seat gap and a thirty-wake-per-hour organization cap. Receipts do not recursively wake their senders. Turn auto-wake off in the organization panel to stop this behavior. Unconfigured seats use explicit tools/hooks or `inbox` to receive messages.
-
-Windows desktop delivery uses the app's tool pipe. A possibly delivered request is kept uncertain rather than blindly sent twice. On macOS this Bridge path is unavailable: use CLI-owned sessions and explicit `inbox` calls; do not try to resume a desktop-locked session through a second writer. The macOS panel's “open CLI session” convenience action is not certified; open a Terminal session yourself.
-
-### Relic App
-
-Bridge 0.13 includes the **Relic App**, a desktop chat: run `python scripts/open_app.py` in the package (add `--edition bridge` in a source checkout). It runs a local server on 127.0.0.1 and opens a Microsoft Edge or Chrome window; click 安装 in its window bar to install it as an application with its own window, title bar and taskbar icon.
+Open the App with the Relic shortcut on the desktop, by asking a Claude Code or Codex session that has the plugin to open the Relic App (the `panel` tool), or with `python -X utf8 scripts/open_app.py` (`--no-window` only starts the server and prints its address). It runs a local server on 127.0.0.1, port 39321 or the next free one, and opens a Microsoft Edge or Chrome app window. Click 安装 in its window bar to install it as an application with its own window, title bar and taskbar icon; the installed application reaches the server only on port 39321. Closing the window leaves the server running in the background. The interface is in Chinese in this beta.
 
 Organizations and members are on the left. The middle shows the group chat, the secretary and a private chat with each member; a member whose session transcript can be read shows that whole conversation with its actions folded. The right side switches between 概况 (overview), 工作区 (a member's workspace), 文件 (file preview) and 话题 (a thread). In the group chat, 翻译成人话 rewrites what members tell each other so someone outside the work can follow it, with the original folded underneath, and 解读 sums up what the group has been doing. These two and automatic member names make short calls to your signed-in Claude Code (`claude -p`, no session saved), billed to your Claude account as usual.
 
-Members created in the App can run inside it: the App starts Claude Code or Codex sessions through the Agent Client Protocol (ACP). Install the ACP adapter first under 设置 → Harness 连接 (needs Node.js, about 70 MB in `~/.relic/acp`). The interface is in Chinese in this beta.
+Configured seats with auto-wake enabled may start additional turns when new messages arrive. The current limits include a six-hop chain, a two-minute coding-seat gap and a thirty-wake-per-hour organization cap. Receipts do not recursively wake their senders. Turn auto-wake off with the 自动唤醒 switch in the 概况 pane to stop this behavior. Unconfigured seats use explicit tools/hooks or `inbox` to receive messages.
+
+On Windows, a Codex chat open in the Codex desktop app is woken through the app's own tool pipe. A possibly delivered request is kept uncertain rather than blindly sent twice. On macOS this path is unavailable: use CLI-owned sessions and explicit `inbox` calls; do not try to resume a desktop-locked session through a second writer. 打开会话 on a member's card is not certified on macOS; open a Terminal session yourself.
 
 ## 7. Chat seats and trajectory access
 
-Bridge's Claude chat integration is a separate local MCP connection in Claude Desktop; installing the Code plugin does not configure the Chat tab. It uses a `claude-chat:` actor and a maximum inbox wait of 50 seconds. The chat must initiate its own turns.
+Relic's Claude chat integration is a separate local MCP connection in Claude Desktop; installing the Code plugin does not configure the Chat tab. It uses a `claude-chat:` actor and a maximum inbox wait of 50 seconds. The chat must initiate its own turns.
 
-The Windows ChatGPT chat-seat integration can send a peer message into an existing desktop chat. The person must copy each reply and forward it from the discussion room; the plugin cannot read the full reply automatically. This is not an autonomous ChatGPT web integration, and is unavailable in the macOS beta.
+On Windows a ChatGPT chat can hold a seat: seat it with 添加成员 → 已有会话 while the ChatGPT desktop app is running. Relic puts the full text of each message for it into the chat. The app does not give plugins the text of ChatGPT's replies, so the person copies each reply in the ChatGPT window and forwards it with 转发回复 on the member's card; it reaches the members as that chat's message. This is not an autonomous ChatGPT web integration, and is unavailable in the macOS beta.
 
 A member can request another member's trajectory with a reason; export needs the recipient's approval. Previous carriers of one's own seat require the human's decision. Exports can contain full conversation/tool records and session-associated memory. Redaction is on by default but is not a guarantee that every private detail is removed. Use `memory:false` when memory is unnecessary, inspect before sharing, and read the [data guide](privacy.en.md).
 
 ## 8. Storage, updates and removal
 
-| Edition | Default data path | Override |
-| --- | --- | --- |
-| Claude | `~/.claude/relic/relic.sqlite3` | `RELIC_HOME` |
-| Codex / GPT | `~/.codex/relic-organization/organization.sqlite3` | `RELIC_ORG_HOME` |
-| Bridge | `~/.relic/relic.sqlite3` | `RELIC_HOME` |
+Relic keeps its data under `~/.relic` (`~` means your account's home folder on either OS); `RELIC_HOME` moves all of it.
 
-`~` means your account's home folder on either OS. Keep all members of an organization on the same data root on the same machine. Network synchronization and concurrent access across computers are not supported.
+| Path under `~/.relic` | Contents |
+| --- | --- |
+| `relic.sqlite3` | Organizations: members, messages, documents, tasks, episodes, protocols |
+| `app/` | App preferences, avatars, saved 人话 and 解读 results |
+| `acp/` | The ACP adapters and the models they reported |
+| `runs/` | Logs of auto-wake, member turns and the App's server |
+| `workspaces/<org>/<member>` | Default folders of members added in the App |
+| `trajectories/` | Approved trajectory exports |
 
-Before upgrading, stop auto-wake and close plugin processes, then copy the complete data directory, including any SQLite WAL/SHM files, into a private backup. Retain the old plugin package. Extract the new release into a permanent directory; update the local marketplace to that directory through the host manager (remove the old marketplace registration if the host reports a duplicate), then run the new installer and restart the host. Review hooks again if the host requests it. Do not delete organization data to fix an installation error.
+Keep all members of an organization on the same data root on the same machine. Network synchronization and concurrent access across computers are not supported.
 
-To roll back, restore the old plugin and its matching data backup while processes are stopped. To uninstall, remove the edition in the host plugin manager. Data and extracted source folders are retained; delete them separately only if you intend to discard the records. No automatic conversion between editions is included.
+Before upgrading, turn auto-wake off, close Relic sessions and stop the App's server (its process id is `pid` in `~/.relic/app.json`). Then copy the complete data directory, including any SQLite WAL/SHM files, into a private backup. Retain the old package. Extract the new release into a permanent directory and run its installer: it removes the earlier registration of the `relic-bridge` marketplace (which points at the old folder) and registers the new directory in its place. Restart the host and review hooks again if the host requests it. Do not delete organization data to fix an installation error.
 
-## 9. Troubleshooting and feedback
+To roll back, restore the old package and its matching data backup while processes are stopped. To uninstall, remove the plugin in the host plugin manager and delete the Relic shortcut. Data and extracted folders are retained; delete them separately only if you intend to discard the records.
 
-Run `python scripts/doctor.py --edition bridge` in the checkout, or omit the edition in an extracted archive. It reports local prerequisites and path existence, without reading chat contents or starting a model turn.
+## 9. Coming from an earlier edition
+
+The editions of v0.2.0-beta.1 stay downloadable from the [v0.2.0-beta.1 release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.2.0-beta.1) and are no longer developed.
+
+- **Relic Bridge** became Relic. The marketplace keeps its earlier name, so the plugin id is still `relic@relic-bridge` and the installer upgrades Bridge in place; the display name is now Relic. Organizations in `~/.relic` carry over. The Tk Relic window is gone: everything it did is in the App, and the `panel` tool opens the App.
+- **Relic Claude** registers the same tool names, so the installer disables `relic@relic-claude` (and `relic@relic-local`) in Claude Code. Its organizations live in `~/.claude/relic/relic.sqlite3` and are not converted.
+- **Relic Codex / GPT** (the Codex plugin `relic-organization`) has different tools and data, so the installer leaves it alone. Remove it in Codex if you no longer use it. Its data stays in `~/.codex/relic-organization` and is not converted. These features of the Codex edition have no counterpart in Relic: forming organizations from native Codex subagents, text meetings (`org_call`), quiet mode, and the `require_peer_review` rule format (Relic's closest rule is `require_review`).
+
+## 10. Troubleshooting and feedback
+
+Run `python scripts/doctor.py` in the extracted folder. It reports Python, the Claude Code and Codex CLIs, Node.js, the ACP adapters and whether the configured MCP server paths exist, without reading chat contents or starting a model turn.
 
 | Symptom | Check |
 | --- | --- |
-| No Relic tools | Correct edition installed, new session, valid interpreter/server path, host MCP logs |
+| No Relic tools | Plugin installed and enabled, new session, valid interpreter/server path, host MCP logs |
+| Relic tools appear twice in Claude Code | An earlier edition is still enabled: disable `relic@relic-claude` or `relic@relic-local` |
 | Rules never block | Hooks trusted and enabled; rule active; tested tool is actually hook-covered |
 | “Not in an organization” | Join the real ID using this session; do not override another member's identity |
 | Document revision conflict | Read latest revision, reconcile changes, then write with that revision |
-| Message pending | Recipient configured/idle; dispatcher mode; explicit inbox or native outbox delivery |
+| Message pending | Recipient configured/idle; auto-wake on; explicit inbox; an App-run member is woken only while the App's server runs |
 | Message uncertain | Check recipient receipts before retrying; it may already have arrived |
-| Panel does not open | Tk import and display available; launch from Terminal to see the error |
-| Codex desktop context expired | Reopen the host and invoke the panel from a live Codex chat |
-| Bridge on macOS cannot wake desktop chats | Expected platform limit; use CLI peers or explicit inbox |
+| The App does not open | Run `python -X utf8 scripts/open_app.py` in a terminal to see the error; the server log is `~/.relic/runs/relic-app.log` |
+| The installed App cannot reach Relic | Port 39321 was taken, so the server moved; free the port, stop the server (`pid` in `~/.relic/app.json`) and open the App again |
+| A member cannot run in the App | 设置 → Harness 连接: adapter installed, Node.js found, Claude Code or Codex found and signed in |
+| A Codex desktop chat is not woken | The Codex desktop app is open on Windows; a chat held by a Codex CLI session in a terminal cannot be reached, so its messages wait for `inbox` |
+| Relic on macOS cannot wake desktop chats | Expected platform limit; use CLI peers or explicit inbox |
 
-Include release/edition, OS, Python/host versions, the failing step, expected behavior and a minimal redacted log in an issue. Never attach live organization databases or entire trajectories by default. The bundled SCOPE/benchmark modules in the Codex source are experimental developer extensions and may require separate repositories or Docker; they are not prerequisites for ordinary organizations and their research results are not claims of this beta.
+Include the release, OS, Python/host versions, the failing step, expected behavior and a minimal redacted log in an issue. Never attach live organization databases or entire trajectories by default.

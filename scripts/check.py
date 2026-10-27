@@ -10,16 +10,15 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--edition', choices=('all','claude','codex','bridge','packaging'), default='all')
+parser.add_argument('--suite', choices=('all','relic','packaging'), default='all')
 parser.add_argument('--output', type=Path, default=ROOT/'test-results')
 parser.add_argument('--timeout', type=int, default=300, help='Maximum seconds per isolated suite')
 args = parser.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
-roots = {'packaging':ROOT, 'claude':ROOT/'editions/claude/plugins/relic',
-         'codex':ROOT/'editions/codex/plugins/relic-organization', 'bridge':ROOT/'editions/bridge/plugins/relic'}
+roots = {'packaging':ROOT, 'relic':ROOT/'plugins/relic'}
 results = []
 for name, folder in roots.items():
-    if args.edition not in ('all',name):
+    if args.suite not in ('all',name):
         continue
     with tempfile.TemporaryDirectory(prefix='relic-check-') as temp:
         env = {k:v for k,v in os.environ.items() if not k.startswith(('RELIC_', 'CODEX_'))}
@@ -37,7 +36,7 @@ for name, folder in roots.items():
                 exit_code = proc.returncode
             except subprocess.TimeoutExpired:
                 timed_out, exit_code = True, 124
-        result = {'edition':name, 'exit_code':exit_code, 'timed_out':timed_out, 'seconds':round(time.monotonic()-start,2)}
+        result = {'suite':name, 'exit_code':exit_code, 'timed_out':timed_out, 'seconds':round(time.monotonic()-start,2)}
         results.append(result)
         print(json.dumps(result), flush=True)
         (args.output/'results.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')

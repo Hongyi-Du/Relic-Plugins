@@ -1,0 +1,13 @@
+{
+  "name": "relic-bridge",
+  "owner": {
+    "name": "Hongyi Du"
+  },
+  "plugins": [
+    {
+      "name": "relic",
+      "source": "./plugins/relic",
+      "description": "Relic public beta: the Relic App and the plugin for Claude Code and Codex"
+    }
+  ]
+}
