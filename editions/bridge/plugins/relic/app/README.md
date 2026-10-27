@@ -18,7 +18,8 @@ the chat, panes on the right); the chats follow WeChat and WeCom (avatars, bubbl
     whole conversation: every message expanded, its actions folded in place.
 - **Right side**, one pane at a time (Alt+1 / 2 / 3, or the buttons in the window bar):
   - **概况**: what needs your decision, current work and recently finished tasks (with their reports), members,
-    protocols, episodes. 直接 / 透明 / 秘书优先 set how much it shows.
+    protocols, episodes. 直接 and 透明 show all of it; 秘书优先 (the paper's liaison-first design) keeps only your
+    decisions and the current work, and opens the secretary's chat.
   - **工作区**: a member's folder, its uncommitted git changes, the files it changed lately, and its file tree.
   - **文件**: the preview of a file: text with line numbers, Markdown (preview or source), JSON, images.
   - **话题**: a thread (reply in a thread from any message, like Slack and WeCom).
