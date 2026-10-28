@@ -47,6 +47,7 @@ class Isolated(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.saved = dict(os.environ)
         os.environ["RELIC_HOME"] = str(Path(self.tmp.name) / "relic")
+        os.environ["RELIC_LANG"] = "zh-CN"  # these tests read the Chinese texts, whatever the computer's language
         os.environ["CLAUDE_CONFIG_DIR"] = str(Path(self.tmp.name) / "claude")
         views._LOCATE.clear()
         views._META.clear()
@@ -105,6 +106,20 @@ class Views(Isolated):
         self.assertEqual(views.secretary_of(self.store.get(self.oid)), "lead")
         self.store.set_seat_fields(self.oid, "ana", secretary=True)
         self.assertEqual(views.secretary_of(self.store.get(self.oid)), "ana")
+
+    def test_an_organization_founded_in_the_app_has_a_secretary_only_when_one_is_set(self):
+        # the person founds it and declines the secretary; the first seat leads, as a member, not as the secretary
+        oid = self.store.found("App org", "built in the App")["id"]
+        self.store.add_seat(oid, "lead", "负责人", {"harness": "claude-code", "surface": "acp"})
+        self.store.join("claude-code-session", oid, "lead")
+        org = self.store.get(oid)
+        self.assertEqual((org["leader"], views.secretary_of(org)), ("lead", None))
+        snap = views.snapshot(self.store, oid)
+        self.assertEqual((snap["org"]["secretary"], snap["members"][0]["secretary"], snap["members"][0]["leader"]),
+                         (None, False, True))
+        self.store.add_seat(oid, "sec", "秘书", {"harness": "claude-code", "surface": "acp"})
+        self.store.set_seat_fields(oid, "sec", secretary=True)
+        self.assertEqual(views.secretary_of(self.store.get(oid)), "sec")
 
     def test_a_subagent_card_names_its_parent_session(self):
         snap = views.snapshot(self.store, self.oid)
@@ -234,6 +249,21 @@ class AppServer(Isolated):
         self.assertEqual(self.messages(HUMAN)[-1]["body"], "hello lead")
         info = json.loads((Path(os.environ["RELIC_HOME"]) / "app.json").read_text(encoding="utf-8"))
         self.assertEqual((info["port"], info["token"]), (self.app.port, self.app.token))
+
+    def test_the_page_reads_its_word_list(self):
+        code, words = self.call("/api/i18n?lang=en-GB")
+        self.assertEqual((code, words["lang"], [l["code"] for l in words["languages"]]), (200, "en-US", ["en-US", "zh-CN"]))
+        self.assertEqual(words["strings"]["common.add_member"], "Add member")
+        code, words = self.call("/api/i18n?lang=zh-CN")
+        self.assertEqual((words["lang"], words["strings"]["common.add_member"]), ("zh-CN", "添加成员"))
+        self.assertIn("English", [l["name"] for l in words["languages"]])
+        # the server's own words follow the person's choice in Settings
+        self.assertEqual(self.call("/api/prefs", {"lang": "en-US"})[0], 200)
+        code, out = self.call("/api/org/%s/seat" % self.oid, {"name": ""})
+        self.assertEqual((code, out), (400, {"error": "Enter a name."}))
+        self.assertIn("created the organization", " ".join(i["text"] for i in self.call("/api/org/%s/chat?kind=group" % self.oid)[1]["items"] if i["type"] == "notice"))
+        manifest = self.call("/manifest.webmanifest")[1]
+        self.assertEqual(json.loads(manifest)["lang"] if isinstance(manifest, str) else manifest["lang"], "en-US")
 
     def test_a_refused_write_leaves_the_connection_usable(self):
         import http.client

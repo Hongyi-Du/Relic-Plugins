@@ -64,6 +64,7 @@ class ChatMembers(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.saved = dict(os.environ)
         os.environ["RELIC_HOME"] = str(Path(self.tmp.name) / "relic")
+        os.environ["RELIC_LANG"] = "zh-CN"  # these tests read the Chinese texts, whatever the computer's language
         self.store = Store()
         self.oid = self.store.create(CLAUDE_CHAT, "Debate", "compare two plans", "claude-chat")["id"]
         self.store.join("chatgpt:" + CHAT, self.oid, "gpt-chat")

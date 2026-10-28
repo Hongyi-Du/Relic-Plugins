@@ -63,10 +63,14 @@
   },
   {
     "name": "status",
-    "description": "Your view of the organization: members and roles, active protocols, proposals to vote on, review requests, tasks, documents, reflection due, unread messages.",
+    "description": "Your view of the organization: members and roles, active protocols, proposals to vote on, review requests, tasks, documents, reflection due, unread messages. With org (an organization below yours): that organization as seen from above.",
     "inputSchema": {
       "type": "object",
       "properties": {
+        "org": {
+          "type": "string",
+          "description": "Another organization, by id or exact name: one you hold a seat in (you act there as its member and follow its protocols), one below yours, where you can act, or one above it, which you report to."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -77,7 +81,7 @@
   },
   {
     "name": "message",
-    "description": "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who reads and answers it in the Relic App. Messages persist and are delivered to recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text from plugins, so the person forwards it in the Relic App and it comes back to you as its message. When you need the answer in this turn, call inbox with wait afterwards.",
+    "description": "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who reads and answers it in the Relic App. Messages persist and are delivered to recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text from plugins, so the person forwards it in the Relic App and it comes back to you as its message. When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your other seats is answered with org=<that organization>.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -98,6 +102,10 @@
           "type": "integer",
           "description": "Reply inside the thread of message #id, like a Slack thread; without `to`, the thread's participants receive it."
         },
+        "org": {
+          "type": "string",
+          "description": "Write to members of another organization: one below yours, or one above it to report. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -110,12 +118,16 @@
   },
   {
     "name": "inbox",
-    "description": "Read your unread messages (marks them read). wait (seconds; the longest this client allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging a member whose answer you need in this turn, and call it again if the answer has not come yet.",
+    "description": "Read your unread messages (marks them read), in every organization you hold a seat in; one that reached another seat than your main one names its organization. wait (seconds; the longest this client allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. org: only that seat's messages.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "wait": {
           "type": "integer"
+        },
+        "org": {
+          "type": "string",
+          "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
         },
         "actor": {
           "type": "string",
@@ -177,6 +189,10 @@
         "role": {
           "type": "string"
         },
+        "org": {
+          "type": "string",
+          "description": "An organization below yours: read its documents (doc_read) and assign or update its tasks (task; a new task needs an owner, one of its members)."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -227,6 +243,10 @@
         "body": {
           "type": "string"
         },
+        "org": {
+          "type": "string",
+          "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -239,7 +259,7 @@
   },
   {
     "name": "protocol",
-    "description": "Organization protocols. op=propose: weak {title, rationale, guidance, trigger, scope?, evidence} is shared guidance; strong {title, rationale, episode_id (closed, reflected), rules: [rule]} is enforced on tool calls by the hook. Revise with supersedes, retire with retire_target. A proposal becomes active when the organization's approval threshold is reached. op=vote {protocol_id, vote: approve|reject, reason}. op=use {protocol_id, outcome: followed|deviated|inapplicable, note} reports actual use. op=list.",
+    "description": "Organization protocols. op=propose: weak {title, rationale, guidance, trigger, scope?, evidence} is shared guidance; strong {title, rationale, episode_id (closed, reflected), rules: [rule]} is enforced on tool calls by the hook. Revise with supersedes, retire with retire_target. A proposal becomes active when the organization's approval threshold is reached. A protocol binds its own organization only, unless inherit is true: then the organizations below inherit it, like a class, and each can override one (supersedes=<org id>/<P#>) or stop it for itself and those below (retire_target=<org id>/<P#>) by its own vote; one issued from above stays as issued. Say in trigger when it applies (e.g. when reporting to the person). op=vote {protocol_id, vote: approve|reject, reason}. op=use {protocol_id, outcome: followed|deviated|inapplicable, note} reports actual use. op=list.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -312,6 +332,18 @@
         "note": {
           "type": "string"
         },
+        "inherit": {
+          "type": "boolean",
+          "description": "The organizations below this protocol's organization inherit it too (default: it binds its own organization only)."
+        },
+        "downward": {
+          "type": "boolean",
+          "description": "Older name of inherit."
+        },
+        "org": {
+          "type": "string",
+          "description": "An organization below yours: propose there issues the protocol and it takes effect directly (only an organization above can revise or retire it); list shows its protocols. From below: op=use records your use of a protocol that binds you from that organization above."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -362,6 +394,72 @@
         "redact": {
           "type": "boolean"
         },
+        "org": {
+          "type": "string",
+          "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
+        },
+        "actor": {
+          "type": "string",
+          "description": "Filled in automatically by the Relic hook. Leave it out."
+        }
+      },
+      "required": [
+        "op"
+      ]
+    }
+  },
+  {
+    "name": "group",
+    "description": "Subgroups and changes to formal (standing) organizations. op=create {name, purpose, leader, parent?, members?} makes a subgroup for one piece of work under parent (default: the organization you act in), which it inherits protocols from; its members (default: every member of the formal organization at or above parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader {member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the secretary-general (the cabinet's leader) or, without a cabinet, the person approves; you get a message when it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: requests waiting on you, your own requests and the subgroups of your organization.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "create",
+            "close",
+            "reparent",
+            "leader",
+            "dissolve",
+            "approve",
+            "deny",
+            "list"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "leader": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "member": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "org": {
+          "type": "string",
+          "description": "The organization to act in or on: one you hold a seat in, or (reparent, leader, dissolve) one below yours."
+        },
         "actor": {
           "type": "string",
           "description": "Filled in automatically by the Relic hook. Leave it out."
@@ -403,6 +501,10 @@
         },
         "note": {
           "type": "string"
+        },
+        "org": {
+          "type": "string",
+          "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
         },
         "actor": {
           "type": "string",

@@ -36,7 +36,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from relic_core import runner
+from relic_core import i18n, runner
 from relic_core.store import data_home
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # the Relic plugin folder this App runs from
@@ -365,7 +365,7 @@ def install(harness, log):
     """Install a harness's ACP adapter with npm; `log` gets each output line. Returns npm's exit code."""
     npm = shutil.which("npm") or shutil.which("npm.cmd")
     if not npm:
-        log("没找到 npm：先安装 Node.js（nodejs.org）。")
+        log(i18n.t("harness.need_npm"))
         return 1
     acp_home().mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen([npm] + install_command(harness)[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -390,9 +390,10 @@ def catalog():
             problem = str(error)
         adapter = installed(key)
         if not problem and not adapter:
-            problem = "ACP 适配器还没安装。" if spec.get("package") else "没找到 %s。" % spec["title"]
+            problem = (i18n.t("harness.not_installed") if spec.get("package")
+                       else i18n.t("harness.not_found", title=spec["title"]))
         if not problem and spec.get("package") and not node():
-            problem = "没找到 Node.js，ACP 适配器需要它。"
+            problem = i18n.t("harness.need_node")
         known = remembered(key)
         out.append({"id": key, "title": spec["title"], "vendor": spec["vendor"], "available": not problem,
                     "problem": problem, "adapter": spec.get("package") or "", "adapter_installed": adapter,

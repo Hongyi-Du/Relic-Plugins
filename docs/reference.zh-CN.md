@@ -2,7 +2,7 @@
 
 [English](reference.en.md) · [完整指南](guide.zh-CN.md)
 
-随包源码导出的准确 MCP schema 见 [docs/api/relic.json](api/relic.json)（11 个工具）。必填字段、枚举和参数说明以该文件为准。会话身份由宿主提供，不要通过 actor 参数冒充其他成员。
+随包源码导出的准确 MCP schema 见 [docs/api/relic.json](api/relic.json)（12 个工具）。必填字段、枚举和参数说明以该文件为准。会话身份由宿主提供，不要通过 actor 参数冒充其他成员。
 
 ## 工具
 
@@ -10,17 +10,20 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 
 | 工具 | 操作与主要字段 |
 | --- | --- |
-| `create` | `name`、`purpose`、`member`，可选 `role`、`governance: leader|peer` |
-| `join` | `org_id`、`member`、可选 `role`；重新加入同名席位表示替换载体 |
-| `status` | 当前成员的组织、共同工作、协议与待办 |
-| `inbox` | 读取未读消息；有上限的 `wait`（秒，最长 600，可用 `RELIC_MAX_WAIT` 调低） |
-| `message` | `to: [成员名]`、`["all"]` 或 `["human"]`（发给人，人在 Relic App 里读）、`body`、可选 `episode_id`；`reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人） |
-| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字） |
+| `create` | `name`、`purpose`、`member`，可选 `role`、`governance: leader|peer`；标了秘书处以后，成员的 `create` 变成交给秘书长的申请 |
+| `join` | `org_id`、`member`、可选 `role`；重新加入同名席位表示替换载体；加入另一个组织是多坐一个席位，会话原来的席位都留着；加入已经坐着的组织，就把它设为主席位 |
+| `status` | 当前成员的组织、共同工作、协议与待办；`org` 写下级组织时，从上级的角度看那个组织 |
+| `inbox` | 读取所有席位的未读消息；有上限的 `wait`（秒，最长 600，可用 `RELIC_MAX_WAIT` 调低） |
+| `message` | `to: [成员名]`、`["all"]` 或 `["human"]`（发给人，人在 Relic App 里读）、`body`、可选 `episode_id`；`reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人）；`org`：下级组织，或要向它汇报的上级组织（发件人写作 `<组织 id>/<成员名>` 时，把它原样写进 `to` 回复） |
+| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字）；`org` 写下级组织时，可以 `task`（新任务要指定那里的成员为负责人）和 `doc_read` |
 | `episode` | `open`、`close`、`reflect` |
-| `protocol` | `propose`、`vote`、`use`、`list`；用 `supersedes` / `retire_target` 修订/废止 |
+| `protocol` | `propose`、`vote`、`use`、`list`；用 `supersedes` / `retire_target` 修订/废止（从上级继承来的协议写成 `<组织 id>/<P#>`）；`inherit: true`（或 `downward: true`）让下面的组织继承它；`org`：下级组织（`propose` 在那里直接生效，`list`），或上级组织（`use`） |
 | `review` | `list`、`approve`；批准具体待审核的 `request_id` |
 | `trajectory` | `request`、`answer`、`list`，经过批准的导出 |
+| `group` | `create {name, purpose, leader, parent?, members?}` 建子组；`close {org}`（子组负责人）；`reparent {parent, org?, reason}`、`leader {member, org?, reason}`、`dissolve {org?, reason}` 申请调整正式组织；`approve` / `deny {request_id, note}`（秘书长）；`list` |
 | `panel` | 在人的屏幕上打开 Relic App |
+
+除 `create`、`join`、`panel` 外，每个工具都接受 `org`，写会话自己坐着的组织（id 或准确的名字）：这次调用以会话在那里的成员身份做事，这一轮结束前，会话的工具调用守那个组织的协议。`inbox` 带这样的 `org` 时只读那个席位的消息。不是主席位收到的消息显示为 `[msg 12 · <组织> from <发件人>]`。上下级、子组、秘书处和因职务席位见 [完整指南](guide.zh-CN.md#6-上级组织和下级组织)。
 
 共享文档示例：
 

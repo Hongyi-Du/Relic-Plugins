@@ -2,7 +2,7 @@
 
 [中文](reference.zh-CN.md) · [User guide](guide.en.md)
 
-The exact MCP schemas are exported from the shipped code in [docs/api/relic.json](api/relic.json) (11 tools). Required fields, enums and descriptions in that file are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
+The exact MCP schemas are exported from the shipped code in [docs/api/relic.json](api/relic.json) (12 tools). Required fields, enums and descriptions in that file are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
 
 ## Tools
 
@@ -10,17 +10,20 @@ Claude Code shows the tools as `mcp__plugin_relic_org__*`; Codex shows them as `
 
 | Tool | Operations and main fields |
 | --- | --- |
-| `create` | `name`, `purpose`, `member`, optional `role`, `governance: leader|peer` |
-| `join` | `org_id`, `member`, optional `role`; rejoining a seat replaces its carrier |
-| `status` | Current member's organization, shared state, rules and outstanding work |
-| `inbox` | Read unread messages; bounded `wait` in seconds (maximum 600, lower with `RELIC_MAX_WAIT`) |
-| `message` | `to: [member names]`, `["all"]` or `["human"]` (the person, who reads it in the Relic App), `body`, optional `episode_id`; `reply_to` answers inside a message's thread (without `to`, the thread's participants get it) |
-| `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters) |
+| `create` | `name`, `purpose`, `member`, optional `role`, `governance: leader|peer`; once a secretariat is marked, a member's `create` becomes a request for the secretary-general |
+| `join` | `org_id`, `member`, optional `role`; rejoining a seat replaces its carrier; joining another organization adds a seat and keeps the session's others; joining one it sits in makes that its main seat |
+| `status` | Current member's organization, shared state, rules and outstanding work; with `org` naming an organization below, that organization as seen from above |
+| `inbox` | Read unread messages of every seat; bounded `wait` in seconds (maximum 600, lower with `RELIC_MAX_WAIT`) |
+| `message` | `to: [member names]`, `["all"]` or `["human"]` (the person, who reads it in the Relic App), `body`, optional `episode_id`; `reply_to` answers inside a message's thread (without `to`, the thread's participants get it); `org`: an organization below, or one above to report to (a sender named `<org id>/<member>` is answered with that name in `to`) |
+| `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters); `org`: an organization below, for `task` (a new task needs an owner, one of its members) and `doc_read` |
 | `episode` | `open`, `close`, `reflect` |
-| `protocol` | `propose`, `vote`, `use`, `list`; `supersedes` / `retire_target` for revisions/retirement |
+| `protocol` | `propose`, `vote`, `use`, `list`; `supersedes` / `retire_target` for revisions/retirement (`<org id>/<P#>` for a protocol inherited from above); `inherit: true` (or `downward: true`) makes the organizations below inherit it; `org`: an organization below (`propose` takes effect there at once, `list`), or one above (`use`) |
 | `review` | `list`, `approve`; approval refers to a concrete pending `request_id` |
 | `trajectory` | `request`, `answer`, `list`; approval-controlled export |
+| `group` | `create {name, purpose, leader, parent?, members?}` makes a subgroup; `close {org}` (its leader); `reparent {parent, org?, reason}`, `leader {member, org?, reason}`, `dissolve {org?, reason}` ask to change a formal organization; `approve` / `deny {request_id, note}` (the secretary-general); `list` |
 | `panel` | Open the Relic App on the person's screen |
+
+Every tool except `create`, `join` and `panel` also takes `org` naming an organization the session sits in, by id or exact name: the call then acts as the session's member there, and that organization's protocols bind the session's tool calls until its turn ends. `inbox` with such an `org` reads only that seat's messages. A message that reached a seat other than the main one is shown as `[msg 12 · <organization> from <sender>]`. The [user guide](guide.en.md#6-organizations-above-and-below) describes organizations above and below, subgroups, the secretariat and ex officio seats.
 
 Example shared document:
 

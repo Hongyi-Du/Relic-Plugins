@@ -13,7 +13,7 @@ A Relic organization keeps three kinds of state apart:
 
 Members decide their own roles, interfaces and division of work. Nothing here prescribes a hierarchy, meeting, task list or protocol count. The organization starts with no protocols; protocols come from friction the members actually ran into.
 
-All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a harness without this plugin, `mcp__relic_org__*`): `create`, `join`, `status`, `message`, `inbox`, `work`, `episode`, `protocol`, `review`, `trajectory`, `panel`. Your identity is attached automatically; never pass `actor`.
+All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a harness without this plugin, `mcp__relic_org__*`): `create`, `join`, `status`, `message`, `inbox`, `work`, `episode`, `protocol`, `review`, `group`, `trajectory`, `panel`. Your identity is attached automatically; never pass `actor`.
 
 ## Two ways to run an organization
 
@@ -50,6 +50,70 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
 - Others vote (`protocol op=vote`). A proposal activates at the threshold: leader plus one more member under `leader` governance, a majority under `peer`.
 - Revise with `supersedes`, retire with `retire_target`; both go through the same vote.
 - When an active protocol shaped your work, record it with `protocol op=use` (followed, deviated or inapplicable). This is how the organization learns whether a protocol helps.
+
+## Organizations above and below
+
+The person places an organization under another one in the Relic App; a member can ask for it with
+`group {op: "reparent"}` (see Approvals below). Your context says which organizations are above and below yours.
+
+- **Above yours** (yours is below it): its members can see your organization, write to you, assign your tasks and issue
+  protocols that take effect here directly; only an organization above can revise or retire such a protocol. You report
+  upward with `message {org: "<its id>", to: [member]}`. A message from above names its sender `<org id>/<member>`:
+  answer it with `to: ["<org id>/<member>"]`. You do not act in an organization above.
+- **Below yours** (at any depth): as a member you act there with the `org` argument (its id or exact name):
+  - `status {org}`: the organization as seen from above (members, protocols, tasks, documents, recent messages).
+  - `message {org, to, body}`: write to its members; they are woken as usual and can answer you.
+  - `work {org, op: "task", ...}` assigns or updates its tasks (a new task needs an owner, one of its members);
+    `work {org, op: "doc_read"}` reads its documents.
+  - `protocol {org, op: "propose", ...}` issues a protocol there: it takes effect directly, without a vote. Revise or
+    retire it the same way (`supersedes`, `retire_target`).
+- **inherit** (older name: `downward`): a protocol binds its own organization only. `protocol op=propose` with
+  `inherit: true` makes the organizations below inherit it, at any depth; strong rules are enforced on their members'
+  tool calls too. A member below records its use with `protocol op=use org=<the organization above>`.
+- **Inheritance works like classes.** An organization below can override an inherited protocol for itself and the
+  organizations below it (`supersedes: "<org id>/<P#>"`, the id `protocol op=list` shows) or stop it there
+  (`retire_target: "<org id>/<P#>"`); both go through its own vote. A protocol issued from above stays as issued. Say
+  in `trigger` when a protocol applies (for example "when reporting to the person"); narrow strong rules by tool and
+  input.
+- You follow the protocols of the organization whose work you are doing. Acting in an organization below with `org`
+  does not change that: your own organization's protocols still bind you.
+- What you do below is recorded on both sides: the organization below sees who did what in its group chat, and your
+  organization keeps a note of it.
+
+## One session, several seats
+
+A session can hold a seat in several organizations: the leader of a department also sits in the department above and
+in the cabinet (ex officio), and a member of a subgroup keeps its seat in its own organization. Your context names your
+other seats.
+
+- Your **main seat** is the one Relic tools use when you pass no `org`. With `org: "<an organization you sit in>"` any
+  Relic tool acts as your member there, exactly like that organization's other members.
+- `inbox` brings the messages of every seat. One that reached another seat than your main one is marked
+  `[msg 12 · <organization> from <sender>]`: answer it with `org` set to that organization.
+- While you work for an organization (a turn woken by its message, or after a Relic call with its `org`), its protocols
+  bind your tool calls; when the turn ends you are back in your main seat, so what the person asks in your session is
+  your main organization's work.
+- A session takes one turn at a time: a message to another of your seats waits until the current turn ends.
+
+## Subgroups, the cabinet and approvals (`group` tool)
+
+- **Subgroups** are made for one piece of work: `group {op: "create", name, purpose, leader, parent?, members?}`.
+  `parent` defaults to the organization you act in; the subgroup inherits the protocols that pass down from it (those
+  marked `inherit`), like any organization below. Its members default to
+  every member of the formal organization at or above `parent`; each gets a seat in it with the same session and name,
+  and `leader` (one of them) leads it. Any member of `parent` can make one, without approval. Work there with
+  `org: "<its id>"`; its leader closes it with `group {op: "close", org}` when the work is done (the record stays).
+- **The cabinet** (secretariat) is the formal organization the person marks in the Relic App; its leader is the
+  secretary-general. The leader of every formal organization holds a seat ex officio in the formal organization right
+  above it and in the cabinet, with the role "Head of <department>" in the person's language; the seat follows
+  whoever leads.
+- **Approvals**: creating a formal organization (`create`), placing one under another (`group {op: "reparent", parent,
+  org?, reason}`), changing its leader (`group {op: "leader", member, org?, reason}`) and dissolving it (`group {op:
+  "dissolve", org?, reason}`) become a request for the secretary-general (without a cabinet: for the person; `create`
+  then needs no approval). The secretary-general decides with `group {op: "approve" | "deny", request_id, note}`; the
+  secretary-general's own changes take effect at once. You get a message with the decision; an approved `create`
+  seats you in the new organization under the member name you gave. `group {op: "list"}` shows requests waiting on you,
+  your own requests and your organization's subgroups.
 
 ## Members on different harnesses (Claude Code and Codex)
 

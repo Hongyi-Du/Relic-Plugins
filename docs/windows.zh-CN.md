@@ -13,7 +13,7 @@
 
 ## 下载与安装
 
-从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.3.0-beta.1) 下载 `relic-windows-v0.3.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
+从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.0-beta.1) 下载 `relic-windows-v0.4.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
 
 解压到长期保留的目录，例如 `C:\Tools\Relic`。在解压目录打开 PowerShell：
 
@@ -38,6 +38,8 @@ python -X utf8 scripts/install.py --host codex
 
 开始新宿主会话，在插件设置中审阅 hooks。若 Codex 提示 hooks 功能关闭，请通过宿主支持的设置启用；安装器保留现有选择。保留解压后的目录。
 
+从 v0.3.0-beta.1 升级：运行新安装器之前，先停掉 Relic App 的服务（进程号是 `~/.relic/app.json` 里的 `pid`）。装好后，在还开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex：Codex 启动时才载入它缓存的插件版本。组织照常保留，详见 [完整指南](guide.zh-CN.md) 第 9 节。
+
 ## 验证与使用
 
 ```powershell
@@ -51,7 +53,7 @@ python -X utf8 scripts/open_app.py
 
 让智能体报告 Relic 状态，创建小组织并交换一条消息，确认收件人真正读到了消息。测试强协议时，使用一个无害的匹配动作和一个不匹配动作；安装成功不代表 hooks 覆盖已验证。
 
-App 界面目前仍含中文标签。中英文使用文档均已提供，本内测版没有完成整个 GUI 的英文翻译。
+App 界面有中文和英文，在「设置 → 语言与命名 → 语言」里选；默认「跟随系统」。
 
 ## 常见问题
 

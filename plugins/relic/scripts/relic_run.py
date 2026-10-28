@@ -192,7 +192,7 @@ def main():
         store = Store()
         org = store.get(a.org)
         seat = org["members"][a.member]
-        config = seat.get("config") or runner.default_config(seat.get("harness") or "codex")
+        config = store.seat_config(a.org, a.member, org) or runner.default_config(seat.get("harness") or "codex")
         harness = config.get("harness")
         if harness == "claude-chat":
             raise RuntimeError("%s is a Claude chat: it takes its turns in the Claude app, where nothing outside can "
@@ -227,6 +227,8 @@ def main():
             pass
         try:
             store = Store()
+            if state.get("session"):  # hooks end a turn; this covers a harness that ran it without them
+                store.clear_focus(state["session"])
             wake_from = [m for m in a.wake_from.split(",") if m]
             if wake_from:
                 error = None if state.get("status") == "done" else str(state.get("error") or state.get("reply") or "failed")

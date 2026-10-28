@@ -177,6 +177,8 @@ class Waiter(threading.Thread):
         try:
             with CODE:
                 actor = self.plugin.api.actor_of(args, self.params.get("_meta"), self.plugin.store)
+                if hasattr(self.plugin.api, "seated"):  # org=<a seat>: that seat's messages only
+                    actor = self.plugin.api.seated(self.plugin.store, "inbox", args, actor)
                 self.plugin.store.require(actor)  # outside an organization the error comes at once, as before
             deadline = time.monotonic() + self.seconds
             while True:

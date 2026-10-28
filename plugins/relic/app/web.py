@@ -15,9 +15,9 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, runner, wake
+from relic_core import __version__, i18n, runner, wake
 from relic_core.sessions import actor_for, all_sessions
-from relic_core.store import OrgError, Store, data_home
+from relic_core.store import OrgError, Store, data_home, person_language
 
 from . import harness as harnesses
 from . import hub as hubs
@@ -30,7 +30,7 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 DEFAULT_PORT = 39321  # when taken (or reserved by Windows), the next free one; app.json records the port in use
 VERSION = __version__  # the App ships with the plugin and carries its version
 MANIFEST = {
-    "name": "Relic", "short_name": "Relic", "description": "Relic 组织的聊天和概况",
+    "name": "Relic", "short_name": "Relic", "description": "",
     "id": "/", "start_url": "/?source=pwa", "scope": "/", "display": "standalone", "display_override": ["window-controls-overlay"],
     "background_color": "#F9F8F6", "theme_color": "#F9F8F6",
     "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
@@ -75,6 +75,7 @@ class App:
         self.store = store or Store()
         self.bus = Bus()
         self.hub = hubs.Hub(publish=self.bus.publish, store=self.store)
+        hubs.LANG[0] = self.lang  # what the hub shows the person (states, turn notes) is in the page's language
         self.token = secrets.token_urlsafe(24)
         self.port = port
         self._stamps = {}
@@ -138,7 +139,8 @@ class App:
         try:
             self.hub.deliver_human(org_id, member, body, mid, reply_to=reply_to)
         except Exception as error:
-            self.store.send_as(org_id, member, [views.HUMAN], "（Relic App 没能把消息送进 %s 的会话：%s）" % (member, error))
+            self.store.send_as(org_id, member, [views.HUMAN],
+                               i18n.t("api.deliver_failed", self.lang(), member=member, error=error))
 
     def rename(self, org_id, a):
         """The person renamed a member: shown everywhere in the App, and given to the member's own session."""
@@ -151,9 +153,9 @@ class App:
         synced, note = (False, "")
         if name:
             try:
-                synced, note = naming.rename_session(seat, name, lambda s: views.locate(s)[2])
+                synced, note = naming.rename_session(seat, name, lambda s: views.locate(s)[2], self.lang())
             except Exception as error:
-                note = "没能改到它自己的会话：%s" % error
+                note = i18n.t("api.rename_failed", self.lang(), error=error)
         self.bus.publish({"type": "org", "org": org_id})
         return {"display": naming.display(self.store.get(org_id)["members"][member], member, self.lang()),
                 "synced": synced, "note": note}
@@ -166,9 +168,10 @@ class App:
         meta = views.session_meta(seat.get("carrier") or "") if seat.get("carrier") else {}
         surface = views.surface_of(seat, meta)
         info = views.model_info(seat.get("harness") or config.get("harness"), surface, config,
-                                self.hub.status(org_id, member), (seat.get("carrier") or "").partition("/")[2])
+                                self.hub.status(org_id, member), (seat.get("carrier") or "").partition("/")[2],
+                                self.lang())
         if not info["editable"]:
-            raise OrgError(info["note"] or "这个成员的模型不能在 Relic App 里改。")
+            raise OrgError(info["note"] or i18n.t("api.model_locked", self.lang()))
         if info["applies"] == "now":
             result = self.hub.set_model(org_id, member, model, effort)
         else:
@@ -195,12 +198,12 @@ class App:
         configuration changes; with start, its first session starts now (the introduction turn)."""
         name = (a.get("name") or "").strip()
         if not name:
-            raise OrgError("写一个名字。")
+            raise OrgError(i18n.t("api.need_name", self.lang()))
         config = {k: str(a.get(k) or "").strip() for k in ("model", "effort", "folder", "environment", "permission")}
         config.update(harness=a.get("harness") or "claude-code", surface=a.get("surface") or "cli",
                       env=runner.parse_env(a.get("env") or ""))
         if config["harness"] not in ("claude-code", "codex") or config["surface"] not in ("cli", "gui"):
-            raise OrgError("命令行和桌面版成员只能是 Claude Code 或 Codex。")
+            raise OrgError(i18n.t("api.host_harness", self.lang()))
         config["folder"] = config["folder"] or str(Path.home())
         config["environment"] = config["environment"] if config["environment"] in ("local", "worktree") else "local"
         config["permission"] = runner.checked_permission(config)
@@ -231,8 +234,12 @@ class App:
         """An existing session takes a seat (a new member or an existing one), as it would by joining itself."""
         session, member = a.get("session") or {}, (a.get("member") or "").strip()
         if not member or not session.get("id") or not session.get("harness"):
-            raise OrgError("选一个会话，再写一个席位名。")
-        self.store.join(actor_for(session), org_id, member, (a.get("role") or "").strip())
+            raise OrgError(i18n.t("api.pick_session", self.lang()))
+        actor = actor_for(session)
+        for other, name, _ in self.store.seats_of(actor):  # it keeps its other seats; one run in the App cannot
+            if other["id"] != org_id and ((other["members"].get(name) or {}).get("config") or {}).get("surface") == "acp":
+                raise OrgError(i18n.t("api.acp_one_seat", self.lang(), member=name, org=other["name"]))
+        self.store.join(actor, org_id, member, (a.get("role") or "").strip())
         if session["harness"] == "chatgpt":  # a ChatGPT chat takes part only through Relic: make it wakeable
             self.store.set_config(org_id, member, runner.default_config("chatgpt"))
         self.bus.publish({"type": "org", "org": org_id})
@@ -246,7 +253,7 @@ class App:
         if config.get("surface") == "acp":
             self.hub.fresh(org_id, member)
         elif not config.get("harness") or config.get("surface") == "chat":
-            raise OrgError("%s 是自己加入的会话：先在名片上「改配置」，选好在哪里运行。" % member)
+            raise OrgError(i18n.t("api.self_joined", self.lang(), member=member))
         else:
             runner.start_turn(org_id, member, runner.introduction(org, member), new_session=True, open_after=True)
         self.bus.publish({"type": "org", "org": org_id})
@@ -258,13 +265,13 @@ class App:
         seat = self.store.get(org_id)["members"][member]
         carrier = seat.get("carrier")
         if not carrier:
-            raise OrgError("%s 还没有会话。" % member)
+            raise OrgError(i18n.t("api.no_session", self.lang(), member=member))
         harness = seat.get("harness") or (seat.get("config") or {}).get("harness")
         if harness in ("chatgpt", "claude-chat"):
-            raise OrgError("%s 是聊天成员：在%s里打开它的聊天。" % (member, "ChatGPT 桌面版" if harness == "chatgpt"
-                                                                 else " Claude 桌面版的 Chat "))
+            raise OrgError(i18n.t("api.chat_member_chatgpt" if harness == "chatgpt" else "api.chat_member_claude",
+                                  self.lang(), member=member))
         if (seat.get("config") or {}).get("surface") == "acp":
-            raise OrgError("%s 在 Relic App 里运行：它的会话就是这里的私聊。" % member)
+            raise OrgError(i18n.t("api.in_app", self.lang(), member=member))
         config = seat.get("config") if (seat.get("config") or {}).get("harness") == harness else {}
         session = carrier.split(":", 1)[1] if carrier.startswith("codex:") else carrier.split("/", 1)[0]
         state = runner.run_state(org_id, member) or {}
@@ -279,9 +286,46 @@ class App:
         if (seat.get("config") or {}).get("surface") == "acp":
             self.hub.stop(org_id, member)
         if seat.get("carrier"):
-            self.store.unbind(seat["carrier"])
+            self.store.unbind(seat["carrier"], org_id)  # its seats in other organizations stay
         self.bus.publish({"type": "org", "org": org_id})
         return {"ok": True}
+
+    # ---------------------------------------------------------------- the organization model
+    def set_cabinet(self, org_id, a):
+        """The person marks an organization as the cabinet (secretariat), or unmarks it."""
+        result = self.store.set_cabinet(org_id, bool(a.get("on", True)))
+        self._changed_all()
+        return result
+
+    def set_leader(self, org_id, a):
+        """The person gives an organization a new leader (at once; a member's request waits for approval)."""
+        result = self.store.set_leader(org_id, (a.get("member") or "").strip())
+        self._changed_all()
+        return result
+
+    def decide_request(self, org_id, a):
+        """The person approves or denies a request kept in org_id (the cabinet, or the requester's organization)."""
+        result = self.store.decide_request_as_human(org_id, a.get("request_id") or "", a.get("decision") or "",
+                                                    a.get("note") or "")
+        self._changed_all()
+        threading.Thread(target=self._dispatch_all, daemon=True).start()  # the requester's message wakes it
+        return result
+
+    def close_group(self, org_id, a):
+        """The person closes a subgroup."""
+        result = self.store.close_group_as(org_id)
+        self._changed_all()
+        return result
+
+    def _changed_all(self):
+        self.bus.publish({"type": "orgs"})
+        for org in self.store.list_orgs():
+            self.bus.publish({"type": "org", "org": org["id"]})
+
+    def _dispatch_all(self):
+        for org in self.store.list_orgs():
+            if org.get("status") == "active":
+                self._dispatch(org["id"])
 
     def waiting(self, org_id, member):
         """A ChatGPT chat member's replies that wait to be forwarded (the oldest first)."""
@@ -300,7 +344,13 @@ class App:
         return result if isinstance(result, dict) else {"ok": True}
 
     def lang(self):
-        return prefs.load().get("lang") or self.page_lang or "zh-CN"
+        return prefs.load().get("lang") or self.page_lang or person_language()
+
+    def set_parent(self, org_id, a):
+        """The person places an organization under another one, or on its own (parent empty)."""
+        result = self.store.set_parent(org_id, a.get("parent") or None)
+        self._changed_all()  # ex officio seats may have moved in other organizations too
+        return result
 
     def install(self, harness):
         if harness not in harnesses.HARNESSES:
@@ -412,7 +462,9 @@ class Handler(BaseHTTPRequestHandler):
                 page = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{TOKEN}}", self.app.token)
                 return self._send(200, page, TYPES[".html"])
             if parts == ["manifest.webmanifest"]:
-                return self._send(200, json.dumps(MANIFEST, ensure_ascii=False), "application/manifest+json")
+                lang = self.app.lang()
+                manifest = dict(MANIFEST, description=i18n.t("page.manifest", lang), lang=i18n.resolve(lang))
+                return self._send(200, json.dumps(manifest, ensure_ascii=False), "application/manifest+json")
             if parts == ["sw.js"]:
                 return self._send(200, (STATIC / "sw.js").read_bytes(), TYPES[".js"], {"Service-Worker-Allowed": "/"})
             if parts[0] == "static" and len(parts) >= 2:
@@ -429,6 +481,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._events()
             if api == ["orgs"]:
                 return self._json(views.org_list(self.app.store))
+            if api == ["orgchart"]:
+                return self._json(views.orgchart(self.app.store, self.app.hub, self.app.lang()))
             if api == ["harnesses"]:
                 return self._json(harnesses.catalog())
             if api == ["seat-options"]:
@@ -438,6 +492,11 @@ class Handler(BaseHTTPRequestHandler):
             if api == ["prefs"]:
                 return self._json(dict(prefs.load(), avatar=prefs.avatar_url(), data=str(data_home()),
                                        port=self.app.port, version=VERSION))
+            if api == ["i18n"]:  # the word list of the page's language, and the languages there are
+                if q.get("lang"):
+                    self.app.page_lang = q["lang"][:20]
+                code, words = i18n.strings(self.app.lang())
+                return self._json({"lang": code, "languages": i18n.languages(), "strings": words})
             if api and api[0] == "avatar":
                 found = prefs.avatar_file(*api[1:3]) if len(api) == 3 else prefs.avatar_file()
                 if not found:
@@ -489,7 +548,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(files.workspace(store, org_id, q.get("member") or ""))
         if rest == ["chat"]:
             kind = q.get("kind") or "group"
-            return self._json(views.chat(store, org_id, kind, q.get("member"), int(q.get("limit") or 200), q.get("before")))
+            return self._json(views.chat(store, org_id, kind, q.get("member"), int(q.get("limit") or 200), q.get("before"),
+                                         lang=self.app.lang()))
         if rest == ["transcript"]:
             seat = store.get(org_id)["members"].get(q.get("member") or "")
             if not seat or not seat.get("carrier"):
@@ -595,6 +655,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(hub.create_member(org_id, a["name"].strip(), a.get("role", ""), a["harness"],
                                                         a.get("model", ""), a.get("mode", ""), a.get("folder", ""),
                                                         bool(a.get("secretary"))))
+                if action == "parent":
+                    return self._json(app.set_parent(org_id, a))
+                if action == "cabinet":
+                    return self._json(app.set_cabinet(org_id, a))
+                if action == "leader":
+                    return self._json(app.set_leader(org_id, a))
+                if action == "request":
+                    return self._json(app.decide_request(org_id, a))
+                if action == "close":
+                    return self._json(app.close_group(org_id, a))
                 if action == "secretary":
                     hub.make_secretary(org_id, a["member"])
                     return self._json({"ok": True})

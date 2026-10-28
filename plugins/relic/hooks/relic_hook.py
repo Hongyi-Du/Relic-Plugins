@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from relic_core import claude_desktop, wake  # noqa: E402
-from relic_core.context import render, render_messages  # noqa: E402
+from relic_core.context import render, render_messages, render_seats  # noqa: E402
 from relic_core.store import OrgError, Store, is_relic_tool  # noqa: E402
 
 WAKE_EVENTS = {"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SubagentStop"}
@@ -73,6 +73,12 @@ def context_output(event_name, text):
     return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": text[:9500]}}
 
 
+def seats_line(store, actor, org):
+    """The session's other seats, after the context of the organization it works for now."""
+    others = render_seats(store, actor, org["id"])
+    return "\n" + others if others else ""
+
+
 def peer_messages(store, actor):
     messages = store.unread(actor, mark=True, limit=10)
     if not messages:
@@ -109,14 +115,14 @@ def respond(event, store):
         org, current = store.whoami(actor)
         if org_id and member and (not org or org["id"] != org_id or current != member):
             store.join(actor, org_id, member, role)
-        org, member = store.whoami(actor)
+        org, member = store.whoami(store.focused(actor))  # the organization the session works for now
         if not org:
             return {}
         unread = len(store.unread(actor, mark=False))
         tools = tool_prefix() + "*"
         text = ("You are a member of a Relic organization. Use the relic skill and the %s tools "
                 "to coordinate.\n" % tools + render(store, org, member, unread))
-        return context_output(name, text)
+        return context_output(name, text + seats_line(store, actor, org))
 
     if name == "SubagentStart":
         parent = actor_key({"session_id": event.get("session_id")})
@@ -138,10 +144,10 @@ def respond(event, store):
             % (org["name"], org["id"], member, tool_prefix(), org["id"], names)))
 
     if name == "UserPromptSubmit":
-        org, member = store.whoami(actor)
+        org, member = store.whoami(store.focused(actor))
         if not org:
             return {}
-        text = render(store, org, member, full=False)
+        text = render(store, org, member, full=False) + seats_line(store, actor, org)
         msgs = peer_messages(store, actor)
         return context_output(name, text + ("\n" + msgs if msgs else ""))
 
@@ -182,19 +188,24 @@ def respond(event, store):
         org, member = store.whoami(actor)
         if not org:
             return {}
-        ended = store.end_turn(actor)
-        org = store.get(org["id"])
-        due = store.reflection_due(org, member)
-        direct = [m for m in store.unread(actor, mark=False) if m["to"] == [member]]
+        ended = store.end_turn(actor)  # every seat's turn, and back to the main seat
+        due, org = [], None
+        for there, seat_member, main in store.seats_of(actor):  # reflection due in any organization it sits in
+            due = store.reflection_due(there, seat_member)
+            if due:
+                org = there
+                break
+        direct = [m for m in store.unread(actor, mark=False) if m["to"] == [m.get("seat")]]
         reasons = []
         if due:
             ep = org["episodes"][due[-1]]
             seen = "; ".join(ep.get("friction", [])[-4:])
-            reasons.append("Before you finish, reflect on episode %s with %sepisode op=reflect "
+            where = "" if org["id"] == store.whoami(actor)[0]["id"] else " (org=%s)" % org["id"]
+            reasons.append("Before you finish, reflect on episode %s%s with %sepisode op=reflect "
                            "(one short call): what friction between members' work caused this%s, and would a protocol "
                            "prevent it next time, as an enforced rule or as guidance? If the same friction appears in others' "
                            "reflections, propose one."
-                           % (due[-1], tool_prefix(), (" (" + seen + ")") if seen else ""))
+                           % (due[-1], where, tool_prefix(), (" (" + seen + ")") if seen else ""))
         if direct:
             reasons.append("You have %d unread direct message(s); read them with %sinbox and "
                            "answer if needed." % (len(direct), tool_prefix()))

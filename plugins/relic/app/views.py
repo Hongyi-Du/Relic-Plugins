@@ -10,7 +10,8 @@ import os
 import time
 from pathlib import Path
 
-from relic_core import runner, trajectory
+from relic_core import i18n, runner, trajectory
+from relic_core.store import inherits, kind_of
 
 from . import harness as harnesses
 from . import naming, prefs
@@ -175,9 +176,23 @@ def surface_of(seat, meta):
     return "unknown"
 
 
-SURFACE_LABEL = {"desktop": "桌面版", "cli": "命令行", "subagent": "subagent", "acp": "Relic 内嵌（ACP）",
-                 "chat": "聊天", "sdk": "SDK", "unknown": ""}
-HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "chatgpt": "ChatGPT", "claude-chat": "Claude 聊天"}
+SURFACE_KEYS = {"desktop": "view.surface.desktop", "cli": "view.surface.cli", "acp": "view.surface.acp",
+                "chat": "view.surface.chat"}
+SURFACE_NAMES = {"subagent": "subagent", "sdk": "SDK", "unknown": ""}
+HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "chatgpt": "ChatGPT"}
+
+
+def surface_label(surface, lang=None):
+    """Where a member's session runs, in the person's language (product words stay as they are)."""
+    if surface in SURFACE_KEYS:
+        return i18n.t(SURFACE_KEYS[surface], lang)
+    return SURFACE_NAMES.get(surface, surface)
+
+
+def harness_label(harness, lang=None):
+    if harness == "claude-chat":
+        return i18n.t("view.harness.claude_chat", lang)
+    return HARNESS_LABEL.get(harness, harness)
 
 
 # ---------------------------------------------------------------- organizations
@@ -188,18 +203,23 @@ def org_list(store):
         members = org.get("members") or {}
         out.append({"id": org["id"], "name": org["name"], "purpose": org.get("purpose", ""),
                     "governance": org.get("governance"), "status": org.get("status"), "created_at": org.get("created_at"),
-                    "members": len(members), "member_names": list(members)[:9], "last_at": last.get(org["id"])})
+                    "parent": org.get("parent"), "members": len(members), "member_names": list(members)[:9], "last_at": last.get(org["id"]),
+                    "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "leader": org.get("leader")})
     out.sort(key=lambda o: o.get("last_at") or o.get("created_at") or "", reverse=True)
     return out
 
 
 def secretary_of(org):
     """The seat that speaks for the organization to the person: one marked as secretary, else the leader's seat when a
-    main session (not a subagent, not a chat) sits in it, which is the conversation the organization was formed in."""
+    main session (not a subagent, not a chat) sits in it, which is the conversation the organization was formed in.
+    An organization the person founded in the App was formed in no member's conversation: it has a secretary only
+    when one is set."""
     members = org.get("members") or {}
     for name, seat in members.items():
         if seat.get("secretary"):
             return name
+    if org.get("founder") == "human":
+        return None
     leader = org.get("leader")
     seat = members.get(leader or "")
     if seat and seat.get("carrier") and "/" not in seat["carrier"] and seat.get("harness") not in CHAT_HARNESSES:
@@ -230,24 +250,24 @@ def doing_text(act):
     return ("%s %s" % (_short_tool(act["tool"]), summary[:140])).strip()
 
 
-def member_status(org, name, seat, live, act, now):
+def member_status(org, name, seat, live, act, now, lang=None):
     """(state, detail). state: running | waiting | working | active | idle | vacant | error."""
     if live:
         return live.get("state") or "idle", live.get("detail") or ""
     wake = ((org.get("wake") or {}).get("members") or {}).get(name) or {}
     if not seat.get("carrier") and not (seat.get("config") or {}).get("surface") == "acp":
-        return "vacant", "席位还没有会话"
+        return "vacant", i18n.t("view.state.vacant", lang)
     if runner.is_running(org["id"], name, now):
-        return "running", "Relic 开的一轮正在进行"
+        return "running", i18n.t("view.state.running", lang)
     if wake.get("gave_up_at"):
-        return "error", "自动唤醒连续失败，消息等它下次调用工具时送到"
+        return "error", i18n.t("view.state.wake_failed", lang)
     turn = (org.get("episodes") or {}).get(seat.get("turn_episode") or "")
     age = now - act["at"] if act else None
     if turn and turn.get("status") == "open" and age is not None and age < 600:
-        return "working", "在自己的会话里工作"
+        return "working", i18n.t("view.state.working", lang)
     if age is not None and age < 900:
-        return "active", "%d 分钟前有动作" % max(1, int(age // 60))
-    return "idle", "空闲"
+        return "active", i18n.t("view.state.active", lang, n=max(1, int(age // 60)))
+    return "idle", i18n.t("view.state.idle", lang)
 
 
 CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
@@ -256,7 +276,7 @@ CODEX_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt
                 "gpt-5.6-luna"]
 
 
-def model_info(harness, surface, config, live, agent):
+def model_info(harness, surface, config, live, agent, lang=None):
     """Whether the App can change a member's model, where the change applies, and the choices."""
     known = harnesses.remembered(harness)
     if harness == "claude-code":
@@ -270,17 +290,17 @@ def model_info(harness, surface, config, live, agent):
         models = live["models"]
     info = {"models": models, "efforts": efforts, "editable": False, "applies": "", "note": ""}
     if surface == "acp":
-        info.update(editable=True, applies="now", note="内嵌会话：改完立即生效。")
+        info.update(editable=True, applies="now", note=i18n.t("view.model.embedded", lang))
     elif agent:
-        info["note"] = "subagent 的模型由启动它的会话决定，在那个会话里改。"
+        info["note"] = i18n.t("view.model.subagent", lang)
     elif surface == "chat" or harness in CHAT_HARNESSES:
-        info["note"] = "聊天成员的模型在它自己的聊天 app 里选。"
+        info["note"] = i18n.t("view.model.chat", lang)
     elif config.get("harness") == harness and config.get("surface") == "cli":
-        info.update(editable=True, applies="next", note="从 Relic 开的下一轮起生效（自动唤醒、Relic 开的轮次）。")
+        info.update(editable=True, applies="next", note=i18n.t("view.model.next", lang))
     elif harness == "claude-code":
-        info["note"] = "这个会话在 Claude Code 里运行：在那里用 /model 换模型。"
+        info["note"] = i18n.t("view.model.claude", lang)
     elif harness == "codex":
-        info["note"] = "这个会话在 Codex 里运行：在 Codex 的模型选择里换。"
+        info["note"] = i18n.t("view.model.codex", lang)
     return info
 
 
@@ -290,7 +310,7 @@ def member_view(store, org, name, seat, hub=None, act=None, unread=0, secretary=
     meta = session_meta(carrier) if carrier and seat.get("harness") not in CHAT_HARNESSES else {}
     config = seat.get("config") or {}
     live = hub.status(org["id"], name) if hub else None
-    state, detail = member_status(org, name, seat, live, act, now)
+    state, detail = member_status(org, name, seat, live, act, now, lang)
     surface = surface_of(seat, meta)
     harness = seat.get("harness") or config.get("harness") or ""
     tasks = [t for t in (org.get("tasks") or {}).values() if t.get("owner") == name]
@@ -298,12 +318,12 @@ def member_view(store, org, name, seat, hub=None, act=None, unread=0, secretary=
     parent = next((n for n, s in (org.get("members") or {}).items() if agent and s.get("carrier") == session), None)
     model = (live or {}).get("model") or config.get("model") or meta.get("model") or ""
     doing = (live or {}).get("doing") or (doing_text(act) if act and now - act["at"] < 1800 else "")
-    info = model_info(harness, surface, config, live, agent)
+    info = model_info(harness, surface, config, live, agent, lang)
     return {
         "name": name, "display": naming.display(seat, name, lang), "display_custom": bool(seat.get("display_name")),
         "avatar": prefs.avatar_url(org["id"], name),
-        "role": seat.get("role", ""), "harness": harness, "harness_label": HARNESS_LABEL.get(harness, harness),
-        "surface": surface, "surface_label": SURFACE_LABEL.get(surface, surface), "model": model,
+        "role": seat.get("role", ""), "harness": harness, "harness_label": harness_label(harness, lang),
+        "surface": surface, "surface_label": surface_label(surface, lang), "model": model,
         "effort": (live or {}).get("effort") or config.get("effort") or meta.get("effort") or "",
         "model_editable": info["editable"], "model_applies": info["applies"], "model_note": info["note"],
         "models": info["models"], "efforts": info["efforts"],
@@ -315,7 +335,33 @@ def member_view(store, org, name, seat, hub=None, act=None, unread=0, secretary=
         "version": meta.get("version") or "", "embedded": bool(live) or config.get("surface") == "acp",
         "tasks": [{"id": t["id"], "title": t["title"], "status": t["status"]} for t in tasks],
         "has_transcript": bool(meta.get("path")),
+        "also_in": also_in(store, org["id"], carrier), "ex_officio": ex_officio(store, seat),
     }
+
+
+def also_in(store, org_id, carrier):
+    """The other seats the member's session holds: [{org, org_name, member, role, kind, main}] (the card's "also in")."""
+    if not carrier:
+        return []
+    out = []
+    for org, member, main in store.seats_of(carrier):
+        if org["id"] != org_id:
+            out.append({"org": org["id"], "org_name": org["name"], "member": member,
+                        "role": (org["members"].get(member) or {}).get("role", ""), "kind": kind_of(org),
+                        "cabinet": bool(org.get("cabinet")), "main": main})
+    return out
+
+
+def ex_officio(store, seat):
+    """{org, org_name} of the department whose leader holds this seat ex officio, else None."""
+    office = seat.get("ex_officio") or {}
+    if not office.get("org"):
+        return None
+    try:
+        name = store.get(office["org"])["name"]
+    except Exception:
+        name = office["org"]
+    return {"org": office["org"], "org_name": name, "member": office.get("member")}
 
 
 def unread_counts(store, org_id):
@@ -326,7 +372,7 @@ def unread_counts(store, org_id):
     return out
 
 
-def decisions(store, org, hub=None):
+def decisions(store, org, hub=None, lang=None):
     """Items that wait on the person: permission requests of embedded sessions, trajectory requests only the person
     can answer, wake-ups that gave up, blocked tasks."""
     items = []
@@ -346,7 +392,22 @@ def decisions(store, org, hub=None):
     for t in (org.get("tasks") or {}).values():
         if t.get("status") == "blocked":
             items.append({"kind": "task", "id": t["id"], "title": t["title"], "member": t.get("owner")})
+    for r in (org.get("requests") or {}).values():  # changes to formal organizations waiting for a decision
+        if r.get("status") == "pending":
+            items.append(approval_item(store, org, r, lang))
     return items
+
+
+def approval_item(store, org, r, lang=None):
+    """A request kept in org (the cabinet, else the requester's organization) as the App shows it: the person can
+    approve or deny it (POST /api/org/<org>/request). label: what it asks, in the person's language."""
+    who = r.get("requester") or {}
+    return {"kind": "approval", "id": r["id"], "request": r["kind"], "args": r.get("args") or {},
+            "label": request_label(r, lang), "text": store.request_text(r), "reason": r.get("reason", ""),
+            "at": r.get("at"), "org": org["id"], "status": r.get("status"), "requester": who.get("member"),
+            "requester_org": who.get("org"), "requester_org_name": who.get("org_name"), "approver": r.get("approver"),
+            "decided_by": r.get("decided_by"), "decided_at": r.get("decided_at"), "note": r.get("note"),
+            "error": r.get("error")}
 
 
 def snapshot(store, org_id, hub=None, lang=None):
@@ -361,7 +422,9 @@ def snapshot(store, org_id, hub=None, lang=None):
     protocols = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
                   "version": p.get("version"), "author": p.get("author"), "votes": len(p.get("votes") or {}),
                   "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
-                  "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target")}
+                  "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target"),
+                  "issued_by": p.get("issued_by"), "downward": bool(p.get("downward")), "inherit": inherits(p),
+                  "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or "")}
                  for p in sorted((org.get("protocols") or {}).values(), key=lambda p: int(p["id"][1:]))]
     episodes = [{"id": e["id"], "title": e["title"], "status": e["status"], "outcome": e.get("outcome"),
                  "owner": e.get("owner"), "reflections": len(e.get("reflections") or {}),
@@ -369,15 +432,48 @@ def snapshot(store, org_id, hub=None, lang=None):
                  "closed_at": e.get("closed_at"), "summary": e.get("summary", "")}
                 for e in sorted((org.get("episodes") or {}).values(), key=lambda e: int(e["id"][1:]))
                 if e.get("kind") != "turn"]
+    # the organizations around this one: the chain above it, and the ones right below it with what waits there
+    above = store.ancestors(org)
+    children = []
+    for child in store.descendants(org_id):
+        if child.get("parent") != org_id:
+            continue
+        child_tasks = list((child.get("tasks") or {}).values())
+        children.append({"id": child["id"], "name": child["name"], "members": len(child.get("members") or {}),
+                         "kind": kind_of(child), "leader": child.get("leader"),
+                         "decisions": len([d for d in decisions(store, child, hub) if d["kind"] != "task"]),
+                         "blocked": sum(1 for t in child_tasks if t.get("status") == "blocked"),
+                         "working": sum(1 for t in child_tasks if t.get("status") in ("open", "working"))})
+    lineage = store.inheritance(org)
+    inherited = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
+                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
+                  "from_id": a["id"], "issued_by": p.get("issued_by")} for a, p in lineage["inherited"]]
+    # protocols of the organizations above that this organization or one between overrode or stopped
+    replaced = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "from": a["name"], "from_id": a["id"],
+                 "how": how, "by": by, "at": level["name"], "at_id": level["id"]}
+                for a, p, level, by, how in lineage["replaced"]]
+    subgroups = [{"id": o["id"], "name": o["name"], "status": o.get("status"), "leader": o.get("leader"),
+                  "members": len(o.get("members") or {}), "created_at": o.get("created_at"),
+                  "ended_at": o.get("ended_at")}
+                 for o in store.list_orgs() if o.get("parent") == org_id and kind_of(o) == "subgroup"]
     return {
         "chats": chat_heads(store, org_id),
         "org": {"id": org["id"], "name": org["name"], "purpose": org.get("purpose", ""), "governance": org.get("governance"),
                 "leader": org.get("leader"), "status": org.get("status"), "auto_wake": org.get("auto_wake", True),
-                "created_at": org.get("created_at"), "secretary": secretary},
+                "created_at": org.get("created_at"), "secretary": secretary,
+                "parent": {"id": above[0]["id"], "name": above[0]["name"]} if above else None,
+                "above": [{"id": a["id"], "name": a["name"]} for a in above], "children": children,
+                "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "subgroups": subgroups,
+                "home": org.get("home"), "ended_at": org.get("ended_at")},
         "members": members,
         "tasks": [{k: t.get(k) for k in ("id", "title", "owner", "status", "evidence", "at", "created_by", "report", "done_at")}
                   for t in tasks],
-        "protocols": protocols, "episodes": episodes, "decisions": decisions(store, org, hub),
+        "protocols": protocols, "inherited_protocols": inherited, "replaced_protocols": replaced,
+        "requests": [approval_item(store, org, r, lang) for r in
+                     sorted((org.get("requests") or {}).values(), key=lambda r: r.get("at") or "", reverse=True)[:30]],
+        "episodes": episodes,
+        "decisions": decisions(store, org, hub, lang),
         "documents": [{"key": k, "revision": d["revision"], "author": d["author"], "at": d["at"]}
                       for k, d in (org.get("documents") or {}).items()],
         "stamp": change_stamp(store, org_id),
@@ -484,47 +580,172 @@ def _add_reads(store, org_id, messages):
 
 NOTICE_KINDS = ("organization.created", "member.joined", "member.prepared", "member.carrier_replaced", "episode.opened",
                 "episode.closed", "protocol.proposed", "protocol.activated", "protocol.rejected", "task.updated",
-                "member.wake_gave_up")
+                "member.wake_gave_up", "organization.parent_set", "organization.parent_removed",
+                "organization.child_added", "organization.child_removed", "organization.reached",
+                "organization.cabinet_set", "organization.cabinet_unset", "organization.leader_set",
+                "organization.group_created", "organization.closed", "organization.dissolved",
+                "organization.child_closed", "organization.child_dissolved", "member.office_ended", "request.filed",
+                "request.approved", "request.denied", "request.failed")
+TASK_KEYS = {"open": "task.open", "working": "task.working", "blocked": "task.blocked", "done": "task.done",
+             "dropped": "task.dropped"}
 
 
-def notice_text(org, e):
+def _status(status, lang):
+    return i18n.t(TASK_KEYS[status], lang) if status in TASK_KEYS else str(status or "")
+
+
+def notice_text(org, e, lang=None, store=None):
     b, who = e["body"] or {}, e["member"] or ""
     k = e["kind"]
     episodes = org.get("episodes") or {}
+    if "/" in who:  # a member of another organization ("<org id>/<member>"), by its organization's name
+        place, _, name = who.partition("/")
+        try:
+            there = store.get(place)["name"] if store else place
+        except Exception:
+            there = place
+        who = i18n.t("common.member_of_org", lang, member=name, org=there)
+    if k == "organization.parent_set":
+        return i18n.t("view.notice.parent_set", lang, name=b.get("name") or "")
+    if k in ("organization.cabinet_set", "organization.cabinet_unset"):
+        return i18n.t("view.notice.cabinet_set" if k.endswith("_set") else "view.notice.cabinet_unset", lang)
+    if k == "organization.leader_set":
+        return i18n.t("view.notice.leader_set", lang, member=b.get("leader") or "")
+    if k == "organization.group_created":
+        return i18n.t("view.notice.group_created", lang, who=who, name=b.get("name") or "", leader=b.get("leader") or "")
+    if k in ("organization.closed", "organization.dissolved"):
+        return i18n.t("view.notice.closed" if k.endswith("closed") else "view.notice.dissolved", lang)
+    if k in ("organization.child_closed", "organization.child_dissolved"):
+        return i18n.t("view.notice.child_closed" if k.endswith("closed") else "view.notice.child_dissolved", lang,
+                      name=b.get("name") or "")
+    if k == "member.office_ended":
+        return i18n.t("view.notice.office_ended", lang, who=who)
+    if k.startswith("request."):
+        r = (org.get("requests") or {}).get(b.get("id")) or {}
+        key = {"request.filed": "view.notice.request_filed", "request.approved": "view.notice.request_approved",
+               "request.denied": "view.notice.request_denied", "request.failed": "view.notice.request_failed"}[k]
+        return i18n.t(key, lang, who=who, id=b.get("id") or "", what=request_label(r, lang) if r else b.get("kind", ""))
+    if k == "organization.parent_removed":
+        return i18n.t("view.notice.parent_removed", lang)
+    if k == "organization.child_added":
+        return i18n.t("view.notice.child_added", lang, name=b.get("name") or "")
+    if k == "organization.child_removed":
+        return i18n.t("view.notice.child_removed", lang, name=b.get("name") or "")
+    if k == "organization.reached":  # a member of this organization acted in another one
+        there = b.get("name") or b.get("org") or ""
+        if b.get("what") == "message":
+            return i18n.t("view.notice.reached_message", lang, who=who, org=there, to=b.get("to") or [])
+        if b.get("what") == "task":
+            return i18n.t("view.notice.reached_task", lang, who=who, org=there, id=b.get("id"),
+                          title=(b.get("title") or "")[:40], owner=b.get("owner", ""), status=_status(b.get("status"), lang))
+        if b.get("what") == "protocol" and b.get("retire_target"):
+            return i18n.t("view.notice.reached_retire", lang, who=who, org=there, id=b["retire_target"])
+        if b.get("what") == "protocol":
+            return i18n.t("view.notice.reached_protocol", lang, who=who, org=there, id=b.get("id"),
+                          title=b.get("title") or "")
+        return None
+    if k == "protocol.activated" and b.get("issued_by"):  # issued by an organization above: in effect directly
+        protocols = org.get("protocols") or {}
+        if b.get("retire_target"):
+            gone = protocols.get(b["retire_target"]) or {}
+            return i18n.t("view.notice.protocol_retired_by", lang, who=who, id=b["retire_target"],
+                          title=gone.get("title") or b["retire_target"])
+        return i18n.t("view.notice.protocol_issued", lang, who=who, id=b.get("id"),
+                      title=(protocols.get(b.get("id")) or {}).get("title") or b.get("id"))
     if k == "organization.created":
-        return "%s 创建了组织「%s」" % (who, b.get("name") or org["name"])
+        return i18n.t("view.notice.created", lang, who=who, name=b.get("name") or org["name"])
     if k in ("member.joined", "member.prepared"):
-        return "%s 加入了组织%s" % (who, "，角色「%s」" % b["role"] if b.get("role") else "")
+        if b.get("role"):
+            return i18n.t("view.notice.joined_role", lang, who=who, role=b["role"])
+        return i18n.t("view.notice.joined", lang, who=who)
     if k == "member.carrier_replaced":
-        return "%s 换了新的会话（第 %s 任）" % (who, b.get("carriers", "?"))
+        return i18n.t("view.notice.carrier", lang, who=who, n=b.get("carriers", "?"))
     if k in ("episode.opened", "episode.closed"):
         ep = episodes.get(b.get("id")) or {}
         if ep.get("kind") == "turn" or b.get("kind") == "turn":
             return None
         title = ep.get("title") or b.get("id")
         if k == "episode.opened":
-            return "%s 开启了 episode %s「%s」" % (who, b.get("id"), title)
-        return "%s 关闭了 episode %s「%s」（%s）" % (who, b.get("id"), title, b.get("outcome") or ep.get("outcome") or "")
+            return i18n.t("view.notice.episode_opened", lang, who=who, id=b.get("id"), title=title)
+        return i18n.t("view.notice.episode_closed", lang, who=who, id=b.get("id"), title=title,
+                      outcome=b.get("outcome") or ep.get("outcome") or "")
     if k.startswith("protocol."):
         p = (org.get("protocols") or {}).get(b.get("id")) or {}
         title = p.get("title") or b.get("id")
-        verb = {"protocol.proposed": "%s 提出了协议" % who, "protocol.activated": "协议生效",
-                "protocol.rejected": "协议被否决"}[k]
-        return "%s %s「%s」" % (verb, b.get("id"), title)
+        key = {"protocol.proposed": "view.notice.protocol_proposed", "protocol.activated": "view.notice.protocol_activated",
+               "protocol.rejected": "view.notice.protocol_rejected"}[k]
+        return i18n.t(key, lang, who=who, id=b.get("id"), title=title)
     if k == "task.updated":
         status = b.get("status")
         task = (org.get("tasks") or {}).get(b.get("id")) or {}
         if status == "done":
-            return "%s 完成了任务 %s「%s」" % (who, b.get("id"), task.get("title", "")[:40])
+            return i18n.t("view.notice.task_done", lang, who=who, id=b.get("id"), title=task.get("title", "")[:40])
         if status == "blocked":
-            return "%s 的任务 %s 受阻" % (who, b.get("id"))
+            return i18n.t("view.notice.task_blocked", lang, who=who, id=b.get("id"))
+        if "/" in (e["member"] or ""):  # set by a member of an organization above
+            return i18n.t("view.notice.task_set", lang, who=who, id=b.get("id"), title=task.get("title", "")[:40],
+                          owner=b.get("owner", ""), status=_status(status, lang))
         return None
     if k == "member.wake_gave_up":
-        return "自动唤醒 %s 连续失败，消息会等它下次调用工具时送到" % who
+        return i18n.t("view.notice.wake_failed", lang, who=who)
     return None
 
 
-def chat(store, org_id, kind="group", member=None, limit=400, before=None):
+REQUEST_KEYS = {"create": "view.request.create", "parent": "view.request.parent", "leader": "view.request.leader",
+                "dissolve": "view.request.dissolve"}
+
+
+def request_label(r, lang=None):
+    """What a request asks, in the person's language."""
+    a = r.get("args") or {}
+    return i18n.t(REQUEST_KEYS.get(r.get("kind"), "view.request.dissolve"), lang, name=a.get("name") or "",
+                  org=a.get("org_name") or a.get("org") or "", parent=a.get("parent_name") or "-",
+                  member=a.get("member") or "")
+
+
+def orgchart(store, hub=None, lang=None):
+    """The organization chart: every organization with its parent, kind, leader, members and what waits on the
+    person, and the sessions that hold seats in several organizations (GET /api/orgchart)."""
+    orgs = store.list_orgs()
+    nodes = []
+    for org in sorted(orgs, key=lambda o: o.get("created_at") or ""):
+        members = org.get("members") or {}
+        leader = members.get(org.get("leader") or "") or {}
+        nodes.append({"id": org["id"], "name": org["name"], "parent": org.get("parent"), "kind": kind_of(org),
+                      "purpose": org.get("purpose", ""), "ended_at": org.get("ended_at"),
+                      "cabinet": bool(org.get("cabinet")), "status": org.get("status"), "governance": org.get("governance"),
+                      "leader": org.get("leader"),
+                      "leader_display": naming.display(leader, org["leader"], lang) if org.get("leader") and leader else "",
+                      "members": len(members),
+                      "decisions": len([d for d in decisions(store, org, hub, lang) if d["kind"] != "task"])
+                      if org.get("status") == "active" else 0,
+                      "ex_officio": [n for n, s in members.items() if s.get("ex_officio")]})
+    sessions = {}
+    with store.db() as db:
+        mains = db.execute("SELECT actor, org_id, member FROM actors").fetchall()
+        others = db.execute("SELECT actor, org_id, member FROM seats").fetchall()
+    active = {o["id"]: o for o in orgs if o.get("status") == "active"}
+    # seats as Store.seats_of counts them: a session's main seat, and a seat beside it while the session still carries
+    # it (an older plugin may have handed that seat to another session without clearing the row)
+    for rows, main in ((mains, True), (others, False)):
+        for actor, org_id, member in rows:
+            seat = ((active.get(org_id) or {}).get("members") or {}).get(member)
+            if seat is not None and (main or seat.get("carrier") == actor):
+                sessions.setdefault(actor, {}).setdefault(org_id, member)
+    shared = [{"session": actor.split(":", 1)[-1].split("/", 1)[0][:8], "harness": harness_of(actor),
+               "seats": [{"org": o, "member": m} for o, m in seats.items()]}
+              for actor, seats in sorted(sessions.items()) if len(seats) > 1]
+    cab = store.cabinet()
+    return {"orgs": nodes, "shared": shared, "cabinet": cab["id"] if cab else None,
+            "secretary_general": {"org": cab["id"], "member": cab.get("leader")} if cab else None}
+
+
+def harness_of(actor):
+    head, sep, _ = (actor or "").partition(":")
+    return head if sep else "claude-code"
+
+
+def chat(store, org_id, kind="group", member=None, limit=400, before=None, lang=None):
     """Items of one chat, oldest first. group: every message between members and what the person wrote to several
     members, with organization notices in between; private: the person and one member. Replies stay in their thread:
     a thread's first message carries thread {count, last_at, people}."""
@@ -562,7 +783,7 @@ def chat(store, org_id, kind="group", member=None, limit=400, before=None):
     for seq, who, k, body, at in events:
         if k not in NOTICE_KINDS or (until and at > until):
             continue
-        text = notice_text(org, {"member": who, "kind": k, "body": json.loads(body or "{}")})
+        text = notice_text(org, {"member": who, "kind": k, "body": json.loads(body or "{}")}, lang, store)
         if text:
             notices.append({"id": "e%d" % seq, "type": "notice", "text": text, "at": at, "seq": seq})
     merged = sorted(picked + notices, key=lambda x: (x["at"], 0 if x["type"] == "notice" else 1))

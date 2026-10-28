@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,26 +12,27 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header class="appbar" id="appbar" aria-label="窗口栏"></header>
+<!-- Words come from the person's language (app.js, loadLang): data-i18n names the text, data-i18n-<attribute> an attribute. -->
+<header class="appbar" id="appbar" data-i18n-aria-label="page.titlebar"></header>
 <div id="app" class="app">
-  <aside class="side" aria-label="组织和联系人">
+  <aside class="side" data-i18n-aria-label="page.side">
     <div class="side-tools">
       <button class="nav-item" id="btn-new-org" type="button"></button>
-      <label class="searchbox"><span id="search-icon"></span><input id="search" type="search" placeholder="搜索组织和成员" autocomplete="off"></label>
+      <label class="searchbox"><span id="search-icon"></span><input id="search" type="search" data-i18n-placeholder="page.search" autocomplete="off"></label>
     </div>
-    <nav class="tree" id="tree" aria-label="组织"></nav>
+    <nav class="tree" id="tree" data-i18n-aria-label="page.tree"></nav>
     <div class="side-foot">
-      <button class="me" id="me" type="button" title="个人资料和设置"></button>
-      <button class="icon-btn" id="btn-settings" title="设置" aria-label="设置"></button>
+      <button class="me" id="me" type="button" data-i18n-title="page.me"></button>
+      <button class="icon-btn" id="btn-settings" data-i18n-title="common.settings" data-i18n-aria-label="common.settings"></button>
     </div>
   </aside>
-  <main class="chat" aria-label="聊天">
+  <main class="chat" data-i18n-aria-label="page.chat">
     <header class="chat-head" id="chat-head"></header>
     <div id="banner"></div>
     <div class="stream" id="stream" tabindex="0"><div class="stream-inner" id="stream-inner"></div></div>
     <div class="composer" id="composer"></div>
   </main>
-  <aside class="panel" id="panel" aria-label="右侧栏"></aside>
+  <aside class="panel" id="panel" data-i18n-aria-label="page.panel"></aside>
 </div>
 <div id="layer"></div>
 <script src="/static/app.js"></script>

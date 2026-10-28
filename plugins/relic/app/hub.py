@@ -22,13 +22,18 @@ import time
 import uuid
 from pathlib import Path
 
-from relic_core import runner, wake
+from relic_core import i18n, runner, wake
 from relic_core.store import HUMAN, Store, data_home, now
 
 from . import harness as harnesses
 from .acp import AcpAgent, AcpError, text_of, tool_text
 
-SECRETARY_ROLE = "秘书：组织与人之间的联络人，协调人的委托工作"
+# the language of what the hub shows the person; the App sets it to its own (prefs, else the page's, else the system's)
+LANG = [None]
+
+
+def _t(key, **args):
+    return i18n.t(key, LANG[0]() if LANG[0] else None, **args)
 EFFORT_OPTIONS = ("reasoning_effort", "effort", "thought_level")  # config options that set reasoning effort
 
 
@@ -57,7 +62,7 @@ class Live:
         self.org_id, self.member, self.harness = org_id, member, harness
         self.agent = None
         self.session_id = None
-        self.state, self.detail = "starting", "正在启动会话"
+        self.state, self.detail = "starting", _t("hub.starting")
         self.model, self.mode, self.doing = "", "", ""
         self.items = collections.deque(maxlen=400)
         self.seq = 0
@@ -120,7 +125,7 @@ class Hub:
         org = store.get(org_id)
         if member in org["members"] and (org["members"][member].get("carrier")):
             raise RuntimeError("%s already has a session in this organization." % member)
-        store.add_seat(org_id, member, role or (SECRETARY_ROLE if secretary else ""), config)
+        store.add_seat(org_id, member, role or (_t("hub.secretary_role") if secretary else ""), config)
         if secretary:
             self.make_secretary(org_id, member)
         org = store.get(org_id)
@@ -155,7 +160,7 @@ class Hub:
         try:
             self.prompt(org_id, member, text, origin)
         except Exception as error:
-            self._note(org_id, member, "error", "启动失败：%s" % error)
+            self._note(org_id, member, "error", _t("hub.start_failed", error=error))
 
     def ensure(self, org_id, member):
         """The live session of an App-run seat, started (or resumed) when needed."""
@@ -181,7 +186,7 @@ class Hub:
         harness = config["harness"]
         live = Live(org_id, member, harness)
         self._live[(org_id, member)] = live
-        self._set(live, "starting", "正在启动 %s 会话" % harnesses.HARNESSES[harness]["title"])
+        self._set(live, "starting", _t("hub.starting_harness", harness=harnesses.HARNESSES[harness]["title"]))
         # A new token for every start: the Relic server of this session speaks for the seat while the seat keeps it
         # (relic_core.api.seat_actor); servers of the seat's earlier sessions no longer do.
         token = uuid.uuid4().hex
@@ -221,11 +226,11 @@ class Hub:
             live.session_id = sid
             self._read_session(live, result)
             self._apply(live, config)
-            self._set(live, "idle", "空闲")
+            self._set(live, "idle", _t("view.state.idle"))
             return live
         except Exception as error:
             agent.close(wait=1)
-            self._set(live, "error", "启动失败：%s" % error)
+            self._set(live, "error", _t("hub.start_failed", error=error))
             raise
 
     def _read_session(self, live, result):
@@ -256,7 +261,7 @@ class Hub:
                 live.agent.set_mode(live.session_id, mode)
                 live.mode = mode
             except AcpError as error:
-                live.detail = "没能切换到 %s 模式：%s" % (mode, error)
+                live.detail = _t("hub.mode_failed", mode=mode, error=error)
         if model and model != live.model:
             try:
                 if any(o.get("id") == "model" for o in live.options):
@@ -265,14 +270,14 @@ class Hub:
                     live.agent.request("session/set_model", {"sessionId": live.session_id, "modelId": model}, timeout=60)
                 live.model = model
             except AcpError as error:
-                live.detail = "没能切换到模型 %s：%s" % (model, error)
+                live.detail = _t("hub.model_failed", model=model, error=error)
         option = next((o.get("id") for o in live.options if o.get("id") in EFFORT_OPTIONS), None)
         if effort and option and effort != live.effort:
             try:
                 live.agent.set_config_option(live.session_id, option, effort)
                 live.effort = effort
             except AcpError as error:
-                live.detail = "没能切换推理强度 %s：%s" % (effort, error)
+                live.detail = _t("hub.effort_failed", effort=effort, error=error)
 
     def set_model(self, org_id, member, model="", effort=""):
         """The person chose a model (and reasoning effort) for an App-run seat: saved on the seat, applied to its live
@@ -326,7 +331,7 @@ class Hub:
                     continue  # closed as idle a moment ago (reap): start it again
                 if live.turn:
                     live.queue.append((text, origin))
-                    self._add(live, {"type": "status", "text": "排队：等当前这一轮结束"})
+                    self._add(live, {"type": "status", "text": _t("hub.queued")})
                     return {"queued": True}
                 # messages after this id were written during the turn (ids, not times: times have whole seconds)
                 live.turn = {"origin": origin, "started": time.time(), "after": _last_id(self.store(), org_id), "reply": []}
@@ -356,12 +361,19 @@ class Hub:
         if kind == "human":
             self._add(live, {"type": "prompt", "from": HUMAN, "text": origin.get("text") or text, "start": True})
         elif kind == "wake":
-            self._add(live, {"type": "status", "text": "被 %s 的消息唤醒" % "、".join(wake_from or ["成员"]), "start": True})
+            self._add(live, {"type": "status", "text": _t("hub.woken_by", names=wake_from or [_t("hub.a_member")]),
+                             "start": True})
         elif kind == "reflect":
-            self._add(live, {"type": "status", "text": "写反思", "start": True})
+            self._add(live, {"type": "status", "text": _t("hub.reflecting"), "start": True})
         else:
-            self._add(live, {"type": "status", "text": "入座介绍", "start": True})
-        self._set(live, "running", "正在回复")
+            self._add(live, {"type": "status", "text": _t("hub.introducing"), "start": True})
+        self._set(live, "running", _t("hub.replying"))
+        try:  # the turn is this organization's work: its protocols bind the session's tool calls
+            actor = self._actor(live)
+            if actor:
+                self.store().set_focus(actor, org_id)
+        except Exception:
+            pass
         with live.lock:
             notes, live.notes = live.notes, []
         if notes:  # what the organization's protocols blocked during the last turn: hooks would have said it then
@@ -382,7 +394,7 @@ class Hub:
             after = live.turn["after"]
             if kind in ("human", "intro"):
                 replied = _sent_after(store, org_id, member, after)
-                text = reply if reply and HUMAN not in replied else ("（这一轮失败了：%s）" % error[-300:] if error else "")
+                text = reply if reply and HUMAN not in replied else (_t("hub.turn_failed", error=error[-300:]) if error else "")
                 if text and origin.get("reply_to"):
                     store.send_as(org_id, member, [HUMAN], text, reply_to=origin["reply_to"])
                 elif text:
@@ -395,14 +407,15 @@ class Hub:
                 self._end_turn(live, store, remind=kind != "reflect")  # what the Stop hook does with Relic hooks
             wake.dispatch(store, org_id)
         except Exception as failure:
-            self._add(live, {"type": "error", "text": "收尾时出错：%s" % failure})
+            self._add(live, {"type": "error", "text": _t("hub.finish_failed", error=failure)})
         if error:
             self._add(live, {"type": "error", "text": error})
         with live.lock:
             live.turn = None
             live.active = time.time()
             queued = live.queue.pop(0) if live.queue else None
-        self._set(live, "error" if error and not live.agent.alive else "idle", "空闲" if not error else "上一轮失败")
+        self._set(live, "error" if error and not live.agent.alive else "idle",
+                  _t("view.state.idle") if not error else _t("hub.last_failed"))
         live.doing = ""
         if queued:
             self.prompt(org_id, member, *queued)
@@ -466,7 +479,7 @@ class Hub:
             self.store().record_activity(self._actor(live), tool, data, failed=call.get("status") == "failed",
                                          output=tool_text(call.get("content"))[-20000:])
         except Exception as error:
-            self._add(live, {"type": "error", "text": "没能记下这次操作：%s" % error})
+            self._add(live, {"type": "error", "text": _t("hub.record_failed", error=error)})
 
     def _end_turn(self, live, store, remind=True):
         """Sessions without Relic hooks: close the turn as the Stop hook does, and when a reflection is due give the
@@ -506,7 +519,7 @@ class Hub:
         text = "Relic protocol blocked %s: %s" % (tool, " | ".join(reasons))
         with live.lock:
             live.notes.append(text)
-        self._add(live, {"type": "error", "text": "Relic 协议拦下了这次操作：" + " | ".join(reasons)})
+        self._add(live, {"type": "error", "text": _t("hub.protocol_blocked", reasons=" | ".join(reasons))})
         return _option(params, "reject") or "cancelled"
 
     def _request(self, key, method, params):
@@ -518,7 +531,7 @@ class Hub:
         except Exception as error:
             decided = None
             if live:
-                self._add(live, {"type": "error", "text": "检查协议时出错：%s" % error})
+                self._add(live, {"type": "error", "text": _t("hub.protocol_check_failed", error=error)})
         if decided == "cancelled":
             return {"outcome": {"outcome": "cancelled"}}
         if decided:
@@ -533,12 +546,12 @@ class Hub:
         self._permissions[pid] = entry
         if live:
             self._add(live, {"type": "permission", "id": pid, "title": entry["title"], "options": entry["options"]})
-            self._set(live, "waiting", "等你批准：%s" % entry["title"])
+            self._set(live, "waiting", _t("hub.waiting_approval", title=entry["title"]))
         self.publish({"type": "decision", "org": key[0]})
         entry["event"].wait()
         self._permissions.pop(pid, None)
         if live:
-            self._set(live, "running", "正在回复")
+            self._set(live, "running", _t("hub.replying"))
         self.publish({"type": "decision", "org": key[0]})
         if entry["choice"]:
             return {"outcome": {"outcome": "selected", "optionId": entry["choice"]}}

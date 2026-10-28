@@ -1,6 +1,8 @@
 """Copy the Relic plugin from the folder it is developed in into plugins/relic for a release.
 
-    python scripts/sync_plugin.py <upstream plugin folder> [--suffix -beta.1]
+    python scripts/sync_plugin.py <upstream plugin folder> [--suffix=-beta.1]
+
+Write the suffix with "=": argparse reads a separate "-beta.1" as another option.
 
 The copy leaves out the maintainer's working notes and caches, resets the machine paths that the maintainer's own
 installer writes (codex.mcp.json, the Claude Code manifest's interpreter), and adds the release suffix to the version

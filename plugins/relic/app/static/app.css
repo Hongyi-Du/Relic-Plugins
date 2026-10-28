@@ -143,6 +143,9 @@ body { display: flex; flex-direction: column; }
 .org-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 8px; border-radius: 8px; border: 0; background: none;
   width: 100%; text-align: left; color: var(--ink); }
 .org-row:hover { background: var(--hover); }
+.field-row { display: flex; align-items: center; gap: 10px; }
+.field-row > span { flex: none; color: var(--ink-2); font-size: 12.5px; }
+.field-row select { flex: 1; min-width: 0; }
 .org-row.on { background: var(--active); }
 .org-row .chev { color: var(--ink-3); flex: none; transition: transform .12s; }
 .org-row.open .chev { transform: rotate(90deg); }
@@ -618,6 +621,58 @@ dl.keys dt { text-align: right; }
 dl.keys dd { margin: 0; color: var(--ink-2); }
 .dialog .lead { margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .dialog .steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.8; }
+
+/* the organization model: kinds, the secretariat, subgroups, seats in several organizations */
+.org-badge.sub { outline: 1.5px dashed currentColor; outline-offset: -1.5px; }
+.org-badge.cab { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--violet); }
+.org-row.ended, .item-row.ended { opacity: .55; }
+.org-row.ended .org-badge, .item-row.ended .org-badge { filter: grayscale(1); }
+.struck { text-decoration: line-through; }
+.task.ended { opacity: .6; }
+.chip.cab { background: var(--violet-soft); color: var(--violet); font-weight: 600; }
+.hier-note { font-size: 12px; color: var(--ink-3); line-height: 1.55; }
+.hier-sub { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+.pro-h { margin: 18px 0 8px; font-size: 13px; font-weight: 650; color: var(--ink-2); }
+.kv .also { display: grid; gap: 3px; justify-items: start; min-width: 0; }
+.kv .also button { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; display: inline-flex;
+  gap: 6px; align-items: center; max-width: 100%; min-width: 0; }
+.kv .also button:hover > span:first-child { text-decoration: underline; }
+
+/* organization chart */
+.details.oc { grid-template-rows: auto auto minmax(0, 1fr); }
+.oc .bar { flex-wrap: wrap; row-gap: 6px; position: relative; padding-right: 54px; }
+.oc .bar > .icon-btn { position: absolute; right: 12px; top: 9px; }
+.oc .bar h3 { min-width: 120px; }
+.oc-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
+.oc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.oc-legend i { width: 18px; height: 12px; border-radius: 4px; border: 1.5px solid var(--ink-3); background: var(--card); flex: none; }
+.oc-legend i.sub { border-style: dashed; }
+.oc-legend i.cab { border-color: var(--violet); background: var(--violet-soft); }
+.oc-legend i.ended { border-color: var(--ink-4); background: var(--hover); }
+.oc-legend i.link { border: 0; border-top: 1.5px dashed var(--violet); height: 0; border-radius: 0; background: none; }
+.oc-canvas { overflow: auto; position: relative; background: var(--side); min-height: 0; outline: none; }
+.oc-plane { position: relative; }
+.oc-lines { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.oc-lines .edge { fill: none; stroke: var(--ink-4); stroke-width: 1.4; }
+.oc-lines .edge.ended { stroke-dasharray: 3 3; opacity: .7; }
+.oc-lines .link { fill: none; stroke: var(--violet); stroke-width: 1.2; stroke-dasharray: 4 3; opacity: .5; pointer-events: visibleStroke; transition: opacity .12s; }
+.oc-lines .link.hot { opacity: 1; stroke-width: 2; }
+.oc-lines .link.dim { opacity: .12; }
+.oc-node { position: absolute; display: grid; grid-template-rows: auto auto auto; gap: 4px; align-content: center; text-align: left; padding: 8px 11px;
+  border-radius: 12px; border: 1.5px solid var(--line-2); background: var(--card); color: var(--ink); box-shadow: var(--shadow-1); cursor: pointer;
+  font: inherit; overflow: hidden; min-width: 0; }
+.oc-node:hover, .oc-node:focus-visible { border-color: var(--ink-3); box-shadow: var(--shadow-2); outline: none; z-index: 2; }
+.oc-node.sub { border-style: dashed; }
+.oc-node.cab { border-color: var(--violet); background: color-mix(in srgb, var(--violet-soft) 75%, var(--card)); }
+.oc-node.peer { border-color: var(--violet); }
+.oc-node.cur { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.oc-node.ended { opacity: .5; filter: grayscale(1); }
+.oc-node .nm { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 650; font-size: 13px; }
+.oc-node .nm b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: inherit; }
+.oc-node .ln { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.oc-node .ln > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.oc-node .chip { font-size: 10.5px; padding: 0 6px; flex: none; white-space: nowrap; }
+.oc-empty { padding: 24px; }
 
 @media (max-width: 1180px) {
   .app { --pw: 0px; }

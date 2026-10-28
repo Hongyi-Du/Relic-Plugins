@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from relic_core import runner
+from relic_core import i18n, runner
 from relic_core.store import data_home
 
 CJK = re.compile(r"[㐀-鿿]")
@@ -145,32 +145,32 @@ class Namer:
 
 
 # ---------------------------------------------------------------- the name in the member's own app
-def rename_session(seat, name, locate):
+def rename_session(seat, name, locate, lang=None):
     """Give the member's session the new name where its harness keeps session names. Returns (renamed, note)."""
     carrier = seat.get("carrier") or ""
     if not carrier:
-        return False, "这个席位还没有会话，名字只在 Relic 里改。"
+        return False, i18n.t("naming.vacant", lang)
     if seat.get("harness") in CHAT_HARNESSES or (carrier.split(":", 1)[0] in CHAT_HARNESSES and ":" in carrier):
-        return False, "聊天成员的名字只在 Relic 里改。"
+        return False, i18n.t("naming.chat", lang)
     if carrier.startswith("codex:"):
         thread = carrier.split(":", 1)[1].split("/")[-1]
-        return rename_codex(thread, name)
+        return rename_codex(thread, name, lang)
     session, _, agent = carrier.partition("/")
     if agent:
-        return False, "subagent 没有自己的会话，名字只在 Relic 里改。"
-    return rename_claude(session, name, locate)
+        return False, i18n.t("naming.subagent", lang)
+    return rename_claude(session, name, locate, lang)
 
 
-def rename_claude(session, name, locate):
+def rename_claude(session, name, locate, lang=None):
     """Claude Code keeps a session's name as a custom-title entry in its transcript (what /rename writes)."""
     path = locate(session)
     if not path:
-        return False, "没找到这个 Claude Code 会话的记录文件。"
+        return False, i18n.t("naming.no_claude_record", lang)
     from .views import long_path
     line = json.dumps({"type": "custom-title", "customTitle": name, "sessionId": session}, ensure_ascii=False)
     with open(long_path(path), "a", encoding="utf-8", newline="\n") as handle:
         handle.write("\n" + line + "\n" if not _ends_with_newline(path) else line + "\n")
-    return True, "Claude Code 会话的名字也改了。"
+    return True, i18n.t("naming.claude_renamed", lang)
 
 
 def _ends_with_newline(path):
@@ -183,20 +183,20 @@ def _ends_with_newline(path):
         return True
 
 
-def rename_codex(thread, name):
+def rename_codex(thread, name, lang=None):
     """Codex names a thread through its app-server (thread/name/set); session_index.jsonl is the fallback."""
     exe = runner.find_codex()
     if exe:
         try:
             with runner.CodexAppServer(exe, cwd=str(Path.home())) as server:
                 server.request("thread/name/set", {"threadId": thread, "name": name})
-            return True, "Codex 线程的名字也改了。"
+            return True, i18n.t("naming.codex_renamed", lang)
         except Exception:
             pass
     index = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex") / "session_index.jsonl"
     if not index.parent.is_dir():
-        return False, "没找到 Codex 的数据目录。"
+        return False, i18n.t("naming.no_codex_data", lang)
     at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     with open(index, "a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps({"id": thread, "thread_name": name, "updated_at": at}, ensure_ascii=False) + "\n")
-    return True, "Codex 线程的名字也改了。"
+    return True, i18n.t("naming.codex_renamed", lang)

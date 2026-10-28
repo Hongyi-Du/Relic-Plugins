@@ -236,7 +236,7 @@ class ServerTests(Base):
         proc = subprocess.run([sys.executable, str(ROOT / "server.py")], input="\n".join(json.dumps(l) for l in lines),
                               capture_output=True, text=True, env=env, timeout=30)
         replies = {r["id"]: r for r in map(json.loads, proc.stdout.splitlines())}
-        self.assertEqual(len(replies[2]["result"]["tools"]), 11)
+        self.assertEqual(len(replies[2]["result"]["tools"]), 12)  # group (subgroups, approvals) came with the organization model
         self.assertIn("member 'lead'", replies[4]["result"]["content"][0]["text"])
         self.assertTrue(replies[5]["result"]["isError"])
 

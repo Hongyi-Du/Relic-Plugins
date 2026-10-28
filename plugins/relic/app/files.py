@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from relic_core import runner
+from relic_core import i18n, runner
 from relic_core.store import data_home
 
 from . import views
@@ -126,7 +126,7 @@ def workspace(store, org_id, member):
 def listdir(store, path):
     target = allowed(store, path)
     if target is None or not target.is_dir():
-        raise PermissionError("这个目录不属于任何成员的工作区。")
+        raise PermissionError(i18n.t("fs.dir_outside"))
     entries = []
     try:
         with os.scandir(target) as it:
@@ -147,7 +147,7 @@ def listdir(store, path):
 def read(store, path):
     target = allowed(store, path)
     if target is None or not target.is_file():
-        raise PermissionError("这个文件不在任何成员的工作区里。")
+        raise PermissionError(i18n.t("fs.file_outside"))
     size = target.stat().st_size
     suffix = target.suffix.lower()
     info = {"path": str(target), "name": target.name, "size": size, "mtime": target.stat().st_mtime}
@@ -172,7 +172,7 @@ def read(store, path):
 def raw(store, path):
     target = allowed(store, path)
     if target is None or not target.is_file():
-        raise PermissionError("这个文件不在任何成员的工作区里。")
+        raise PermissionError(i18n.t("fs.file_outside"))
     return target.read_bytes(), mimetypes.guess_type(target.name)[0] or "application/octet-stream"
 
 
@@ -185,7 +185,7 @@ def open_path(store, path):
     """Open a member's file or folder with the system (Explorer or the default app)."""
     target = allowed(store, path)
     if target is None:
-        raise PermissionError("这个路径不属于任何成员的工作区。")
+        raise PermissionError(i18n.t("fs.path_outside"))
     if os.name == "nt":
         os.startfile(str(target))
     return {"opened": str(target)}

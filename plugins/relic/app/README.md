@@ -151,6 +151,76 @@ A member is shown by what it is responsible for, in your language (from its role
 with one short `claude -p` call). Renaming a member on its card also renames its session where its harness keeps
 session names (the Claude Code transcript's title, the Codex thread name).
 
+## Organizations above and below
+
+In an organization's overview, Hierarchy places it under another organization (its parent) or on its own. You do this
+here; a member can ask for it with `group op=reparent`, which the secretary-general decides (you, without a
+secretariat). Members of an organization above see the ones below, write to their members, assign their tasks and issue
+protocols that take effect there directly; a protocol marked inherit (older name: downward) binds every organization
+below its own. Members of
+an organization below only report upward. The sidebar shows the organizations as a tree; an organization's overview
+lists the ones right below it with what waits there (decisions, blocked tasks, work in progress); the group chats show
+what was done across organizations, with the member's organization next to its name. `POST /api/org/<id>/parent`
+(`{"parent": <org id or null>}`) sets the parent; the rules live in `relic_core/store.py` (`set_parent`, `reach`).
+
+## The organization model
+
+The backend gives the page what it needs to show kinds, the cabinet, subgroups, sessions in several organizations and
+approval requests (the rules live in `relic_core/store.py`: `seats_of`, `sync_offices`, `inheritance`, `create_group`,
+`file_request`):
+
+- `GET /api/orgs`: each organization also has `kind` (`formal` | `subgroup`), `cabinet` and `leader`.
+- `GET /api/org/<id>`: `org.kind`, `org.cabinet`, `org.subgroups` (closed ones too, with `status`), `org.children[].kind`;
+  each member has `also_in` (the other seats of its session: `org`, `org_name`, `member`, `role`, `kind`, `cabinet`,
+  `main`) and `ex_officio` (`org`, `org_name`, `member`: the department it sits for, else null); `inherited_protocols`
+  (in effect here), `replaced_protocols` (inherited ones overridden or stopped here or above: `how`, `by`, `at`);
+  `requests` (approval requests kept here); `decisions` has `kind: "approval"` items.
+- `GET /api/orgchart`: `orgs` (`id`, `name`, `purpose`, `parent`, `kind`, `cabinet`, `status`, `ended_at`, `leader`,
+  `leader_display`, `members`, `decisions`, `ex_officio`), `shared` (sessions with seats in several organizations:
+  `session`, `harness`, `seats` [{`org`, `member`}], counted as `Store.seats_of` counts them), `cabinet`,
+  `secretary_general`.
+- `POST /api/org/<id>/cabinet` `{"on": true|false}`, `POST /api/org/<id>/leader` `{"member"}`,
+  `POST /api/org/<id>/request` `{"request_id", "decision": "approve"|"deny", "note"}` (the organization that keeps the
+  request), `POST /api/org/<id>/close` (a subgroup). The person's own changes take effect at once.
+- `bind` (an existing session takes a seat) keeps the session's other seats; a session the App runs (surface `acp`)
+  holds one seat only for now, and binding it elsewhere is refused.
+
+What the page shows (`app.js`):
+
+- **Overview**: chips for the kind (formal organization or subgroup), the secretariat (its leader shown as the
+  secretary-general) and a closed or dissolved state. Needs your decision comes first; approval requests there have
+  Approve and Deny. Hierarchy holds the parent, the leader (a leader-led organization; the change takes effect at once and
+  moves ex officio seats), the switch that makes a formal organization the secretariat, the formal organizations right
+  below, and the subgroups (closed ones grayed); a subgroup has Close subgroup. Members show an ex officio seat as "As
+  head of ...". Protocols list this organization's own (overriding one above, passing down), the inherited ones, and the
+  ones above that were overridden or stopped (struck through); the details' Protocols tab lists them in full.
+- **Name card**: an ex officio seat says where it comes from; "Also in" lists the session's other seats (its main seat
+  marked), each opening that organization at that member.
+- **View → Organization chart**: every organization as a tree by parent (formal ones in solid frames, subgroups in dashed
+  ones, closed ones grayed, the secretariat highlighted), each with its leader, members and decisions; a session in
+  several organizations links them with a thin dashed line and marks them "Shared"; pointing at an organization brings
+  its lines forward. Closed organizations and the lines can be hidden. Wide windows draw it top-down, narrow ones list
+  it indented; both scroll. Clicking an organization opens it.
+
+## Languages
+
+The App ships in Simplified Chinese and English. Settings, Language and names, Language picks one (by default the
+system's); the whole App follows it: the interface, the server's notices and states, members' default names, plain
+words, the digest and voice input.
+
+Every word the App shows comes from a word list, `relic_core/locales/<code>.json`, one per language; the page reads
+its list from `/api/i18n`, the server reads the same lists (`relic_core/i18n.py`). The code holds only keys
+(`t('common.add_member')` in `app.js`, `i18n.t("api.no_session", lang, member=name)` in Python), never the words. A
+text can hold `{name}` placeholders; a text that depends on a count is a map of plural forms (`{"one": "{n} member",
+"other": "{n} members"}`), chosen by the number named `n`; a list given for a placeholder reads as a list in the
+language (the `list.*` texts).
+
+To add a language, add its word list: copy `en-US.json`, translate the texts, set `@name` to the language's name in
+itself. It appears in the language menu by itself. Keys the new list lacks show in English. A language without a list
+shows the nearest one (zh-TW reads Simplified Chinese), else English. `tests/test_i18n.py` checks that every key the
+code uses has a text in each list, that the lists agree on keys and placeholders, and that no Chinese is written into
+the page's code.
+
 ## Safety
 
 - Only this computer can reach the server (127.0.0.1), and a request must name it in its `Host` header.

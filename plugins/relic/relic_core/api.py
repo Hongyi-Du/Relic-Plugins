@@ -8,11 +8,16 @@ import os
 import time
 
 from . import wake
-from .context import render, render_messages
+from .context import render, render_below, render_messages, render_seats
 from .store import OrgError
 
 S = {"type": "string"}
 SL = {"type": "array", "items": {"type": "string"}}
+ORG = {"type": "string", "description": "Another organization, by id or exact name: one you hold a seat in (you act "
+                                        "there as its member and follow its protocols), one below yours, where you "
+                                        "can act, or one above it, which you report to."}
+SEAT = {"type": "string", "description": "An organization you hold a seat in, by id or exact name: act there as its "
+                                         "member (default: your main seat)."}
 ACTOR = {"type": "string", "description": "Filled in automatically by the Relic hook. Leave it out."}
 MAX_WAIT = 600  # seconds an inbox call may wait for a reply (Codex: tool_timeout_sec in codex.mcp.json is above it)
 
@@ -45,23 +50,30 @@ TOOLS = [
          "inherit its role, tasks and the organization's protocols, but not the previous carrier's private notes.",
          {"org_id": S, "member": S, "role": S}, ["org_id", "member"]),
     tool("status", "Your view of the organization: members and roles, active protocols, proposals to vote on, review "
-         "requests, tasks, documents, reflection due, unread messages.", {}),
+         "requests, tasks, documents, reflection due, unread messages. With org (an organization below yours): "
+         "that organization as seen from above.", {"org": ORG}),
     tool("message", "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who "
          "reads and answers it in the Relic App. Messages persist and are delivered to "
          "recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured "
          "session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). "
          "A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text "
          "from plugins, so the person forwards it in the Relic App and it comes back to you as its message. "
-         "When you need the answer in this turn, call inbox with wait afterwards.",
+         "When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your "
+         "other seats is answered with org=<that organization>.",
          {"to": dict(SL, description="Member names, ['all'] or ['human']. Leave it out only with reply_to."), "body": S,
           "episode_id": S,
           "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
-                                                         "without `to`, the thread's participants receive it."}},
+                                                         "without `to`, the thread's participants receive it."},
+          "org": dict(ORG, description="Write to members of another organization: one below yours, or one above "
+                                       "it to report. A sender named <org id>/<member> is answered with "
+                                       "to=['<org id>/<member>'] or with org=<org id>, to=[member].")},
          ["body"]),
-    tool("inbox", "Read your unread messages (marks them read). wait (seconds; the longest this client allows is "
-         "applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging "
-         "a member whose answer you need in this turn, and call it again if the answer has not come yet.",
-         {"wait": {"type": "integer"}}),
+    tool("inbox", "Read your unread messages (marks them read), in every organization you hold a seat in; one that "
+         "reached another seat than your main one names its organization. wait (seconds; the longest this client "
+         "allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after "
+         "messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. "
+         "org: only that seat's messages.",
+         {"wait": {"type": "integer"}, "org": SEAT}),
     tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
          "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
          "role {member?, role} | note {body} (private to you; not inherited by a replacement). "
@@ -74,21 +86,36 @@ TOOLS = [
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
                                         "or replaced later. A short report of what the task achieved and how it "
                                         "turned out, in the person's language: Markdown, at most 1000 characters."),
-          "member": S, "role": S}, ["op"]),
+          "member": S, "role": S,
+          "org": dict(ORG, description="An organization below yours: read its documents (doc_read) and assign or "
+                                       "update its tasks (task; a new task needs an owner, one of its members).")},
+         ["op"]),
     tool("episode", "Episodes bound a piece of work so the organization can learn from it. op=open {title, participants?} | "
          "close {episode_id, outcome: success|failure|partial|cancelled, summary, evidence?} | reflect {episode_id, body}. "
          "Reflect on friction you saw: what went wrong between members, what would prevent it next time.",
          {"op": {"enum": ["open", "close", "reflect"]}, "title": S, "participants": SL, "episode_id": S,
-          "outcome": S, "summary": S, "evidence": SL, "body": S}, ["op"]),
+          "outcome": S, "summary": S, "evidence": SL, "body": S, "org": SEAT}, ["op"]),
     tool("protocol", "Organization protocols. op=propose: weak {title, rationale, guidance, trigger, scope?, evidence} is "
          "shared guidance; strong {title, rationale, episode_id (closed, reflected), rules: [rule]} is enforced on tool "
          "calls by the hook. Revise with supersedes, retire with retire_target. A proposal becomes active when the "
-         "organization's approval threshold is reached. op=vote {protocol_id, vote: approve|reject, reason}. "
+         "organization's approval threshold is reached. A protocol binds its own organization only, unless inherit is "
+         "true: then the organizations below inherit it, like a class, and each can override one (supersedes="
+         "<org id>/<P#>) or stop it for itself and those below (retire_target=<org id>/<P#>) by its own vote; one "
+         "issued from above stays as issued. Say in trigger when it applies (e.g. when reporting to the person). "
+         "op=vote {protocol_id, vote: approve|reject, reason}. "
          "op=use {protocol_id, outcome: followed|deviated|inapplicable, note} reports actual use. op=list.",
          {"op": {"enum": ["propose", "vote", "use", "list"]}, "title": S, "rationale": S,
           "strength": {"enum": ["weak", "strong"]}, "guidance": S, "trigger": S, "scope": S, "evidence": SL,
           "episode_id": S, "rules": {"type": "array", "items": RULE}, "supersedes": S, "retire_target": S,
-          "protocol_id": S, "vote": {"enum": ["approve", "reject"]}, "reason": S, "outcome": S, "note": S}, ["op"]),
+          "protocol_id": S, "vote": {"enum": ["approve", "reject"]}, "reason": S, "outcome": S, "note": S,
+          "inherit": {"type": "boolean", "description": "The organizations below this protocol's organization "
+                                                        "inherit it too (default: it binds its own organization only)."},
+          "downward": {"type": "boolean", "description": "Older name of inherit."},
+          "org": dict(ORG, description="An organization below yours: propose there issues the protocol and it takes "
+                                       "effect directly (only an organization above can revise or retire it); "
+                                       "list shows its protocols. From below: op=use records your use of a "
+                                       "protocol that binds you from that organization above.")},
+         ["op"]),
     tool("trajectory", "Another member's trajectory (what they said and every tool call, from their Claude Code or Codex "
          "transcript) and memory (what their harness remembers about that session: Codex memory summaries of the "
          "thread, Claude Code project memory files) are theirs: reading them needs their consent. op=request {member, "
@@ -100,7 +127,21 @@ TOOLS = [
          "waiting on you and your own requests.",
          {"op": {"enum": ["request", "answer", "list"]}, "member": S, "reason": S, "carrier": {"type": "integer"},
           "memory": {"type": "boolean"}, "request_id": S, "decision": {"enum": ["approve", "deny"]}, "note": S,
-          "redact": {"type": "boolean"}}, ["op"]),
+          "redact": {"type": "boolean"}, "org": SEAT}, ["op"]),
+    tool("group", "Subgroups and changes to formal (standing) organizations. op=create {name, purpose, leader, parent?, "
+         "members?} makes a subgroup for one piece of work under parent (default: the organization you act in), which "
+         "it inherits protocols from; its members (default: every member of the formal organization at or above "
+         "parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No "
+         "approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader "
+         "{member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the "
+         "secretary-general (the cabinet's leader) or, without a cabinet, the person approves; you get a message when "
+         "it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: "
+         "requests waiting on you, your own requests and the subgroups of your organization.",
+         {"op": {"enum": ["create", "close", "reparent", "leader", "dissolve", "approve", "deny", "list"]},
+          "name": S, "purpose": S, "leader": S, "parent": S, "members": SL, "member": S, "reason": S,
+          "request_id": S, "note": S,
+          "org": dict(SEAT, description="The organization to act in or on: one you hold a seat in, or (reparent, "
+                                        "leader, dissolve) one below yours.")}, ["op"]),
     tool("panel", "Open the Relic App on the person's screen: the group chat and private chats with every member, where "
          "they found organizations, add members (run in the App, or in Claude Code or Codex with model, effort, folder "
          "or worktree, permission and environment variables), seat existing sessions and chats, start or replace "
@@ -108,8 +149,9 @@ TOOLS = [
          "asks for the Relic App, window, panel or UI.", {}),
     tool("review", "Peer review required by strong protocols. op=list shows pending requests; op=approve "
          "{request_id, note} approves another member's exact action after you checked it.",
-         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S}, ["op"]),
+         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT}, ["op"]),
 ]
+SEATED_ONLY = {"inbox", "episode", "review", "trajectory"}  # org names a seat of the caller, nothing else
 KNOWN = {t["name"] for t in TOOLS}
 
 
@@ -152,9 +194,14 @@ def call(store, name, args, meta=None):
         raise OrgError("Unknown tool " + str(name))
     actor = actor_of(args, meta, store)
     result = handle_call(store, name, args, actor)
-    if name in ("message", "trajectory"):
+    if name in ("message", "trajectory", "group", "create"):
         try:
             wake.dispatch_for_actor(store, actor)  # recipients with an idle configured session get a turn now
+            if isinstance(result, dict) and result.get("org_id"):  # written in another organization
+                wake.dispatch(store, result["org_id"])
+            cab = store.cabinet() if name in ("group", "create") else None
+            if cab:  # a request for the secretary-general
+                wake.dispatch(store, cab["id"])
         except Exception:
             pass
     return result
@@ -170,8 +217,28 @@ def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time):
     return {"messages": messages, "text": render_messages(messages) if messages else "No unread messages."}
 
 
+def seated(store, name, args, actor):
+    """With org naming an organization the session holds a seat in, the call acts as that seat's member
+    ("<actor>#<org id>") and the session works for that organization now (its protocols bind its tool calls)."""
+    if name in ("create", "join", "panel") or not args.get("org"):
+        return actor
+    scoped = store.scoped(actor, args["org"])
+    if scoped:
+        args.pop("org")
+        store.set_focus(actor, store.split_actor(scoped)[1])
+        return scoped
+    if name in SEATED_ONLY:
+        raise OrgError("You hold no seat in %s; org names an organization you are a member of." % args["org"])
+    return actor
+
+
 def handle_call(store, name, args, actor):
+    actor = seated(store, name, args, actor)
     if name == "create":
+        if store.approval_needed(actor, "create"):
+            return store.file_request(actor, "create", {k: args.get(k, "") for k in
+                                                        ("name", "purpose", "member", "role", "governance")},
+                                      args.get("purpose", ""))
         org = store.create(actor, args["name"], args.get("purpose", ""), args["member"], args.get("role", ""),
                            args.get("governance", "leader"))
         return {"org_id": org["id"], "member": args["member"], "context": render(store, org, args["member"])}
@@ -180,12 +247,20 @@ def handle_call(store, name, args, actor):
         org = store.get(args["org_id"])
         return dict(info, context=render(store, org, args["member"]))
     if name == "status":
+        if args.get("org"):
+            own, member, target, way = store.reach(actor, args["org"])
+            if way:
+                return {"org_id": target["id"], "context": render_below(store, target, own, member)}
         org, member = store.require(actor)
         unread = len(store.unread(actor, mark=False))
-        return {"org_id": org["id"], "member": member, "context": render(store, org, member, unread)}
+        text = render(store, org, member, unread)
+        others = render_seats(store, actor, org["id"])
+        return {"org_id": org["id"], "member": member, "context": text + ("\n" + others if others else "")}
+    if name == "group":
+        return group(store, actor, args.pop("op", None), args)
     if name == "message":
         return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"),
-                          reply_to=args.get("reply_to"))
+                          reply_to=args.get("reply_to"), org=args.get("org"))
     if name == "inbox":
         return inbox(store, actor, args.get("wait") or 0)
     if name == "work":
@@ -211,3 +286,30 @@ def handle_call(store, name, args, actor):
             return store.trajectory_requests(actor)
         raise OrgError("trajectory ops: request, answer, list.")
     raise OrgError("Unknown tool " + name)
+
+
+def group(store, actor, op, a):
+    if op == "create":
+        g = store.create_group(actor, a.get("name", ""), a.get("purpose", ""), a.get("leader"), a.get("parent"),
+                               a.get("members"))
+        return {"org_id": g["id"], "name": g["name"], "parent": g["parent"], "leader": g["leader"],
+                "members": list(g["members"]),
+                "text": "Subgroup '%s' (%s) is open under %s; each member holds a seat in it. Work there with org=%s; "
+                        "its leader closes it with group op=close when the work is done."
+                        % (g["name"], g["id"], g["parent"], g["id"])}
+    if op == "close":
+        return store.close_group(actor, a.get("org"))
+    if op in ("reparent", "leader", "dissolve"):
+        return store.change_formal(actor, "parent" if op == "reparent" else op, a)
+    if op in ("approve", "deny"):
+        return store.decide_request(actor, a.get("request_id"), op, a.get("note", ""))
+    if op == "list":
+        base = store.split_actor(actor)[0]
+        org, member = store.require(actor)
+        mine = [r for r in store.requests() if (r.get("requester") or {}).get("actor") == base]
+        waiting = [r for r in store.requests((store.cabinet() or {}).get("id")) if r["status"] == "pending"] \
+            if store.is_secretary_general(actor) else []
+        groups = [{"id": o["id"], "name": o["name"], "status": o.get("status"), "leader": o.get("leader")}
+                  for o in store.list_orgs() if o.get("kind") == "subgroup" and o.get("parent") == org["id"]]
+        return {"to_decide": waiting, "mine": mine[:10], "subgroups": groups}
+    raise OrgError("group ops: create, close, reparent, leader, dissolve, approve, deny, list.")

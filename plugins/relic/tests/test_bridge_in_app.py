@@ -45,6 +45,7 @@ class Isolated(unittest.TestCase):
             os.environ.pop(key, None)
         self.home = Path(self.tmp.name)
         os.environ["RELIC_HOME"] = str(self.home / "relic")
+        os.environ["RELIC_LANG"] = "zh-CN"  # these tests read the Chinese texts, whatever the computer's language
         os.environ["CLAUDE_CONFIG_DIR"] = str(self.home / "claude")
         os.environ["CODEX_HOME"] = str(self.home / "codex")
         self.store = Store()

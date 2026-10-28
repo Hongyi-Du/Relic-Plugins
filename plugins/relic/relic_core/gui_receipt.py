@@ -64,16 +64,16 @@ def capture(event, output, store, actor):
     """Opt-in by a pending request; never parse transcripts or capture another turn's history."""
     if event.get("agent_id"):
         return
-    org, member = store.whoami(actor)
-    if not org:
-        return
-    seat = org["members"][member]
-    config = seat.get("config") or {}
-    if (seat.get("carrier") != actor or event.get("session_id") != actor or
-            seat.get("harness") != "claude-code" or config.get("harness") != "claude-code" or config.get("surface") != "gui"):
-        return
-    request = _read(request_path(org["id"], member))
-    if not request or request.get("carrier") != actor or request.get("org_id") != org["id"] or request.get("member") != member:
+    for org, member, _ in store.seats_of(actor):  # the seat whose GUI turn is pending, of every seat it holds
+        seat = org["members"][member]
+        config = store.seat_config(org["id"], member, org)
+        if (seat.get("carrier") != actor or event.get("session_id") != actor or
+                seat.get("harness") != "claude-code" or config.get("harness") != "claude-code" or config.get("surface") != "gui"):
+            continue
+        request = _read(request_path(org["id"], member))
+        if request and request.get("carrier") == actor and request.get("org_id") == org["id"] and request.get("member") == member:
+            break
+    else:
         return
     folder = runs_dir() / ("claude-gui-" + request["nonce"])
     if not folder.is_dir() or (folder / "receipt.json").exists():

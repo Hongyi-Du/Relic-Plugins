@@ -235,8 +235,16 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     wake_hop is the turn's depth in a chain of wake-ups, carried by the messages it sends)."""
     if is_running(org_id, member):
         raise RuntimeError("%s is still working on its current turn." % member)
-    seat = Store().get(org_id)["members"][member]
-    config = seat.get("config") or {}
+    store = Store()
+    org = store.get(org_id)
+    seat = org["members"][member]
+    if seat.get("carrier") and not new_session:
+        # one turn at a time per session, whichever of its seats it is for
+        for other, name in store.seat_keys(seat["carrier"]):
+            if (other, name) != (org_id, member) and is_running(other, name):
+                raise RuntimeError("%s is still working on a turn for another organization it sits in." % member)
+        store.set_focus(seat["carrier"], org_id)  # the turn is this organization's work: its protocols bind it
+    config = store.seat_config(org_id, member, org)
     if config.get("surface") == "acp":
         return app_turn(org_id, member, prompt, wake_from, wake_hop)
     if config.get("harness") == "claude-code" and config.get("surface") == "gui":

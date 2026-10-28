@@ -24,7 +24,7 @@ Installation instructions and downloadable packages will be finalized after real
 | Desktop shortcut | Windows only; open the App with `python3 -X utf8 scripts/open_app.py` |
 | Wake-up of a Codex desktop-owned chat | Unavailable: current transport validates Windows named pipes |
 | ChatGPT chat members | Unavailable on macOS |
-| 打开会话 on a member's card | Not certified; resume the member in Terminal yourself |
+| Open session on a member's card | Not certified; resume the member in Terminal yourself |
 
 There is no claim of Windows/macOS desktop feature parity. Automated tests verify portable code and fixtures, not a signed-in commercial desktop app. The exact run evidence is in [validation](validation.md).
 
@@ -32,6 +32,6 @@ There is no claim of Windows/macOS desktop feature parity. Automated tests verif
 
 Use two Terminal sessions with the same Relic data directory, for example export `RELIC_HOME="$HOME/.relic"` in both before starting the hosts. In Claude Code create a Relic organization and record its ID. In Codex join that ID under a different member name. Exchange a short message and call `inbox`; verify documents and tasks from both sides before starting a larger task.
 
-Keep CLI-owned sessions separate from chats currently held open for writing by the desktop app. Explicit inbox polling works without desktop auto-wake. Turn auto-wake off with the 自动唤醒 switch in the App's 概况 pane if you want fully manual turns.
+Keep CLI-owned sessions separate from chats currently held open for writing by the desktop app. Explicit inbox polling works without desktop auto-wake. Turn auto-wake off with the Auto-wake switch in the App's Overview pane if you want fully manual turns.
 
-Diagnostics: `python3 scripts/doctor.py`. The App: `python3 -X utf8 scripts/open_app.py`. For backups, updating the marketplace path, rollback and removal, see the [user guide](guide.en.md#8-storage-updates-and-removal).
+Diagnostics: `python3 scripts/doctor.py`. The App: `python3 -X utf8 scripts/open_app.py`. For backups, updating the marketplace path, rollback and removal, see the [user guide](guide.en.md#9-storage-updates-and-removal).

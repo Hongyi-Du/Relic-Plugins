@@ -1,14 +1,14 @@
 # Relic · Public Beta
 
-[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.3.0-beta.1)
+[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.0-beta.1)
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
-This is the third public beta, **v0.3.0-beta.1** (plugin 0.14.0-beta.1). Relic is now one product: the **Relic App** and the Relic plugin for Claude Code and Codex, in one package. The three editions of v0.2.0-beta.1 are merged into it (see [earlier editions](#earlier-editions)). The package is published for **Windows only**. macOS is not released; it will be published after development and real Mac testing are complete. Relic runs locally using your existing Claude Code/Codex login. It does not include model access or a hosted service.
+This is the fourth public beta, **v0.4.0-beta.1** (plugin 0.15.0-beta.1). Relic is one product: the **Relic App** and the Relic plugin for Claude Code and Codex, in one package. This beta adds an English interface and organizations that stand above and below one another, with subgroups, a secretariat and sessions that sit in several organizations (see the [changelog](CHANGELOG.md)). The three editions of v0.2.0-beta.1 are merged into Relic (see [earlier editions](#earlier-editions)). The package is published for **Windows only**. macOS is not released; it will be published after development and real Mac testing are complete. Relic runs locally using your existing Claude Code/Codex login. It does not include model access or a hosted service.
 
 ## Install
 
-Requires **Python 3.11+** and Claude Code and/or Codex, installed and signed in. Members that run inside the Relic App also need **Node.js**. Download `relic-windows-v0.3.0-beta.1.zip` from the [release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.3.0-beta.1), extract it to a permanent folder, and run:
+Requires **Python 3.11+** and Claude Code and/or Codex, installed and signed in. Members that run inside the Relic App also need **Node.js**. Download `relic-windows-v0.4.0-beta.1.zip` from the [release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.0-beta.1), extract it to a permanent folder, and run:
 
 ```powershell
 # Windows, from the extracted folder
@@ -19,16 +19,19 @@ The installer adds the Relic plugin to Claude Code and to Codex where their CLIs
 
 Restart the host or start a new session, then review and trust the plugin hooks. In Claude Code or Codex say “Use Relic to form an organization for this task”, or “Join Relic organization org_… as member reviewer”. You can also form organizations and add members in the Relic App.
 
+**Upgrading from v0.3.0-beta.1:** stop the Relic App's server first (its process id is `pid` in `~/.relic/app.json`), then extract the new package and run its installer. Organizations carry over. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex, which loads the plugin version it has cached when it starts. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
+
 **macOS status: not released.** Existing CI results are development evidence, not real Mac desktop acceptance. macOS downloads are withheld until testing on a Mac is complete. See the [development draft](docs/macos.en.md).
 
 ## Relic App
 
-The **Relic App** is a desktop chat for Relic organizations and the bridge between their members (its interface is in Chinese in this beta):
+The **Relic App** is a desktop chat for Relic organizations and the bridge between their members, in English or Chinese (Settings → Language and names → Language):
 
 - members that run in the App are Claude Code or Codex sessions inside it; the App brings Relic into each of these sessions itself, so they need only Claude Code or Codex, installed and signed in;
-- 添加成员 (add a member) runs a member in the App, in Claude Code or Codex itself (command line or desktop app), or seats a session already on this computer: a Claude Code session, a Codex chat or a ChatGPT chat;
-- the group chat with every message between members, a private chat with each member, and the secretary; a member whose session transcript can be read shows that whole conversation, its actions folded;
-- **人话** rewrites what members tell each other so someone outside the work can follow it, and **解读** sums up what the group has been doing;
+- Add member runs a member in the App, in Claude Code or Codex itself (command line or desktop app), or seats a session already on this computer: a Claude Code session, a Codex chat or a ChatGPT chat;
+- the group chat with every message between members, a direct chat with each member, and the secretary; a member whose session transcript can be read shows that whole conversation, its actions folded;
+- **Plain words** rewrites what members tell each other so someone outside the work can follow it, and **Digest** sums up what the group has been doing;
+- organizations above and below one another (Overview → Hierarchy), subgroups, a secretariat whose leader, the secretary-general, approves changes to formal organizations, and sessions that sit in several organizations; View → Organization chart… draws them all;
 - threads and quotes, a member's workspace and file preview, task reports, voice input, and settings for profile, appearance, language, notifications and harness connections.
 
 Open it with the Relic shortcut on the desktop, by asking a Claude Code or Codex session that has the plugin to open the Relic App, or with:
@@ -37,7 +40,7 @@ Open it with the Relic shortcut on the desktop, by asking a Claude Code or Codex
 python -X utf8 scripts/open_app.py
 ```
 
-It runs a local server on 127.0.0.1 and opens a Microsoft Edge (or Chrome) window. Click 安装 in its window bar to install it as an application with its own window and title bar. 人话, 解读 and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
+It runs a local server on 127.0.0.1 and opens a Microsoft Edge (or Chrome) window. Click Install in its window bar to install it as an application with its own window and title bar. Plain words, Digest and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
 
 ## Earlier editions
 

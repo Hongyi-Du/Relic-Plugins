@@ -1,5 +1,28 @@
 # Validation / 验证记录
 
+## v0.4.0-beta.1
+
+Release: **v0.4.0-beta.1**, prepared 2026-10-27. Relic plugin 0.15.0-beta.1: the Relic App in English as well as Chinese, organizations above and below, and the organization model (one session in several seats, protocols that bind in their own organization and can be inherited downward, subgroups, a secretariat whose secretary-general approves changes to formal organizations, ex officio seats, the organization chart). The plugin has 12 tools; `group` is new.
+
+`scripts/check.py` runs the same two suites as in v0.3.0-beta.1, each in its own process with a temporary `RELIC_HOME`, `CODEX_HOME` and temp folder and without the invoking session's `RELIC_*` and `CODEX_*` variables. The relic suite now also covers the word lists and the language choice (`test_i18n.py`), organizations above and below (`test_hierarchy.py`) and the organization model (`test_org_model.py`).
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 264 tests passed / 264 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Real-machine App run: an App server on a temporary `RELIC_HOME` started one Claude Code and one Codex member through the installed ACP adapters (claude-agent-acp 0.97.0, codex-acp 2.3.0) | Both called the Relic status tool and were answered as their own seats. The Claude Code session had one set of Relic tools, 12 including `group`, from the App's plugin folder. The Codex session used Codex's own Relic plugin and the App added no server; on this machine that plugin is the maintainer's development install, so this shows the new tools reaching a Codex member, not the packaged Codex install. / 两个成员调用 Relic status 都以自己的席位作答。Claude Code 会话只有一套 Relic 工具，共 12 个（含 `group`），来自 App 的插件目录。Codex 会话用 Codex 自己的 Relic 插件，App 没有另加服务；这台机器上的那份插件是维护者的开发安装，所以这一项说明新工具能到达 Codex 成员，不代表打包后的 Codex 安装。 |
+| App page in headless Edge, in English and in Chinese, on an example store with a secretariat, departments, subgroups and requests waiting for approval | The organization chart (wide and narrow windows), the approval cards, "Also in" on a name card, the Hierarchy block and inherited protocols show as designed; no console errors; no Chinese left on the English screen. At 480 px the chat header's buttons still run past the window edge, as in v0.3.0-beta.1. / 组织关系图（宽窗口和窄窗口）、审批卡片、名片上的「也在」、「上下级」一栏和继承来的协议都按设计显示；控制台无报错；英文界面没有残留中文。480 像素宽时聊天顶栏的按钮仍会超出窗口，v0.3.0-beta.1 也是这样。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+`check.py` makes no model calls. The real-machine run used the maintainer's signed-in Claude Code and Codex (two short turns per member) on a temporary store; no real organization was involved. macOS results remain development evidence only; macOS is not released.
+
+**v0.4.0-beta.1** 于 2026-10-27 准备发布。Relic 插件 0.15.0-beta.1：Relic App 除中文外有了英文界面；组织可以分上下级；组织模型改版（一个会话坐多个席位，协议在本组织生效并可向下继承，子组，秘书处的秘书长审批正式组织的调整，当然席位，组织关系图）。插件有 12 个工具，`group` 是新加的。
+
+`scripts/check.py` 运行与 v0.3.0-beta.1 相同的两套测试，每套在独立进程中运行，使用临时的 `RELIC_HOME`、`CODEX_HOME` 和临时目录，并去掉调用会话的 `RELIC_*`、`CODEX_*` 变量。relic 这套测试新增了语言包和语言选择（`test_i18n.py`）、上下级组织（`test_hierarchy.py`）和组织模型（`test_org_model.py`）。
+
+`check.py` 不调用模型。实机运行用了维护者已登录的 Claude Code 和 Codex（每个成员两轮简短对话），数据在临时目录里，没有涉及任何真实组织。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.3.0-beta.1
 
 Release: **v0.3.0-beta.1**, prepared 2026-10-27. One product, Relic (plugin 0.14.0-beta.1): the three editions of v0.2.0-beta.1 are merged, so the checks cover one plugin and one archive per platform.

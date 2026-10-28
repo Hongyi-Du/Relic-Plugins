@@ -32,6 +32,23 @@ class OrgError(ValueError):
 HUMAN = "human"  # the person, as a message sender and recipient (not a seat)
 
 
+def qualified(org_id, member):
+    """How a member of one organization is named in another: "<org id>/<member>" (member names have no slash)."""
+    return "%s/%s" % (org_id, member)
+
+
+def kind_of(org):
+    """"formal" (a standing organization, a department; so is every organization older than kinds) or "subgroup" (a
+    group made for one piece of work)."""
+    return "subgroup" if (org or {}).get("kind") == "subgroup" else "formal"
+
+
+def inherits(protocol):
+    """Whether a protocol binds the organizations below its own too: inherit (older data says downward)."""
+    p = protocol or {}
+    return bool(p["inherit"] if "inherit" in p else p.get("downward"))
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -153,7 +170,8 @@ def short_tool(tool):
     return tool.rsplit("__", 1)[-1] if tool.startswith("mcp__") else tool
 
 
-RELIC_TOOLS = {"create", "join", "status", "message", "inbox", "work", "episode", "protocol", "review", "trajectory", "panel"}
+RELIC_TOOLS = {"create", "join", "status", "message", "inbox", "work", "episode", "protocol", "review", "trajectory", "panel",
+               "group"}
 # Chat members (relic_core/chat.py) discuss but have no files or commands: a ChatGPT chat ("chatgpt:<chat id>") and a
 # Claude chat of the Claude desktop app ("claude-chat:<name>").
 CHAT_HARNESSES = ("chatgpt", "claude-chat")
@@ -311,7 +329,14 @@ class Store:
                     tool TEXT, kind TEXT, summary TEXT, failed INTEGER, at REAL);
                 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT, member TEXT,
                     kind TEXT, body TEXT, at TEXT);
+                CREATE TABLE IF NOT EXISTS seats(actor TEXT, org_id TEXT, member TEXT, bound_at TEXT,
+                    PRIMARY KEY(actor, org_id));
+                CREATE TABLE IF NOT EXISTS focus(actor TEXT PRIMARY KEY, org_id TEXT, at TEXT);
             """)
+            # A session holds one seat per organization it belongs to (seats); actors keeps its main seat, the one
+            # its Relic calls use when they name no organization. Bindings written before seats existed, or by an older
+            # plugin that knows only actors, are seats too.
+            db.execute("INSERT OR IGNORE INTO seats SELECT actor, org_id, member, bound_at FROM actors")
             # hop: how many automatic wake-ups led to this message (0 = sent outside an automatically started turn)
             if "hop" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
                 try:
@@ -367,23 +392,679 @@ class Store:
         with self.db() as db:
             return [json.loads(r[0]) for r in db.execute("SELECT body FROM orgs")]
 
+    # ---------------- a session's seats ----------------
+    # A session (actor) can hold a seat in several organizations: the leader of a department also sits in the
+    # department above and in the cabinet, a member of a subgroup still sits in its own organization. Its main seat
+    # (table actors) is the one its Relic calls use without org; "<actor>#<org id>" names its seat in that
+    # organization, which is how a call with org=<an organization it sits in> acts as that seat's member. The
+    # organization a session is working for right now (focus) decides which protocols bind its tool calls.
+    SCOPED = re.compile(r"^(.+)#(org_[\w-]+)$")
+
+    @classmethod
+    def split_actor(cls, actor):
+        """(session actor, organization id or None): "<actor>#<org id>" names the session's seat in that organization."""
+        found = cls.SCOPED.match(str(actor or ""))
+        return (found.group(1), found.group(2)) if found else (actor, None)
+
+    @staticmethod
+    def _seat_rows(db, actor):
+        """[(organization id, member, main)] of a session's seats, its main seat first."""
+        main = db.execute("SELECT org_id, member FROM actors WHERE actor=?", (actor,)).fetchone()
+        rows = [(main[0], main[1], True)] if main else []
+        for org_id, member in db.execute("SELECT org_id, member FROM seats WHERE actor=? ORDER BY bound_at, org_id",
+                                         (actor,)):
+            if not main or org_id != main[0]:
+                rows.append((org_id, member, False))
+        return rows
+
+    def seats_of(self, actor, first=False):
+        """[(organization, member, main)]: the seats a session holds in active organizations, its main seat first.
+        For "<actor>#<org id>", only its seat there. first: stop at the first one."""
+        base, scope = self.split_actor(actor)
+        if not base:
+            return []
+        out = []
+        with self.db() as db:
+            for org_id, member, main in self._seat_rows(db, base):
+                if scope and org_id != scope:
+                    continue
+                try:
+                    org = self._load(db, org_id)
+                except OrgError:
+                    continue
+                seat = (org.get("members") or {}).get(member)
+                # a seat beside the main one counts while the session carries it (an older plugin that knows only
+                # actors may have handed the seat to another session without clearing this row)
+                if org.get("status") == "active" and seat is not None and (main or seat.get("carrier") == base):
+                    out.append((org, member, main))
+                    if first:
+                        break
+        return out
+
     def whoami(self, actor):
+        """(organization, member) a call from this actor acts as: the session's main seat ("<actor>#<org id>": its
+        seat there); when the main seat is gone, its next seat."""
         if not actor:
             return None, None
+        seats = self.seats_of(actor, first=True)
+        return (seats[0][0], seats[0][1]) if seats else (None, None)
+
+    def scoped(self, actor, ref):
+        """"<actor>#<org id>" when the session holds a seat in the organization ref names (id or exact name)."""
+        base, _ = self.split_actor(actor)
+        ref = str(ref or "").strip()
+        if not base or not ref:
+            return None
+        for org, member, main in self.seats_of(base):
+            if ref in (org["id"], org["name"]):
+                return "%s#%s" % (base, org["id"])
+        return None
+
+    def set_focus(self, actor, org_id):
+        """The session works for org_id now (a turn woken by a message there, or a Relic call with org=<it>)."""
+        base, _ = self.split_actor(actor)
+        if base and org_id:
+            with self.db() as db:
+                db.execute("INSERT OR REPLACE INTO focus VALUES(?,?,?)", (base, org_id, now()))
+
+    def clear_focus(self, actor):
+        """Back to the main seat (a turn ended: what the person asks in the session is its main organization's work)."""
+        base, _ = self.split_actor(actor)
         with self.db() as db:
-            row = db.execute("SELECT org_id, member FROM actors WHERE actor=?", (actor,)).fetchone()
+            db.execute("DELETE FROM focus WHERE actor=?", (base,))
+
+    def focused(self, actor):
+        """The actor whose seat the session works in right now: "<actor>#<focus org>" while it works for an
+        organization it sits in, else the actor itself (its main seat)."""
+        base, scope = self.split_actor(actor)
+        if scope or not base:
+            return actor
+        with self.db() as db:
+            row = db.execute("SELECT org_id FROM focus WHERE actor=?", (base,)).fetchone()
             if not row:
-                return None, None
-            org = self._load(db, row[0])
-        if org["status"] != "active" or row[1] not in org["members"]:
-            return None, None
-        return org, row[1]
+                return actor
+            held = db.execute("SELECT 1 FROM seats WHERE actor=? AND org_id=? UNION SELECT 1 FROM actors WHERE "
+                              "actor=? AND org_id=?", (base, row[0], base, row[0])).fetchone()
+        return "%s#%s" % (base, row[0]) if held else actor
+
+    def _bind(self, db, actor, org_id, member, main=False):
+        """Seat a session in org_id as member (one seat per organization). It becomes the main seat when asked, when
+        the session has none yet, or when its main seat already was in org_id."""
+        db.execute("INSERT OR REPLACE INTO seats VALUES(?,?,?,?)", (actor, org_id, member, now()))
+        row = db.execute("SELECT org_id FROM actors WHERE actor=?", (actor,)).fetchone()
+        if main or not row or row[0] == org_id:
+            db.execute("INSERT OR REPLACE INTO actors VALUES(?,?,?,?)", (actor, org_id, member, now()))
+
+    def _unbind(self, db, actor, org_id):
+        """Take a session out of its seat in org_id only; when that was its main seat, another of its seats is."""
+        db.execute("DELETE FROM seats WHERE actor=? AND org_id=?", (actor, org_id))
+        db.execute("DELETE FROM focus WHERE actor=? AND org_id=?", (actor, org_id))
+        row = db.execute("SELECT org_id FROM actors WHERE actor=?", (actor,)).fetchone()
+        if row and row[0] == org_id:
+            db.execute("DELETE FROM actors WHERE actor=?", (actor,))
+            other = db.execute("SELECT org_id, member FROM seats WHERE actor=? ORDER BY bound_at, org_id LIMIT 1",
+                               (actor,)).fetchone()
+            if other:
+                db.execute("INSERT INTO actors VALUES(?,?,?,?)", (actor, other[0], other[1], now()))
+
+    @staticmethod
+    def _holds(db, actor, org_id):
+        return bool(actor) and db.execute("SELECT 1 FROM seats WHERE actor=? AND org_id=? UNION SELECT 1 FROM actors "
+                                          "WHERE actor=? AND org_id=?", (actor, org_id, actor, org_id)).fetchone() is not None
+
+    def seat_config(self, org_id, member, org=None):
+        """How Relic starts turns of a seat: its own config, else (an ex officio seat, a subgroup seat) the config of
+        the seat its session holds elsewhere, its main seat first."""
+        org = org or self.get(org_id)
+        seat = (org.get("members") or {}).get(member) or {}
+        if seat.get("config") or not seat.get("carrier"):
+            return seat.get("config") or {}
+        for other, name, main in self.seats_of(seat["carrier"]):
+            config = (other["members"].get(name) or {}).get("config")
+            if other["id"] != org_id and config:
+                return config
+        return {}
+
+    def seat_keys(self, actor):
+        """[(organization id, member)] of every seat a session holds, its main seat first."""
+        base, _ = self.split_actor(actor)
+        if not base:
+            return []
+        with self.db() as db:
+            return [(o, m) for o, m, _ in self._seat_rows(db, base)]
 
     def require(self, actor):
         org, member = self.whoami(actor)
         if not org:
             raise OrgError("You are not in a Relic organization yet. Call create or join first.")
         return org, member
+
+    # ---------------- organizations above and below ----------------
+    # The person places an organization under another in the Relic App (set_parent). Members of an organization
+    # above (at any depth) see one below, write to its members, assign and update its tasks and issue protocols that
+    # take effect there directly; a protocol marked downward also binds every organization below its own. Members
+    # of an organization below only report upward: they write to members of the organizations above, and record
+    # their use of a protocol that binds them from above.
+    @staticmethod
+    def _ids_below(orgs, org_id):
+        below, todo = [], [org_id]
+        while todo:
+            current = todo.pop()
+            for o in orgs:
+                if o.get("parent") == current and o["id"] != org_id and o["id"] not in below:
+                    below.append(o["id"])
+                    todo.append(o["id"])
+        return below
+
+    def ancestors(self, org):
+        """The active organizations above org, nearest first (a broken or circular chain ends where it breaks)."""
+        chain, seen, current = [], {org["id"]}, org
+        while current.get("parent") and current["parent"] not in seen:
+            try:
+                current = self.get(current["parent"])
+            except OrgError:
+                break
+            if current.get("status") != "active":
+                break
+            seen.add(current["id"])
+            chain.append(current)
+        return chain
+
+    def descendants(self, org_id):
+        """The active organizations below org_id, at any depth."""
+        orgs = [o for o in self.list_orgs() if o.get("status") == "active"]
+        below = self._ids_below(orgs, org_id)
+        return [o for o in orgs if o["id"] in below]
+
+    def set_parent(self, org_id, parent_id):
+        """The person places org_id under parent_id (None: on its own). Only the Relic App calls this."""
+        parent_id = parent_id or None
+        org = self.get(org_id)
+        parent = None
+        if parent_id:
+            parent = self.get(parent_id)
+            if parent_id == org_id or parent_id in self._ids_below(self.list_orgs(), org_id):
+                raise OrgError("An organization cannot be placed under itself or under an organization below it.")
+            if parent.get("status") != "active":
+                raise OrgError("Organization is not active.")
+            if kind_of(org) == "formal" and kind_of(parent) == "subgroup":
+                raise OrgError("A formal organization cannot be placed under a subgroup.")
+        old = org.get("parent")
+        if old == parent_id:
+            return {"org_id": org_id, "parent": parent_id}
+        with self.change(org_id) as (org, db):
+            org["parent"] = parent_id
+            if parent:
+                self._event(db, org_id, HUMAN, "organization.parent_set", {"parent": parent_id, "name": parent["name"]})
+                self._event(db, parent_id, HUMAN, "organization.child_added", {"child": org_id, "name": org["name"]})
+            else:
+                self._event(db, org_id, HUMAN, "organization.parent_removed", {"parent": old})
+            if old:
+                self._event(db, old, HUMAN, "organization.child_removed", {"child": org_id, "name": org["name"]})
+        self.sync_offices(org_id)
+        return {"org_id": org_id, "parent": parent_id}
+
+    def find_org(self, ref):
+        """An active organization by id or by exact name."""
+        ref = str(ref or "").strip()
+        orgs = [o for o in self.list_orgs() if o.get("status") == "active"]
+        hit = [o for o in orgs if o["id"] == ref] or [o for o in orgs if o["name"] == ref]
+        if not hit:
+            raise OrgError("No organization " + ref)
+        if len(hit) > 1:
+            raise OrgError("Several organizations are called %s; name one by its id (%s)."
+                           % (ref, ", ".join(o["id"] for o in hit)))
+        return hit[0]
+
+    def reach(self, actor, ref, up=False):
+        """(your organization, you, the organization ref names, how it is related): "down" for one below yours at
+        any depth; with up, "up" for one above it; None when ref is your own organization."""
+        org, member = self.require(actor)
+        if not ref or str(ref).strip() in (org["id"], org["name"]):
+            return org, member, org, None
+        target = self.find_org(ref)
+        if target["id"] in self._ids_below([o for o in self.list_orgs() if o.get("status") == "active"], org["id"]):
+            return org, member, target, "down"
+        above = [a["id"] for a in self.ancestors(org)]
+        if target["id"] in above:
+            if up:
+                return org, member, target, "up"
+            raise OrgError("%s is above your organization: report to its members with message (org=%s); its work "
+                           "belongs to them." % (target["name"], target["id"]))
+        raise OrgError("%s is neither above nor below your organization (the person sets that in the Relic App), so "
+                       "you cannot act in it." % target["name"])
+
+    # Protocols are inherited like methods of a class. An organization's protocols bind it alone unless marked
+    # inherit (older data: downward). Going down from the topmost organization above, each level takes what the level
+    # above passes down, applies its own overrides (an active protocol with supersedes="<org id>/<P#>") and stops
+    # (an enacted retirement with retire_target="<org id>/<P#>"), adds its own inheritable protocols and passes the
+    # result on. The organization itself then adds all of its own active protocols. The nearest definition wins, and
+    # an override or stop counts at its level and below. A protocol issued from above is never overridden or stopped
+    # by the organizations below it.
+    def inheritance(self, org):
+        """{"inherited": [(owner, protocol)] in effect in org from the organizations above,
+            "replaced": [(owner, protocol, organization that replaced it, its protocol id, "overridden" | "retired")]}."""
+        passed, replaced = {}, []
+        for level in list(reversed(self.ancestors(org))) + [org]:
+            protocols = list((level.get("protocols") or {}).values())
+            for p in protocols:
+                for ref, how, status in ((p.get("supersedes"), "overridden", "active"),
+                                         (p.get("retire_target"), "retired", "enacted")):
+                    if p.get("status") == status and ref and "/" in str(ref) and ref in passed:
+                        owner, gone = passed[ref]
+                        if not gone.get("issued_by"):
+                            del passed[ref]
+                            replaced.append((owner, gone, level, p["id"], how))
+            if level is org:
+                break
+            for p in protocols:
+                if p.get("status") == "active" and inherits(p):
+                    passed["%s/%s" % (level["id"], p["id"])] = (level, p)
+        return {"inherited": list(passed.values()), "replaced": replaced}
+
+    def inherited_protocols(self, org):
+        """[(organization above, protocol)]: the protocols of the organizations above that are in effect in org."""
+        return self.inheritance(org)["inherited"]
+
+    def effective_protocols(self, org):
+        """[(owner, protocol)]: every protocol in effect in org, its own active ones first."""
+        own = [(org, p) for p in (org.get("protocols") or {}).values() if p.get("status") == "active"]
+        return own + self.inherited_protocols(org)
+
+    def org_names(self, db, names):
+        """{"<org id>/<member>": organization name} for the names that belong to another organization."""
+        out = {}
+        for name in names:
+            place, _, who = str(name).partition("/")
+            if who and place not in out:
+                try:
+                    out[place] = self._load(db, place)["name"]
+                except OrgError:
+                    out[place] = place
+        return {n: out[str(n).split("/", 1)[0]] for n in names if "/" in str(n)}
+
+    # ---------------- formal organizations: the cabinet and ex officio seats ----------------
+    # Formal organizations are standing ones (departments); subgroups are made for one piece of work. The person marks
+    # one formal organization as the cabinet (the secretariat); its leader is the secretary-general. The leader of a
+    # formal organization holds a seat ex officio in the formal organization right above it and in the cabinet,
+    # carried by the session of its leader seat (seat["ex_officio"] = {"org": department, "member": leader}).
+    def cabinet(self):
+        """The active organization marked as the cabinet, or None."""
+        found = [o for o in self.list_orgs() if o.get("cabinet") and o.get("status") == "active"]
+        return min(found, key=lambda o: o.get("created_at") or "") if found else None
+
+    def is_secretary_general(self, actor):
+        """Whether the session holds the cabinet's leader seat."""
+        cab = self.cabinet()
+        if not cab or not cab.get("leader"):
+            return False
+        return any(o["id"] == cab["id"] and m == cab["leader"] for o, m, _ in self.seats_of(self.split_actor(actor)[0]))
+
+    def set_cabinet(self, org_id, on=True):
+        """The person marks a formal organization as the cabinet (there is one at most), or unmarks it."""
+        org = self.get(org_id)
+        if on and (kind_of(org) != "formal" or org.get("status") != "active"):
+            raise OrgError("The cabinet is an active formal organization.")
+        for other in self.list_orgs():
+            if on and other["id"] != org_id and other.get("cabinet"):
+                with self.change(other["id"]) as (o, db):
+                    o.pop("cabinet", None)
+                    self._event(db, o["id"], HUMAN, "organization.cabinet_unset", {})
+        with self.change(org_id) as (org, db):
+            if bool(org.get("cabinet")) != bool(on):
+                if on:
+                    org["cabinet"] = True
+                else:
+                    org.pop("cabinet", None)
+                self._event(db, org_id, HUMAN, "organization.cabinet_set" if on else "organization.cabinet_unset", {})
+        self.sync_offices(org_id)
+        return {"org_id": org_id, "cabinet": bool(on)}
+
+    def set_leader(self, org_id, member, by=HUMAN):
+        """A new leader for a leader-led organization (the person in the Relic App, or an approved request)."""
+        with self.change(org_id) as (org, db):
+            if org.get("governance") != "leader":
+                raise OrgError("%s decides by majority; it has no leader." % org["name"])
+            if member not in org["members"]:
+                raise OrgError("Unknown member " + str(member))
+            previous = org.get("leader")
+            org["leader"] = member
+            if previous != member:
+                self._event(db, org_id, by, "organization.leader_set", {"leader": member, "previous": previous})
+        self.sync_offices(org_id)
+        return {"org_id": org_id, "leader": member, "previous": previous}
+
+    def dissolve(self, org_id, by=HUMAN):
+        """End a formal organization: its sessions leave their seats there; its record stays."""
+        return self._end(org_id, "dissolved", by)
+
+    def _end(self, org_id, status, by):
+        with self.change(org_id) as (org, db):
+            if org.get("status") != "active":
+                raise OrgError("%s is not active." % org["name"])
+            org.update(status=status, ended_at=now(), ended_by=by)
+            org.pop("cabinet", None)
+            for (actor,) in db.execute("SELECT actor FROM seats WHERE org_id=? UNION SELECT actor FROM actors "
+                                       "WHERE org_id=?", (org_id, org_id)).fetchall():
+                self._unbind(db, actor, org_id)
+            self._event(db, org_id, by, "organization." + status, {"name": org["name"]})
+            if org.get("parent"):
+                self._event(db, org["parent"], by, "organization.child_" + status, {"child": org_id,
+                                                                                   "name": org["name"]})
+        self.sync_offices(org_id)
+        return {"org_id": org_id, "status": status}
+
+    def sync_offices(self, org_id=None):
+        """Bring every ex officio seat in line with the organizations as they are now (called after a change of
+        leader, parent or cabinet, and when a leader's session takes its seat). org_id names the organization that
+        changed; every one is brought in line, so a change elsewhere is never left behind. A leader without a session
+        yet gets an empty seat, bound when its session takes the leader seat. A session the Relic App runs holds one
+        seat only: its ex officio seats stay empty. Returns [(organization id, member, what)]."""
+        orgs = {o["id"]: o for o in self.list_orgs() if o.get("status") == "active"}
+        cab = next((o for o in sorted(orgs.values(), key=lambda o: o.get("created_at") or "") if o.get("cabinet")), None)
+        wanted = {}  # (organization, department) -> (leader, carrier, harness, department)
+        for dept in sorted(orgs.values(), key=lambda o: o.get("created_at") or ""):
+            seat = (dept.get("members") or {}).get(dept.get("leader") or "")
+            if kind_of(dept) != "formal" or dept.get("governance") != "leader" or not seat:
+                continue
+            targets = []
+            parent = orgs.get(dept.get("parent"))
+            if parent and kind_of(parent) == "formal":
+                targets.append(parent["id"])
+            if cab and cab["id"] != dept["id"] and cab["id"] not in targets:
+                targets.append(cab["id"])
+            carrier = seat.get("carrier") if (seat.get("config") or {}).get("surface") != "acp" else None
+            for target in targets:
+                wanted[(target, dept["id"])] = (dept["leader"], carrier, seat.get("harness") or "", dept)
+        changes = []
+        for target_id, target in orgs.items():
+            stale = [name for name, s in (target.get("members") or {}).items() if s.get("ex_officio")
+                     and (wanted.get((target_id, s["ex_officio"].get("org"))) or [None])[0] != s["ex_officio"].get("member")]
+            missing = [k for k in wanted if k[0] == target_id and not any(
+                (s.get("ex_officio") or {}).get("org") == k[1] and s["ex_officio"].get("member") == wanted[k][0]
+                for s in target["members"].values())]
+            moved = [name for name, s in target["members"].items() if s.get("ex_officio")
+                     and (target_id, s["ex_officio"].get("org")) in wanted and name not in stale
+                     and (s.get("carrier") != wanted[(target_id, s["ex_officio"]["org"])][1]
+                          or s.get("role") != self._office_role(wanted[(target_id, s["ex_officio"]["org"])][3]))]
+            if not (stale or missing or moved):
+                continue
+            with self.change(target_id) as (target, db):
+                for name in stale:
+                    s = target["members"].get(name)
+                    if not s:
+                        continue
+                    if s.get("carrier"):
+                        self._unbind(db, s["carrier"], target_id)
+                    if target.get("leader") == name:
+                        s.pop("ex_officio", None)  # it leads here now: the seat stays as an ordinary one
+                        continue
+                    del target["members"][name]
+                    self._event(db, target_id, name, "member.office_ended", {"org": s["ex_officio"].get("org")})
+                    changes.append((target_id, name, "removed"))
+                for name in moved:
+                    s = target["members"].get(name)
+                    if not s or (target_id, (s.get("ex_officio") or {}).get("org")) not in wanted:
+                        continue  # changed by someone else a moment ago: the next sync sees it
+                    leader, carrier, harness, dept = wanted[(target_id, s["ex_officio"]["org"])]
+                    s["role"] = self._office_role(dept)
+                    if s.get("carrier") == carrier:
+                        continue
+                    if s.get("carrier"):
+                        self._unbind(db, s["carrier"], target_id)
+                    if carrier and self._holds(db, carrier, target_id):
+                        carrier = None  # the session already sits here in a seat of its own
+                    s.update(carrier=carrier, harness=harness or s.get("harness", ""),
+                             carriers=s.get("carriers", 0) + (1 if carrier else 0))
+                    if carrier:
+                        self._bind(db, carrier, target_id, name)
+                        self._event(db, target_id, name, "member.seated", {"harness": harness, "ex_officio": True})
+                    changes.append((target_id, name, "bound"))
+                for key in missing:
+                    leader, carrier, harness, dept = wanted[key]
+                    if carrier and self._holds(db, carrier, target_id):
+                        continue  # the session already sits here in a seat of its own
+                    name, n = leader, 1
+                    while name in target["members"]:
+                        n += 1
+                        name = "%s-%s" % (leader, re.sub(r"[\s/\\:]+", "-", dept["name"]).strip("-") or dept["id"])
+                        name += "" if n == 2 else "-%d" % (n - 1)
+                    role = self._office_role(dept)
+                    target["members"][name] = {"role": role, "joined_at": now(), "carrier": carrier,
+                                               "carriers": 1 if carrier else 0, "notes": [], "open_episode": None,
+                                               "harness": harness, "harness_history": [harness] if harness else [],
+                                               "ex_officio": {"org": dept["id"], "member": leader}}
+                    for ep in target["episodes"].values():
+                        if ep.get("all_members") and ep["status"] == "open" and name not in ep["participants"]:
+                            ep["participants"].append(name)
+                    if carrier:
+                        self._bind(db, carrier, target_id, name)
+                    self._event(db, target_id, name, "member.joined", {"role": role, "harness": harness,
+                                                                       "ex_officio": dept["id"]})
+                    changes.append((target_id, name, "added"))
+        return changes
+
+    @staticmethod
+    def _office_role(dept):
+        from . import i18n
+        return i18n.t("store.office_role", None, dept=dept["name"])
+
+    # ---------------- subgroups ----------------
+    def create_group(self, actor, name, purpose, leader, parent=None, members=None):
+        """A subgroup for one piece of work, under parent (default: the organization the caller acts in), whose rules
+        it inherits. Its members (default: every member of the first formal organization at or above parent) each
+        take one more seat in it with the same session and name; leader leads it. No approval is needed."""
+        org, me = self.require(actor)
+        base, _ = self.split_actor(actor)
+        under = self.find_org(parent) if parent else org
+        held = {o["id"]: m for o, m, _ in self.seats_of(base)}
+        if under["id"] not in held:
+            raise OrgError("A subgroup is made under an organization you are a member of; %s is not one." % under["name"])
+        home = under if kind_of(under) == "formal" else next(
+            (a for a in self.ancestors(under) if kind_of(a) == "formal"), under)
+        names = list(dict.fromkeys(members)) if members else list(home["members"])
+        unknown = [n for n in names if n not in home["members"]]
+        if unknown:
+            raise OrgError("A subgroup's members come from %s; not members there: %s" % (home["name"], ", ".join(unknown)))
+        if not (name or "").strip():
+            raise OrgError("Give the subgroup a name.")
+        if not leader or leader not in names:
+            raise OrgError("The subgroup's leader is one of its members.")
+        group = {"id": short_id("org_"), "name": name.strip(), "purpose": purpose or "", "governance": "leader",
+                 "leader": leader, "status": "active", "created_at": now(), "kind": "subgroup", "parent": under["id"],
+                 "home": home["id"], "created_by": qualified(under["id"], held[under["id"]]), "revision": 0,
+                 "members": {}, "documents": {}, "tasks": {}, "episodes": {}, "protocols": {}, "reviews": {},
+                 "automatic_reflection": True, "counters": {"task": 0, "episode": 0, "protocol": 0, "review": 0}}
+        for n in names:
+            seat = home["members"][n]
+            carrier = seat.get("carrier") if (seat.get("config") or {}).get("surface") != "acp" else None
+            harness = seat.get("harness") or ""
+            group["members"][n] = {"role": seat.get("role", ""), "joined_at": now(), "carrier": carrier,
+                                   "carriers": 1 if carrier else 0, "notes": [], "open_episode": None,
+                                   "harness": harness, "harness_history": [harness] if harness else []}
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT INTO orgs VALUES(?,?)", (group["id"], json.dumps(group, ensure_ascii=False)))
+            self._event(db, group["id"], held[under["id"]], "organization.created",
+                        {"name": group["name"], "governance": "leader", "kind": "subgroup", "parent": under["id"]})
+            for n, seat in group["members"].items():
+                if seat["carrier"]:
+                    self._bind(db, seat["carrier"], group["id"], n)
+                self._event(db, group["id"], n, "member.joined", {"role": seat["role"], "harness": seat["harness"]})
+            self._event(db, under["id"], held[under["id"]], "organization.group_created",
+                        {"child": group["id"], "name": group["name"], "leader": leader})
+        return self.get(group["id"])
+
+    def close_group(self, actor, ref=None):
+        """Its leader closes a subgroup: the seats in it end, its record stays (subgroups below it close too)."""
+        org, me = self.require(actor)
+        group = self.find_org(ref) if ref else org
+        if kind_of(group) != "subgroup":
+            raise OrgError("%s is a formal organization: ask for its dissolution with group op=dissolve." % group["name"])
+        if group["id"] != org["id"] or group.get("leader") != me:
+            raise OrgError("Only the leader of %s closes it (the person can close it in the Relic App)." % group["name"])
+        return self.close_group_as(group["id"], me)
+
+    def close_group_as(self, group_id, by=HUMAN):
+        group = self.get(group_id)
+        if kind_of(group) != "subgroup":
+            raise OrgError("Only a subgroup is closed; a formal organization is dissolved.")
+        for below in self.descendants(group_id):
+            if kind_of(below) == "subgroup" and below.get("parent") == group_id:
+                self.close_group_as(below["id"], by)
+        return self._end(group_id, "closed", by)
+
+    # ---------------- approval of changes to formal organizations ----------------
+    # Creating a formal organization, changing its parent or its leader and dissolving it wait for the secretary-
+    # general when a member asks: the request is kept in the cabinet (without a cabinet, in the requester's
+    # organization, for the person to decide in the Relic App). The person's own changes in the App take effect at once.
+    REQUEST_KINDS = ("create", "parent", "leader", "dissolve")
+
+    def approval_needed(self, actor, kind):
+        """Whether a change asked by this session waits for a decision: always, unless the session is the
+        secretary-general; creating an organization only once there is a cabinet."""
+        if self.is_secretary_general(actor):
+            return False
+        return kind != "create" or self.cabinet() is not None
+
+    def file_request(self, actor, kind, args, reason=""):
+        if kind not in self.REQUEST_KINDS:
+            raise OrgError("Request kinds: " + ", ".join(self.REQUEST_KINDS))
+        base, _ = self.split_actor(actor)
+        org, me = self.whoami(actor)
+        cab = self.cabinet()
+        home_id = cab["id"] if cab else (org["id"] if org else None)
+        if not home_id:
+            raise OrgError("There is no cabinet to decide this; ask the person to do it in the Relic App.")
+        sender = (me if org["id"] == home_id else qualified(org["id"], me)) if org else "relic"
+        with self.change(home_id) as (home, db):
+            home["counters"]["request"] = home["counters"].get("request", 0) + 1
+            rid = "Q%d" % home["counters"]["request"]
+            r = {"id": rid, "kind": kind, "args": args, "reason": (reason or "").strip()[:500], "status": "pending",
+                 "requester": {"actor": base, "org": org["id"] if org else None, "member": me,
+                               "org_name": org["name"] if org else None},
+                 "approver": "secretary-general" if cab else HUMAN, "at": now()}
+            home.setdefault("requests", {})[rid] = r
+            self._event(db, home_id, sender, "request.filed", {"id": rid, "kind": kind, "args": args})
+            if cab and cab.get("leader") and cab["leader"] in home["members"] and sender != cab["leader"]:
+                self._post(db, home_id, sender, [cab["leader"]],
+                           "Approval request %s from %s: %s.%s\nDecide with the Relic group tool: op=approve or "
+                           "op=deny, request_id=%s, note=<why>." % (rid, sender, self.request_text(r),
+                                                                   (" Reason: " + r["reason"]) if r["reason"] else "", rid),
+                           hop=self._sender_hop(org["id"], me) if org else 0)
+        who = "the secretary-general (%s of %s)" % (cab["leader"], cab["name"]) if cab else "the person, in the Relic App"
+        return {"request_id": rid, "status": "pending", "kind": kind, "approver": r["approver"],
+                "text": "Request %s is filed and waits for %s; you get a message when it is decided." % (rid, who)}
+
+    @staticmethod
+    def request_text(r):
+        a = r.get("args") or {}
+        if r["kind"] == "create":
+            return "create the formal organization '%s'" % a.get("name")
+        if r["kind"] == "parent":
+            return "place %s under %s" % (a.get("org_name") or a.get("org"), a.get("parent_name") or a.get("parent") or "nothing")
+        if r["kind"] == "leader":
+            return "make %s the leader of %s" % (a.get("member"), a.get("org_name") or a.get("org"))
+        return "dissolve %s" % (a.get("org_name") or a.get("org"))
+
+    def requests(self, org_id=None):
+        """Every request kept in org_id (default: in any organization), newest first."""
+        orgs = [self.get(org_id)] if org_id else self.list_orgs()
+        rows = [dict(r, home=o["id"]) for o in orgs for r in (o.get("requests") or {}).values()]
+        return sorted(rows, key=lambda r: (r.get("at") or "", r["id"]), reverse=True)
+
+    def decide_request(self, actor, request_id, decision, note=""):
+        """The secretary-general approves or denies a request kept in the cabinet."""
+        cab = self.cabinet()
+        if not cab:
+            raise OrgError("There is no cabinet: the person decides requests in the Relic App.")
+        if not self.is_secretary_general(actor):
+            raise OrgError("Only the secretary-general (the leader of %s) decides requests." % cab["name"])
+        return self._decide(cab["id"], request_id, decision, note, cab["leader"])
+
+    def decide_request_as_human(self, org_id, request_id, decision, note=""):
+        return self._decide(org_id, request_id, decision, note, HUMAN)
+
+    def _decide(self, home_id, request_id, decision, note, by):
+        if decision not in ("approve", "deny"):
+            raise OrgError("decision is approve or deny.")
+        r = (self.get(home_id).get("requests") or {}).get(request_id)
+        if not r or r["status"] != "pending":
+            raise OrgError("No pending request " + str(request_id))
+        result, error = None, None
+        if decision == "approve":
+            try:
+                result = self._carry_out(r)
+            except OrgError as failure:
+                error = str(failure)
+        status = "denied" if decision == "deny" else "failed" if error else "approved"
+        with self.change(home_id) as (home, db):
+            r = home["requests"][request_id]
+            r.update(status=status, decided_by=by, note=(note or "")[:300], decided_at=now(), result=result,
+                     error=error)
+            self._event(db, home_id, by, "request." + status, {"id": request_id, "kind": r["kind"]})
+        self._tell_requester(home_id, r, by)
+        return {k: r.get(k) for k in ("id", "kind", "status", "result", "error", "decided_by", "note")}
+
+    def _carry_out(self, r):
+        a, who = r.get("args") or {}, r["requester"]
+        if r["kind"] == "create":
+            org = self.create(who["actor"], a["name"], a.get("purpose", ""), a["member"], a.get("role", ""),
+                              a.get("governance") or "leader")
+            return {"org_id": org["id"], "member": a["member"]}
+        if r["kind"] == "parent":
+            return self.set_parent(a["org"], a.get("parent"))
+        if r["kind"] == "leader":
+            return self.set_leader(a["org"], a["member"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+        return self.dissolve(a["org"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+
+    def _tell_requester(self, home_id, r, by):
+        """The requester learns the decision in its own organization (a created one: the new organization)."""
+        who = r["requester"]
+        place = (r.get("result") or {}).get("org_id") if r["kind"] == "create" and r["status"] == "approved" else who.get("org")
+        member = (r.get("result") or {}).get("member") if place and place != who.get("org") else who.get("member")
+        if not place or not member:
+            return
+        sender = HUMAN if by == HUMAN else (by if place == home_id else qualified(home_id, by))
+        text = "Request %s (%s) was %s by %s.%s%s" % (
+            r["id"], self.request_text(r), r["status"] if r["status"] != "failed" else "approved but could not be done",
+            "the person" if by == HUMAN else by, (" Note: " + r["note"]) if r.get("note") else "",
+            (" Error: " + r["error"]) if r.get("error") else "")
+        with self.db() as db:
+            try:
+                there = self._load(db, place)
+            except OrgError:
+                return
+            if member in there["members"]:
+                self._post(db, place, sender, [member], text)
+
+    def _post(self, db, org_id, sender, recipients, body, hop=0):
+        cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop) VALUES(?,?,?,?,?,?,?)",
+                         (org_id, sender, json.dumps(recipients), body, None, now(), int(hop or 0)))
+        self._event(db, org_id, sender, "message.sent", {"id": cur.lastrowid, "to": recipients, "automatic": True})
+        return cur.lastrowid
+
+    def change_formal(self, actor, kind, a):
+        """A member asks to change a formal organization (parent, leader, dissolve): the organization it acts in or
+        one below it. Done at once for the secretary-general, otherwise filed as a request."""
+        org, me = self.require(actor)
+        target = org
+        if a.get("org"):
+            _, _, target, _ = self.reach(actor, a["org"])
+        if kind_of(target) != "formal":
+            raise OrgError("%s is a subgroup: its leader closes it with group op=close." % target["name"])
+        args = {"org": target["id"], "org_name": target["name"]}
+        if kind == "parent":
+            parent = self.find_org(a["parent"]) if a.get("parent") else None
+            args.update(parent=parent["id"] if parent else None, parent_name=parent["name"] if parent else None)
+        elif kind == "leader":
+            if not a.get("member") or a["member"] not in target["members"]:
+                raise OrgError("Name the new leader: a member of %s." % target["name"])
+            args["member"] = a["member"]
+        if not self.approval_needed(actor, kind):
+            return {"done": True, "result": self._carry_out({"kind": kind, "args": args,
+                                                             "requester": {"org": org["id"], "member": me}})}
+        return self.file_request(actor, kind, args, a.get("reason", ""))
 
     # ---------------- formation and membership ----------------
     def create(self, actor, name, purpose, member, role="", governance="leader"):
@@ -393,6 +1074,7 @@ class Store:
             raise OrgError("governance must be leader or peer.")
         org = {"id": short_id("org_"), "name": name.strip(), "purpose": purpose, "governance": governance,
                "leader": member if governance == "leader" else None, "status": "active", "created_at": now(),
+               "kind": "formal",
                "revision": 0, "members": {}, "documents": {}, "tasks": {}, "episodes": {}, "protocols": {},
                "reviews": {}, "automatic_reflection": True,
                "counters": {"task": 0, "episode": 0, "protocol": 0, "review": 0}}
@@ -410,7 +1092,8 @@ class Store:
         if governance not in ("leader", "peer"):
             raise OrgError("governance must be leader or peer.")
         org = {"id": short_id("org_"), "name": name.strip(), "purpose": purpose, "governance": governance,
-               "leader": None, "status": "active", "created_at": now(), "revision": 0, "members": {}, "documents": {},
+               "leader": None, "founder": "human", "status": "active", "created_at": now(), "kind": "formal",
+               "revision": 0, "members": {}, "documents": {},
                "tasks": {}, "episodes": {}, "protocols": {}, "reviews": {}, "automatic_reflection": True,
                "counters": {"task": 0, "episode": 0, "protocol": 0, "review": 0}}
         with self.db() as db:
@@ -420,9 +1103,21 @@ class Store:
         return org
 
     def join(self, actor, org_id, member, role=""):
+        """Seat a session in org_id. Joining another organization adds a seat and keeps the session's other seats
+        (the first one it holds is its main seat); joining an organization it already sits in makes that its main
+        seat. A seat that gets a new carrier leaves only the previous carrier's seat in this organization."""
         member = member.strip()
         if not member or any(c in member for c in " /\\:"):
             raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        actor, _ = self.split_actor(actor)
+        for other, name, _ in self.seats_of(actor):
+            config = (other["members"].get(name) or {}).get("config") or {}
+            if other["id"] != org_id and config.get("surface") == "acp":
+                raise OrgError("This session runs inside the Relic App as %s of %s; such a session holds one seat "
+                               "only for now." % (name, other["name"]))
+        target = (self.get(org_id)["members"].get(member) or {}).get("config") or {}
+        if target.get("surface") == "acp" and any(o["id"] != org_id for o, _, _ in self.seats_of(actor)):
+            raise OrgError("%s runs inside the Relic App; a session that holds another seat cannot take it." % member)
         replaced = None
         with self.change(org_id) as (org, db):
             if org["status"] != "active":
@@ -458,9 +1153,12 @@ class Store:
                                 {"carriers": seat["carriers"], "from_harness": previous, "to_harness": harness})
                 if role:
                     seat["role"] = role
-            db.execute("INSERT OR REPLACE INTO actors VALUES(?,?,?,?)", (actor, org_id, member, now()))
-            if replaced:
-                db.execute("DELETE FROM actors WHERE actor=? AND org_id=?", (replaced, org_id))
+            self._bind(db, actor, org_id, member, main=self._holds(db, actor, org_id))
+            if replaced and replaced != actor:
+                self._unbind(db, replaced, org_id)
+            leads = org.get("leader") == member
+        if leads:
+            self.sync_offices(org_id)  # the leader's session takes its ex officio seats too
         return {"org_id": org_id, "member": member, "role": self.get(org_id)["members"][member]["role"],
                 "carrier_replaced": bool(replaced)}
 
@@ -470,6 +1168,7 @@ class Store:
         member = member.strip()
         if not member or any(c in member for c in " /\\:"):
             raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        leads = False
         with self.change(org_id) as (org, db):
             seat = org["members"].get(member)
             if seat is None:
@@ -479,11 +1178,14 @@ class Store:
                 self._event(db, org_id, member, "member.prepared", {"role": role})
                 if org["governance"] == "leader" and not org.get("leader"):
                     org["leader"] = member
+                    leads = True
             if role:
                 seat["role"] = role
             if config is not None:
                 seat["config"] = config
                 self._event(db, org_id, member, "member.configured", {k: v for k, v in config.items() if k not in ("env", "seat_token")})
+        if leads:
+            self.sync_offices(org_id)  # the new leader's ex officio seats (empty until its session sits)
         return seat
 
     def set_config(self, org_id, member, config):
@@ -643,19 +1345,27 @@ class Store:
         with self.db() as db:
             return {r[0]: (r[1], r[2]) for r in db.execute("SELECT actor, org_id, member FROM actors")}
 
-    def unbind(self, actor):
-        """Take a session out of its seat. The seat, its role, tasks and the protocols stay with the organization."""
-        org, member = self.whoami(actor)
+    def unbind(self, actor, org_id=None):
+        """Take a session out of its seat in org_id (without org_id: out of every seat it holds). The seat, its role,
+        tasks and the protocols stay with the organization; the session keeps its seats elsewhere."""
+        actor, _ = self.split_actor(actor)
+        seats = [(o, m) for o, m, _ in self.seats_of(actor) if not org_id or o["id"] == org_id]
         with self.db() as db:
-            db.execute("DELETE FROM actors WHERE actor=?", (actor,))
-            if org:
+            if org_id:
+                self._unbind(db, actor, org_id)
+            else:
+                db.execute("DELETE FROM actors WHERE actor=?", (actor,))
+                db.execute("DELETE FROM seats WHERE actor=?", (actor,))
+                db.execute("DELETE FROM focus WHERE actor=?", (actor,))
+            for org, member in seats:
                 self._event(db, org["id"], member, "member.unbound", {"harness": harness_of(actor)})
-        return {"org_id": org["id"] if org else None, "member": member}
+        org, member = seats[0] if seats else (None, None)
+        return {"org_id": org["id"] if org else org_id, "member": member}
 
     def bind_alias(self, actor, org_id, member):
         """Bind an additional actor key to an existing seat without turnover (used for resumed sessions)."""
         with self.db() as db:
-            db.execute("INSERT OR REPLACE INTO actors VALUES(?,?,?,?)", (actor, org_id, member, now()))
+            self._bind(db, actor, org_id, member, main=True)
 
     # ---------------- messages ----------------
     # Threads work like Slack's, one level deep: a reply's reply_to is always the thread's root message, so answering a
@@ -696,8 +1406,27 @@ class Store:
                 m["thread"] = heads[m["reply_to"]]
         return messages
 
-    def send(self, actor, to, body, episode_id=None, reply_to=None):
-        """reply_to: answer inside the thread of that message; without `to`, everyone in the thread gets it."""
+    def send(self, actor, to, body, episode_id=None, reply_to=None, org=None):
+        """reply_to: answer inside the thread of that message; without `to`, everyone in the thread gets it.
+        org: the organization to write in when it is not your own (one below yours, or one above it to report).
+        Recipients named "<org id>/<member>", the way a message from another organization names its sender, say
+        it too."""
+        names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
+        if not org and names and all("/" in n for n in names):
+            places = {n.split("/", 1)[0] for n in names}
+            if len(places) != 1:
+                raise OrgError("Write to one organization at a time.")
+            org, to = places.pop(), [n.split("/", 1)[1] for n in names]
+        elif any("/" in n for n in names):
+            raise OrgError("Write to members of another organization in a message of its own (org=<its id>).")
+        seated = self.scoped(actor, org) if org else None
+        if seated:  # an organization the session sits in: write there as its member
+            self.set_focus(actor, self.split_actor(seated)[1])
+            actor, org = seated, None
+        if org:
+            own, member, target, way = self.reach(actor, org, up=True)
+            if way:
+                return self._send_across(own, member, target, way, to, body, episode_id, reply_to)
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
@@ -725,6 +1454,147 @@ class Store:
             self._event(db, org["id"], member, "message.sent", dict({"id": cur.lastrowid, "to": recipients}, **thread))
             return dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
 
+    def _send_across(self, own, member, target, way, to, body, episode_id, reply_to):
+        """A message from a member of `own` to members of `target`, an organization below it (way "down") or above it
+        (way "up": a report). It is kept in target, from "<own id>/<member>"; recipients there are woken as usual."""
+        if not body or not body.strip():
+            raise OrgError("Empty message.")
+        if episode_id:
+            raise OrgError("An episode belongs to one organization: leave episode_id out when you write to another one.")
+        sender = qualified(own["id"], member)
+        with self.db() as db:
+            root = self._thread_root(db, target["id"], reply_to)
+            if root and not to:
+                recipients = [m for m in self._thread_people(db, target["id"], root) if m in target["members"]]
+            elif not to or to == ["all"] or to == "all":
+                recipients = list(target["members"])
+            else:
+                recipients = list(dict.fromkeys(to if isinstance(to, list) else [to]))
+                if HUMAN in recipients:
+                    raise OrgError("Write to the person (human) in your own organization.")
+                unknown = set(recipients) - set(target["members"])
+                if unknown:
+                    raise OrgError("Unknown members of %s: %s" % (target["name"], ", ".join(sorted(unknown))))
+            if not recipients:
+                raise OrgError("%s has no members to write to." % target["name"])
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?,?)", (target["id"], sender, json.dumps(recipients), body, None, now(),
+                                                         self._sender_hop(own["id"], member), root))
+            thread = {"reply_to": root} if root else {}
+            self._event(db, target["id"], sender, "message.sent",
+                        dict({"id": cur.lastrowid, "to": recipients, "from_org": own["id"]}, **thread))
+            self._event(db, own["id"], member, "organization.reached",
+                        {"what": "message", "org": target["id"], "name": target["name"], "way": way,
+                         "id": cur.lastrowid, "to": recipients})
+        return dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
+
+    def _work_below(self, own, member, target, op, a):
+        if op not in ("task", "doc_read"):
+            raise OrgError("In an organization below yours you read documents (doc_read) and assign or update tasks "
+                           "(task); the rest of its work belongs to its members.")
+        if op == "task" and not a.get("task_id") and not a.get("owner"):
+            raise OrgError("A task you assign in another organization needs an owner: one of its members.")
+        result = self._work(target, qualified(own["id"], member), op, a)
+        if op == "task":
+            with self.db() as db:
+                self._event(db, own["id"], member, "organization.reached",
+                            {"what": "task", "org": target["id"], "name": target["name"], "way": "down",
+                             "id": result["id"], "title": result["title"], "owner": result["owner"],
+                             "status": result["status"]})
+        return result
+
+    def _protocol_below(self, own, member, target, op, a):
+        """A protocol issued by a member of an organization above: it takes effect in target directly, and only an
+        organization above can revise or retire it. downward=true binds the organizations below target too."""
+        if op == "list":
+            return self._protocol_list(target)
+        if op != "propose":
+            raise OrgError("In an organization below yours you issue protocols (propose: they take effect there "
+                           "directly) and list them; votes and use belong to its members.")
+        strength = a.get("strength", "weak")
+        if strength not in ("weak", "strong"):
+            raise OrgError("strength: weak (guidance) or strong (executable rules).")
+        if not a.get("title") or not a.get("rationale"):
+            raise OrgError("A protocol needs a title and a rationale grounded in what happened.")
+        evidence = a.get("evidence") or []
+        retire_target, supersedes = a.get("retire_target"), a.get("supersedes")
+        if not retire_target:
+            if strength == "weak":
+                if a.get("rules"):
+                    raise OrgError("Weak protocols carry guidance only; use strength strong for rules.")
+                if not all(isinstance(a.get(k), str) and a[k].strip() for k in ("guidance", "trigger")):
+                    raise OrgError("A weak protocol needs guidance and a trigger (when it applies).")
+                if not evidence:
+                    raise OrgError("Point to the evidence behind it: episode ids, message ids, task ids, files or commits.")
+            else:
+                ep = own["episodes"].get(a.get("episode_id"))
+                if not ep or ep["status"] != "closed" or member not in ep["reflections"]:
+                    raise OrgError("A strong protocol is issued from a closed episode of your own organization after "
+                                   "you reflected on it.")
+                validate_rules(a.get("rules"))
+        sender = qualified(own["id"], member)
+        issued = {"org": own["id"], "name": own["name"], "member": member}
+        with self.change(target["id"]) as (org, db):
+            if retire_target and org["protocols"].get(retire_target, {}).get("status") != "active":
+                raise OrgError("Retiring needs an active protocol of %s." % target["name"])
+            parent = org["protocols"].get(supersedes) if supersedes else None
+            if supersedes and (not parent or parent["status"] != "active"):
+                raise OrgError("A revision must supersede an active protocol of %s." % target["name"])
+            org["counters"]["protocol"] += 1
+            pid = "P%d" % org["counters"]["protocol"]
+            p = {"id": pid, "title": a["title"], "rationale": a["rationale"], "strength": strength,
+                 "guidance": a.get("guidance", ""), "trigger": a.get("trigger", ""), "scope": a.get("scope", ""),
+                 "rules": a.get("rules", []) if strength == "strong" else [], "evidence": evidence,
+                 "episode_id": a.get("episode_id"), "supersedes": supersedes, "retire_target": retire_target,
+                 "version": (parent["version"] + 1) if parent else 1, "author": sender, "issued_by": issued,
+                 "inherit": bool(a.get("inherit", a.get("downward"))), "downward": bool(a.get("inherit", a.get("downward"))),
+                 "status": "active", "votes": {}, "uses": [],
+                 "created_at": now(), "activated_at": now()}
+            if retire_target:
+                org["protocols"][retire_target].update(status="retired", retired_at=now(), retired_by=pid)
+                p["status"] = "enacted"
+            elif parent:
+                parent.update(status="superseded", superseded_by=pid)
+            org["protocols"][pid] = p
+            self._event(db, target["id"], sender, "protocol.activated",
+                        {"id": pid, "strength": strength, "issued_by": issued,
+                         **({"retire_target": retire_target} if retire_target else {})})
+        with self.db() as db:
+            self._event(db, own["id"], member, "organization.reached",
+                        {"what": "protocol", "org": target["id"], "name": target["name"], "way": "down", "id": pid,
+                         "title": p["title"], **({"retire_target": retire_target} if retire_target else {})})
+        return p
+
+    def _use_from_below(self, own, member, target, a):
+        """A member records its use of a protocol that binds it from an organization above."""
+        p = (target.get("protocols") or {}).get(a.get("protocol_id"))
+        if not p or p.get("status") != "active" or not inherits(p):
+            raise OrgError("From an organization below you record the use of an active protocol of %s that binds "
+                           "downward." % target["name"])
+        if a.get("outcome") not in ("followed", "deviated", "inapplicable") or not a.get("note"):
+            raise OrgError("use needs outcome (followed, deviated, inapplicable) and a note on the concrete work.")
+        with self.change(target["id"]) as (org, db):
+            org["protocols"][p["id"]]["uses"].append({"by": qualified(own["id"], member), "outcome": a["outcome"],
+                                                      "note": a["note"][:500], "at": now()})
+            self._event(db, target["id"], qualified(own["id"], member), "protocol.used",
+                        {"id": p["id"], "outcome": a["outcome"], "from_org": own["id"]})
+            return {"id": p["id"], "uses": len(org["protocols"][p["id"]]["uses"])}
+
+    def _protocol_list(self, org):
+        listed = {pid: dict({k: p[k] for k in ("title", "strength", "status", "version", "author", "downward",
+                                                "issued_by", "supersedes", "retire_target") if p.get(k) is not None},
+                            inherit=inherits(p)) for pid, p in org["protocols"].items()}
+        lineage = self.inheritance(org)
+        for above, p in lineage["inherited"]:
+            listed["%s/%s" % (above["id"], p["id"])] = {"title": p["title"], "strength": p["strength"],
+                                                         "status": p["status"], "version": p["version"],
+                                                         "from": above["name"], "inherit": True}
+        for above, p, level, by, how in lineage["replaced"]:
+            listed["%s/%s" % (above["id"], p["id"])] = {"title": p["title"], "strength": p["strength"],
+                                                         "status": how, "version": p["version"], "from": above["name"],
+                                                         "by": "%s/%s" % (level["id"], by), "at": level["name"]}
+        return listed
+
     def _sender_hop(self, org_id, member):
         """A message sent during an automatically started turn carries that turn's wake depth (wake.MAX_HOPS)."""
         path = self.path.parent / "runs" / ("%s-%s.json" % (org_id, member))
@@ -741,30 +1611,47 @@ class Store:
         return int(state.get("wake_hop") or 0) if state.get("status") == "running" else 0
 
     def unread(self, actor, mark=True, limit=20):
-        org, member = self.whoami(actor)
-        if not org:
+        """Unread messages to the session in every seat it holds ("<actor>#<org id>": in that seat only), oldest
+        first. A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
+        seats = self.seats_of(actor)
+        if not seats:
             return []
+        out = []
         with self.db() as db:
-            # Filter by recipient before taking `limit`: messages to other members are never marked read by this one,
-            # so a LIMIT in SQL could fill up with them and hide this member's own messages.
-            rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
-                FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
-                (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
-                ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
-            out = []
-            for mid, sender, recipients, body, ep, at, reply_to in rows:
-                rec = json.loads(recipients)
-                if member not in rec:
-                    continue
-                out.append({"id": mid, "from": sender, "to": rec, "body": body, "episode_id": ep, "at": at,
-                            "reply_to": reply_to})
+            for org, member, main in seats:
+                # Filter by recipient before taking `limit`: messages to other members are never marked read by this
+                # one, so a LIMIT in SQL could fill up with them and hide this member's own messages.
+                rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
+                    FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
+                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
+                    ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
+                found = 0
+                for mid, sender, recipients, body, ep, at, reply_to in rows:
+                    rec = json.loads(recipients)
+                    if member not in rec:
+                        continue
+                    m = {"id": mid, "from": sender, "to": rec, "body": body, "episode_id": ep, "at": at,
+                         "reply_to": reply_to, "_seat": (org["id"], member)}
+                    if "/" in sender:  # a member of another organization: say which
+                        m["from_org"] = self.org_names(db, [sender])[sender]
+                    if not main:
+                        m.update(org_id=org["id"], org_name=org["name"])
+                    out.append(m)
+                    found += 1
+                    if found >= limit:
+                        break
+            out = sorted(out, key=lambda m: m["id"])[:limit]
+            read = {}
+            for m in out:
+                read.setdefault(m["_seat"], []).append(m["id"])
+            for (org_id, member), ids in read.items():
                 if mark:
-                    db.execute("INSERT OR IGNORE INTO reads VALUES(?,?,?,?)", (org["id"], mid, member, now()))
-                if len(out) >= limit:
-                    break
-            if mark and out:
-                self._event(db, org["id"], member, "message.read", {"ids": [m["id"] for m in out]})
-            self._thread_heads(db, org["id"], out)  # a reply says which thread it answers
+                    for mid in ids:
+                        db.execute("INSERT OR IGNORE INTO reads VALUES(?,?,?,?)", (org_id, mid, member, now()))
+                    self._event(db, org_id, member, "message.read", {"ids": ids})
+                self._thread_heads(db, org_id, [m for m in out if m["_seat"][0] == org_id])  # a reply names its thread
+            for m in out:
+                m["seat"] = m.pop("_seat")[1]
         return out
 
     def history(self, org_id, limit=30, after=0):
@@ -817,16 +1704,37 @@ class Store:
             root = self._thread_root(db, org_id, reply_to)
             if root and not to:
                 to = self._thread_people(db, org_id, root)
-            recipients = [m for m in dict.fromkeys(to or []) if (m in org["members"] or m == HUMAN) and m != member]
-            if not recipients:
-                return None
-            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
-                             "VALUES(?,?,?,?,?,?,?,?)", (org_id, member, json.dumps(recipients), body, None, now(),
-                                                         int(hop or 0), root))
-            self._event(db, org_id, member, "message.sent", dict(
-                {"id": cur.lastrowid, "to": recipients}, **({"relayed": True} if relayed else {"automatic": True}),
-                **({"via": via} if via else {}), **({"reply_to": root} if root else {})))
-            return cur.lastrowid
+            wanted = list(dict.fromkeys(to or []))
+            recipients = [m for m in wanted if (m in org["members"] or m == HUMAN) and m != member]
+            how = {"relayed": True} if relayed else {"automatic": True}
+            first = None
+            if recipients:
+                cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                                 "VALUES(?,?,?,?,?,?,?,?)", (org_id, member, json.dumps(recipients), body, None,
+                                                             now(), int(hop or 0), root))
+                self._event(db, org_id, member, "message.sent", dict(
+                    {"id": cur.lastrowid, "to": recipients}, **how,
+                    **({"via": via} if via else {}), **({"reply_to": root} if root else {})))
+                first = cur.lastrowid
+            # a member of another organization that wrote here (a receipt goes back to it) gets it in its own
+            # organization, from "<this organization>/<member>"
+            for name in wanted:
+                place, _, other = str(name).partition("/")
+                if not other or place == org_id:
+                    continue
+                try:
+                    there = self._load(db, place)
+                except OrgError:
+                    continue
+                if other not in there["members"]:
+                    continue
+                cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                                 "VALUES(?,?,?,?,?,?,?,?)", (place, qualified(org_id, member), json.dumps([other]),
+                                                             body, None, now(), int(hop or 0), None))
+                self._event(db, place, qualified(org_id, member), "message.sent",
+                            dict({"id": cur.lastrowid, "to": [other], "from_org": org_id}, **how))
+                first = first or cur.lastrowid
+            return first
 
     def mark_read(self, org_id, member, ids):
         """Messages the plugin handed to a member that cannot call inbox (a chat member's turn carried their text)."""
@@ -882,7 +1790,16 @@ class Store:
 
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
+        """Shared work in your organization; with org=<an organization below yours>, read its documents and
+        assign or update its tasks."""
+        if a.get("org"):
+            own, me, target, way = self.reach(actor, a.pop("org"))
+            if way:
+                return self._work_below(own, me, target, op, a)
         org, member = self.require(actor)
+        return self._work(org, member, op, a)
+
+    def _work(self, org, member, op, a):
         with self.change(org["id"]) as (org, db):
             if op == "doc_write":
                 key = a.get("key")
@@ -1051,10 +1968,15 @@ class Store:
             self._event(db, org["id"], p["author"], "protocol.rejected", {"id": p["id"]})
 
     def protocol(self, actor, op, a):
+        if a.get("org"):
+            own, me, target, way = self.reach(actor, a.pop("org"), up=op == "use")
+            if way == "down":
+                return self._protocol_below(own, me, target, op, a)
+            if way == "up":
+                return self._use_from_below(own, me, target, a)
         org, member = self.require(actor)
         if op == "list":
-            return {pid: {k: p[k] for k in ("title", "strength", "status", "version", "author") if k in p}
-                    for pid, p in org["protocols"].items()}
+            return self._protocol_list(org)
         with self.change(org["id"]) as (org, db):
             if op == "propose":
                 strength = a.get("strength", "weak")
@@ -1063,9 +1985,20 @@ class Store:
                 if not a.get("title") or not a.get("rationale"):
                     raise OrgError("A proposal needs a title and a rationale grounded in what happened.")
                 evidence = a.get("evidence") or []
-                retire_target = a.get("retire_target")
+                retire_target, sup = a.get("retire_target"), a.get("supersedes")
+                # "<org id>/<P#>": a protocol of an organization above, in effect here, that this one overrides or
+                # stops for itself and the organizations below it (by this organization's own vote)
+                inherited = {"%s/%s" % (o["id"], q["id"]): q for o, q in self.inherited_protocols(org)}
+                for ref in (retire_target, sup):
+                    if ref and ((org["protocols"].get(ref) or {}).get("issued_by")
+                                or (inherited.get(ref) or {}).get("issued_by")):
+                        raise OrgError("%s was issued by an organization above; only an organization above can "
+                                       "revise or retire it." % ref)
+                    if ref and "/" in str(ref) and ref not in inherited:
+                        raise OrgError("%s is not a protocol of an organization above in effect here (protocol "
+                                       "op=list shows them)." % ref)
                 if retire_target:
-                    if org["protocols"].get(retire_target, {}).get("status") != "active":
+                    if "/" not in str(retire_target) and org["protocols"].get(retire_target, {}).get("status") != "active":
                         raise OrgError("Retirement proposals target an active protocol.")
                 elif strength == "weak":
                     if a.get("rules"):
@@ -1079,16 +2012,20 @@ class Store:
                     if not ep or ep["status"] != "closed" or member not in ep["reflections"]:
                         raise OrgError("A strong protocol is proposed from a closed episode after you reflected on it.")
                     validate_rules(a.get("rules"))
-                parent = org["protocols"].get(a.get("supersedes")) if a.get("supersedes") else None
-                if a.get("supersedes") and (not parent or parent["status"] != "active"):
+                parent = (inherited.get(sup) if "/" in str(sup) else org["protocols"].get(sup)) if sup else None
+                if sup and (not parent or parent["status"] != "active"):
                     raise OrgError("A revision must supersede an active protocol.")
+                inherit = a.get("inherit", a.get("downward"))
+                if inherit is None and sup and "/" in str(sup):
+                    inherit = True  # an override passes on, in place of what it overrides
                 org["counters"]["protocol"] += 1
                 pid = "P%d" % org["counters"]["protocol"]
                 p = {"id": pid, "title": a["title"], "rationale": a["rationale"], "strength": strength,
                      "guidance": a.get("guidance", ""), "trigger": a.get("trigger", ""), "scope": a.get("scope", ""),
                      "rules": a.get("rules", []) if strength == "strong" else [], "evidence": evidence,
-                     "episode_id": a.get("episode_id"), "supersedes": a.get("supersedes"), "retire_target": retire_target,
+                     "episode_id": a.get("episode_id"), "supersedes": sup, "retire_target": retire_target,
                      "version": (parent["version"] + 1) if parent else 1, "author": member, "status": "proposed",
+                     "inherit": bool(inherit), "downward": bool(inherit),
                      "votes": {member: {"vote": "approve", "reason": "author", "at": now()}}, "uses": [], "created_at": now()}
                 org["protocols"][pid] = p
                 self._event(db, org["id"], member, "protocol.proposed", {"id": pid, "strength": strength})
@@ -1120,19 +2057,22 @@ class Store:
     def gate(self, actor, tool, tool_input):
         """Return (allowed, reasons). Records review requests for require_review rules."""
         tool, tool_input = normalize(tool, tool_input)
+        actor = self.focused(actor)  # the organization the session works for now: its protocols bind this call
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return True, []
         role = org["members"][member].get("role", "")
         reasons, consumed = [], []
         last_edit = None
-        for p in org["protocols"].values():
+        # this organization's own protocols and those in effect here from the organizations above
+        for owner, p in self.effective_protocols(org):
             if p["status"] != "active" or p["strength"] != "strong":
                 continue
+            pid = p["id"] if owner["id"] == org["id"] else "%s/%s" % (owner["id"], p["id"])
             for rule in p["rules"]:
                 if not rule_applies(rule, member, role, tool, tool_input):
                     continue
-                label = "%s %s" % (p["id"], p["title"])
+                label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
                     reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
                 elif rule["effect"] == "require_before":
@@ -1146,7 +2086,7 @@ class Store:
                     if approved:
                         consumed.append(approved)
                     else:
-                        rid = self._request_review(org["id"], member, p["id"], tool, tool_input)
+                        rid = self._request_review(org["id"], member, pid, tool, tool_input)
                         reasons.append("%s: another member must approve this exact action. Review request %s is open; "
                                        "ask a member to run review approve %s, then retry the same call." % (label, rid, rid))
         if not reasons and consumed:
@@ -1205,6 +2145,7 @@ class Store:
     # ---------------- activity (called from PostToolUse) ----------------
     def record_activity(self, actor, tool, tool_input, failed=False, output=""):
         tool, tool_input = normalize(tool, tool_input)
+        actor = self.focused(actor)  # work done for the organization the session works for now
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return
@@ -1247,20 +2188,26 @@ class Store:
                 ep.setdefault("friction", []).append(friction)
 
     def end_turn(self, actor):
-        org, member = self.whoami(actor)
-        if not org:
-            return None
-        with self.change(org["id"]) as (org, db):
-            seat = org["members"][member]
-            ep = org["episodes"].get(seat.get("turn_episode") or "")
-            if not ep or ep["status"] != "open":
-                return None
-            ep.update(status="closed", outcome="observed", closed_at=now(),
-                      summary="%d friction signal(s) observed" % len(ep.get("friction", [])))
-            seat["turn_episode"] = None
-            self._event(db, org["id"], member, "episode.closed", {"id": ep["id"], "kind": "turn",
-                                                                   "friction": len(ep.get("friction", []))})
-            return ep
+        """A turn ended: close the session's open turn episodes in every seat it holds and go back to its main seat
+        (focus). Returns the first episode closed (None when there was none)."""
+        seats = self.seats_of(actor)
+        self.clear_focus(actor)
+        closed = []
+        for org, member, _ in seats:
+            if not (org["members"][member].get("turn_episode")):
+                continue
+            with self.change(org["id"]) as (org, db):
+                seat = org["members"].get(member) or {}
+                ep = org["episodes"].get(seat.get("turn_episode") or "")
+                if not ep or ep["status"] != "open":
+                    continue
+                ep.update(status="closed", outcome="observed", closed_at=now(),
+                          summary="%d friction signal(s) observed" % len(ep.get("friction", [])))
+                seat["turn_episode"] = None
+                self._event(db, org["id"], member, "episode.closed", {"id": ep["id"], "kind": "turn",
+                                                                       "friction": len(ep.get("friction", []))})
+                closed.append(ep)
+        return closed[0] if closed else None
 
     def _last_activity(self, org_id, member, kind):
         with self.db() as db:
