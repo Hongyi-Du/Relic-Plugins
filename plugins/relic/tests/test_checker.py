@@ -476,7 +476,10 @@ class Runner(unittest.TestCase):
                 "            os.path.basename(os.getcwd()).startswith('relic-check-'), any('site-packages' in p for p in sys.path))}\n")
         result = checker.run(code, {"input": {}})
         names, temporary, site = result["reason"].split("|")
-        self.assertTrue(set(eval(names)) <= {"SYSTEMROOT", "TEMP", "TMP", "TMPDIR"}, names)
+        # besides what Relic passes, only what every process gets on its own: Python's UTF-8 locale (LC_CTYPE) and,
+        # on macOS, the system's text encoding (__CF_USER_TEXT_ENCODING); nothing of the member's environment
+        own = {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"}
+        self.assertTrue(set(eval(names)) <= {"SYSTEMROOT", "TEMP", "TMP", "TMPDIR"} | own, names)
         self.assertEqual((temporary, site), ("True", "False"))
         self.assertEqual(checker.run("import os\ndef check(call):\n    os.write(1, b'x' * 9000)\n"
                                      "    return {'decision': 'allow'}\n", {})["error"], "invalid")  # past the cap
