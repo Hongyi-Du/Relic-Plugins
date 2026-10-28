@@ -9,8 +9,10 @@ Release: **v0.4.1-beta.1**, prepared 2026-10-28. Relic plugin 0.15.1-beta.1, a f
 | Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 264 tests passed / 264 个通过 |
 | Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
 | Organization chart in headless Edge with real mouse input, in English and in Chinese, on a store shaped like a secretariat with eight organizations under it, subgroups and shared seats, at 1400×900 and 2400×1300 | The right-click menu opens the chart; fitted, every organization is inside the window (63% at 1400 wide, 100% at 2400); the wheel zooms; dragging moves the view and a drag that starts on an organization does not open it; double-click and Fit to window fit it again; the percentage sets 100%; a plain click opens the organization; from a single organization it opens at 100%, centered; a narrow window lists them; no console errors. / 右键菜单能打开关系图；适应窗口后所有组织都在窗口里（1400 宽时 63%，2400 宽时 100%）；滚轮能缩放；拖动能移动，从组织上开始拖不会打开它；双击和「适应窗口」能重新适应；点百分比回到 100%；直接点组织能打开它；从单个组织打开时按 100% 居中；窄窗口按列表显示；控制台无报错。 |
-| Windows CI, Python 3.11 | to be recorded / 待记录 |
-| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+| Windows CI, Python 3.11 | 268 passed: packaging 4 + relic 264 / 268 个通过：packaging 4 + relic 264 |
+| macOS arm64 CI, Python 3.11 | 266 passed, 2 skipped: packaging 4 + relic 262; the two skipped fixtures are Windows-only / 266 个通过、2 个跳过：packaging 4 + relic 262；跳过的两个只在 Windows 上有意义 |
+
+CI: both platform jobs passed in [run 40747446616](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40747446616) on source commit `adadae3ee66784b137d6aaf4ec7a550ff63a748c`. The published package is built from the next commit, which only records this result. / 两个平台任务都在 [CI 40747446616](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40747446616) 通过，受测源码提交为 `adadae3ee66784b137d6aaf4ec7a550ff63a748c`；发布的下载包由下一个提交构建，该提交只记录这次结果。
 
 `check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
 
