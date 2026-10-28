@@ -9,8 +9,10 @@ Release: **v0.5.1-beta.1**, prepared 2026-10-28. Relic plugin 0.16.1-beta.1, a f
 | Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 289 tests passed / 289 个通过 |
 | Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
 | Sidebar folding in headless Edge with real mouse input, in English and in Chinese, on a store shaped like a secretariat with eight organizations under it and subgroups below those | At first every organization shows; the secretariat's arrow hides every organization below it and marks it folded; the folding survives a reload; the arrow unfolds the tree as it was; a name opens its organization with its chats, and the open organization's name folds and unfolds its chats and the organizations below it; a leaf's arrow opens it; opening an organization by its address unfolds the secretariat above it; a search shows matches under a folded organization, and clearing it folds them away again; no console errors. / 一开始所有组织都显示；点秘书处的箭头，它下面的组织全部收起，并标为已折叠；刷新后仍是折叠的；再点箭头，树恢复原样；点组织名打开那个组织并显示它的会话，已打开组织的名字再点一下，会话和下面的组织一起折叠、展开；叶子组织的箭头直接打开它；通过地址打开一个组织时，它上面的秘书处自动展开；搜索时折叠组织下面的匹配项也显示，清空搜索后恢复折叠；控制台无报错。 |
-| Windows CI, Python 3.11 | to be recorded / 待记录 |
-| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+| Windows CI, Python 3.11 | 293 passed: packaging 4 + relic 289 / 293 个通过：packaging 4 + relic 289 |
+| macOS arm64 CI, Python 3.11 | 290 passed, 3 skipped: packaging 4 + relic 286; the three skipped fixtures are Windows-only / 290 个通过、3 个跳过：packaging 4 + relic 286；跳过的三个只在 Windows 上有意义 |
+
+CI: both platform jobs passed in [run 40785955157](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40785955157) on source commit `248288aabec8a28a963553a7f5c7704fe95f2bd8`. The published package is built from the next commit, which only records this result. / 两个平台任务都在 [CI 40785955157](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40785955157) 通过，受测源码提交为 `248288aabec8a28a963553a7f5c7704fe95f2bd8`；发布的下载包由下一个提交构建，该提交只记录这次结果。
 
 `check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
 
