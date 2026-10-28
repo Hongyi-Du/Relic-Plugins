@@ -1,5 +1,23 @@
 # Validation / 验证记录
 
+## v0.5.1-beta.1
+
+Release: **v0.5.1-beta.1**, prepared 2026-10-28. Relic plugin 0.16.1-beta.1, a front-end update to v0.5.0-beta.1: folding an organization in the sidebar hides everything under it, the organizations below it included, and the folding is kept across a reload. No server, hook, tool or store code changed, so the real-machine run of v0.5.0-beta.1 still describes how members run.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 289 tests passed / 289 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Sidebar folding in headless Edge with real mouse input, in English and in Chinese, on a store shaped like a secretariat with eight organizations under it and subgroups below those | At first every organization shows; the secretariat's arrow hides every organization below it and marks it folded; the folding survives a reload; the arrow unfolds the tree as it was; a name opens its organization with its chats, and the open organization's name folds and unfolds its chats and the organizations below it; a leaf's arrow opens it; opening an organization by its address unfolds the secretariat above it; a search shows matches under a folded organization, and clearing it folds them away again; no console errors. / 一开始所有组织都显示；点秘书处的箭头，它下面的组织全部收起，并标为已折叠；刷新后仍是折叠的；再点箭头，树恢复原样；点组织名打开那个组织并显示它的会话，已打开组织的名字再点一下，会话和下面的组织一起折叠、展开；叶子组织的箭头直接打开它；通过地址打开一个组织时，它上面的秘书处自动展开；搜索时折叠组织下面的匹配项也显示，清空搜索后恢复折叠；控制台无报错。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+`check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.5.1-beta.1** 于 2026-10-28 准备发布。Relic 插件 0.16.1-beta.1，是 v0.5.0-beta.1 的前端更新：侧栏里折叠一个组织时，它下面的所有东西（包括下级组织）一起收起，刷新后保持折叠。服务端、hooks、工具和数据库的代码都没有改，所以 v0.5.0-beta.1 的实机运行仍然说明成员怎样运行。
+
+`check.py` 不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.5.0-beta.1
 
 Release: **v0.5.0-beta.1**, prepared 2026-10-28. Relic plugin 0.16.0-beta.1: a strong protocol can carry a check rule, a program its members wrote, and a protocol with one is copied to the person when it takes effect; the person can retire it from the Relic App. The hook gate, the store (tables `cc`, `check_counts`, `check_alerts`), the `protocol` tool and the App changed.

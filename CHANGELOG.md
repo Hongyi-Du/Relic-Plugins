@@ -1,5 +1,19 @@
 # Changelog / 更新记录
 
+## v0.5.1-beta.1 — 2026-10-28
+
+A small update to v0.5.0-beta.1. Plugin 0.16.1-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **Folding in the sidebar.** Folding an organization now hides everything under it: its group chat, its members and every organization below it, at any depth. The arrow in front of an organization folds and unfolds it; its name opens it, or folds and unfolds it when it is already open. Folding is kept across a reload. Opening an organization from elsewhere (the organization chart, a link, a name card) unfolds the organizations above it so that it shows; a search shows every match, folded or not.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer; nothing in the store changes. Reload the Relic App's window. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex.
+- **Release and checks.** `relic-windows-v0.5.1-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` is unchanged: 12 tools.
+
+v0.5.0-beta.1 的小更新。插件 0.16.1-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **侧栏折叠。**折叠一个组织时，它下面的所有东西一起收起：群聊、成员，以及它下面各层的组织。组织前面的箭头负责折叠和展开；点组织名打开它，已经打开的组织再点名字就折叠或展开。折叠状态刷新后保留。从别处打开一个组织（组织关系图、链接、成员名片）时，它上面的组织自动展开，让它露出来；搜索时不论是否折叠，所有匹配都显示。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器；数据库不变。刷新 Relic App 的窗口。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。
+- **发布与检查。**`relic-windows-v0.5.1-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 没有变化，仍是 12 个工具。
+
 ## v0.5.0-beta.1 — 2026-10-28
 
 Fifth public beta. A strong protocol can now run a check program its members wrote, and a protocol with one is copied to you when it takes effect. Plugin 0.16.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.

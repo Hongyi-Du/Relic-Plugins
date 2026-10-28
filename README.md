@@ -1,14 +1,14 @@
 # Relic · Public Beta
 
-[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1)
+[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.1-beta.1)
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
-This is the fifth public beta, **v0.5.0-beta.1** (plugin 0.16.0-beta.1). Relic is one product: the **Relic App** and the Relic plugin for Claude Code and Codex, in one package. In this beta a strong protocol can run a check program its members wrote, and a protocol with one is copied to you when it takes effect; v0.4 added an English interface and organizations that stand above and below one another, with subgroups, a secretariat and sessions that sit in several organizations (see the [changelog](CHANGELOG.md)). The three editions of v0.2.0-beta.1 are merged into Relic (see [earlier editions](#earlier-editions)). The package is published for **Windows only**. macOS is not released; it will be published after development and real Mac testing are complete. Relic runs locally using your existing Claude Code/Codex login. It does not include model access or a hosted service.
+This is the fifth public beta, **v0.5.1-beta.1** (plugin 0.16.1-beta.1). Relic is one product: the **Relic App** and the Relic plugin for Claude Code and Codex, in one package. In this beta a strong protocol can run a check program its members wrote, and a protocol with one is copied to you when it takes effect; v0.4 added an English interface and organizations that stand above and below one another, with subgroups, a secretariat and sessions that sit in several organizations (see the [changelog](CHANGELOG.md)). The three editions of v0.2.0-beta.1 are merged into Relic (see [earlier editions](#earlier-editions)). The package is published for **Windows only**. macOS is not released; it will be published after development and real Mac testing are complete. Relic runs locally using your existing Claude Code/Codex login. It does not include model access or a hosted service.
 
 ## Install
 
-Requires **Python 3.11+** and Claude Code and/or Codex, installed and signed in. Members that run inside the Relic App also need **Node.js**. Download `relic-windows-v0.5.0-beta.1.zip` from the [release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1), extract it to a permanent folder, and run:
+Requires **Python 3.11+** and Claude Code and/or Codex, installed and signed in. Members that run inside the Relic App also need **Node.js**. Download `relic-windows-v0.5.1-beta.1.zip` from the [release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.1-beta.1), extract it to a permanent folder, and run:
 
 ```powershell
 # Windows, from the extracted folder

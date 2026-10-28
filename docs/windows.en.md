@@ -13,7 +13,7 @@
 
 ## Download and install
 
-Download `relic-windows-v0.5.0-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
+Download `relic-windows-v0.5.1-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.1-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
 
 Extract into a permanent folder such as `C:\Tools\Relic`. Open PowerShell in the extracted folder:
 

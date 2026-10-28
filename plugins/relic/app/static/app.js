@@ -333,7 +333,7 @@
   const S = {
     orgs: [], orgId: load('relic.org', null), snap: null, harnesses: null,
     view: { kind: 'group', member: null }, chat: null, convo: null, live: {}, thread: null, threadData: null,
-    search: '', to: ['all'], quote: null, panelOpen: load('relic.panel', true), collapsed: false, seen: {},
+    search: '', to: ['all'], quote: null, panelOpen: load('relic.panel', true), folded: new Set(load('relic.folded', [])), seen: {},
     mode: load('relic.mode', 'direct'),
     pane: load('relic.pane', 'org'), sideOpen: load('relic.side', true), hist: [], histIdx: -1, file: null, workMember: null,
     plain: {}, plainPending: new Set(), plainFailed: new Set(), plainOne: new Set(), plainMode: false,
@@ -415,9 +415,12 @@
     history.replaceState(null, '', '#/org/' + enc(S.orgId) + tail);
   }
   async function openOrg(id, wanted, fromHist) {
+    const reveal = id !== S.orgId || S.reveal === id;  // opened from elsewhere: shown, with the organizations above it
+    S.reveal = null;
     S.orgId = id; save('relic.org', id);
     S.seen = load('relic.seen.' + id, {});
-    S.live = {}; S.chat = null; S.convo = null; S.snap = null; S.thread = null; S.collapsed = false; S.quote = null;
+    S.live = {}; S.chat = null; S.convo = null; S.snap = null; S.thread = null; S.quote = null;
+    if (reveal) unfoldTo(id);
     S.plain = {}; S.plainPending = new Set(); S.plainFailed = new Set(); S.plainOne = new Set(); S.plainMode = plainOn();
     S.digest = null; S.digestPending = false; S.digestOpen = !!load('relic.digest.' + id, false); S.workMember = null;
     if (S.pane === 'thread') S.pane = S.lastPane || 'org';
@@ -579,19 +582,43 @@
     walk(null, 0);
     return out;
   }
+  // folding in the sidebar: a folded organization hides what is under it, its own chats and members and every
+  // organization below it. Which ones are folded is kept in this browser.
+  function setFolded(id, on) {
+    if (on) S.folded.add(id); else S.folded.delete(id);
+    save('relic.folded', [...S.folded]);
+  }
+  function unfoldTo(id) {  // the organization being opened is shown: it and the organizations above it unfold
+    const byId = new Map(S.orgs.map((o) => [o.id, o]));
+    let changed = S.folded.delete(id);
+    for (let o = byId.get(id), n = 0; o && o.parent && n < 64; o = byId.get(o.parent), n++) changed = S.folded.delete(o.parent) || changed;
+    if (changed) save('relic.folded', [...S.folded]);
+  }
   function renderSide() {
     const tree = $('#tree'); tree.textContent = '';
     const q = S.search.trim().toLowerCase();
     tree.append(h('div', { class: 'sec-label' }, h('span', null, t('page.tree')), h('span', null, S.orgs.length || '')));
+    const ids = new Set(S.orgs.map((o) => o.id));
+    const hasKids = new Set(S.orgs.filter((o) => o.parent && ids.has(o.parent)).map((o) => o.parent));
+    let hideDeeper = Infinity;  // below a folded organization: the depth under which rows are hidden
     for (const [o, depth] of orgTree()) {
+      if (depth > hideDeeper) continue;
+      hideDeeper = Infinity;
       const active = o.id === S.orgId;
       const orgHit = !q || o.name.toLowerCase().includes(q) || (o.purpose || '').toLowerCase().includes(q);
       const memberHits = active && S.snap ? S.snap.members.filter((m) => !q || (m.display || '').toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || (m.role || '').toLowerCase().includes(q)) : [];
       if (q && !orgHit && !memberHits.length) continue;
-      const open = active && (!S.collapsed || q);
-      const row = h('button', { class: 'org-row' + (active ? ' on' : '') + (open ? ' open' : '') + (o.status && o.status !== 'active' ? ' ended' : ''), type: 'button', title: o.name + (o.purpose ? '\n' + o.purpose : ''),
-        style: depth ? 'padding-left:' + (8 + depth * 16) + 'px' : null,
-        onclick: () => { if (active) { S.collapsed = !S.collapsed; renderSide(); } else openOrg(o.id); } },
+      const folded = !q && S.folded.has(o.id);  // a search shows every match
+      if (folded) hideDeeper = depth;
+      const foldable = active || hasKids.has(o.id);
+      const open = active && !folded;
+      const row = h('button', { class: 'org-row' + (active ? ' on' : '') + (foldable && !folded ? ' open' : '') + (o.status && o.status !== 'active' ? ' ended' : ''), type: 'button', title: o.name + (o.purpose ? '\n' + o.purpose : ''),
+        style: depth ? 'padding-left:' + (8 + depth * 16) + 'px' : null, 'aria-expanded': foldable ? String(!folded) : null,
+        // the arrow folds and unfolds; the name opens an organization, or folds the open one
+        onclick: (e) => {
+          const onArrow = !!(e.target.closest && e.target.closest('.chev'));
+          if (foldable && (active || onArrow)) { setFolded(o.id, !S.folded.has(o.id)); renderSide(); } else openOrg(o.id);
+        } },
         h('span', { class: 'chev' }, icon('chev', 14)),
         orgBadge(o),
         h('span', { class: 'org-name' }, o.name),
@@ -3046,7 +3073,7 @@
     wire();
     try {
       const wanted = readHash();
-      if (wanted) S.orgId = wanted.org;
+      if (wanted && wanted.org !== S.orgId) { S.orgId = wanted.org; S.reveal = wanted.org; }  // a link to another organization shows it
       await loadOrgs();
       if (S.orgId) await openOrg(S.orgId, wanted && wanted.org === S.orgId ? wanted.view : null);
       else renderAll(true);

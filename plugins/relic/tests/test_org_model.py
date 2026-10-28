@@ -527,7 +527,10 @@ class Page(unittest.TestCase):
                       "S.snap.replaced_protocols", "org.subgroups",
                       # the chart: opened from an organization's right-click menu, moved, zoomed and fitted
                       "row.addEventListener('contextmenu'", "run: () => openChart(o.id)", "function fitChart(",
-                      "function zoomAt(", "canvas.addEventListener('wheel'", "canvas.addEventListener('dblclick'"):
+                      "function zoomAt(", "canvas.addEventListener('wheel'", "canvas.addEventListener('dblclick'",
+                      # the sidebar: a folded organization hides everything under it; folding is kept across a reload,
+                      # and opening an organization from elsewhere unfolds the ones above it
+                      "save('relic.folded'", "if (depth > hideDeeper) continue;", "if (reveal) unfoldTo(id);"):
             with self.subTest(piece=piece):
                 self.assertIn(piece, code)
 

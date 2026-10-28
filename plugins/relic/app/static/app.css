@@ -147,7 +147,8 @@ body { display: flex; flex-direction: column; }
 .field-row > span { flex: none; color: var(--ink-2); font-size: 12.5px; }
 .field-row select { flex: 1; min-width: 0; }
 .org-row.on { background: var(--active); }
-.org-row .chev { color: var(--ink-3); flex: none; transition: transform .12s; }
+.org-row .chev { color: var(--ink-3); flex: none; transition: transform .12s; display: inline-flex; padding: 3px; margin: -3px; border-radius: 5px; }
+.org-row .chev:hover { color: var(--ink); background: var(--hover); }
 .org-row.open .chev { transform: rotate(90deg); }
 .org-row .org-name { flex: 1; min-width: 0; font-weight: 600; font-size: .96em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
   -webkit-box-orient: vertical; line-height: 1.35; }

@@ -13,7 +13,7 @@
 
 ## 下载与安装
 
-从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1) 下载 `relic-windows-v0.5.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
+从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.1-beta.1) 下载 `relic-windows-v0.5.1-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
 
 解压到长期保留的目录，例如 `C:\Tools\Relic`。在解压目录打开 PowerShell：
 
