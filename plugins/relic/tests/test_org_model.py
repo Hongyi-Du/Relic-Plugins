@@ -523,8 +523,11 @@ class Page(unittest.TestCase):
         code = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
         for piece in ("get('/api/orgchart')", "orgPath('/cabinet')", "orgPath('/leader')", "orgPath('/close')",
                       "'/request', { request_id: d.id, decision }", "d.kind === 'approval'",
-                      "menuItem(t('appmenu.org_chart'), { run: openChart", "c.also_in", "c.ex_officio",
-                      "S.snap.replaced_protocols", "org.subgroups"):
+                      "menuItem(t('appmenu.org_chart'), { run: () => openChart()", "c.also_in", "c.ex_officio",
+                      "S.snap.replaced_protocols", "org.subgroups",
+                      # the chart: opened from an organization's right-click menu, moved, zoomed and fitted
+                      "row.addEventListener('contextmenu'", "run: () => openChart(o.id)", "function fitChart(",
+                      "function zoomAt(", "canvas.addEventListener('wheel'", "canvas.addEventListener('dblclick'"):
             with self.subTest(piece=piece):
                 self.assertIn(piece, code)
 

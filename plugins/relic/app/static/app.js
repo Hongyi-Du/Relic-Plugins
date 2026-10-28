@@ -69,6 +69,9 @@
     download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
     open: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
     org: 'M4 21V8l8-5 8 5v13M9 21v-6h6v6M8.5 11h.01M15.5 11h.01',
+    minus: 'M5 12h14',
+    fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
+    chart: 'M9 3h6v5H9zM3 16h6v5H3zM15 16h6v5h-6zM12 8v4M6 16v-4h12v4',
   };
   function icon(name, size = 18) {
     const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -589,6 +592,8 @@
         orgBadge(o),
         h('span', { class: 'org-name' }, o.name),
         h('span', { class: 'meta' }, active ? '' : shortWhen(o.last_at)));
+      row.addEventListener('contextmenu', (e) => openContextMenu(e, [
+        menuItem(t('appmenu.org_chart'), { icon: 'chart', run: () => openChart(o.id) })]));
       tree.append(row);
       if (!open || !S.snap) continue;
       const kids = h('div', { class: 'kids' });
@@ -1273,6 +1278,19 @@
     menuEl = h('div', { class: 'menu', style: 'left:' + Math.min(r.left, window.innerWidth - 260) + 'px;bottom:' + (window.innerHeight - r.top + 6) + 'px' }, items);
     document.body.append(menuEl);
   }
+  // a right-click menu at the pointer; opened from the keyboard (no pointer position), under the element
+  function openContextMenu(e, items) {
+    e.preventDefault();
+    closeMenu();
+    let x = e.clientX, y = e.clientY;
+    if (!x && !y && e.currentTarget && e.currentTarget.getBoundingClientRect) { const r = e.currentTarget.getBoundingClientRect(); x = r.left + 24; y = r.bottom; }
+    menuEl = h('div', { class: 'menu ctx', role: 'menu' }, items);
+    document.body.append(menuEl);
+    menuEl.style.left = Math.max(4, Math.min(x, window.innerWidth - menuEl.offsetWidth - 4)) + 'px';
+    menuEl.style.top = Math.max(4, Math.min(y, window.innerHeight - menuEl.offsetHeight - 4)) + 'px';
+    const first = menuEl.querySelector('.item:not([disabled])');
+    if (first) first.focus({ preventScroll: true });
+  }
   document.addEventListener('mousedown', (e) => {
     if (menuEl && !menuEl.contains(e.target) && !e.target.closest('.ab-menu')) closeMenu();
     if (cardEl && !cardEl.contains(e.target) && !e.target.closest('.scrim')) closeCard();
@@ -1593,7 +1611,7 @@
       box.append(eps);
     }
     box.append(h('div', { class: 'block' }, brief ? h('div', { class: 'empty' }, t('org.liaison_note')) : null,
-      h('button', { class: 'btn', type: 'button', onclick: () => openDetails('trace') }, icon('trace', 16), t('org.details'))));
+      h('button', { class: 'btn wrap', type: 'button', onclick: () => openDetails('trace') }, icon('trace', 16), t('org.details'))));
   }
   // the organization above this one, its leader and whether it is the secretariat (the person changes these here, at
   // once), the organizations right below it and its subgroups (closed ones grayed); a subgroup can be closed here
@@ -1609,7 +1627,7 @@
     parentSel.addEventListener('change', () => post(orgPath('/parent'), { parent: parentSel.value || null })
       .then(() => loadOrgs()).then(scheduleRefresh).catch((e) => { toast(t('org.parent_failed', { error: e.message })); renderPanel(); }));
     const block = h('div', { class: 'block' }, h('div', { class: 'block-h' }, h('span', null, t('org.hierarchy')),
-      h('button', { class: 'link', type: 'button', onclick: openChart }, t('chart.title'), icon('chev', 12))),
+      h('button', { class: 'link', type: 'button', onclick: () => openChart(S.orgId) }, t('chart.title'), icon('chev', 12))),
       h('label', { class: 'field-row' }, h('span', null, t('org.parent_label')), parentSel));
     if (org.governance !== 'peer') {
       const leaderSel = h('select', { class: 'input', 'aria-label': t('common.leader'), disabled: active && members.length ? null : true },
@@ -2348,7 +2366,8 @@
     return t('org.protocol_ref', { org: o ? o.name : m[1], id: m[2] });
   }
   const chartLive = () => !!(chart && chart.box.isConnected);
-  function openChart() {
+  // focus: the id of the organization it is opened from; the chart first shows that organization and the ones below it
+  function openChart(focus) {
     closeCard(); closeMenu();
     const canvas = h('div', { class: 'oc-canvas', tabindex: '0' });
     const pick = (key) => {
@@ -2359,16 +2378,131 @@
     };
     const closed = pick('relic.chart.closed'), links = pick('relic.chart.links');
     const swatch = (cls, label) => h('span', null, h('i', { class: cls }), label);
+    const tool = (ic, label, run) => h('button', { class: 'icon-btn', type: 'button', title: label, 'aria-label': label, onclick: run }, icon(ic, 16));
+    const pct = h('button', { class: 'oc-pct', type: 'button', title: t('chart.zoom_actual'), onclick: () => zoomBy(1 / chart.view.s) }, '100%');
     const box = h('div', { class: 'details oc', role: 'dialog', 'aria-label': t('chart.title') },
       h('div', { class: 'bar' }, h('h3', null, t('chart.title')),
+        h('div', { class: 'oc-zoom' }, tool('minus', t('chart.zoom_out'), () => zoomBy(1 / 1.25)), pct,
+          tool('plus', t('chart.zoom_in'), () => zoomBy(1.25)), tool('fit', t('chart.fit'), () => fitChart('all'))),
         h('label', { class: 'switch' }, closed, t('chart.show_closed')), h('label', { class: 'switch' }, links, t('chart.show_links')),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('common.close'), onclick: closeLayer }, icon('x'))),
       h('div', { class: 'oc-legend' }, swatch('', t('org.kind_formal')), swatch('sub', t('org.kind_subgroup')), swatch('cab', t('org.cabinet_chip')),
-        swatch('ended', t('chart.legend_ended')), swatch('link', t('chart.legend_shared'))),
+        swatch('ended', t('chart.legend_ended')), swatch('link', t('chart.legend_shared')), h('span', { class: 'oc-hint' }, t('chart.pan_hint'))),
       canvas);
     scrim(box);
-    chart = { box, canvas, closed, links, data: null, first: true, timer: null };
+    chart = { box, canvas, closed, links, pct, data: null, first: true, timer: null, focus: typeof focus === 'string' ? focus : '', view: null };
+    wireChart(canvas);
     loadChart();
+  }
+  // ---- the tree view of the chart: the plane is moved and scaled as a whole (view: x, y, s); at first, and until it is
+  // moved or zoomed, it is fitted to the window: the organization it was opened from with those below it, or everything
+  const OCZ = { min: 0.15, max: 2, margin: 28, keep: 80 };
+  function applyView() {
+    const c = chart;
+    if (!c || !c.plane || !c.view) return;
+    const v = c.view;
+    c.plane.style.transform = 'translate(' + Math.round(v.x) + 'px,' + Math.round(v.y) + 'px) scale(' + v.s + ')';
+    c.pct.textContent = Math.round(v.s * 100) + '%';
+  }
+  function clampView() {  // some of the chart stays in the window
+    const c = chart, v = c.view, cw = c.canvas.clientWidth, ch = c.canvas.clientHeight;
+    v.x = Math.min(cw - OCZ.keep, Math.max(OCZ.keep - c.size.w * v.s, v.x));
+    v.y = Math.min(ch - OCZ.keep, Math.max(OCZ.keep - c.size.h * v.s, v.y));
+  }
+  function fitChart(target) {  // target: 'focus' (the organization opened from and those below it) or 'all'
+    const c = chart;
+    if (!chartLive() || !c.plane) return;
+    const want = target === 'focus' && c.focusBox ? 'focus' : 'all';
+    const b = want === 'focus' ? c.focusBox : c.allBox;
+    const cw = c.canvas.clientWidth, ch = c.canvas.clientHeight, m = OCZ.margin;
+    const s = Math.max(OCZ.min, Math.min(1, (cw - 2 * m) / b.w, (ch - 2 * m) / b.h));
+    c.view = { s, x: (cw - b.w * s) / 2 - b.x * s, y: Math.max(m, (ch - b.h * s) / 2) - b.y * s, auto: want };
+    applyView();
+  }
+  function zoomAt(f, px, py) {  // (px, py): the point of the canvas that stays where it is
+    const c = chart;
+    if (!chartLive() || !c.plane || !c.view) return;
+    const v = c.view, s = Math.min(OCZ.max, Math.max(OCZ.min, v.s * f));
+    if (Math.abs(s - v.s) < 1e-4) return;
+    v.x = px - (px - v.x) * s / v.s; v.y = py - (py - v.y) * s / v.s; v.s = s; v.auto = null;
+    clampView(); applyView();
+  }
+  function zoomBy(f) { if (chartLive() && chart.view) zoomAt(f, chart.canvas.clientWidth / 2, chart.canvas.clientHeight / 2); }
+  function panBy(dx, dy) {
+    const v = chart.view;
+    v.x += dx; v.y += dy; v.auto = null;
+    clampView(); applyView();
+  }
+  // drag to move (one finger or the mouse), pinch or scroll to zoom, double-click empty space to fit; keys + - 0 and arrows
+  function wireChart(canvas) {
+    const pts = new Map();
+    let drag = null, pinch = null;
+    const on = () => chartLive() && chart.canvas === canvas && canvas.classList.contains('pan') && chart.view;
+    const at = (x, y) => { const r = canvas.getBoundingClientRect(); return [x - r.left, y - r.top]; };
+    canvas.addEventListener('wheel', (e) => {
+      if (!on()) return;
+      e.preventDefault();
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+      zoomAt(Math.exp(-dy * 0.0015), ...at(e.clientX, e.clientY));
+    }, { passive: false });
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!on() || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pts.size === 1) drag = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: chart.view.x, vy: chart.view.y, moved: false };
+      else if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, s: chart.view.s };
+        drag = null;
+      }
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !on()) return;
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pinch && pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        zoomAt(pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d / chart.view.s, ...at((a[0] + b[0]) / 2, (a[1] + b[1]) / 2));
+        return;
+      }
+      if (!drag || drag.id !== e.pointerId) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved) {
+        if (Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        canvas.setPointerCapture(e.pointerId);
+        canvas.classList.add('dragging');
+      }
+      chart.view.x = drag.vx + dx; chart.view.y = drag.vy + dy; chart.view.auto = null;
+      clampView(); applyView();
+    });
+    const end = (e) => {
+      if (!pts.delete(e.pointerId)) return;
+      if (pts.size < 2) pinch = null;
+      if (drag && drag.id === e.pointerId) {
+        if (drag.moved && chartLive()) chart.dragged = Date.now();
+        drag = null;
+        canvas.classList.remove('dragging');
+      }
+    };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    // the click that ends a drag does not open the organization it started on
+    canvas.addEventListener('click', (e) => {
+      if (chartLive() && chart.dragged && Date.now() - chart.dragged < 500) { chart.dragged = 0; e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    canvas.addEventListener('dblclick', (e) => { if (on() && !e.target.closest('.oc-node')) fitChart('all'); });
+    canvas.addEventListener('keydown', (e) => {
+      if (!on() || e.target !== canvas || e.ctrlKey || e.metaKey || e.altKey) return;
+      const step = 60;
+      if (e.key === '+' || e.key === '=') zoomBy(1.25);
+      else if (e.key === '-' || e.key === '_') zoomBy(1 / 1.25);
+      else if (e.key === '0') fitChart('all');
+      else if (e.key === 'ArrowLeft') panBy(step, 0);
+      else if (e.key === 'ArrowRight') panBy(-step, 0);
+      else if (e.key === 'ArrowUp') panBy(0, step);
+      else if (e.key === 'ArrowDown') panBy(0, -step);
+      else return;
+      e.preventDefault();
+    });
   }
   async function loadChart() {
     if (!chartLive()) return;
@@ -2456,7 +2590,7 @@
       };
       roots.forEach((r, i) => { if (i) slot += 0.4; place(r); });
       const span = slot * (OC.w + OC.gx) - OC.gx;
-      const left = Math.max(OC.pad, (canvas.clientWidth - span - OC.bulge) / 2);
+      const left = OC.pad;  // fitting the view centers it
       for (const p of pos.values()) { p.x += left; p.y += OC.pad; }
       width = left + span + OC.bulge + OC.pad;
       height = OC.pad * 2 + (Math.max(...order.map((n) => n.depth)) + 1) * (OC.h + OC.gy) - OC.gy;
@@ -2532,11 +2666,32 @@
       plane.append(node);
     }
     canvas.append(plane);
-    if (chart.first) {  // the open organization in view
-      chart.first = false;
-      const cur = pos.get(S.orgId);
-      if (cur) { canvas.scrollLeft = Math.max(0, cur.x + cur.w / 2 - canvas.clientWidth / 2); canvas.scrollTop = Math.max(0, cur.y + OC.h / 2 - canvas.clientHeight / 2); }
-    } else { canvas.scrollLeft = keep[0]; canvas.scrollTop = keep[1]; }
+    canvas.classList.toggle('pan', !narrow);
+    chart.box.classList.toggle('list', narrow);
+    if (narrow) {  // listed: scrolled, with the organization it was opened from (or the open one) in view at first
+      chart.plane = null;
+      if (chart.first) {
+        chart.first = false;
+        const cur = pos.get(chart.focus || S.orgId);
+        if (cur) canvas.scrollTop = Math.max(0, cur.y + OC.h / 2 - canvas.clientHeight / 2);
+      } else { canvas.scrollLeft = keep[0]; canvas.scrollTop = keep[1]; }
+      return;
+    }
+    canvas.scrollLeft = 0; canvas.scrollTop = 0;
+    const bounds = (list, bulge) => {  // bulge: room on the right for the shared-seat lines that leave the right edges
+      const ps = list.map((n) => pos.get(n.o.id));
+      const x = Math.min(...ps.map((p) => p.x)), y = Math.min(...ps.map((p) => p.y));
+      return { x, y, w: Math.max(...ps.map((p) => p.x + p.w)) - x + bulge, h: Math.max(...ps.map((p) => p.y + OC.h)) - y };
+    };
+    const below = (n) => [n].concat(...n.kids.map(below));
+    const from = chart.focus && order.find((n) => n.o.id === chart.focus);
+    chart.plane = plane;
+    chart.size = { w: width, h: height };
+    chart.allBox = bounds(order, linkEls.length ? OC.bulge * 0.8 : 0);
+    chart.focusBox = from ? bounds(below(from), from.kids.length && linkEls.length ? OC.bulge * 0.8 : 0) : null;
+    if (!chart.view || chart.view.auto) fitChart(chart.view ? chart.view.auto : 'focus');
+    else { clampView(); applyView(); }
+    chart.first = false;
   }
 
   // ------------------------------------------------------------------ window bar (after Codex and Claude Code)
@@ -2582,7 +2737,8 @@
   function menuItem(label, opts = {}) {
     return h('button', { class: 'item', type: 'button', role: 'menuitem', disabled: opts.disabled ? true : null, onmousedown: (e) => e.preventDefault(),
       onclick: () => { closeMenu(); if (opts.run) opts.run(); } },
-      h('span', { class: 'ck' }, opts.check ? icon('check', 14) : null), h('span', { class: 'lb' }, label), opts.key ? h('kbd', null, opts.key) : null);
+      h('span', { class: 'ck' + (opts.icon && !opts.check ? ' ic' : '') }, opts.check ? icon('check', 14) : opts.icon ? icon(opts.icon, 14) : null),
+      h('span', { class: 'lb' }, label), opts.key ? h('kbd', null, opts.key) : null);
   }
   const menuSep = () => h('div', { class: 'sep' });
   const toGroup = (fn) => () => { if (S.view.kind !== 'group') go({ kind: 'group' }); fn(); };
@@ -2619,7 +2775,7 @@
         menuSep(),
         panes().map(([p, label], i) => menuItem(t('appmenu.pane', { pane: label }), { key: 'Alt+' + (i + 1), check: S.panelOpen && S.pane === p, run: () => setPane(p) })),
         menuSep(),
-        menuItem(t('appmenu.org_chart'), { run: openChart, disabled: !S.orgs.length }),
+        menuItem(t('appmenu.org_chart'), { run: () => openChart(), disabled: !S.orgs.length }),
         menuSep(),
         menuItem(t('appmenu.plain_group'), { key: 'Ctrl+Shift+L', check: S.plainMode, disabled: !S.snap, run: toGroup(togglePlain) }),
         menuItem(t('appmenu.group_digest'), { check: S.digestOpen, disabled: !S.snap, run: toGroup(toggleDigest) }),

@@ -414,6 +414,8 @@ body.resizing .stream { pointer-events: none; }
 .btn { border: 1px solid var(--line-2); background: var(--card); border-radius: 9px; height: 32px; padding: 0 13px; font-weight: 600; font-size: 13px;
   color: var(--ink); display: inline-flex; gap: 6px; align-items: center; justify-content: center; white-space: nowrap; }
 .btn:hover { background: var(--hover); }
+.btn.wrap { height: auto; min-height: 32px; max-width: 100%; padding: 6px 13px; white-space: normal; text-align: left; line-height: 1.35; }
+.btn.wrap svg { flex: none; }
 .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .btn.primary:hover { filter: brightness(1.15); }
 .btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -612,6 +614,7 @@ details.orig > .bubble { margin-top: 4px; }
 .report-h b { color: var(--ink); }
 .menu .item .ck { width: 14px; flex: none; display: inline-grid; place-items: center; color: var(--accent); }
 .menu .item .lb { flex: 1; }
+.menu .item .ck.ic { color: var(--ink-2); }
 .menu .item kbd { font: 11px var(--mono); color: var(--ink-3); background: none; border: 0; padding: 0; }
 .menu .item:disabled { color: var(--ink-4); cursor: default; background: none; }
 .bar-menu { min-width: 250px; }
@@ -639,7 +642,14 @@ dl.keys dd { margin: 0; color: var(--ink-2); }
 .kv .also button:hover > span:first-child { text-decoration: underline; }
 
 /* organization chart */
-.details.oc { grid-template-rows: auto auto minmax(0, 1fr); }
+.details.oc { grid-template-rows: auto auto minmax(0, 1fr); width: calc(100vw - 40px); }
+.oc-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.oc-zoom .icon-btn { width: 28px; height: 28px; }
+.oc-pct { min-width: 50px; height: 28px; border: 0; background: none; border-radius: 8px; color: var(--ink-2); font: inherit; font-size: 12px;
+  font-variant-numeric: tabular-nums; cursor: pointer; }
+.oc-pct:hover { background: var(--hover); color: var(--ink); }
+.oc-hint { margin-left: auto; color: var(--ink-4); }
+.oc.list .oc-zoom, .oc.list .oc-hint { display: none; }
 .oc .bar { flex-wrap: wrap; row-gap: 6px; position: relative; padding-right: 54px; }
 .oc .bar > .icon-btn { position: absolute; right: 12px; top: 9px; }
 .oc .bar h3 { min-width: 120px; }
@@ -673,6 +683,9 @@ dl.keys dd { margin: 0; color: var(--ink-2); }
 .oc-node .ln > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .oc-node .chip { font-size: 10.5px; padding: 0 6px; flex: none; white-space: nowrap; }
 .oc-empty { padding: 24px; }
+.oc-canvas.pan { overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
+.oc-canvas.pan.dragging, .oc-canvas.pan.dragging .oc-node { cursor: grabbing; }
+.oc-canvas.pan .oc-plane { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 
 @media (max-width: 1180px) {
   .app { --pw: 0px; }

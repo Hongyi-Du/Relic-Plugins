@@ -1,5 +1,23 @@
 # Changelog / 更新记录
 
+## v0.4.1-beta.1 — 2026-10-28
+
+A small update to v0.4.0-beta.1. Plugin 0.15.1-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **An organization chart you can move and zoom.** The chart's dialog is as wide as the window and opens with the chart fitted to it. Drag to move it (a drag that starts on an organization does not open it), scroll or pinch to zoom around the pointer, and double-click empty space to fit it again. Its title bar has Zoom out, the percentage (click it for 100%), Zoom in and Fit to window; the keys + − 0 and the arrows work too. A narrow window still lists the organizations, indented.
+- **Opened from an organization.** Right-click an organization in the sidebar and choose Organization chart…: the chart opens on that organization and the ones below it (a single organization at 100%, centered). The link in the Overview's Hierarchy block opens it on the open organization; View → Organization chart… shows everything.
+- **Fix.** In English, the Organization details button at the bottom of the Overview was wider than the pane, which then scrolled sideways; its label now wraps.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer; nothing in the store changes. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex. Installed with the same Python as before, the Relic hooks keep the trust you gave them in Codex.
+- **Release and checks.** `relic-windows-v0.4.1-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` is unchanged: 12 tools.
+
+v0.4.0-beta.1 的小更新。插件 0.15.1-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **组织关系图可以拖动和缩放。**关系图的窗口和 App 一样宽，打开时整张图缩放到放得下。拖动可以移动（从某个组织上开始拖也不会打开它），滚轮或双指捏合以指针为中心缩放，双击空白处重新适应窗口。标题栏有「缩小」、百分比（点一下回到 100%）、「放大」和「适应窗口」；键盘的 + − 0 和方向键也能用。窗口很窄时照旧按缩进列出各组织。
+- **从组织上打开。**在侧栏的组织上点右键，选「组织关系图…」：关系图先显示这个组织和它下面的组织（单个组织按 100% 居中）。「概况 → 上下级」里的链接打开时对准当前组织；「视图 → 组织关系图…」显示全部。
+- **修复。**英文界面里，「概况」底部的组织详情按钮比面板还宽，面板会横向滚动；现在按钮文字会换行。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器；数据库不变。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。用和上次相同的 Python 安装时，Codex 里对 Relic hooks 的信任会保留。
+- **发布与检查。**`relic-windows-v0.4.1-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 没有变化，仍是 12 个工具。
+
 ## v0.4.0-beta.1 — 2026-10-27
 
 Fourth public beta. The Relic App is in English as well as Chinese, and organizations can stand above and below one another, with subgroups, a secretariat and sessions that sit in several organizations. Plugin 0.15.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before; the macOS package is built in CI but not released.

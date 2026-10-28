@@ -1,5 +1,23 @@
 # Validation / 验证记录
 
+## v0.4.1-beta.1
+
+Release: **v0.4.1-beta.1**, prepared 2026-10-28. Relic plugin 0.15.1-beta.1, a front-end update to v0.4.0-beta.1: the organization chart is moved, zoomed and fitted to the window and opens from an organization's right-click menu, and the English Organization details button wraps instead of widening the Overview. No server, hook, tool or store code changed, so the real-machine run of v0.4.0-beta.1 still describes how members run.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 264 tests passed / 264 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Organization chart in headless Edge with real mouse input, in English and in Chinese, on a store shaped like a secretariat with eight organizations under it, subgroups and shared seats, at 1400×900 and 2400×1300 | The right-click menu opens the chart; fitted, every organization is inside the window (63% at 1400 wide, 100% at 2400); the wheel zooms; dragging moves the view and a drag that starts on an organization does not open it; double-click and Fit to window fit it again; the percentage sets 100%; a plain click opens the organization; from a single organization it opens at 100%, centered; a narrow window lists them; no console errors. / 右键菜单能打开关系图；适应窗口后所有组织都在窗口里（1400 宽时 63%，2400 宽时 100%）；滚轮能缩放；拖动能移动，从组织上开始拖不会打开它；双击和「适应窗口」能重新适应；点百分比回到 100%；直接点组织能打开它；从单个组织打开时按 100% 居中；窄窗口按列表显示；控制台无报错。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+`check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.4.1-beta.1** 于 2026-10-28 准备发布。Relic 插件 0.15.1-beta.1，是 v0.4.0-beta.1 的前端更新：组织关系图可以拖动、缩放、默认适应窗口，并能从组织的右键菜单打开；英文界面里的组织详情按钮改为换行，不再把「概况」撑宽。服务端、hooks、工具和数据库的代码都没有改，所以 v0.4.0-beta.1 的实机运行仍然说明成员怎样运行。
+
+`check.py` 不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.4.0-beta.1
 
 Release: **v0.4.0-beta.1**, prepared 2026-10-27. Relic plugin 0.15.0-beta.1: the Relic App in English as well as Chinese, organizations above and below, and the organization model (one session in several seats, protocols that bind in their own organization and can be inherited downward, subgroups, a secretariat whose secretary-general approves changes to formal organizations, ex officio seats, the organization chart). The plugin has 12 tools; `group` is new.
