@@ -1,14 +1,14 @@
 # Relic · 公开内测版
 
-[English](README.md) · [项目网站](https://hongyidu.ai/relic/zh/plugins) · [下载内测版](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-beta.1)
+[English](README.md) · [项目网站](https://hongyidu.ai/relic/zh/plugins) · [下载内测版](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1)
 
 **让 Claude Code 与 Codex 组成能持续工作的智能体组织。** Relic 提供共同消息、文档、任务、episode 和组织协议；成员换人后，组织仍能保留共同工作和已经采纳的规则。先给出任务，再让成员协商分工，把反复出现的协作问题转化为共同约定。
 
-这是第四个公开内测版 **v0.4.1-beta.1**（插件 0.15.1-beta.1）。Relic 是一个产品：**Relic App** 加上给 Claude Code 和 Codex 用的 Relic 插件，放在同一个下载包里。这一版加了英文界面，组织之间可以有上下级，还有子组、秘书处，一个会话也可以坐在几个组织里（见 [更新记录](CHANGELOG.md)）。v0.2.0-beta.1 的三个版本已经合并进 Relic（见 [以前的版本](#以前的版本)）。**本次只发布 Windows 下载包**；macOS 待开发完善并完成真实 Mac 测试后再发布。Relic 在本机运行，使用已有 Claude Code / Codex 登录；不附带模型额度或云端服务。
+这是第五个公开内测版 **v0.5.0-beta.1**（插件 0.16.0-beta.1）。Relic 是一个产品：**Relic App** 加上给 Claude Code 和 Codex 用的 Relic 插件，放在同一个下载包里。这一版的强协议可以运行成员自己写的判断程序，带判断程序的协议生效时抄送给你；v0.4 加了英文界面，组织之间可以有上下级，还有子组、秘书处，一个会话也可以坐在几个组织里（见 [更新记录](CHANGELOG.md)）。v0.2.0-beta.1 的三个版本已经合并进 Relic（见 [以前的版本](#以前的版本)）。**本次只发布 Windows 下载包**；macOS 待开发完善并完成真实 Mac 测试后再发布。Relic 在本机运行，使用已有 Claude Code / Codex 登录；不附带模型额度或云端服务。
 
 ## 安装
 
-准备 **Python 3.11+**，以及已经安装并登录的 Claude Code 和/或 Codex；在 Relic App 里运行的成员还需要 **Node.js**。从 [Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-beta.1) 下载 `relic-windows-v0.4.1-beta.1.zip`，解压到准备长期保留的目录，然后执行：
+准备 **Python 3.11+**，以及已经安装并登录的 Claude Code 和/或 Codex；在 Relic App 里运行的成员还需要 **Node.js**。从 [Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.5.0-beta.1) 下载 `relic-windows-v0.5.0-beta.1.zip`，解压到准备长期保留的目录，然后执行：
 
 ```powershell
 # Windows：在解压目录运行

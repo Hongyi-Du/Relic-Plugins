@@ -6,8 +6,9 @@ layout follows Codex and Claude Code (a window bar, one sidebar, the chat, panes
 and WeCom (avatars, bubbles, quotes, threads).
 
 - **Window bar** (top): sidebar switch, back and forward through the chats you opened, the menus 文件 / 编辑 / 视图 /
-  帮助, the open chat's title, 安装 (until the App is installed), the bell (what needs your decision) and the
-  right-side panes. Installed as an application, this bar is the title bar (see below).
+  帮助, the open chat's title, 安装 (until the App is installed), the bell (what needs your decision), 抄送 (Copies:
+  protocols with a check program that took effect, see below) and the right-side panes. Installed as an application,
+  this bar is the title bar (see below).
 - **Sidebar** (left): organizations by name; the open one lists its group chat, the secretary and every member with
   its status dot (green running or working, amber waiting for you, red error, grey idle, hollow: no session yet).
   Your profile and the settings are at the bottom.
@@ -46,6 +47,33 @@ Both use one short `claude -p` call (Sonnet, no session saved) per batch, in you
 Members write task titles in your language, and a task can only be marked done with a short report (Markdown, at
 most 1000 characters) of what it achieved and how it turned out. 概况 lists the latest reports; the task list (已完成)
 shows each one under its task, with 问问 <owner> to ask the member.
+
+## Copies (抄送): protocols with a check program
+
+Members can adopt strong protocols whose rules run a judgment program they wrote (effect `check`, see the skill and
+`relic_core/checker.py`). Such a protocol takes effect by the organization's vote alone; you are not asked first. When
+it takes effect (a revision too), you get a copy with the note the members had to write for you (`summary_for_person`,
+in your language). The button next to the bell shows how many copies you have not read; it opens one card per copy,
+from every organization:
+
+- the organization, the protocol's number and title, and its state now (in effect, retired by you, replaced by a
+  revision, its organization ended);
+- the note for you;
+- who proposed it (or which organization above issued it), who approved it, and when it took effect;
+- how its program has answered so far (allowed, blocked, sent for review, failed);
+- the code and the examples the members reviewed, folded away.
+
+**知道了** (Got it) marks the copy read; you can also leave it. **废除这条协议** (Retire this protocol) stops the protocol at
+once, without a vote, after you confirm: it is marked retired by the person, the group chat says so, its inherited copy
+stops binding the organizations below too, and members see it in their status. A failure of a check program (a timeout,
+an exception, an answer that is not a decision, code changed after the vote) is announced in the group chat of the
+protocol's organization, once a day per protocol and kind of failure. When the window is in the background, a new copy
+also shows a desktop notification (Settings, Notifications).
+
+`GET /api/cc` lists the copies (`items`, newest first, with `status`, `stats`, `author_display`, `approved_display`, and
+`unread`); `POST /api/cc/<id>/read` marks one read; `POST /api/cc/<id>/retire` retires its protocol
+(`Store.retire_by_person`). The copies are kept in the store's `cc` table, the counts of each program's answers in
+`check_counts`.
 
 ## Adding members
 
@@ -236,5 +264,6 @@ the page's code.
 - `hub.py`: embedded sessions and their turns. `acp.py`: the ACP client. `harness.py`: how each harness starts.
 - `prefs.py`: your profile, avatar and preferences (`~/.relic/app/`).
 - `static/`: the page.
-- Tests: `tests/test_app.py` (with `tests/fake_acp_agent.py`, a small ACP agent), `tests/test_app_panes.py` and
-  `tests/test_bridge_in_app.py` (how the App brings Relic into sessions).
+- Tests: `tests/test_app.py` (with `tests/fake_acp_agent.py`, a small ACP agent), `tests/test_app_panes.py`,
+  `tests/test_bridge_in_app.py` (how the App brings Relic into sessions) and `tests/test_checker.py` (check rules and
+  Copies).

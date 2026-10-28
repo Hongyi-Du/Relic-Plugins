@@ -19,6 +19,8 @@ import time
 import uuid
 from pathlib import Path
 
+from . import checker
+
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # Output fragments that signal friction between members' work (rejected pushes, conflicting changes).
 FRICTION_MARKERS = ("[rejected]", "non-fast-forward", "CONFLICT", "could not apply", "Merge conflict",
@@ -170,6 +172,11 @@ def short_tool(tool):
     return tool.rsplit("__", 1)[-1] if tool.startswith("mcp__") else tool
 
 
+def activity_kind(tool):
+    """What a tool call counts as in the activity record: edit (a file change), run (a shell command) or other."""
+    return "edit" if short_tool(tool) in EDIT_TOOLS else ("run" if tool == "Bash" else "other")
+
+
 RELIC_TOOLS = {"create", "join", "status", "message", "inbox", "work", "episode", "protocol", "review", "trajectory", "panel",
                "group"}
 # Chat members (relic_core/chat.py) discuss but have no files or commands: a ChatGPT chat ("chatgpt:<chat id>") and a
@@ -235,10 +242,69 @@ def snippet(text, width=60):
 
 
 # --------------------------------------------------------------------------
-# Strong protocol rules: a small, bounded rule language bound to PreToolUse.
+# Strong protocol rules: a small, bounded rule language bound to PreToolUse. A check rule runs a judgment program the
+# members wrote (relic_core/checker.py) on the calls it covers; its code, examples and on_error come with it, and the
+# store records the code's sha256 when the protocol is proposed (Store.prepare_rules).
 # --------------------------------------------------------------------------
+CHECK_FIELDS = ("code", "examples", "on_error", "code_sha256")
 RULE_FIELDS = {"effect", "tools", "input_contains", "path_glob", "members", "roles",
-               "except_members", "except_roles", "before", "reason"}
+               "except_members", "except_roles", "before", "reason"} | set(CHECK_FIELDS)
+EFFECTS = ("deny", "require_review", "require_before", "check")
+SUMMARY_MAX = 2000  # characters of a protocol's note for the person
+# Chinese characters: CJK Unified Ideographs, Extension A and the Compatibility Ideographs
+CHINESE = re.compile("[%s-%s%s-%s%s-%s]" % tuple(map(chr, (0x3400, 0x4DBF, 0x4E00, 0x9FFF, 0xF900, 0xFAFF))))
+_ANY_TOOL = ("a", "Zq", "mcp__x__y", "relic_probe_tool")  # names no tool has: a pattern matching them all matches any tool
+
+
+def has_check(protocol):
+    """Whether a protocol has a check rule (a judgment program of its own)."""
+    return any(isinstance(r, dict) and r.get("effect") == "check" for r in (protocol or {}).get("rules") or [])
+
+
+def _validate_check(rule):
+    """The shape of a check rule; its code loads and its examples run in Store.prepare_rules."""
+    if not isinstance(rule.get("code"), str) or not rule["code"].strip():
+        raise OrgError("A check rule needs code: Python (standard library only) that defines check(call) and returns "
+                       "{\"decision\": \"allow\" | \"deny\" | \"review\", \"reason\": \"...\"}.")
+    if rule.get("on_error", "allow") not in checker.ON_ERROR:
+        raise OrgError("on_error is allow (the default: the call goes through when the program fails) or deny.")
+    low, high = checker.EXAMPLES
+    examples = rule.get("examples")
+    if not isinstance(examples, list) or not low <= len(examples) <= high:
+        raise OrgError("A check rule needs %d to %d examples, [{\"call\": {\"tool\": ..., \"input\": {...}}, \"expect\": "
+                       "\"allow\" | \"deny\" | \"review\"}]: calls the rule covers and what its program must answer "
+                       "for each, at least one allow and one deny or review." % (low, high))
+    for n, example in enumerate(examples, 1):
+        if not isinstance(example, dict) or set(example) - {"call", "expect", "note"}:
+            raise OrgError("Example %d: an example is {\"call\": {...}, \"expect\": ..., \"note\"?}." % n)
+        call = example.get("call")
+        if not isinstance(call, dict) or not isinstance(call.get("tool"), str) or not call["tool"].strip():
+            raise OrgError("Example %d needs call.tool (and usually call.input), like the calls the rule covers." % n)
+        if not isinstance(call.get("input", {}), dict) or not isinstance(call.get("recent", []), list):
+            raise OrgError("Example %d: call.input is an object (the tool's input) and call.recent a list." % n)
+        if example.get("expect") not in checker.DECISIONS:
+            raise OrgError("Example %d: expect is allow, deny or review." % n)
+    expected = {example["expect"] for example in examples}
+    if "allow" not in expected or not expected & {"deny", "review"}:
+        raise OrgError("A check rule's examples need at least one call its program allows and one it denies or sends "
+                       "for review.")
+
+
+def person_summary(value):
+    """A protocol's summary_for_person (needed with a check rule): the note copied to the person when the protocol
+    takes effect, in the person's language; a person who reads Chinese gets Chinese."""
+    tag = person_language()
+    if not isinstance(value, str) or not value.strip():
+        raise OrgError("A protocol with a check rule needs summary_for_person: a short note for the person, written in "
+                       "%s, on what the protocol is for, what its check program judges and when it blocks a call. It "
+                       "is copied to the person when the protocol takes effect." % language_name(tag))
+    value = value.strip()
+    if len(value) > SUMMARY_MAX:
+        raise OrgError("summary_for_person has %d characters; keep it under %d." % (len(value), SUMMARY_MAX))
+    if tag.lower().split("-")[0] == "zh" and not CHINESE.search(value):
+        raise OrgError("summary_for_person is for the person, who reads %s: write it in that language (this one has "
+                       "no Chinese characters)." % language_name(tag))
+    return value
 
 
 def validate_rules(rules):
@@ -246,14 +312,17 @@ def validate_rules(rules):
         raise OrgError("A strong protocol needs at least one rule. Prose alone belongs in a weak protocol.")
     for rule in rules:
         if not isinstance(rule, dict) or set(rule) - RULE_FIELDS:
-            raise OrgError("Unknown rule field. Allowed: " + ", ".join(sorted(RULE_FIELDS)))
-        if rule.get("effect") not in ("deny", "require_review", "require_before"):
-            raise OrgError("Rule effect must be deny, require_review or require_before.")
+            raise OrgError("Unknown rule field. Allowed: " + ", ".join(sorted(RULE_FIELDS - {"code_sha256"})))
+        if rule.get("effect") not in EFFECTS:
+            raise OrgError("Rule effect must be deny, require_review, require_before or check.")
         tools = rule.get("tools")
         if not isinstance(tools, list) or not tools or not all(isinstance(t, str) and t for t in tools):
             raise OrgError("Each rule needs tool name patterns, e.g. [\"Bash\"] or [\"Edit\", \"Write\"].")
         if any(is_relic_tool(t) or "relic_org" in t for t in tools):
             raise OrgError("Rules cannot gate the organization's own governance tools.")
+        if rule["effect"] == "check" and any(all(fnmatch.fnmatchcase(n, t) for n in _ANY_TOOL) for t in tools):
+            raise OrgError("A check rule runs its program on the calls it covers, so it names their tools, e.g. "
+                           "[\"Bash\"] or [\"Edit\", \"Write\"]; it cannot cover every tool.")
         broad = all(t in ("*", "**") for t in tools)
         if broad and not (rule.get("input_contains") or rule.get("path_glob")):
             # Bounded binding: no universal veto over every action.
@@ -267,6 +336,10 @@ def validate_rules(rules):
             before = rule.get("before")
             if not isinstance(before, dict) or not before.get("tools"):
                 raise OrgError("require_before needs before: {tools: [...], input_contains?: [...]}.")
+        if rule["effect"] == "check":
+            _validate_check(rule)
+        elif any(key in rule for key in CHECK_FIELDS):
+            raise OrgError("code, examples and on_error belong to rules with effect check.")
 
 
 def _tool_matches(patterns, tool):
@@ -311,6 +384,31 @@ def rule_applies(rule, member, role, tool, tool_input):
     return True
 
 
+def example_in_scope(rule, call):
+    """Whether a check rule covers an example's call (tool and input in the shared vocabulary). Who the rule applies to
+    counts only when the example names the member or the role."""
+    probe = dict(rule)
+    for given, keys in ((call.get("member"), ("members", "except_members")), (call.get("role"), ("roles", "except_roles"))):
+        if not given:
+            for key in keys:
+                probe.pop(key, None)
+    return rule_applies(probe, call.get("member") or "", call.get("role") or "", call["tool"], call["input"])
+
+
+def scope_text(rule):
+    """The calls a rule covers, in a few words: "Bash containing git push", "Edit/Write on src/api/*"."""
+    what = "/".join(rule.get("tools") or [])
+    if rule.get("path_glob"):
+        what += " on " + rule["path_glob"]
+    if rule.get("input_contains"):
+        what += " containing " + ", ".join(rule["input_contains"])
+    if rule.get("roles") or rule.get("members"):
+        what += " by " + "/".join((rule.get("roles") or []) + (rule.get("members") or []))
+    if rule.get("except_roles") or rule.get("except_members"):
+        what += " except " + "/".join((rule.get("except_roles") or []) + (rule.get("except_members") or []))
+    return what
+
+
 # --------------------------------------------------------------------------
 class Store:
     def __init__(self, path=None):
@@ -332,7 +430,17 @@ class Store:
                 CREATE TABLE IF NOT EXISTS seats(actor TEXT, org_id TEXT, member TEXT, bound_at TEXT,
                     PRIMARY KEY(actor, org_id));
                 CREATE TABLE IF NOT EXISTS focus(actor TEXT PRIMARY KEY, org_id TEXT, at TEXT);
+                CREATE TABLE IF NOT EXISTS check_counts(org_id TEXT, protocol_id TEXT, outcome TEXT, n INTEGER,
+                    last_at REAL, PRIMARY KEY(org_id, protocol_id, outcome));
+                CREATE TABLE IF NOT EXISTS check_alerts(org_id TEXT, protocol_id TEXT, kind TEXT, at REAL,
+                    PRIMARY KEY(org_id, protocol_id, kind));
+                CREATE TABLE IF NOT EXISTS cc(id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT, protocol_id TEXT,
+                    body TEXT, at TEXT, read_at TEXT);
             """)
+            # check_counts: how often each protocol's check programs allowed, denied, sent for review or failed
+            # ("error:<kind>"), kept by the organization the protocol belongs to; allowed calls are only counted.
+            # check_alerts: when a failure of each kind was last announced (once a day per protocol and kind).
+            # cc: protocols with a check rule copied to the person when they took effect (the Relic App's Copies).
             # A session holds one seat per organization it belongs to (seats); actors keeps its main seat, the one
             # its Relic calls use when they name no organization. Bindings written before seats existed, or by an older
             # plugin that knows only actors, are seats too.
@@ -1507,7 +1615,7 @@ class Store:
         """A protocol issued by a member of an organization above: it takes effect in target directly, and only an
         organization above can revise or retire it. downward=true binds the organizations below target too."""
         if op == "list":
-            return self._protocol_list(target)
+            return self._protocol_detail(target, a["protocol_id"]) if a.get("protocol_id") else self._protocol_list(target)
         if op != "propose":
             raise OrgError("In an organization below yours you issue protocols (propose: they take effect there "
                            "directly) and list them; votes and use belong to its members.")
@@ -1518,6 +1626,7 @@ class Store:
             raise OrgError("A protocol needs a title and a rationale grounded in what happened.")
         evidence = a.get("evidence") or []
         retire_target, supersedes = a.get("retire_target"), a.get("supersedes")
+        rules, summary = [], None
         if not retire_target:
             if strength == "weak":
                 if a.get("rules"):
@@ -1531,7 +1640,7 @@ class Store:
                 if not ep or ep["status"] != "closed" or member not in ep["reflections"]:
                     raise OrgError("A strong protocol is issued from a closed episode of your own organization after "
                                    "you reflected on it.")
-                validate_rules(a.get("rules"))
+                rules, summary = self.prepare_rules(a.get("rules"), a.get("summary_for_person"), target, a["title"])
         sender = qualified(own["id"], member)
         issued = {"org": own["id"], "name": own["name"], "member": member}
         with self.change(target["id"]) as (org, db):
@@ -1544,12 +1653,14 @@ class Store:
             pid = "P%d" % org["counters"]["protocol"]
             p = {"id": pid, "title": a["title"], "rationale": a["rationale"], "strength": strength,
                  "guidance": a.get("guidance", ""), "trigger": a.get("trigger", ""), "scope": a.get("scope", ""),
-                 "rules": a.get("rules", []) if strength == "strong" else [], "evidence": evidence,
+                 "rules": rules if strength == "strong" else [], "evidence": evidence,
                  "episode_id": a.get("episode_id"), "supersedes": supersedes, "retire_target": retire_target,
                  "version": (parent["version"] + 1) if parent else 1, "author": sender, "issued_by": issued,
                  "inherit": bool(a.get("inherit", a.get("downward"))), "downward": bool(a.get("inherit", a.get("downward"))),
                  "status": "active", "votes": {}, "uses": [],
                  "created_at": now(), "activated_at": now()}
+            if summary:
+                p["summary_for_person"] = summary
             if retire_target:
                 org["protocols"][retire_target].update(status="retired", retired_at=now(), retired_by=pid)
                 p["status"] = "enacted"
@@ -1559,6 +1670,8 @@ class Store:
             self._event(db, target["id"], sender, "protocol.activated",
                         {"id": pid, "strength": strength, "issued_by": issued,
                          **({"retire_target": retire_target} if retire_target else {})})
+            if p["status"] == "active":
+                self._copy_to_person(db, org, p)
         with self.db() as db:
             self._event(db, own["id"], member, "organization.reached",
                         {"what": "protocol", "org": target["id"], "name": target["name"], "way": "down", "id": pid,
@@ -1582,18 +1695,99 @@ class Store:
 
     def _protocol_list(self, org):
         listed = {pid: dict({k: p[k] for k in ("title", "strength", "status", "version", "author", "downward",
-                                                "issued_by", "supersedes", "retire_target") if p.get(k) is not None},
-                            inherit=inherits(p)) for pid, p in org["protocols"].items()}
+                                                "issued_by", "supersedes", "retire_target", "retired_by")
+                             if p.get(k) is not None},
+                            inherit=inherits(p), **({"check": True} if has_check(p) else {}))
+                  for pid, p in org["protocols"].items()}
         lineage = self.inheritance(org)
         for above, p in lineage["inherited"]:
-            listed["%s/%s" % (above["id"], p["id"])] = {"title": p["title"], "strength": p["strength"],
-                                                         "status": p["status"], "version": p["version"],
-                                                         "from": above["name"], "inherit": True}
+            listed["%s/%s" % (above["id"], p["id"])] = dict({"title": p["title"], "strength": p["strength"],
+                                                              "status": p["status"], "version": p["version"],
+                                                              "from": above["name"], "inherit": True},
+                                                             **({"check": True} if has_check(p) else {}))
         for above, p, level, by, how in lineage["replaced"]:
             listed["%s/%s" % (above["id"], p["id"])] = {"title": p["title"], "strength": p["strength"],
                                                          "status": how, "version": p["version"], "from": above["name"],
                                                          "by": "%s/%s" % (level["id"], by), "at": level["name"]}
         return listed
+
+    def _protocol_detail(self, org, ref):
+        """One protocol in full, to review it before a vote: its rules with their code and examples, its note for the
+        person, votes and uses. ref: one of this organization's (P3) or of an organization above ("<org id>/P3")."""
+        ref = str(ref or "").strip()
+        owner, pid = org, ref
+        if "/" in ref:
+            place, _, pid = ref.partition("/")
+            owner = next((above for above in self.ancestors(org) if above["id"] == place), None)
+            if owner is None:
+                raise OrgError("%s is not a protocol of an organization above this one." % ref)
+        p = (owner.get("protocols") or {}).get(pid)
+        if not p:
+            raise OrgError("Unknown protocol %s (protocol op=list shows them)." % ref)
+        return dict(p, ref=ref, org=owner["id"], org_name=owner["name"], inherit=inherits(p))
+
+    # ---------------- check rules: proposing one ----------------
+    def prepare_rules(self, rules, summary, org, title):
+        """A strong protocol's rules as they are kept, and its summary_for_person. A check rule is checked in full: its
+        code loads (standard library only, a check function), every example is a call the rule covers and comes out as
+        expected, and the code's sha256 is recorded. A protocol with a check rule needs summary_for_person in the
+        person's language. Raises OrgError naming what to fix. Runs programs: call it outside a write transaction."""
+        validate_rules(rules)
+        if not any(rule["effect"] == "check" for rule in rules):
+            return rules, (summary.strip() if isinstance(summary, str) and summary.strip() else None)
+        summary = person_summary(summary)
+        base = {"tool": "", "input": {}, "member": "", "role": "", "harness": "", "org_id": org["id"],
+                "org_name": org["name"], "protocol_id": "P%d" % (org["counters"]["protocol"] + 1),
+                "protocol_title": title, "recent": []}
+        prepared, jobs, where = [], [], []
+        for index, rule in enumerate(rules, 1):
+            rule = {k: v for k, v in rule.items() if k != "code_sha256"}  # recorded here, never taken from the caller
+            if rule["effect"] == "check":
+                problem = checker.problems(rule["code"])
+                if problem:
+                    raise OrgError("Rule %d (check): %s" % (index, problem))
+                rule.update(on_error=rule.get("on_error") or "allow", code_sha256=checker.sha256(rule["code"]))
+                for n, example in enumerate(rule["examples"], 1):
+                    call = self._example_call(example["call"], base)
+                    if not example_in_scope(rule, call):
+                        raise OrgError("Rule %d (check), example %d: the rule does not cover this call (it covers %s), "
+                                       "so its program would never see it. Give examples of calls the rule covers."
+                                       % (index, n, scope_text(rule)))
+                    jobs.append((rule["code"], call))
+                    where.append((index, n, example["expect"]))
+            prepared.append(rule)
+        wrong = []
+        for (index, n, expect), result in zip(where, checker.run_many(jobs)):
+            if "error" in result:
+                wrong.append("rule %d, example %d: the program failed (%s): %s" % (index, n, result["error"],
+                                                                                    result["detail"]))
+            elif result["decision"] != expect:
+                wrong.append("rule %d, example %d expects %s; check() answered %s%s" % (
+                    index, n, expect, result["decision"], (" (reason: %s)" % result["reason"]) if result["reason"] else ""))
+        if wrong:
+            raise OrgError("The check program does not do what its examples say, so nothing was proposed:\n- %s\nFix "
+                           "the code or the examples and propose it again." % "\n- ".join(wrong))
+        return prepared, summary
+
+    @staticmethod
+    def _example_call(raw, base):
+        """An example's call as the hook would give it: what it leaves out taken from base, tool and input in the shared
+        vocabulary (normalize), recent calls in the hook's shape, every time in both forms (ISO text and seconds)."""
+        call = dict(base, **raw)
+        data = call.get("input") if isinstance(call.get("input"), dict) else {}
+        call["tool"], call["input"] = normalize(str(call.get("tool") or ""), data)
+        recent = []
+        for item in call.get("recent") or []:
+            if not isinstance(item, dict):
+                continue
+            tool, _ = normalize(str(item.get("tool") or ""), {})
+            entry = dict(item, tool=short_tool(tool), summary=str(item.get("summary") or ""),
+                         failed=bool(item.get("failed")), kind=item.get("kind") or activity_kind(tool))
+            recent.append(checker.both_times(entry, "at", "ts"))
+        call["recent"] = recent[:checker.RECENT]
+        edits = [entry["ts"] for entry in recent if entry["kind"] == "edit" and entry["ts"] is not None]
+        checker.both_times(call, "last_edit_at", "last_edit_ts", default=max(edits) if edits else None)
+        return checker.both_times(call, "now", "now_ts", default=time.time())
 
     def _sender_hop(self, org_id, member):
         """A message sent during an automatically started turn carries that turn's wake depth (wake.MAX_HOPS)."""
@@ -1963,6 +2157,8 @@ class Store:
                         parent.update(status="superseded", superseded_by=p["id"])
                 p.update(status="active", activated_at=now())
             self._event(db, org["id"], p["author"], "protocol.activated", {"id": p["id"], "strength": p["strength"]})
+            if p["status"] == "active":
+                self._copy_to_person(db, org, p)
         elif len(rejects) > len(org["members"]) - need or (org["governance"] == "leader" and org["leader"] in rejects):
             p.update(status="rejected")
             self._event(db, org["id"], p["author"], "protocol.rejected", {"id": p["id"]})
@@ -1976,7 +2172,16 @@ class Store:
                 return self._use_from_below(own, me, target, a)
         org, member = self.require(actor)
         if op == "list":
-            return self._protocol_list(org)
+            return self._protocol_detail(org, a["protocol_id"]) if a.get("protocol_id") else self._protocol_list(org)
+        rules, summary = [], None
+        if op == "propose" and a.get("strength", "weak") == "strong" and not a.get("retire_target"):
+            # before the write transaction: a check rule's examples run as programs, which takes a moment
+            if not a.get("title") or not a.get("rationale"):
+                raise OrgError("A proposal needs a title and a rationale grounded in what happened.")
+            ep = org["episodes"].get(a.get("episode_id"))
+            if not ep or ep["status"] != "closed" or member not in ep["reflections"]:
+                raise OrgError("A strong protocol is proposed from a closed episode after you reflected on it.")
+            rules, summary = self.prepare_rules(a.get("rules"), a.get("summary_for_person"), org, a["title"])
         with self.change(org["id"]) as (org, db):
             if op == "propose":
                 strength = a.get("strength", "weak")
@@ -2011,7 +2216,7 @@ class Store:
                     ep = org["episodes"].get(a.get("episode_id"))
                     if not ep or ep["status"] != "closed" or member not in ep["reflections"]:
                         raise OrgError("A strong protocol is proposed from a closed episode after you reflected on it.")
-                    validate_rules(a.get("rules"))
+                    validate_rules(rules)  # prepared above
                 parent = (inherited.get(sup) if "/" in str(sup) else org["protocols"].get(sup)) if sup else None
                 if sup and (not parent or parent["status"] != "active"):
                     raise OrgError("A revision must supersede an active protocol.")
@@ -2022,11 +2227,13 @@ class Store:
                 pid = "P%d" % org["counters"]["protocol"]
                 p = {"id": pid, "title": a["title"], "rationale": a["rationale"], "strength": strength,
                      "guidance": a.get("guidance", ""), "trigger": a.get("trigger", ""), "scope": a.get("scope", ""),
-                     "rules": a.get("rules", []) if strength == "strong" else [], "evidence": evidence,
+                     "rules": rules if strength == "strong" else [], "evidence": evidence,
                      "episode_id": a.get("episode_id"), "supersedes": sup, "retire_target": retire_target,
                      "version": (parent["version"] + 1) if parent else 1, "author": member, "status": "proposed",
                      "inherit": bool(inherit), "downward": bool(inherit),
                      "votes": {member: {"vote": "approve", "reason": "author", "at": now()}}, "uses": [], "created_at": now()}
+                if summary:
+                    p["summary_for_person"] = summary
                 org["protocols"][pid] = p
                 self._event(db, org["id"], member, "protocol.proposed", {"id": pid, "strength": strength})
                 self._maybe_activate(org, db, p)
@@ -2055,14 +2262,15 @@ class Store:
 
     # ---------------- runtime binding (called from PreToolUse) ----------------
     def gate(self, actor, tool, tool_input):
-        """Return (allowed, reasons). Records review requests for require_review rules."""
+        """Return (allowed, reasons). Records review requests for require_review rules; runs the programs of the check
+        rules that cover the call (side by side, each in a process of its own) and does what they answer."""
         tool, tool_input = normalize(tool, tool_input)
         actor = self.focused(actor)  # the organization the session works for now: its protocols bind this call
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return True, []
         role = org["members"][member].get("role", "")
-        reasons, consumed = [], []
+        reasons, consumed, checks = [], [], []
         last_edit = None
         # this organization's own protocols and those in effect here from the organizations above
         for owner, p in self.effective_protocols(org):
@@ -2075,6 +2283,8 @@ class Store:
                 label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
                     reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
+                elif rule["effect"] == "check":
+                    checks.append((owner, p, pid, label, rule))
                 elif rule["effect"] == "require_before":
                     if last_edit is None:
                         last_edit = self._last_activity(org["id"], member, kind="edit") or 0.0
@@ -2089,6 +2299,19 @@ class Store:
                         rid = self._request_review(org["id"], member, pid, tool, tool_input)
                         reasons.append("%s: another member must approve this exact action. Review request %s is open; "
                                        "ask a member to run review approve %s, then retry the same call." % (label, rid, rid))
+        outcomes = self._run_checks(org, member, role, checks, tool, tool_input)
+        for (owner, p, pid, label, rule), outcome in zip(checks, outcomes):
+            if outcome["decision"] == "deny":
+                reasons.append("%s: %s" % (label, outcome["reason"]))
+            elif outcome["decision"] == "review":
+                approved = self._approved_review(org, member, tool, tool_input)
+                if approved:
+                    consumed.append(approved)
+                else:
+                    rid = self._request_review(org["id"], member, pid, tool, tool_input, why=outcome["reason"])
+                    reasons.append("%s: %s. Another member must approve this exact action. Review request %s is open; "
+                                   "ask a member to run review approve %s, then retry the same call."
+                                   % (label, outcome["reason"].rstrip(". "), rid, rid))
         if not reasons and consumed:
             with self.change(org["id"]) as (o, db):
                 for rid in consumed:
@@ -2100,7 +2323,213 @@ class Store:
                 self._event(db, org["id"], member, "protocol.blocked", {"tool": tool, "reasons": reasons})
             elif consumed:
                 self._event(db, org["id"], member, "protocol.review_used", {"tool": tool, "reviews": consumed})
+            if checks:
+                self._record_checks(db, org, member, tool, tool_input, checks, outcomes)
         return not reasons, reasons
+
+    # ---------------- check rules: running them ----------------
+    ALERT_EVERY = 24 * 3600  # a failure of one kind of one protocol's program is announced once a day
+
+    def _run_checks(self, org, member, role, checks, tool, tool_input):
+        """For each check rule that covers the call, what it does with it: {decision, reason, error, detail}. decision
+        is the program's answer, or the rule's on_error when the program failed (error: its kind) or its code is not
+        the code recorded when the protocol was proposed (error: tampered)."""
+        if not checks:
+            return []
+        recent, last_edit = self._recent_calls(org["id"], member)
+        results, jobs = [None] * len(checks), []
+        for i, (owner, p, pid, label, rule) in enumerate(checks):
+            code = rule.get("code") or ""
+            if checker.sha256(code) != rule.get("code_sha256"):
+                results[i] = {"error": "tampered", "detail": "the code is not the code that was proposed and voted on "
+                                                             "(its sha256 differs from the one recorded)"}
+            else:
+                jobs.append((i, code, self._check_call(org, member, role, pid, p, tool, tool_input, recent, last_edit)))
+        for (i, _, _), result in zip(jobs, checker.run_many([(code, call) for _, code, call in jobs])):
+            results[i] = result
+        return [self._check_outcome(rule, result) for (_, _, _, _, rule), result in zip(checks, results)]
+
+    @staticmethod
+    def _check_outcome(rule, result):
+        if "error" not in result:
+            return {"decision": result["decision"], "reason": result["reason"], "error": None, "detail": ""}
+        on_error = rule.get("on_error") if rule.get("on_error") in checker.ON_ERROR else "allow"
+        why = ("its check program is not the one voted on (the code changed after it was proposed)"
+               if result["error"] == "tampered" else
+               "its check program failed (%s: %s)" % (result["error"], " ".join(str(result.get("detail") or "").split())[:200]))
+        return {"decision": on_error, "error": result["error"], "detail": str(result.get("detail") or ""),
+                "reason": "%s, and this protocol %s the call when that happens (on_error %s). Tell the organization: a "
+                          "revision (supersedes) fixes it" % (why, "blocks" if on_error == "deny" else "allows", on_error)}
+
+    def _recent_calls(self, org_id, member):
+        """([the member's latest tool calls here, newest first], time of its latest edit or None), as a check program
+        gets them: tool, kind (edit, run, other), summary, failed, at (ISO) and ts (seconds)."""
+        with self.db() as db:
+            rows = db.execute("SELECT tool, kind, summary, failed, at FROM activity WHERE org_id=? AND member=? "
+                              "ORDER BY id DESC LIMIT ?", (org_id, member, checker.RECENT)).fetchall()
+            edit = db.execute("SELECT MAX(at) FROM activity WHERE org_id=? AND member=? AND kind='edit'",
+                              (org_id, member)).fetchone()[0]
+        recent = [checker.both_times({"tool": short_tool(tool or ""), "kind": kind,
+                                      "summary": " ".join(str(summary or "").split())[:200], "failed": bool(failed)},
+                                     "at", "ts", default=at) for tool, kind, summary, failed, at in rows]
+        return recent, edit
+
+    @staticmethod
+    def _check_call(org, member, role, pid, p, tool, tool_input, recent, last_edit):
+        """The call a check program gets (see relic_core/checker.py and the skill)."""
+        data, clipped = checker.clip(tool_input)
+        call = {"tool": tool, "input": data, "member": member, "role": role,
+                "harness": (org["members"].get(member) or {}).get("harness") or "", "org_id": org["id"],
+                "org_name": org["name"], "protocol_id": pid, "protocol_title": p["title"], "recent": recent}
+        if clipped:
+            call["input_clipped"] = True
+        checker.both_times(call, "last_edit_at", "last_edit_ts", default=last_edit)
+        return checker.both_times(call, "now", "now_ts", default=time.time())
+
+    def _record_checks(self, db, org, member, tool, tool_input, checks, outcomes):
+        """Allowed calls are only counted. A deny or a review is an event (protocol.checked) where the call was made; a
+        failure is an event there too (protocol.check_failed) and is announced in the group chat of the protocol's
+        organization (protocol.check_alert), once a day per protocol and kind of failure."""
+        stamp = time.time()
+        what = str(tool_input.get("command") or ", ".join(_paths_of(tool_input)) or canonical(tool_input))
+        for (owner, p, pid, label, rule), outcome in zip(checks, outcomes):
+            key = ("error:" + outcome["error"]) if outcome["error"] else outcome["decision"]
+            db.execute("INSERT INTO check_counts VALUES(?,?,?,1,?) ON CONFLICT(org_id, protocol_id, outcome) DO UPDATE "
+                       "SET n=n+1, last_at=excluded.last_at", (owner["id"], p["id"], key, stamp))
+            if outcome["error"]:
+                self._event(db, org["id"], member, "protocol.check_failed",
+                            {"id": pid, "kind": outcome["error"], "detail": outcome["detail"][:300], "tool": tool,
+                             "on_error": outcome["decision"]})
+                fresh = db.execute("INSERT INTO check_alerts VALUES(?,?,?,?) ON CONFLICT(org_id, protocol_id, kind) DO "
+                                   "UPDATE SET at=excluded.at WHERE excluded.at - check_alerts.at >= ?",
+                                   (owner["id"], p["id"], outcome["error"], stamp, self.ALERT_EVERY)).rowcount
+                if fresh:
+                    away = {} if owner["id"] == org["id"] else {"org": org["id"], "org_name": org["name"]}
+                    self._event(db, owner["id"], member if not away else qualified(org["id"], member),
+                                "protocol.check_alert", dict({"id": p["id"], "title": p["title"],
+                                                              "kind": outcome["error"], "detail": outcome["detail"][:300],
+                                                              "on_error": outcome["decision"]}, **away))
+            elif outcome["decision"] != "allow":
+                self._event(db, org["id"], member, "protocol.checked",
+                            {"id": pid, "decision": outcome["decision"], "reason": outcome["reason"], "tool": tool,
+                             "input": what[:200]})
+
+    def check_trouble(self, org):
+        """[(protocol as named in org, title, {kind of failure: count}, time of the latest failure)] for the check rules
+        in effect in org whose programs have failed."""
+        wanted = {(owner["id"], p["id"]): (p["id"] if owner["id"] == org["id"] else "%s/%s" % (owner["id"], p["id"]),
+                                           p["title"])
+                  for owner, p in self.effective_protocols(org) if p.get("status") == "active" and has_check(p)}
+        if not wanted:
+            return []
+        with self.db() as db:
+            rows = db.execute("SELECT org_id, protocol_id, outcome, n, last_at FROM check_counts "
+                              "WHERE outcome LIKE 'error:%'").fetchall()
+        found = {}
+        for org_id, pid, outcome, n, last in rows:
+            if (org_id, pid) in wanted:
+                kinds, latest = found.get((org_id, pid), ({}, 0.0))
+                kinds[outcome.split(":", 1)[1]] = n
+                found[(org_id, pid)] = (kinds, max(latest, last or 0.0))
+        return [(wanted[key][0], wanted[key][1], kinds, latest) for key, (kinds, latest) in found.items()]
+
+    # ---------------- copies to the person ----------------
+    # A protocol with a check rule takes effect by the organization's vote alone (or as issued from above); the person
+    # is sent a copy with its summary_for_person. The person reads it in the Relic App, marks it read or retires the
+    # protocol at once: the person is above every organization and needs no vote.
+    def _copy_to_person(self, db, org, p):
+        if not has_check(p):
+            return None
+        votes = p.get("votes") or {}
+        body = {"org": org["id"], "org_name": org["name"], "protocol_id": p["id"], "title": p["title"],
+                "summary": p.get("summary_for_person") or "", "rationale": p.get("rationale") or "",
+                "author": p.get("author"), "issued_by": p.get("issued_by"),
+                "approved_by": [m for m, v in votes.items() if v.get("vote") == "approve" and m != p.get("author")],
+                "activated_at": p.get("activated_at"), "supersedes": p.get("supersedes"), "version": p.get("version"),
+                "inherit": inherits(p), "rules": p.get("rules") or []}
+        cid = db.execute("INSERT INTO cc(org_id, protocol_id, body, at) VALUES(?,?,?,?)",
+                         (org["id"], p["id"], json.dumps(body, ensure_ascii=False), now())).lastrowid
+        self._event(db, org["id"], p.get("author") or HUMAN, "protocol.copied", {"id": p["id"], "cc": cid})
+        return cid
+
+    def copies(self, limit=200, cid=None):
+        """What was copied to the person, newest first (with cid: that copy only): each copy as it was sent (org,
+        org_name, protocol_id, title, summary, author, issued_by, approved_by, activated_at, supersedes, version,
+        inherit, rules), with read and read_at, the protocol as it is now (status, retired_by, retired_at,
+        superseded_by; org_status) and how its check programs answered so far (stats: allow, deny, review, error,
+        total)."""
+        with self.db() as db:
+            if cid is None:
+                rows = db.execute("SELECT id, org_id, protocol_id, body, at, read_at FROM cc ORDER BY id DESC LIMIT ?",
+                                  (int(limit),)).fetchall()
+            else:
+                rows = db.execute("SELECT id, org_id, protocol_id, body, at, read_at FROM cc WHERE id=?",
+                                  (int(cid),)).fetchall()
+            counts = db.execute("SELECT org_id, protocol_id, outcome, n FROM check_counts").fetchall()
+        stats = {}
+        for org_id, pid, outcome, n in counts:
+            s = stats.setdefault((org_id, pid), {"allow": 0, "deny": 0, "review": 0, "error": 0})
+            key = "error" if outcome.startswith("error:") else outcome
+            s[key] = s.get(key, 0) + (n or 0)
+        orgs = {o["id"]: o for o in self.list_orgs()}
+        out = []
+        for row_id, org_id, pid, body, at, read_at in rows:
+            item = json.loads(body)
+            org = orgs.get(org_id) or {}
+            p = (org.get("protocols") or {}).get(pid) or {}
+            s = dict(stats.get((org_id, pid)) or {"allow": 0, "deny": 0, "review": 0, "error": 0})
+            s["total"] = sum(s.values())
+            item.update(id=row_id, at=at, read=bool(read_at), read_at=read_at, status=p.get("status"),
+                        retired_by=p.get("retired_by"), retired_at=p.get("retired_at"),
+                        superseded_by=p.get("superseded_by"), org_status=org.get("status"),
+                        org_name=org.get("name") or item.get("org_name"), stats=s)
+            out.append(item)
+        return out
+
+    def copy(self, cid):
+        """One copy (as copies() gives it), or None."""
+        return next(iter(self.copies(cid=cid)), None)
+
+    def unread_copies(self):
+        with self.db() as db:
+            return db.execute("SELECT COUNT(*) FROM cc WHERE read_at IS NULL").fetchone()[0]
+
+    def read_copy(self, cid):
+        """The person read a copy ("got it")."""
+        with self.db() as db:
+            return db.execute("UPDATE cc SET read_at=? WHERE id=? AND read_at IS NULL", (now(), int(cid))).rowcount
+
+    def retire_by_person(self, org_id, protocol_id):
+        """The person retires a protocol (from the Relic App): it stops binding at once, and so does its inherited copy
+        in every organization below. No vote: the person is above every organization. Both group chats get a notice and
+        members see it in their status."""
+        ref = "%s/%s" % (org_id, protocol_id)
+        below = [d for d in self.descendants(org_id)
+                 if any("%s/%s" % (o["id"], q["id"]) == ref for o, q in self.inherited_protocols(d))]
+        with self.change(org_id) as (org, db):
+            p = org["protocols"].get(protocol_id)
+            if not p:
+                raise OrgError("Unknown protocol " + str(protocol_id))
+            if p["status"] != "active":
+                raise OrgError("%s is not in effect (it is %s)." % (protocol_id, p["status"]))
+            p.update(status="retired", retired_at=now(), retired_by=HUMAN)
+            self._event(db, org_id, HUMAN, "protocol.retired_by_person", {"id": protocol_id, "title": p["title"]})
+            name = org["name"]
+        with self.db() as db:
+            for d in below:
+                self._event(db, d["id"], HUMAN, "protocol.retired_by_person",
+                            {"id": ref, "title": p["title"], "from": org_id, "from_name": name})
+        return {"org_id": org_id, "protocol_id": protocol_id, "status": "retired", "below": [d["id"] for d in below]}
+
+    def retired_by_person(self, org, limit=5):
+        """[(protocol as named in org, title, when)]: protocols the person retired, of this organization and the
+        inheritable ones of the organizations above it, the latest first."""
+        found = [(p["id"], p["title"], p.get("retired_at") or "") for p in org["protocols"].values()
+                 if p.get("retired_by") == HUMAN]
+        for above in self.ancestors(org):
+            found += [("%s/%s" % (above["id"], p["id"]), p["title"], p.get("retired_at") or "")
+                      for p in (above.get("protocols") or {}).values() if p.get("retired_by") == HUMAN and inherits(p)]
+        return sorted(found, key=lambda item: item[2], reverse=True)[:limit]
 
     def _approved_review(self, org, member, tool, tool_input):
         key = canonical([tool, tool_input])
@@ -2109,7 +2538,8 @@ class Store:
                 return rid
         return None
 
-    def _request_review(self, org_id, member, pid, tool, tool_input):
+    def _request_review(self, org_id, member, pid, tool, tool_input, why=None):
+        """A review request for this exact action (why: the reason a check program gave for sending it to review)."""
         key = canonical([tool, tool_input])
         with self.change(org_id) as (org, db):
             for rid, r in org["reviews"].items():
@@ -2120,13 +2550,16 @@ class Store:
             summary = tool_input.get("command") or tool_input.get("file_path") or canonical(tool_input)[:200]
             org["reviews"][rid] = {"id": rid, "protocol_id": pid, "subject": member, "tool": tool, "summary": str(summary)[:300],
                                    "action": key, "status": "pending", "at": now()}
+            if why:
+                org["reviews"][rid]["why"] = str(why)[:checker.REASON_MAX]
             self._event(db, org_id, member, "review.requested", {"id": rid, "protocol_id": pid})
             return rid
 
     def review(self, actor, op, a):
         org, member = self.require(actor)
         if op == "list":
-            return [{k: r[k] for k in ("id", "protocol_id", "subject", "tool", "summary", "status")}
+            return [dict({k: r[k] for k in ("id", "protocol_id", "subject", "tool", "summary", "status")},
+                         **({"why": r["why"]} if r.get("why") else {}))
                     for r in org["reviews"].values() if r["status"] == "pending"]
         if op != "approve":
             raise OrgError("review ops: list, approve.")
@@ -2149,7 +2582,7 @@ class Store:
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return
-        kind = "edit" if short_tool(tool) in EDIT_TOOLS else ("run" if tool == "Bash" else "other")
+        kind = activity_kind(tool)
         summary = ((", ".join(_paths_of(tool_input)) if kind == "edit" else tool_input.get("command")) or _path_of(tool_input)
                    or next((str(tool_input[k]) for k in ("url", "query", "pattern", "description") if tool_input.get(k)), ""))
         # friction markers count only in the output of git commands: the same words inside files an agent reads

@@ -317,6 +317,28 @@ class App:
         self._changed_all()
         return result
 
+    # ---------------------------------------------------------------- copies to the person (Copies, by the bell)
+    # A protocol with a check program of the members' own takes effect by their vote; the person gets a copy with a
+    # note. The person marks it read, or retires the protocol at once (no vote: the person is above every organization).
+    def read_copy(self, cid):
+        if not self.store.copy(cid):
+            raise OrgError(i18n.t("api.cc_missing", self.lang()))
+        self.store.read_copy(cid)
+        self.bus.publish({"type": "cc"})
+        return {"id": int(cid), "read": True}
+
+    def retire_copy(self, cid):
+        c = self.store.copy(cid)
+        if not c:
+            raise OrgError(i18n.t("api.cc_missing", self.lang()))
+        if c.get("status") != "active" or (c.get("org_status") or "active") != "active":
+            raise OrgError(i18n.t("api.cc_not_active", self.lang(), id=c["protocol_id"]))
+        result = self.store.retire_by_person(c["org"], c["protocol_id"])
+        self.store.read_copy(cid)
+        self._changed_all()
+        self.bus.publish({"type": "cc"})
+        return result
+
     def _changed_all(self):
         self.bus.publish({"type": "orgs"})
         for org in self.store.list_orgs():
@@ -483,6 +505,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(views.org_list(self.app.store))
             if api == ["orgchart"]:
                 return self._json(views.orgchart(self.app.store, self.app.hub, self.app.lang()))
+            if api == ["cc"]:  # what was copied to the person
+                return self._json(views.copies(self.app.store, self.app.lang()))
             if api == ["harnesses"]:
                 return self._json(harnesses.catalog())
             if api == ["seat-options"]:
@@ -633,6 +657,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"avatar": prefs.avatar_url(a.get("org"), a.get("member"))})
             if len(api) == 3 and api[0] == "harnesses" and api[2] == "install":
                 return self._json(app.install(api[1]))
+            if len(api) == 3 and api[0] == "cc" and api[2] in ("read", "retire"):
+                cid = int(api[1])
+                return self._json(app.read_copy(cid) if api[2] == "read" else app.retire_copy(cid))
             if api == ["fs", "open"]:
                 try:
                     return self._json(files.open_path(store, a.get("path") or ""))

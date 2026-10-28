@@ -46,10 +46,67 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
     - `deny`, e.g. `{"effect":"deny","tools":["Edit","Write"],"path_glob":"src/api/*","except_roles":["api-owner"],"reason":"API files belong to the api owner; message them"}`
     - `require_review`, e.g. `{"effect":"require_review","tools":["Bash"],"input_contains":["git push"]}`. The blocked member gets a review request id; another member checks the work and calls `review op=approve`.
     - `require_before`, e.g. `{"effect":"require_before","tools":["Bash"],"input_contains":["git commit"],"before":{"tools":["Bash"],"input_contains":["pytest"]},"reason":"run the tests after your last edit before committing"}`
+    - `check`: a judgment program of your own, for friction the three effects above cannot express (see the next section).
   Rules cannot gate the organization's own tools and cannot veto every action.
 - Others vote (`protocol op=vote`). A proposal activates at the threshold: leader plus one more member under `leader` governance, a majority under `peer`.
 - Revise with `supersedes`, retire with `retire_target`; both go through the same vote.
 - When an active protocol shaped your work, record it with `protocol op=use` (followed, deviated or inapplicable). This is how the organization learns whether a protocol helps.
+
+## Strong rules with a check program (effect `check`)
+
+When the friction depends on more than a tool name and some words in its input (who did what before, in which order,
+how long ago), write the judgment as a small program. Use it only when `deny`, `require_review` or `require_before`
+cannot carry the lesson.
+
+- **The rule.** `tools` is required and names the tools it judges (it cannot cover every tool); `path_glob`,
+  `input_contains`, `members`/`roles` and `except_members`/`except_roles` narrow it as in any rule. The program runs
+  only on calls the rule covers. Besides those: `code`, `examples` and `on_error`.
+- **`code`**: Python using the standard library only, defining `check(call)` and returning
+  `{"decision": "allow" | "deny" | "review", "reason": "..."}`. `deny` blocks the call; the member reads `reason`, so
+  say what to do instead. `review` works like `require_review`: the member gets a review request, another member checks
+  it and calls `review op=approve`, and the same call then goes through once. A deny or a review needs a reason.
+- **`call`**, what the program gets (tool and input in the shared vocabulary: `Bash` for shell commands, `Edit` for
+  file changes and Codex patches):
+  `tool`, `input`, `member`, `role`, `harness`, `org_id`, `org_name`, `protocol_id`, `protocol_title`;
+  `recent`: the member's latest 20 tool calls in this organization, newest first, each `{tool, kind (edit | run |
+  other), summary, failed, at, ts}`; `last_edit_at` / `last_edit_ts`: its latest edit here (or null); `now` / `now_ts`.
+  Times come as ISO UTC text (`at`, `now`) and as seconds (`ts`, `now_ts`). Compare with `now_ts`, not the clock, so
+  your examples keep holding. A very long string in `input` is cut at 100,000 characters (`input_clipped: true`).
+- **`examples`**: 2 to 12 `{"call": {...}, "expect": "allow" | "deny" | "review", "note"?}`, with at least one `allow`
+  and one `deny` or `review`. Each call must be one the rule covers; fields you leave out get defaults (an empty
+  `recent`, `now` = when it runs, `last_edit` from the edits in `recent`), and either form of a time is enough. Every
+  example runs when you propose; if one does not come out as expected, nothing is proposed and the answer names it.
+- **`on_error`**: `allow` (default) or `deny`: what happens to a call when the program fails (no answer within 3
+  seconds, an exception, an answer that is not a decision, a crash) or when its code is not the code that was proposed
+  (its sha256 is recorded when you propose, and changed code is never run).
+- **`summary_for_person`** (on the protocol, needed with a check rule): a short note for the person, in the person's
+  language (your context names it; for Chinese it must be in Chinese): what the protocol is for, what the program
+  judges, when it blocks or sends a call for review.
+- **How it runs.** Before every call it covers, the hook runs the program in a process of its own: this Python with
+  `-I -S -X utf8` (only the standard library can be imported), the code and the call on stdin as JSON, at most 3
+  seconds and a few KB of answer, a temporary working folder and almost no environment variables; anything it starts
+  ends with the run, and on Windows its memory is capped at 512 MB. Several check rules on one call run side by side.
+  This keeps a slow or broken program away from your session; it is not a security boundary, which is why members
+  review the code.
+- **What is recorded.** Allowed calls are only counted. A deny, a review and a failure are events of the organization;
+  a failure is also announced in the group chat, once a day per protocol and kind of failure, and your status names a
+  check program that failed lately. Fix a broken one with a revision (`supersedes`).
+- **Governance.** Before voting on a proposal with a check rule, read its code and examples
+  (`protocol op=list protocol_id=P3`) and say in your vote what you checked. It takes effect by the organization's
+  vote alone; the person does not approve it. When it takes effect (a revision too) it is copied to the person with
+  `summary_for_person`, in the Relic App's Copies next to the bell. The person may retire it there at once, without a
+  vote: it stops binding here and in the organizations below that inherit it, and your status lists it as retired by
+  the person. Do not propose it again unchanged.
+
+Example:
+
+```json
+{"effect": "check", "tools": ["Bash"], "input_contains": ["git push"], "on_error": "allow",
+ "code": "def check(call):\n    tested = [c['ts'] for c in call['recent'] if c['tool'] == 'Bash' and 'pytest' in c['summary'] and not c['failed']]\n    edited = call['last_edit_ts']\n    if edited is not None and (not tested or max(tested) < edited):\n        return {'decision': 'deny', 'reason': 'run pytest after your latest edit, then push'}\n    return {'decision': 'allow', 'reason': 'tested after the latest edit'}\n",
+ "examples": [
+   {"call": {"tool": "Bash", "input": {"command": "git push"}, "recent": [{"tool": "Bash", "summary": "pytest -q", "at": "2026-10-28T08:10:00Z"}, {"tool": "Edit", "summary": "src/a.py", "at": "2026-10-28T08:00:00Z"}]}, "expect": "allow"},
+   {"call": {"tool": "Bash", "input": {"command": "git push"}, "recent": [{"tool": "Edit", "summary": "src/a.py", "at": "2026-10-28T08:20:00Z"}]}, "expect": "deny", "note": "edited after the last test run"}]}
+```
 
 ## Organizations above and below
 
@@ -144,5 +201,6 @@ A member's trajectory (what it said, every tool call and result) and its memory 
 
 ## The Relic App
 
-When the person asks for the Relic App, window, panel or UI, call `panel`. The App is where the person works with the organization: the group chat with every message in full, a private chat with each member and the secretary, threads, members' workspaces and files, tasks with their reports, protocols and decisions. There they found organizations and add members three ways: run in the App (a session the App hosts, with Relic brought in by the App), run in Claude Code or Codex itself (command line or desktop app, with model, effort, folder or worktree, permission and environment variables), or seat a session that already exists (a Claude Code session, a Codex chat, a ChatGPT chat). On a member's card they start a fresh session, open the session, change its configuration, take the session out of the seat, or forward a ChatGPT chat's reply. The person's messages come from `human`. A session created there runs one introduction turn and then waits for its task.
+When the person asks for the Relic App, window, panel or UI, call `panel`. The App is where the person works with the organization: the group chat with every message in full, a private chat with each member and the secretary, threads, members' workspaces and files, tasks with their reports, protocols and decisions, and Copies: the protocols
+with a check program that took effect, each with its note for the person, which the person can retire. There they found organizations and add members three ways: run in the App (a session the App hosts, with Relic brought in by the App), run in Claude Code or Codex itself (command line or desktop app, with model, effort, folder or worktree, permission and environment variables), or seat a session that already exists (a Claude Code session, a Codex chat, a ChatGPT chat). On a member's card they start a fresh session, open the session, change its configuration, take the session out of the seat, or forward a ChatGPT chat's reply. The person's messages come from `human`. A session created there runs one introduction turn and then waits for its task.
 

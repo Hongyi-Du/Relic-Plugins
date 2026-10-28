@@ -41,6 +41,7 @@
     stop: 'M7 7h10v10H7z',
     x: 'M6 6l12 12M18 6L6 18',
     bell: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2zM10 20h4',
+    cc: 'M4 6h16v12H4zM4 7l8 6 8-6',
     gear: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
     chev: 'M9 6l6 6-6 6',
     down: 'M6 9l6 6 6-6',
@@ -337,6 +338,7 @@
     pane: load('relic.pane', 'org'), sideOpen: load('relic.side', true), hist: [], histIdx: -1, file: null, workMember: null,
     plain: {}, plainPending: new Set(), plainFailed: new Set(), plainOne: new Set(), plainMode: false,
     digest: null, digestPending: false, digestOpen: false,
+    cc: { items: [], unread: 0, loaded: false },  // copies sent to the person, from every organization
   };
   if (!['org', 'work', 'file'].includes(S.pane)) S.pane = 'org';
   S.lastPane = S.pane;
@@ -509,6 +511,7 @@
     es.onmessage = (e) => {
       let ev; try { ev = JSON.parse(e.data); } catch (x) { return; }
       if (['orgs', 'org', 'decision'].includes(ev.type)) reloadChart();
+      if (['orgs', 'org', 'cc'].includes(ev.type)) scheduleCc();
       if (ev.type === 'orgs') { loadOrgs({ follow: true }).catch(() => {}); return; }
       if (ev.type === 'prefs') { loadPrefs().then(renderAll); return; }
       if (ev.type === 'install') { onInstall(ev); return; }
@@ -542,6 +545,7 @@
         S.live = {};
         freshToken().catch(() => {});
         loadOrgs().then(() => refreshSnap()).then(() => loadChat(false)).catch(() => {});
+        scheduleCc();
       }
       opened = true;
     };
@@ -1589,12 +1593,12 @@
         h('div', { class: 't' }, h('b', { class: 'ellipsis' + (ended ? ' struck' : '') }, p.id + ' ' + p.title), h('span', { class: 'ellipsis' }, notes.filter(Boolean).join(' · '))), h('span'));
       for (const p of live) {
         pro.append(proRow(p, [p.issued_by ? t('org.issued_by', { name: p.issued_by.name }) : p.status === 'proposed' ? t('org.protocol_voting', { n: p.votes }) : t('org.protocol_used', { n: p.uses }),
-          p.replaces_above && p.supersedes ? t('org.protocol_overrides', { ref: protoName(p.supersedes) }) : '', p.inherit ? t('org.protocol_inherits') : '']));
+          p.replaces_above && p.supersedes ? t('org.protocol_overrides', { ref: protoName(p.supersedes) }) : '', p.inherit ? t('org.protocol_inherits') : '', p.check ? t('org.protocol_check') : '']));
       }
       // protocols that bind this organization from the organizations above, and the ones above that this organization
       // or one between overrode or stopped
       for (const p of inherited) {
-        pro.append(proRow(p, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? t('org.issued_by', { name: p.issued_by.name }) : '']));
+        pro.append(proRow(p, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? t('org.issued_by', { name: p.issued_by.name }) : '', p.check ? t('org.protocol_check') : '']));
       }
       for (const r of replaced) {
         pro.append(proRow(r, [r.how === 'retired' ? t('org.protocol_retired', { from: r.from, at: r.at, by: r.by }) : t('org.protocol_overridden', { from: r.from, at: r.at, by: r.by })], true));
@@ -1728,6 +1732,133 @@
           d.member ? h('button', { class: 'btn sm', type: 'button', onclick: () => go({ kind: 'member', member: d.member }) }, t('decision.ask', { name: dname(d.member) })) : null));
     }
     return h('div', { class: 'decision' }, JSON.stringify(d));
+  }
+
+  // ------------------------------------------------------------------ copies (next to the bell): protocols sent to the person
+  // A strong protocol with a check program the members wrote takes effect by their vote alone; the person gets a copy
+  // with a note in their language. A card says what the protocol does, who proposed it and when it took effect, how its
+  // program has answered so far, and folds away the code and examples the members reviewed. "Got it" marks a copy read;
+  // "Retire" stops the protocol at once, in the organizations below that inherit it too. Data: GET /api/cc.
+  let ccBox = null, ccTimer = 0, ccAsked = 0;
+  function scheduleCc() { clearTimeout(ccTimer); ccTimer = setTimeout(() => loadCc().catch(() => {}), 1200); }
+  async function loadCc() {
+    const asked = ++ccAsked;
+    const r = await get('/api/cc');
+    if (asked !== ccAsked) return;  // a later load is on its way; an older answer must not overwrite it
+    const was = S.cc.loaded ? S.cc.unread : null;
+    S.cc = { items: r.items || [], unread: r.unread || 0, loaded: true };
+    const fresh = S.cc.items.find((c) => !c.read);
+    if (was !== null && S.cc.unread > was && fresh && PREFS.notify && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification('Relic · ' + t('cc.title'), { body: t('cc.notify', { org: fresh.org_name, id: fresh.protocol_id, title: fresh.title }), icon: '/static/icon-192.png' });
+    }
+    renderAppbar();
+    if (ccBox && ccBox.isConnected) drawCopies();
+  }
+  function openCopies() {
+    closeCard(); closeMenu();
+    ccBox = h('div', { class: 'dialog cc-panel', role: 'dialog', 'aria-label': t('cc.title') });
+    scrim(ccBox);
+    drawCopies();
+    loadCc().catch((e) => toast(t('common.load_failed', { error: e.message })));
+  }
+  function drawCopies() {
+    const box = ccBox;
+    const keep = box.scrollTop;
+    const unfolded = new Set([...box.querySelectorAll('.cc-card > details[open]')].map((d) => d.parentNode.dataset.id));
+    box.textContent = '';
+    box.append(h('div', { class: 'cc-head' }, icon('cc', 18), h('h3', null, t('cc.title')),
+      S.cc.unread ? h('span', { class: 'badge' }, S.cc.unread) : null, h('div', { style: 'flex:1' }),
+      h('button', { class: 'icon-btn', type: 'button', title: t('common.close'), 'aria-label': t('common.close'), onclick: closeLayer }, icon('x'))),
+      h('p', { class: 'lead' }, t('cc.intro')));
+    const list = h('div', { class: 'cc-list' });
+    if (!S.cc.items.length) list.append(h('div', { class: 'empty' }, S.cc.loaded ? t('cc.empty') : t('common.loading')));
+    for (const c of S.cc.items) list.append(copyCard(c, unfolded.has(String(c.id))));
+    box.append(list);
+    box.scrollTop = keep;
+  }
+  function copyState(c) {
+    if (c.org_status && c.org_status !== 'active') return [t('cc.status_ended'), ''];
+    if (c.status === 'active') return [t('cc.status_active'), 'ok'];
+    if (c.status === 'retired' && c.retired_by === HUMAN) return [t('cc.status_retired_person'), 'bad'];
+    if (c.status === 'superseded') return [t('cc.status_superseded', { id: c.superseded_by || '' }), ''];
+    return [t('cc.status_retired'), ''];
+  }
+  function copyCard(c, unfolded) {
+    const live = c.status === 'active' && (!c.org_status || c.org_status === 'active');
+    const [state, cls] = copyState(c);
+    const o = S.orgs.find((x) => x.id === c.org) || { id: c.org, name: c.org_name };
+    const s = c.stats || {};
+    const meta = [c.issued_by && c.issued_by.member ? t('cc.issued_by', { name: c.author_display }) : t('cc.proposed_by', { name: c.author_display }),
+      (c.approved_display || []).length ? t('cc.approved_by', { names: c.approved_display }) : '',
+      c.activated_at ? t('cc.effective', { when: dayLabel(toDate(c.activated_at)) + ' ' + clock(c.activated_at) }) : '',
+      c.supersedes ? t('cc.replaces', { id: c.supersedes }) : ''].filter(Boolean).join(' · ');
+    const ack = h('button', { class: 'btn sm', type: 'button', onclick: () => ackCopy(c, ack) }, icon('check', 14), t('cc.ack'));
+    const retire = h('button', { class: 'btn sm danger', type: 'button', onclick: () => retireCopy(c, retire) }, t('cc.retire'));
+    return h('div', { class: 'cc-card' + (c.read ? '' : ' unread') + (live ? '' : ' ended'), 'data-id': c.id },
+      h('div', { class: 'cc-top' }, orgBadge(o),
+        h('div', { class: 't' }, h('span', { class: 'org ellipsis' }, c.org_name), h('b', null, h('span', { class: 'mono' }, c.protocol_id), ' ', c.title)),
+        h('div', { class: 'chips' }, c.read ? null : h('span', { class: 'chip accent' }, t('cc.unread')),
+          c.supersedes ? h('span', { class: 'chip' }, t('cc.revision')) : null, h('span', { class: 'chip' + (cls ? ' ' + cls : '') }, state))),
+      h('div', { class: 'cc-summary md' }, rich(c.summary)),
+      h('div', { class: 'cc-meta' }, meta),
+      h('div', { class: 'cc-meta' }, s.total ? t('cc.stats', { n: s.total, allow: s.allow || 0, deny: s.deny || 0, review: s.review || 0, error: s.error || 0 }) : t('cc.stats_none')),
+      checkRulesView(c.rules, unfolded),
+      c.read && !live ? null : h('div', { class: 'row-acts' }, c.read ? null : ack, live ? retire : null));
+  }
+  // a protocol's check rules as the members reviewed them, folded: what each runs on, what happens when its program
+  // fails, its code and its examples
+  function checkRulesView(rules, unfolded) {
+    const checks = (rules || []).filter((r) => r.effect === 'check');
+    if (!checks.length) return null;
+    const decide = { allow: t('cc.decision_allow'), deny: t('cc.decision_deny'), review: t('cc.decision_review') };
+    return h('details', { class: 'cc-code', open: unfolded ? true : null }, h('summary', null, icon('chev', 13), t('cc.code')),
+      checks.map((r) => h('div', { class: 'cc-rule' },
+        h('div', { class: 'cc-meta' }, t('cc.scope', { what: ruleScope(r) })),
+        h('div', { class: 'cc-meta' }, r.on_error === 'deny' ? t('cc.on_error_deny') : t('cc.on_error_allow')),
+        h('pre', null, r.code || ''),
+        r.code_sha256 ? h('div', { class: 'cc-meta mono' }, 'sha256 ' + r.code_sha256.slice(0, 16) + '…') : null,
+        (r.examples || []).length ? h('div', { class: 'cc-examples' }, h('div', { class: 'cc-meta' }, t('cc.examples')),
+          r.examples.map((ex) => h('div', { class: 'cc-example' },
+            h('span', { class: 'chip ' + ({ allow: 'ok', deny: 'bad', review: 'warn' }[ex.expect] || '') }, decide[ex.expect] || ex.expect),
+            h('code', { class: 'ellipsis', title: JSON.stringify(ex.call || {}, null, 2) }, exampleText(ex.call || {})),
+            ex.note ? h('span', { class: 'note' }, ex.note) : null))) : null)));
+  }
+  function ruleScope(r) {
+    const parts = [(r.tools || []).join(' / ')];
+    if (r.path_glob) parts.push(t('cc.scope_path', { glob: r.path_glob }));
+    if ((r.input_contains || []).length) parts.push(t('cc.scope_contains', { words: r.input_contains }));
+    const who = (r.roles || []).concat(r.members || []), except = (r.except_roles || []).concat(r.except_members || []);
+    if (who.length) parts.push(t('cc.scope_who', { names: who }));
+    if (except.length) parts.push(t('cc.scope_except', { names: except }));
+    return parts.join(' · ');
+  }
+  function exampleText(call) {
+    const input = call.input || {};
+    const arg = input.command || input.file_path || input.path || (Object.keys(input).length ? JSON.stringify(input) : '');
+    return clip([call.tool, arg].filter(Boolean).join(' '), 160);
+  }
+  // check rules without their code and examples, for the JSON of a protocol's rules (checkRulesView shows those)
+  function plainRules(rules) {
+    return (rules || []).map((r) => (r.effect === 'check' ? Object.fromEntries(Object.entries(r).filter(([k]) => !['code', 'examples', 'code_sha256'].includes(k))) : r));
+  }
+  async function ackCopy(c, btn) {
+    btn.disabled = true;
+    ccAsked++;  // a load already on its way was asked before this: its answer is older than what the page shows next
+    try {
+      await post('/api/cc/' + c.id + '/read', {});
+      c.read = true; S.cc.unread = Math.max(0, S.cc.unread - 1);
+      renderAppbar(); drawCopies();
+    } catch (e) { btn.disabled = false; toast(e.message); }
+  }
+  async function retireCopy(c, btn) {
+    if (!confirm(t('cc.retire_confirm', { org: c.org_name, id: c.protocol_id, title: c.title }))) return;
+    btn.disabled = true;
+    try {
+      await post('/api/cc/' + c.id + '/retire', {});
+      toast(t('cc.retired', { id: c.protocol_id, title: c.title }), 5000);
+      await loadCc();
+      scheduleRefresh();
+    } catch (e) { btn.disabled = false; toast(t('cc.retire_failed', { error: e.message }), 6000); }
   }
 
   // ------------------------------------------------------------------ name card: rename, avatar, model
@@ -2128,8 +2259,11 @@
             p.inherit ? h('div', { class: 'dim' }, t('org.protocol_inherits')) : null,
             p.trigger ? h('div', null, h('span', { class: 'dim' }, t('details.label_applies')), p.trigger) : null,
             p.guidance ? h('div', { style: 'white-space:pre-wrap' }, p.guidance) : null,
-            p.rules && p.rules.length ? h('pre', { class: 'doc-body' }, JSON.stringify(p.rules, null, 2)) : null,
-            h('div', { class: 'dim' }, t('details.proposed_by', { name: dname(p.author) }) + ' · ' + t('details.votes', { n: p.votes }) + ' · ' + t('details.uses', { n: p.uses })))));
+            p.summary_for_person ? h('div', { class: 'cc-summary md' }, h('div', { class: 'dim' }, t('details.label_summary')), rich(p.summary_for_person)) : null,
+            p.rules && p.rules.length ? h('pre', { class: 'doc-body' }, JSON.stringify(plainRules(p.rules), null, 2)) : null,
+            checkRulesView(p.rules),
+            h('div', { class: 'dim' }, [t('details.proposed_by', { name: dname(p.author) }), t('details.votes', { n: p.votes }), t('details.uses', { n: p.uses }),
+              p.retired_by_person ? t('details.retired_by_person') : ''].filter(Boolean).join(' · ')))));
         }
         // protocols that bind here from the organizations above, and the ones above that were overridden or stopped
         if (inherited.length) right.append(h('h4', { class: 'pro-h' }, t('details.inherited_title')));
@@ -2139,7 +2273,9 @@
             h('div', { class: 'dim' }, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? t('org.issued_by', { name: p.issued_by.name }) : ''].filter(Boolean).join(' · ')),
             p.trigger ? h('div', null, h('span', { class: 'dim' }, t('details.label_applies')), p.trigger) : null,
             p.guidance ? h('div', { style: 'white-space:pre-wrap' }, p.guidance) : null,
-            p.rules && p.rules.length ? h('pre', { class: 'doc-body' }, JSON.stringify(p.rules, null, 2)) : null)));
+            p.summary_for_person ? h('div', { class: 'cc-summary md' }, h('div', { class: 'dim' }, t('details.label_summary')), rich(p.summary_for_person)) : null,
+            p.rules && p.rules.length ? h('pre', { class: 'doc-body' }, JSON.stringify(plainRules(p.rules), null, 2)) : null,
+            checkRulesView(p.rules))));
         }
         if (replaced.length) right.append(h('h4', { class: 'pro-h' }, t('details.replaced_title')));
         for (const r of replaced) {
@@ -2723,6 +2859,7 @@
       h('div', { class: 'ab-right' },
         isApp() ? null : h('button', { class: 'ab-install', type: 'button', title: t('appbar.install_tip'), onmousedown: (e) => e.preventDefault(), onclick: installApp }, icon('download', 14), t('appbar.install')),
         abBtn('bell', n ? t('appbar.decisions', { n }) : t('appbar.no_decisions'), () => { setPane('org'); const b = $('#panel .pane-body'); if (b) b.scrollTop = 0; }, { badge: n || null, cls: n ? 'alert' : '' }),
+        abBtn('cc', S.cc.unread ? t('appbar.cc', { n: S.cc.unread }) : t('appbar.cc_none'), openCopies, { badge: S.cc.unread || null, cls: 'ab-cc' }),
         h('span', { class: 'ab-sep' }),
         panes().map(([k, label, ic], i) => abBtn(ic, t('appbar.pane_shortcut', { pane: label, key: 'Alt+' + (i + 1) }), () => (S.panelOpen && S.pane === k ? togglePanel(false) : setPane(k)), { on: S.panelOpen && S.pane === k })))]);
   }
@@ -2916,6 +3053,7 @@
     } catch (e) {
       $('#stream-inner').append(h('div', { class: 'notice' }, h('span', null, t('boot.load_orgs_failed', { error: e.message }))));
     }
+    loadCc().catch(() => {});
     connect();
     if (wantInstall) installPage();
     // a new language reloads the page; Settings opens again where the person was

@@ -1,5 +1,25 @@
 # Validation / 验证记录
 
+## v0.5.0-beta.1
+
+Release: **v0.5.0-beta.1**, prepared 2026-10-28. Relic plugin 0.16.0-beta.1: a strong protocol can carry a check rule, a program its members wrote, and a protocol with one is copied to the person when it takes effect; the person can retire it from the Relic App. The hook gate, the store (tables `cc`, `check_counts`, `check_alerts`), the `protocol` tool and the App changed.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 289 tests passed / 289 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Check rules in those fixtures (25 new tests) | A proposal is refused when its code does not load, imports outside the standard library, has examples outside the rule or without an allow and a deny or review, gets an example wrong, or lacks `summary_for_person`; members read the full proposal before voting. Allow, deny and review work through the hook, with the program's reason. A timeout, an exception and code changed after the vote follow `on_error` and are announced once a day. Several programs run side by side; what a program starts ends with it, and its memory is capped. A copy is made when a protocol, its revision or one issued from above takes effect; the person's retirement stops it here and below. / 提案在这些情况下被拒：代码加载不了、import 了标准库以外的模块、例子不在规则范围里或缺少放行和拦下（或送审）、例子结果不对、缺 `summary_for_person`；成员投票前能读到完整提案。放行、拦下、送审都经 hook 生效，并带程序给的原因。超时、抛异常、投票后代码被改，都按 `on_error` 处理，一天提示一次。几个程序并行运行；程序启动的进程随它结束，内存有上限。协议、它的修订版、上级下发的协议生效时都会抄送；人废除后，本组织和下级都不再执行。 |
+| Copies in headless Edge with real input, in English and in Chinese, on a store with three check protocols (one replaced by its revision, one whose program failed once) | The Copies button sits right after the bell and shows 3 unread; the panel lists the cards newest first, with the description, who proposed and approved it, when it took effect and its counts; the code is folded until opened, with its examples and scope; Got it lowers the unread count; Retire this protocol asks once, retires it, and the gate stops blocking for members here and below; both group chats show a notice; the protocol's details say the person retired it; at 480 px wide the button and the panel fit the window. / 「抄送」按钮紧挨铃铛，显示 3 条未读；面板按时间倒序列出卡片，写明说明、谁提的、谁投票通过、何时生效和计数；代码默认折叠，展开后有例子和适用范围；点「知道了」后未读数减少；「废除这条协议」先确认一次，废除后本组织和下级成员的调用都不再被拦；两个组织的群聊都有通知；协议详情写明是你废除的；480 像素宽时按钮和面板都在窗口内。 |
+| Real machine: the Relic App's server from this plugin, on a temporary store, starts a Claude Code member and a Codex member through the installed ACP adapters | Both took their seats, answered their first turn and called `status`; each has the 12 Relic tools (`mcp__plugin_relic_org__*` in Claude Code, `mcp__relic_org__*` in Codex); no decision was left waiting. / 两个成员都入座、完成第一轮并调用了 `status`；各自都有 12 个 Relic 工具（Claude Code 里是 `mcp__plugin_relic_org__*`，Codex 里是 `mcp__relic_org__*`）；没有遗留待决定的事。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+`check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.5.0-beta.1** 于 2026-10-28 准备发布。Relic 插件 0.16.0-beta.1：强协议可以带 check 规则，也就是成员自己写的判断程序；带判断程序的协议生效时抄送给人，人可以在 Relic App 里直接废除。hooks 的判断、数据库（新表 `cc`、`check_counts`、`check_alerts`）、`protocol` 工具和 App 都有改动。
+
+`check.py` 不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.4.1-beta.1
 
 Release: **v0.4.1-beta.1**, prepared 2026-10-28. Relic plugin 0.15.1-beta.1, a front-end update to v0.4.0-beta.1: the organization chart is moved, zoomed and fitted to the window and opens from an organization's right-click menu, and the English Organization details button wraps instead of widening the Overview. No server, hook, tool or store code changed, so the real-machine run of v0.4.0-beta.1 still describes how members run.

@@ -687,6 +687,38 @@ dl.keys dd { margin: 0; color: var(--ink-2); }
 .oc-canvas.pan.dragging, .oc-canvas.pan.dragging .oc-node { cursor: grabbing; }
 .oc-canvas.pan .oc-plane { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 
+/* copies (next to the bell): protocols with a check program, sent to the person with a note */
+.dialog.cc-panel { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 56px); align-content: start; gap: 12px; }
+.cc-head { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.cc-head h3 { color: var(--ink); }
+.cc-list { display: grid; gap: 10px; }
+.cc-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; background: var(--card); min-width: 0; }
+.cc-card.unread { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: inset 3px 0 0 var(--accent); }
+.cc-card.ended { background: var(--side); }
+.cc-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.cc-top .org-badge { margin-top: 2px; }
+.cc-top .t { flex: 1; min-width: 0; display: grid; line-height: 1.4; }
+.cc-top .t .org { font-size: 12px; color: var(--ink-3); }
+.cc-top .t b { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.cc-top .t b .mono { color: var(--ink-2); font-weight: 600; }
+.cc-top .chips { flex: none; justify-content: flex-end; max-width: 45%; }
+.cc-summary { background: var(--side); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.cc-card.ended .cc-summary { background: var(--bg); opacity: .8; }
+.cc-meta { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.cc-code > summary { list-style: none; cursor: pointer; font-size: 12.5px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; }
+.cc-code > summary::-webkit-details-marker { display: none; }
+.cc-code > summary:hover { color: var(--ink); }
+.cc-code > summary svg { transition: transform .12s; }
+.cc-code[open] > summary svg { transform: rotate(90deg); }
+.cc-rule { display: grid; gap: 6px; margin-top: 8px; min-width: 0; }
+.cc-rule pre { margin: 0; white-space: pre; overflow: auto; max-height: 340px; font: 12px/1.55 var(--mono); background: var(--code);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.cc-examples { display: grid; gap: 4px; }
+.cc-example { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: center; font-size: 12px; }
+.cc-example code { font: 11.5px var(--mono); color: var(--ink-2); }
+.cc-example .note { grid-column: 2; color: var(--ink-3); }
+.task .cc-summary { display: grid; gap: 2px; }
+
 @media (max-width: 1180px) {
   .app { --pw: 0px; }
   .app:not(.no-panel) > .panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(var(--panel-w), calc(100vw - 48px)); z-index: 25;
