@@ -58,7 +58,10 @@ struct RichText: View {
         }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line))
         case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold).padding(.top, 8).padding(.bottom, 4)
         case "quote":
-            HStack(alignment: .top, spacing: 10) { Rectangle().fill(RelicStyle.border).frame(width: 3); SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary) }.padding(.vertical, 2).padding(.bottom, 8).fixedSize(horizontal: false, vertical: true).accessibilityLabel(m.t("common.quote"))
+            SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary)
+                .padding(.leading, 13).padding(.vertical, 2)
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "card"))
+                .padding(.bottom, 8).fixedSize(horizontal: false, vertical: true)
         case "list":
             VStack(alignment: .leading, spacing: 3) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
@@ -106,7 +109,7 @@ struct ChatView: View {
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
                 ConversationStream()
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
     }
     private var header: some View {

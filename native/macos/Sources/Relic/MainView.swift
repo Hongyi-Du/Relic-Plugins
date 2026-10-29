@@ -19,9 +19,9 @@ struct MainView: View {
             HSplitView {
                 if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340).measuredRegion("sidebar") }
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 320, maxWidth: 740).measuredRegion("right-pane") }
+                if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 340, maxWidth: 740).measuredRegion("right-pane") }
             }.frame(maxHeight: .infinity)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
         .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
@@ -66,8 +66,8 @@ struct AppToolbar: View {
             }
             let title = m.organization.isEmpty ? "Relic" : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
             Text(title).font(.system(size: 12.5)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
-        }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40).background(RelicStyle.sidebar)
-            .overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+        }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
             .coordinateSpace(name: "appbar").onPreferenceChange(MenuAnchors.self) { anchors = $0 }
             .overlay(alignment: .topLeading) {
                 if let key = m.appMenu, let anchor = anchors[key] {
@@ -140,7 +140,8 @@ struct RightPane: View {
             case "thread": ThreadView()
             default: ScrollView { Overview().padding(16) }
             }
-        }.frame(maxHeight: .infinity, alignment: .top).background(RelicStyle.sidebar).help(m.t("panel.resize"))
+        }.frame(maxHeight: .infinity, alignment: .top)
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region")).help(m.t("panel.resize"))
     }
 }
 
