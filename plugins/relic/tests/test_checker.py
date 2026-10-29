@@ -202,6 +202,36 @@ class Proposing(Base):
 
 
 class Running(Base):
+    def test_check_review_is_bound_to_the_working_directory(self):
+        self.adopt()
+        call = {"command": "git push --force origin main"}
+        first, second = (str(Path(self.tmp.name) / name) for name in ("first", "second"))
+        self.assertFalse(self.store.gate(ANA, "Bash", call, cwd=first)[0])
+        self.store.review(BOB, "approve", {"request_id": "R1", "note": "checked first"})
+        self.assertFalse(self.store.gate(ANA, "Bash", call, cwd=second)[0])
+        self.assertTrue(self.store.gate(ANA, "Bash", call, cwd=first)[0])
+        self.assertFalse(self.store.gate(ANA, "Bash", call, cwd=first)[0])
+
+    def test_check_path_selector_and_review_preserve_resolved_targets(self):
+        code = ("def check(call):\n"
+                "    return {'decision': 'review' if call['input'].get('new_string') else 'allow', "
+                "'reason': 'review the edited file'}\n")
+        examples = [{"call": {"tool": "Edit", "input": {"file_path": "src/a.py"}}, "expect": "allow"},
+                    {"call": {"tool": "Edit", "input": {"file_path": "src/a.py", "new_string": "b"}},
+                     "expect": "review"}]
+        self.adopt(rules=[{"effect": "check", "tools": ["Edit"], "path_glob": "src/*",
+                          "code": code, "examples": examples}])
+        call = {"file_path": "src/a.py", "new_string": "b"}
+        self.assertFalse(self.store.gate(ANA, "Edit", call, cwd=self.tmp.name)[0])
+        request = self.store.review(BOB, "list", {})[0]
+        target = str(Path(self.tmp.name) / "src/a.py")
+        action = json.loads(self.store.get(self.oid)["reviews"][request["id"]]["action"])
+        self.assertEqual(action[1]["__relic_paths"], [{"path": target, "resolved": str(Path(target).resolve())}])
+        self.store.review(BOB, "approve", {"request_id": request["id"], "note": "checked target"})
+        self.assertTrue(self.store.gate(ANA, "Edit", call, cwd=self.tmp.name)[0])
+        self.assertTrue(self.store.gate(ANA, "Edit", {"file_path": "docs/a.md", "new_string": "b"},
+                                        cwd=self.tmp.name)[0])
+
     def test_allow_deny_and_review(self):
         p = self.adopt()
         s = self.store

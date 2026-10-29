@@ -110,6 +110,13 @@ class PeerAndProof(unittest.TestCase):
 
 class LocalTransport(unittest.TestCase):
     def setUp(self):
+        # Synthetic native-delivery contracts remain Windows fixtures until macOS acceptance is complete.
+        platform = mock.patch.object(relic_run, "sys", SimpleNamespace(platform="win32"))
+        platform.start()
+        self.addCleanup(platform.stop)
+        native_platform = mock.patch.object(gui, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
+        native_platform.start()
+        self.addCleanup(native_platform.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.env = mock.patch.dict(os.environ, {"RELIC_HOME": self.tmp.name,
                                               "CLAUDE_CODE_ENTRYPOINT": "claude-desktop"})
@@ -412,6 +419,29 @@ class LocalTransport(unittest.TestCase):
         self.assertEqual(state["session"], SID)
         self.assertIn("real GUI public fixture", state["reply"])
 
+    def test_direct_macos_runner_refuses_unavailable_desktop_surfaces_before_host_contact(self):
+        for config in ({"harness": "claude-code", "surface": "gui"},
+                       {"harness": "codex", "surface": "gui"}, {"harness": "chatgpt"}):
+            with self.subTest(config=config):
+                prompt = Path(self.tmp.name) / "macos-prompt.txt"
+                prompt.write_text("do exact task", encoding="utf-8")
+                args = ["relic_run.py", "--org", self.oid, "--member", "claude-reviewer", "--prompt-file", str(prompt)]
+                with mock.patch.object(relic_run.sys, "platform", "darwin"), mock.patch.object(sys, "argv", args), \
+                        mock.patch.object(relic_run.platform_support, "can_auto_deliver", return_value=False), \
+                        mock.patch.object(Store, "seat_config", return_value=config), \
+                        mock.patch.object(gui, "run_turn") as native, \
+                        mock.patch.object(relic_run.chat, "run_chatgpt") as chat, \
+                        mock.patch.object(relic_run, "run_codex") as codex, \
+                        mock.patch.object(runner, "workspace") as workspace, \
+                        mock.patch.object(wake, "dispatch"):
+                    relic_run.main()
+                for host in (native, chat, codex, workspace):
+                    host.assert_not_called()
+                state = runner.run_state(self.oid, "claude-reviewer")
+                self.assertEqual(state["status"], "failed")
+                self.assertIn("unavailable on macOS", state["error"])
+                self.assertFalse(prompt.exists())
+
     def test_open_desktop_is_a_launch_request_never_a_delivered_turn(self):
         with mock.patch.object(runner, "find_claude", return_value="fake-claude"), \
                 mock.patch.object(runner.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
@@ -419,6 +449,7 @@ class LocalTransport(unittest.TestCase):
         self.assertEqual(opened["status"], "launch_requested")
         self.assertFalse(opened["turn_delivered"])
 
+    @mock.patch.object(wake, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
     def test_per_seat_auto_wake_can_leave_cli_workers_explicit(self):
         seat = self.org["members"]["claude-reviewer"]
         self.assertTrue(wake.wakeable(seat))

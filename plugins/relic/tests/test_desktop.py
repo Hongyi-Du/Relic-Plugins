@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -256,6 +257,10 @@ class Route(unittest.TestCase):
     """relic_run.run_codex: the desktop app's chats go through the app, the others through an app-server."""
 
     def setUp(self):
+        # These fixtures cover the existing Windows desktop bridge. macOS refusal is tested below explicitly.
+        platform = mock.patch.object(relic_run, "sys", SimpleNamespace(platform="win32"))
+        platform.start()
+        self.addCleanup(platform.stop)
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.saved = dict(os.environ)
         os.environ["RELIC_HOME"] = str(Path(self.tmp.name) / "relic")
@@ -284,6 +289,45 @@ class Route(unittest.TestCase):
         session, reply, failed, _ = self.run_codex(FakeApp([thread("idle")]), server=no_server)
         self.assertEqual((session, reply, failed), ("codex:" + THREAD, "done in the app", False))
 
+    def test_macos_gui_never_starts_or_resumes_a_cli_writer(self):
+        for new in (False, True):
+            with self.subTest(new=new), mock.patch.object(relic_run.sys, "platform", "darwin"), \
+                    mock.patch.object(relic_run.platform_support, "can_auto_deliver", return_value=False), \
+                    mock.patch.object(runner, "find_codex") as find, \
+                    mock.patch.object(runner, "CodexAppServer") as server, \
+                    mock.patch.object(desktop, "run_turn") as send:
+                connect = mock.Mock()
+                with self.assertRaisesRegex(RuntimeError, "desktop wake-up is unavailable on macOS"):
+                    relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up", new,
+                                        self.tmp.name, connect=connect)
+                find.assert_not_called()
+                connect.assert_not_called()
+                server.assert_not_called()
+                send.assert_not_called()
+
+    def test_verified_macos_existing_gui_uses_only_the_desktop_bridge(self):
+        with mock.patch.object(relic_run.sys, "platform", "darwin"), \
+                mock.patch.object(relic_run.platform_support, "can_auto_deliver", return_value=True), \
+                mock.patch.object(desktop, "transport_capability", return_value={"available": True}), \
+                mock.patch.object(runner, "find_codex") as find:
+            def no_server(*_, **__):
+                raise AssertionError("macOS GUI must not spawn a CLI writer")
+            self.assertEqual(self.run_codex(FakeApp([thread("idle")]), server=no_server)[1], "done in the app")
+
+    def test_verified_macos_gui_without_loaded_chat_does_not_fall_back_to_cli(self):
+        with mock.patch.object(relic_run.sys, "platform", "darwin"), \
+                mock.patch.object(relic_run.platform_support, "can_auto_deliver", return_value=True), \
+                mock.patch.object(desktop, "transport_capability", return_value={"available": True}), \
+                mock.patch.object(runner, "CodexAppServer") as server, \
+                mock.patch.object(runner, "find_codex") as find:
+            with self.assertRaisesRegex(desktop.DesktopError, "no CLI app-server fallback"):
+                relic_run.run_codex(self.store, self.org, "cody", self.config, "task", False, self.tmp.name,
+                                    connect=lambda: FakeApp([thread("notLoaded")]))
+            with self.assertRaisesRegex(RuntimeError, "GUI bootstrap"):
+                relic_run.run_codex(self.store, self.org, "cody", self.config, "task", True, self.tmp.name)
+            server.assert_not_called()
+            find.assert_not_called()
+
     def test_lock_found_late_still_goes_through_the_app(self):
         # the first look says the app has not loaded the chat; by the time of thread/resume it has
         app = FakeApp([thread("notLoaded"), thread("idle")])
@@ -310,6 +354,7 @@ class Route(unittest.TestCase):
         self.assertIn("not sent again", reply)
         self.assertIn("model overloaded", reply)
 
+    @mock.patch.object(wake, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
     def test_across_dispatches_a_prompt_that_may_have_arrived_is_sent_once(self):
         sent, clock, real = [], Clock(), desktop.run_turn
         follow = lambda app, t, p, **kw: real(app, t, p, sleep=clock.sleep, clock=clock, **kw)

@@ -3,6 +3,7 @@ someone outside the work can follow it (who tells whom what, why, what happens n
 group has been doing. One Claude call (`claude -p`, no session saved) handles a batch; results are kept in
 ~/.relic/app/plain/<org>.json, so each message is explained once."""
 import json
+import functools
 import os
 import re
 import subprocess
@@ -67,7 +68,7 @@ def _save(org_id, data):
     tmp.replace(path)
 
 
-def ask(prompt, model=MODEL, timeout=240):
+def ask(prompt, model=MODEL, timeout=240, processes=None):
     exe = runner.find_claude()
     if not exe:
         raise RuntimeError("Claude Code was not found on this computer.")
@@ -75,7 +76,8 @@ def ask(prompt, model=MODEL, timeout=240):
     folder.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.pop("CLAUDECODE", None)
-    done = subprocess.run([exe, "-p", prompt, "--model", model, "--no-session-persistence", "--setting-sources", "",
+    run = processes.run if processes is not None else subprocess.run
+    done = run([exe, "-p", prompt, "--model", model, "--no-session-persistence", "--setting-sources", "",
                            "--output-format", "text"], capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=timeout, cwd=str(folder), env=env, stdin=subprocess.DEVNULL, creationflags=runner.NO_WINDOW)
     if done.returncode != 0 and not (done.stdout or "").strip():
@@ -93,11 +95,15 @@ def _line(m, limit):
     return "[#%s %s -> %s] %s" % (m["id"], m["from"], ",".join(m["to"]), body[:limit])
 
 
+DEFAULT_ASK = ask
+
+
 class Explainer:
     """At most one Claude call at a time per organization; ids asked for meanwhile join the next batch."""
 
-    def __init__(self, store, publish=None, ask=ask):
-        self.store, self.publish, self.ask = store, publish or (lambda event: None), ask
+    def __init__(self, store, publish=None, ask=ask, processes=None):
+        self.store, self.publish = store, publish or (lambda event: None)
+        self.ask = functools.partial(ask, processes=processes) if processes is not None and ask is DEFAULT_ASK else ask
         self.lock = threading.Lock()
         self.wanted, self.running, self.digesting = {}, set(), set()
 

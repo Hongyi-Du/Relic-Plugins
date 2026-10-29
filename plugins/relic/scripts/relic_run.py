@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from relic_core import chat, claude_desktop, desktop, runner, wake  # noqa: E402
+from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
 from relic_core.store import Store, now  # noqa: E402
 
 
@@ -77,6 +77,18 @@ def open_in_desktop(app, thread):
 
 
 def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.connect):
+    if sys.platform == "darwin" and config.get("surface") == "gui":
+        capability = desktop.transport_capability()
+        if not platform_support.can_auto_deliver("codex", "gui"):
+            raise RuntimeError("Codex desktop wake-up is unavailable on macOS: " + capability["reason"])
+        seat = org["members"][member]
+        if new or not seat.get("carrier") or seat.get("harness") != "codex":
+            raise RuntimeError("An existing Codex desktop seat is required; GUI bootstrap through a CLI writer is forbidden.")
+        thread = seat["carrier"].split(":", 1)[1]
+        app = connect()
+        if app is None or not open_in_desktop(app, thread):
+            raise desktop.DesktopError("Open the existing chat in the desktop app; no CLI app-server fallback was started.")
+        return run_in_desktop(app, thread, prompt)
     exe = runner.find_codex()
     if not exe:
         raise RuntimeError("Codex CLI not found (the Codex app installs one; set CODEX_CLI_PATH if it is elsewhere).")
@@ -194,6 +206,10 @@ def main():
         seat = org["members"][a.member]
         config = store.seat_config(a.org, a.member, org) or runner.default_config(seat.get("harness") or "codex")
         harness = config.get("harness")
+        if sys.platform == "darwin" and (harness == "chatgpt" or config.get("surface") == "gui"):
+            capability = (claude_desktop if harness == "claude-code" else desktop).transport_capability()
+            if not platform_support.can_auto_deliver(harness, config.get("surface")):
+                raise RuntimeError("Desktop wake-up is unavailable on macOS for %s: %s" % (harness, capability["reason"]))
         if harness == "claude-chat":
             raise RuntimeError("%s is a Claude chat: it takes its turns in the Claude app, where nothing outside can "
                                "start one. Write to it; it reads messages with inbox." % a.member)

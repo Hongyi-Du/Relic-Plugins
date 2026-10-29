@@ -56,6 +56,14 @@ def wakeable(seat, config=None):
     """config: how the seat's turns start (Store.seat_config: an ex officio or subgroup seat starts its turns like
     the seat its session holds elsewhere); default: the seat's own."""
     config = (config if config is not None else (seat or {}).get("config")) or {}
+    if sys.platform == "darwin" and (config.get("surface") == "gui" or config.get("harness") == "chatgpt"):
+        from . import platform_support
+        if not platform_support.can_auto_deliver(config.get("harness"), config.get("surface")):
+            return False
+        if config.get("harness") == "claude-code":
+            from . import gui_receipt
+            if not gui_receipt.observed_carrier((seat or {}).get("carrier") or ""):
+                return False
     return bool(seat and seat.get("auto_wake", True) and config.get("auto_wake", True) and seat.get("carrier")
                 and config and config.get("harness") == seat.get("harness"))
 

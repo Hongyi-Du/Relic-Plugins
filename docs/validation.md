@@ -1,5 +1,85 @@
 # Validation / 验证记录
 
+## v0.7.0-beta.1 merged candidate — 2026-10-28
+
+HaochenGu's `release/macos-v0.4.1-beta.1` at `2d790de` is the integration base. `origin/main` at `76f0517`
+(v0.6.0-beta.1) is merged into it without rebasing or squashing `ca5a2f3`, `6d637d4` or `2d790de`. Both platforms
+use plugin 0.18.0-beta.1 from `plugins/relic`. The historical macOS evidence is retained below as a separate section;
+it is not acceptance of this merged candidate. Published v0.6.0 and older changelog entries are unchanged.
+
+### Local Windows checks
+
+Windows, Python 3.14.4. Every fixture run used a temporary data/config/home directory and removed the invoking
+agent's Relic, Claude and Codex session identity; it did not use the live App, user store or installed plugin.
+
+| Check | Result |
+| --- | --- |
+| Full `scripts/check.py` | Packaging: 15 discovered, 13 passed, 2 macOS skips. Relic: 442 discovered, 404 passed, 38 platform skips; no failures |
+| Direct `python -X utf8 -m unittest discover -s tests` in `plugins/relic` | 442 discovered, 404 passed, 38 platform skips; no failures (323.004 s) |
+| Final packaging regression | Checks Windows ZIP plus macOS ZIP/tar.gz, extraction, installer configuration, permissions, LF launcher, checksums, platform README and identical plugin source outside OS launch templates |
+| API export | `scripts/export_api.py`: 12 tools; exported schemas match v0.6.0 (no new MCP schema in this merge) |
+| Upgrade behavior | Existing fixtures cover `activity.paths` addition and retained rows; changelog/guides warn that Relic has no automatic schema downgrade and rollback requires a pre-upgrade backup |
+
+### Cross-platform audit and integration fixes
+
+Audited `git diff v0.4.1-beta.1 origin/release/macos-v0.4.1-beta.1 -- plugins scripts install.command` (54 files).
+The port has one shared implementation, not a second feature tree. The resulting boundaries and changes are:
+
+| File group | Disposition |
+| --- | --- |
+| `relic_core/platform_support.py`, `runner.py`, `wake.py`, `scripts/relic_run.py`, installer/launcher scripts | Keep shared executable discovery and clean session environments. Native architecture, Finder/Terminal, Windows console flags and desktop gates branch on the platform |
+| `relic_core/desktop.py`, `claude_desktop.py`, `gui_receipt.py` | Keep Windows named pipes and existing native messaging. Unix sockets and Mac capability gates use explicit Darwin checks; receipt validation and frame limits are common |
+| `relic_core/paths.py`, `store.py`, `app/files.py`, hooks/ACP activity | Keep cwd, Unicode/volume-aware paths and exact activity records. Windows matching remains in its explicit Windows branch. Combine main's `activity_kind`, check/Reply rules and person-issued protocols with these records. Bind check-generated reviews to cwd/resolved targets just like ordinary reviews; add two regressions |
+| `app/acp.py`, `hub.py`, `processes.py`, `web.py`, `scripts/relic_app.py` | Retain lifecycle and owned-child cleanup on both systems; POSIX groups and Windows taskkill/locking remain behind OS checks. Fix the observed Windows concurrent-start race: acquire the byte lock before writing an empty lock file; add an empty-owned-file regression |
+| `app/harness.py`, `adapters/`, naming/explanations | Retain pinned ACP dependencies and managed jobs as common improvements. Node.js 22+ is required on both systems, documented in both guides; no adapters were installed during this integration |
+| `app/static/`, locale JSON | Keep Mac shortcuts, file links and browser capability adaptation behind the server's platform/capability values or native CSS environment values. Main's Copies, subtree folding and movable organization chart remain common |
+| Source hook/Claude launch templates, `scripts/package.py`, packaging fixtures | Revert the port's unconditional `python3` change for Windows Claude/hooks. Mac archives use `python3`; Windows preserves `python` (Codex keeps its existing `python3` template). Mac-only README and `scripts/macos_app.py` are selected during packaging; `install.command` keeps executable metadata. Verify other plugin bytes match across all archives |
+| `release/`, release metadata and docs | Remove the superseded independent v0.4.1-macos publication plan/notes/README patch. Move installation content to normal docs and the single macOS package README, retain attributed historical validation, and use one 0.7.0-beta.1 / 0.18.0-beta.1 version pair |
+
+During this integration, the remote advanced: HaochenGu published the existing v0.4.1-macos prerelease at
+2026-10-29 03:00 UTC, added its CI evidence in `e1170f4`, and linked it from main in `d2aaed6`. Both documentation
+commits are also merged without rewriting their history. Their existing release/tag/assets are retained as historical
+downloads; this task creates no Release. The unified v0.7.0 candidate replaces the separate development plan.
+The follow-up documentation conflicts retain unified candidate instructions, preserve the historical download links,
+and place the port's final CI table alongside its earlier observations; the superseded `release/` plan stays removed.
+
+Ten files conflicted in the initial merge: `server.py` (load checker plus paths/platform support), `store.py` (combine both runtime paths),
+`docs/validation.md` (published records first, separate attributed port evidence), the two root READMEs and
+`CHANGELOG.md` (unified candidate while preserving published entries), and four version files (`release.json`, both
+plugin manifests, `relic_core/__init__.py`) set to the unified versions.
+
+### CI and real-Mac boundary
+
+The validation workflow runs Windows 2025 / Python 3.11 and 3.13, macOS 15 / Python 3.11 and macOS 26 / Python 3.13,
+with Node.js 22. Both Mac jobs assert native arm64 Python and Node and run the real POSIX/macOS fixtures, not only
+mocked platform branches.
+
+All four jobs passed in [run 40811184226](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40811184226)
+on runtime commit `b38eaabb031c5a0b5fa7ed8cfff03eadf152caf5`; the following merges of `e1170f4` and `d2aaed6`
+change documentation only. The final PR head is also checked before merge; its checks are linked from
+[PR #1](https://github.com/Hongyi-Du/Relic-Plugins/pull/1).
+
+| CI environment | Packaging | Relic | Overall |
+| --- | --- | --- | --- |
+| Windows 2025, Python 3.11 | 13 passed, 2 skipped | 404 passed, 38 skipped | 417 passed, 40 skipped |
+| Windows 2025, Python 3.13 | 13 passed, 2 skipped | 404 passed, 38 skipped | 417 passed, 40 skipped |
+| macOS 15 arm64, Python 3.11 | 15 passed | 439 passed, 3 skipped | 454 passed, 3 skipped |
+| macOS 26 arm64, Python 3.13 | 15 passed | 439 passed, 3 skipped | 454 passed, 3 skipped |
+
+All jobs also passed archive verification. The three Mac skips are Windows-specific fixtures; per-test reasons,
+suite logs and results are retained in the workflow artifacts. / 四个作业与归档检查全部通过；两个 Windows 作业
+各通过 417 项、跳过 40 项，两个 Mac 作业各通过 454 项、跳过 3 项 Windows 专用测试。
+
+HaochenGu's signed-in pre-merge writer/reviewer workflow and isolated Mac installation/lifecycle are historical
+evidence. The merged version still needs signed-in real-Mac acceptance for its new check/Reply/person-issued rules,
+native desktop delivery, full browser/Finder/Terminal interaction and cancellation/resume/sleep. CI does not replace
+those observations. No GitHub Release, website deployment or installation is part of this integration.
+
+本合并以 HaochenGu 的原始分支为基础，保留三条原始提交及作者，合入 v0.6.0，统一为 v0.7.0-beta.1。
+Windows 本地全套检查：打包 15 项中 13 通过、2 项 Mac 平台跳过；Relic 442 项中 404 通过、38 项平台跳过，无失败。修复 Windows
+锁文件并发写入，并让 check 产生的审核绑定工作目录与解析路径；Windows 启动模板恢复为原有默认值。
+移除独立 macOS 发布计划，保留移植者的历史真机证据。合并版真实宿主验收尚未完成；CI 与历史观察分开记录。
+
 ## v0.6.0-beta.1
 
 Release: **v0.6.0-beta.1**, prepared 2026-10-28. Relic plugin 0.17.0-beta.1: a strong protocol's rule can judge the reply that ends a member's turn (`Reply`), checked by the Stop hook, and a protocol the person issues takes effect at once, with no vote. The store, the hook, the Relic App's server and page and the `protocol` tool's description changed.
@@ -164,6 +244,282 @@ The end-to-end run used a copy of a real organization store with auto-wake off, 
 端到端测试使用真实组织存储的一份副本（自动唤醒关闭），外加一个成员都没有会话的示例组织；没有给真实成员发消息，也没有改任何会话的名字。另外在一个真实组织的消息上试过一次「人话」和「解读」，调用了维护者的 Claude Code（`claude -p`，Sonnet）。发布检查本身不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
 
 ## v0.1.0-beta.1
+
+Release: **v0.1.0-beta.1**, prepared 2026-10-24.
+
+**Publication scope: Windows only.** macOS CI evidence below is retained as development history; macOS is not released and requires real Mac testing before publication.
+
+**发布范围：仅 Windows。**下方 macOS CI 结果保留为开发验证历史；macOS 尚未发布，需完成真实 Mac 测试后再发布。
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Claude unit fixtures | 20 passed on Windows, Python 3.14 |
+| Codex unit fixtures | 307 passed on Windows, Python 3.14 |
+| Bridge isolated unit fixtures | 156 passed on Windows, Python 3.14 |
+| Installer, hook launch, MCP initialization and six extracted archives | 4 passed, including spaces and Chinese characters in extracted paths |
+| Windows CI, Python 3.11 | 487 passed: installer/archives 4 + Claude 20 + Codex 307 + Bridge 156 |
+| macOS arm64 CI, Python 3.11 | 487 passed, same suite counts; no skipped tests |
+
+Both platform jobs passed in [CI run 40135273111](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40135273111) on source commit `785d47c5b97715c0ee2962814a255f5dd4ceabef`. The release includes subsequent documentation-only updates. The run's artifacts retain per-suite logs and exit-code summaries. Earlier cancelled or failed diagnostic runs are not counted as passes.
+
+两个平台任务均在 [CI 40135273111](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40135273111) 通过，受测源码提交为 `785d47c5b97715c0ee2962814a255f5dd4ceabef`；发行版随后仅更新文档。CI 附件保存逐套日志及退出码汇总，之前取消或失败的排查运行不计作通过。
+
+The first Bridge suite run inherited `CODEX_THREAD_ID` from the publishing session and failed one Claude-chat identity fixture. Re-running with `scripts/check.py` isolated host identity and data roots; all 156 passed without weakening runtime identity checks. Some existing mocked runner tests emit subprocess resource warnings during cleanup; their assertions pass. This is a known test-harness cleanup limitation.
+
+首次 Bridge 测试继承了发布会话的 `CODEX_THREAD_ID`，导致一个 Claude-chat 身份测试失败。使用 `scripts/check.py` 隔离宿主身份与数据目录后，156 项全部通过，没有放宽运行时身份校验。部分已有 runner 替身测试在退出清理时产生 subprocess resource warning；断言通过，测试进程清理仍有改进空间。
+
+Release preparation also fixed a non-Windows Bridge panel font initialization error. Installer checks compare resolved Python paths so macOS interpreter symlinks are accepted. On the macOS CI image, repeatedly creating hidden Tk interpreters stalled the GUI event loop. `scripts/run_fixture_suite.py` therefore invokes each macOS GUI fixture in a fresh process, retaining its assertions and reporting failures or skips explicitly. Windows runs these fixtures in-process. This follows the [Python Tkinter threading guidance](https://docs.python.org/3/library/tkinter.html#threading-model) and does not certify a signed-in host desktop session.
+
+发布准备还修复了 Bridge 面板在非 Windows 平台的字体初始化错误；安装器测试按 Python 的实际路径比较，支持 macOS 的解释器符号链接。macOS CI 中反复创建隐藏 Tk 解释器会卡住事件循环，因此 `scripts/run_fixture_suite.py` 将每项 macOS GUI 测试放进独立进程，保留断言并明确报告失败或跳过；Windows 仍在同一测试进程中执行。这遵循 [Python Tkinter 的线程与事件循环说明](https://docs.python.org/3/library/tkinter.html#threading-model)，不等于已登录宿主桌面会话的验收。
+
+Tests establish fixture behavior, launchable MCP endpoints, and package structure. They do **not** establish scientific superiority, guaranteed protocol coverage for every host tool, live desktop delivery in all host versions, or real macOS desktop acceptance. No real organization was enrolled, no live member was messaged, and no model call was made by release checks.
+
+这些检查证明受控测试行为、MCP 可启动与包结构，不证明研究优势、所有宿主工具均受协议约束、所有版本的真实桌面投递，或 macOS 桌面验收。发布检查没有组建真实组织、没有向实际成员发消息，也没有调用模型。
+
+## HaochenGu macOS port: historical validation before the v0.6.0 merge
+
+The following evidence was recorded by HaochenGu for the v0.4.1-based port. It is retained as historical evidence, not a validation of the merged v0.7.0 candidate. The separate macOS release plan is superseded by the unified version.
+
+以下为 HaochenGu 对 v0.4.1 基础移植记录的历史验证，不代表合并后 v0.7.0 的验证结果；独立 macOS 发布计划已由统一版本取代。
+
+### v0.4.1-macos-beta.1 final CI — 2026-10-28
+
+All four jobs passed in [CI run 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809)
+on runtime commit [`2d790de6777454fc04013ff1ba2830c567da7108`](https://github.com/Hongyi-Du/Relic-Plugins/commit/2d790de6777454fc04013ff1ba2830c567da7108).
+The release uses a documentation-only descendant of that commit; this passing result belongs to the named runtime
+commit, not a separate CI run on the documentation update. The final archive's `release-manifest.json` records its
+source commit and hashes. Publication is approved from the pushed `release/macos-v0.4.1-beta.1` branch; `main` and
+the newer Windows release remain unchanged.
+
+| CI job | Packaging | Relic | Total |
+| --- | --- | --- | --- |
+| macOS 15 arm64, Python 3.11 | 15 passed | 402 passed, 2 skipped / 404 discovered | 417 passed, 2 skipped |
+| macOS 26 arm64, Python 3.13 | 15 passed | 402 passed, 2 skipped / 404 discovered | 417 passed, 2 skipped |
+| Windows 2025, Python 3.11 | 13 passed, 2 skipped / 15 discovered | 366 passed, 38 skipped / 404 discovered | 379 passed, 40 skipped |
+| Windows 2025, Python 3.13 | 13 passed, 2 skipped / 15 discovered | 366 passed, 38 skipped / 404 discovered | 379 passed, 40 skipped |
+
+The Mac jobs verified native arm64 Python and Node.js 22. Each job also passed the release-content packaging step.
+The two Mac skips are Windows-only fixtures. Windows skips cover POSIX process groups and signals, Unix sockets,
+Mac filesystem/launcher behavior and fixtures requiring POSIX filenames or symlink privileges. The run's artifacts
+retain individual skip reasons, per-suite logs and exit-code summaries. Earlier failed diagnostic runs are not counted
+as passes. CI preparation corrected portable fixtures and Chinese locale mapping, subprocess cleanup, and App startup
+behavior; the final run covers those fixes.
+
+CI uses temporary stores and fake hosts and makes no model calls. The separate signed-in Claude Code/Codex
+organization smoke test and local archive installation checks are recorded in the preparation section below. Neither
+the passing CI nor that smoke test establishes full browser interaction, native desktop delivery, all live governance
+cases or host sleep/wake acceptance. The package and generated Finder launcher remain unsigned and not notarized.
+
+[CI 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809) 的四个任务全部通过，
+受测运行时代码提交为 `2d790de6777454fc04013ff1ba2830c567da7108`。发行版在该提交之后仅更新文档；
+这里记录的是该运行时代码提交的 CI，不代表文档更新后另跑了一次 CI。最终压缩包的 `release-manifest.json`
+记录打包源码提交及校验值。用户已批准从已推送的 `release/macos-v0.4.1-beta.1` 分支发布；`main` 和较新的
+Windows 发行版保持不变。
+
+两个 Mac 任务各通过 417 项、跳过 2 项 Windows 专用测试；两个 Windows 任务各通过 379 项、跳过 40 项
+POSIX/macOS 或依赖平台权限的测试。各套数量见上表，具体跳过原因、日志和退出码保存在该 CI 的附件中；
+此前失败的排查运行不计作通过。两个 Mac 任务确认了原生 arm64 Python 与 Node.js 22，四个任务的发布包
+内容检查也均通过。CI 使用临时数据和宿主替身，不调用模型。此前已登录组织实测及本地压缩包安装检查
+继续单独记录，不将其扩大为完整浏览器、原生桌面投递、全部真实治理或休眠唤醒验收；安装包及生成的
+Finder 启动器仍未经签名或公证。
+
+The preparation and implementation sections below are unchanged historical records; their approval and CI status
+describe those earlier stages. / 下方准备与实现各节原样保留；其中的批准和 CI 状态描述对应的历史阶段。
+
+### v0.4.1-macos-beta.1 prerelease preparation — 2026-10-28
+
+Unsigned Apple silicon candidate based on the tested v0.4.1-beta.1 migration, prepared locally and awaiting approval
+to publish. The later upstream v0.6.0-beta.1 changes are not included. The observations below supplement the earlier
+implementation records; they do not turn the older browser or native-desktop attempts into passing results.
+
+| Check | Result |
+| --- | --- |
+| Full isolated Python 3.11 and 3.13 suites | Rerun in the isolated versioned release checkout on native arm64 macOS 26.5.1: each 406 passed, 2 Windows-only skips; packaging 15 + Relic 391 passed / 393 discovered |
+| Packaging regression rerun | 15 passed, including ZIP/tar extraction, portable launch configurations, executable metadata, checksums and installation configuration; live launch files stayed unchanged |
+| Final local ZIP | Native macOS `ditto` extraction; isolated installation, diagnostics, generated launcher execution, server status, authenticated restart and stop passed |
+| Signed-in runtime detection | Native Node.js 22.17.1, Claude Code 2.1.286 and Codex 0.163.0-alpha.11.2 were detected; Codex used the explicitly selected working executable |
+| Signed-in organization workflow | A coordinator created a test organization with a Claude Code writer and Codex reviewer running through the App's ACP adapters; both assigned tasks reached done with reports |
+| Messages and shared document | Writer sent a draft for review, reviewer returned a correction, writer saved revision 2, and reviewer accepted it; both directions of member messaging were observed |
+| Revision guard | A separate write with a stale expected revision was rejected and the existing document remained unchanged |
+| Startup behavior | The initial wait instruction needed explicit human task prompts before collaboration continued; the episode recorded that intervention, so autonomous startup is not claimed |
+| Native desktop routes | Not accepted: the Codex host closed the earlier handshake; the newer Claude CLI meets the numeric minimum, but Desktop enablement, public Stop observations and exact completion receipts were not validated |
+| Browser and broader host acceptance | Incomplete: earlier browser attempts did not pass; live hierarchy/governance, all hook-enforcement cases and host cancellation/resume/sleep were outside this smoke test |
+| Publication | No push or GitHub release yet; package is unsigned and not notarized; updated Windows CI has not run |
+
+The organization run used the user's existing signed-in hosts and a dedicated test organization. It was separate
+from the archive installation/lifecycle checks, which used an isolated home and data directory. No private
+conversation contents, session identifiers, account credentials or local installation paths are included as release
+evidence. Final assets are built from the local release commit; the manifest records that commit and archive checksums.
+The release rerun logs are in local `test-results/release-py311` and `test-results/release-py313`.
+
+本候选版基于已测试的 v0.4.1-beta.1 macOS 迁移，不包含上游 v0.6.0-beta.1，等待批准后再推送和发布。
+在独立的版本化发布目录中重跑 Python 3.11/3.13，各通过 406 项、跳过 2 项 Windows 专用测试；安装打包测试 15 项
+通过，最终本地 ZIP 经 macOS 原生解压后完成隔离安装、诊断、启动、状态、重启和停止。
+真实已登录 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档第 2 次修订，过期修订号
+写入也被正确拒绝。启动等待指令之后需要明确的人类任务提示，因此不宣称完全自主启动，也不将该测试
+扩大为全部治理、上下级、浏览器或原生桌面验收。Claude Code 后来使用 2.1.286，较早 2.1.92 的版本限制
+仅属于历史检查；Desktop 条件和回执仍未验证。此包未经签名或公证，更新后的 Windows CI 尚未运行。
+
+The following sections are historical records of their respective runs. / 以下各节保留为对应阶段的历史记录。
+
+### Full macOS implementation pass — 2026-10-28
+
+Development implementation on native arm64 macOS 26.5.1, based on v0.4.1-beta.1. This evidence supersedes the
+foundation counts below. The working tree is not a published or release-certified macOS build.
+
+| Check | Result |
+| --- | --- |
+| Python 3.11 full isolated matrix | 406 passed, 2 Windows-only skips: packaging 15 + Relic 391 passed / 393 discovered |
+| Python 3.13 full isolated matrix | 406 passed, 2 Windows-only skips: packaging 15 + Relic 391 passed / 393 discovered |
+| Final archive installation | Extracted into a space/Chinese/apostrophe path; installed into a temporary home; configured MCP paths and arm64 runtime diagnostics passed |
+| Generated Finder launcher executable | Started the isolated server without a window; status, authenticated restart, port reuse and stop passed; launcher removal preserved the data sentinel |
+| Filesystem/governance | Structured activity-path upgrade, case/Unicode/symlink matching, cwd-bound review approvals, APFS case-alias preview authorization, failed-edit denial and NUL Git paths covered |
+| Process/lifecycle | Concurrent start/stop/restart, owned descendants, stalled ACP input, dead-adapter replacement, permission waits, auxiliary model/npm processes and server signals covered |
+| Locked ACP installation | Real npm ci completed for the committed dependency graph in a temporary directory; both pinned adapter entrypoints/versions validated |
+| Real Claude ACP 0.97.0 | initialize and session/new passed using an empty temporary home and selected Claude Code 2.1.92; no model prompt sent |
+| Real Codex ACP 2.3.0 | initialize passed with Codex 0.159.0-alpha.12.1; session/new returned Authentication required in the empty temporary home; no model prompt sent |
+| macOS desktop transport | Unix framing confirmed from installed host code and exercised against private local fixture sockets; the real supplied endpoint closed the read-only handshake, so its capability stayed disabled |
+| Claude Desktop capability | Synthetic activation/version/public Stop/receipt contract fixtures passed; selected real CLI 2.1.92 is below the 2.1.224 native-messaging minimum |
+| Browser interaction | Incomplete: Chrome automation unavailable, in-app webview attach timed out, Safari automation stalled and was interrupted |
+| Windows CI / signed-in model turns / release signing | Not executed; remain acceptance/release gates |
+
+The full suite used fake hosts and temporary stores. The separate real-adapter checks performed initialization and
+session creation only, with no model prompts. No existing conversations were read or messaged, no global host
+installation was upgraded, and no user plugin configuration was installed. The isolated browser-test server was
+stopped through its authenticated endpoint. Final local logs are under test-results/full-py311, full-py313 and
+archive-smoke.json; they are development artifacts, not published evidence.
+
+完整实现验证：原生 arm64 macOS 26.5.1。Python 3.11 与 3.13 各通过 406 项、跳过 2 项 Windows 专用测试。
+最终下载包在临时 home 中完成安装、诊断、启动、状态、重启、端口复用、停止和移除启动器，组织数据保留。
+真实 ACP 适配器只进行初始化/创建会话，没有发送模型提示；Codex 在空白 home 中要求登录。
+真实桌面通信握手被宿主关闭，所选 Claude CLI 2.1.92 低于 2.1.224；浏览器交互验证未完成。
+Windows CI、已登录模型回合和正式发布签名仍待完成。未读取或发送已有聊天，未升级全局宿主，也未安装用户插件配置。
+
+### macOS arm64 development branch — 2026-10-28
+
+Local development evidence on macOS 26.5.1, native arm64. This is an uncommitted development build based on
+v0.4.1-beta.1; it is not a published macOS release or signed-in desktop acceptance.
+
+| Check | Result |
+| --- | --- |
+| Python 3.11 isolated suites | 319 passed, 2 Windows-only skips: packaging 5 + Relic 314 passed / 316 discovered |
+| Python 3.13 isolated suites | 319 passed, 2 Windows-only skips: packaging 5 + Relic 314 passed / 316 discovered |
+| macOS archive | Built, extracted into a path containing spaces and Chinese characters, configured through install.command with an isolated home/minimal PATH, doctor verified arm64 Python and configured MCP paths |
+| Native integration fixtures | Fake native launch effects, Terminal quoting/environment/private-file cleanup, sparse PATH and Node preflight, real local ACP child/grandchild cleanup, desktop refusal without focus mutation/retry, browser helper behavior |
+| Static checks | Python/JavaScript/shell syntax, JSON parsing and git diff whitespace passed |
+| Windows CI | Matrix updated; not executed in this local run |
+| Signed-in hosts and browser/Terminal interaction | Not executed; required before publication |
+
+All suites used temporary stores and fake hosts. No model turns, live organization changes or user host
+configuration writes were performed. The tests cover process groups belonging to the spawned adapter; descendants
+that deliberately detach into another session are outside that ownership boundary.
+
+本地开发验证：macOS 26.5.1，原生 arm64；基于 v0.4.1-beta.1 的未提交开发版本。Python 3.11 与 3.13
+各通过 319 项、跳过 2 项 Windows 专用测试。macOS 包已构建，在包含空格和中文的目录解压，通过隔离
+home 与最小 PATH 执行配置及诊断。测试使用临时数据和宿主替身，没有模型调用、真实组织变更或用户宿主
+配置写入。Windows CI、已登录宿主及浏览器/Terminal 交互验收尚未执行，macOS 仍未发布。
+
+### v0.4.1-beta.1
+
+Release: **v0.4.1-beta.1**, prepared 2026-10-28. Relic plugin 0.15.1-beta.1, a front-end update to v0.4.0-beta.1: the organization chart is moved, zoomed and fitted to the window and opens from an organization's right-click menu, and the English Organization details button wraps instead of widening the Overview. No server, hook, tool or store code changed, so the real-machine run of v0.4.0-beta.1 still describes how members run.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 264 tests passed / 264 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Organization chart in headless Edge with real mouse input, in English and in Chinese, on a store shaped like a secretariat with eight organizations under it, subgroups and shared seats, at 1400×900 and 2400×1300 | The right-click menu opens the chart; fitted, every organization is inside the window (63% at 1400 wide, 100% at 2400); the wheel zooms; dragging moves the view and a drag that starts on an organization does not open it; double-click and Fit to window fit it again; the percentage sets 100%; a plain click opens the organization; from a single organization it opens at 100%, centered; a narrow window lists them; no console errors. / 右键菜单能打开关系图；适应窗口后所有组织都在窗口里（1400 宽时 63%，2400 宽时 100%）；滚轮能缩放；拖动能移动，从组织上开始拖不会打开它；双击和「适应窗口」能重新适应；点百分比回到 100%；直接点组织能打开它；从单个组织打开时按 100% 居中；窄窗口按列表显示；控制台无报错。 |
+| Windows CI, Python 3.11 | 268 passed: packaging 4 + relic 264 / 268 个通过：packaging 4 + relic 264 |
+| macOS arm64 CI, Python 3.11 | 266 passed, 2 skipped: packaging 4 + relic 262; the two skipped fixtures are Windows-only / 266 个通过、2 个跳过：packaging 4 + relic 262；跳过的两个只在 Windows 上有意义 |
+
+CI: both platform jobs passed in [run 40747446616](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40747446616) on source commit `adadae3ee66784b137d6aaf4ec7a550ff63a748c`. The published package is built from the next commit, which only records this result. / 两个平台任务都在 [CI 40747446616](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40747446616) 通过，受测源码提交为 `adadae3ee66784b137d6aaf4ec7a550ff63a748c`；发布的下载包由下一个提交构建，该提交只记录这次结果。
+
+`check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.4.1-beta.1** 于 2026-10-28 准备发布。Relic 插件 0.15.1-beta.1，是 v0.4.0-beta.1 的前端更新：组织关系图可以拖动、缩放、默认适应窗口，并能从组织的右键菜单打开；英文界面里的组织详情按钮改为换行，不再把「概况」撑宽。服务端、hooks、工具和数据库的代码都没有改，所以 v0.4.0-beta.1 的实机运行仍然说明成员怎样运行。
+
+`check.py` 不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
+### v0.4.0-beta.1
+
+Release: **v0.4.0-beta.1**, prepared 2026-10-27. Relic plugin 0.15.0-beta.1: the Relic App in English as well as Chinese, organizations above and below, and the organization model (one session in several seats, protocols that bind in their own organization and can be inherited downward, subgroups, a secretariat whose secretary-general approves changes to formal organizations, ex officio seats, the organization chart). The plugin has 12 tools; `group` is new.
+
+`scripts/check.py` runs the same two suites as in v0.3.0-beta.1, each in its own process with a temporary `RELIC_HOME`, `CODEX_HOME` and temp folder and without the invoking session's `RELIC_*` and `CODEX_*` variables. The relic suite now also covers the word lists and the language choice (`test_i18n.py`), organizations above and below (`test_hierarchy.py`) and the organization model (`test_org_model.py`).
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 264 tests passed / 264 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Real-machine App run: an App server on a temporary `RELIC_HOME` started one Claude Code and one Codex member through the installed ACP adapters (claude-agent-acp 0.97.0, codex-acp 2.3.0) | Both called the Relic status tool and were answered as their own seats. The Claude Code session had one set of Relic tools, 12 including `group`, from the App's plugin folder. The Codex session used Codex's own Relic plugin and the App added no server; on this machine that plugin is the maintainer's development install, so this shows the new tools reaching a Codex member, not the packaged Codex install. / 两个成员调用 Relic status 都以自己的席位作答。Claude Code 会话只有一套 Relic 工具，共 12 个（含 `group`），来自 App 的插件目录。Codex 会话用 Codex 自己的 Relic 插件，App 没有另加服务；这台机器上的那份插件是维护者的开发安装，所以这一项说明新工具能到达 Codex 成员，不代表打包后的 Codex 安装。 |
+| App page in headless Edge, in English and in Chinese, on an example store with a secretariat, departments, subgroups and requests waiting for approval | The organization chart (wide and narrow windows), the approval cards, "Also in" on a name card, the Hierarchy block and inherited protocols show as designed; no console errors; no Chinese left on the English screen. At 480 px the chat header's buttons still run past the window edge, as in v0.3.0-beta.1. / 组织关系图（宽窗口和窄窗口）、审批卡片、名片上的「也在」、「上下级」一栏和继承来的协议都按设计显示；控制台无报错；英文界面没有残留中文。480 像素宽时聊天顶栏的按钮仍会超出窗口，v0.3.0-beta.1 也是这样。 |
+| Windows CI, Python 3.11 | 268 passed: packaging 4 + relic 264 / 268 个通过：packaging 4 + relic 264 |
+| macOS arm64 CI, Python 3.11 | 266 passed, 2 skipped: packaging 4 + relic 262; the two skipped fixtures are Windows-only (Codex's sandbox override, finding the installed Edge app) / 266 个通过、2 个跳过：packaging 4 + relic 262；跳过的两个只在 Windows 上有意义（Codex 的沙箱覆盖、查找已安装的 Edge 应用） |
+
+CI: both platform jobs passed in [run 40630184056](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40630184056) on source commit `81dd950e26bbb2bd40bbfcaf18fa553d86b10f31`. The published package is built from the next commit, which only records this result; the run's artifacts keep the per-suite logs. / 两个平台任务都在 [CI 40630184056](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40630184056) 通过，受测源码提交为 `81dd950e26bbb2bd40bbfcaf18fa553d86b10f31`；发布的下载包由下一个提交构建，该提交只记录这次结果；CI 附件保存逐套日志。
+
+`check.py` makes no model calls. The real-machine run used the maintainer's signed-in Claude Code and Codex (two short turns per member) on a temporary store; no real organization was involved. macOS results remain development evidence only; macOS is not released.
+
+**v0.4.0-beta.1** 于 2026-10-27 准备发布。Relic 插件 0.15.0-beta.1：Relic App 除中文外有了英文界面；组织可以分上下级；组织模型改版（一个会话坐多个席位，协议在本组织生效并可向下继承，子组，秘书处的秘书长审批正式组织的调整，当然席位，组织关系图）。插件有 12 个工具，`group` 是新加的。
+
+`scripts/check.py` 运行与 v0.3.0-beta.1 相同的两套测试，每套在独立进程中运行，使用临时的 `RELIC_HOME`、`CODEX_HOME` 和临时目录，并去掉调用会话的 `RELIC_*`、`CODEX_*` 变量。relic 这套测试新增了语言包和语言选择（`test_i18n.py`）、上下级组织（`test_hierarchy.py`）和组织模型（`test_org_model.py`）。
+
+`check.py` 不调用模型。实机运行用了维护者已登录的 Claude Code 和 Codex（每个成员两轮简短对话），数据在临时目录里，没有涉及任何真实组织。macOS 结果仍只作开发验证，macOS 尚未发布。
+
+### v0.3.0-beta.1
+
+Release: **v0.3.0-beta.1**, prepared 2026-10-27. One product, Relic (plugin 0.14.0-beta.1): the three editions of v0.2.0-beta.1 are merged, so the checks cover one plugin and one archive per platform.
+
+`scripts/check.py` runs two suites, each in its own process with a temporary `RELIC_HOME`, `CODEX_HOME` and temp folder and without the invoking session's `RELIC_*` and `CODEX_*` variables:
+
+- **relic** (`plugins/relic/tests`): the plugin's tools, MCP server, hooks, store, wake-ups, runner, desktop transport, chat members, trajectories, task reports and threads, the Relic App and its panes, and how the App brings Relic into the sessions it runs.
+- **packaging** (`tests`): the installer configures a folder whose path has spaces and Chinese characters, then starts the MCP server and a hook from it; it installs into the hosts it finds, disables the earlier Claude Code editions, stops when a named host is missing, and needs no host with `--host none`. The package test builds both archives, extracts each into a path with spaces and Chinese characters and runs `install.py --configure-only` there; the App and the marketplace must be present, `scripts/open_panel.py` absent, and `install.command` must keep LF line endings and mode 755.
+
+`scripts/package.py` builds one archive per platform, `relic-windows-v0.3.0-beta.1.zip` and `relic-macos-v0.3.0-beta.1.tar.gz`, plus `SHA256SUMS.txt` and `release-manifest.json`; only the Windows archive is published. CI runs the same two commands as before on Windows and macOS with Python 3.11.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 216 tests passed / 216 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Real-machine App run: an App server on a temporary `RELIC_HOME` started one Claude Code and one Codex member through the installed ACP adapters | Both called the Relic status tool and were answered as their own seats. The Claude Code session had one set of Relic tools (11, from the App's plugin folder; the installed copy was switched off). The Codex session used Codex's own Relic plugin; the App added no server. / 两个成员调用 Relic status 都以自己的席位作答；Claude Code 会话只有一套 Relic 工具（11 个，来自 App 的插件目录，已装的那份在会话里关掉）；Codex 会话用 Codex 自己的 Relic 插件，App 没有另加服务。 |
+| App page in headless Edge | The add-member dialog switches between its three ways, a member card shows its seat buttons, the input box is empty after sending; no console errors. / 添加成员对话框三种方式能切换，名片显示席位按钮，发送后输入框为空；控制台无报错。 |
+| Windows CI, Python 3.11 | 220 passed: packaging 4 + relic 216 / 220 个通过：packaging 4 + relic 216 |
+| macOS arm64 CI, Python 3.11 | 218 passed, 2 skipped: packaging 4 + relic 214; the two skipped fixtures are Windows-only (Codex's sandbox override, finding the installed Edge app) / 218 个通过、2 个跳过：packaging 4 + relic 214；跳过的两个只在 Windows 上有意义（Codex 的沙箱覆盖、查找已安装的 Edge 应用） |
+
+CI: both platform jobs passed in [run 40553955238](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40553955238) on source commit `ddf07be188f6ec1e403a20f8e08cced01223e270`. The published package is built from the next commit, which only records this result; the run's artifacts keep the per-suite logs. / 两个平台任务都在 [CI 40553955238](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40553955238) 通过，受测源码提交为 `ddf07be188f6ec1e403a20f8e08cced01223e270`；发布的下载包由下一个提交构建，该提交只记录这次结果；CI 附件保存逐套日志。
+
+The release checks make no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.3.0-beta.1** 于 2026-10-27 准备发布。一个产品 Relic（插件 0.14.0-beta.1）：v0.2.0-beta.1 的三个版本已经合并，检查覆盖一个插件和每个系统一个下载包。
+
+`scripts/check.py` 运行两套测试，每套在独立进程中运行，使用临时的 `RELIC_HOME`、`CODEX_HOME` 和临时目录，并去掉调用会话的 `RELIC_*`、`CODEX_*` 变量：
+
+- **relic**（`plugins/relic/tests`）：插件的工具、MCP 服务、hooks、数据库、自动唤醒、runner、桌面通信、聊天成员、轨迹、任务报告和话题，Relic App 及其面板，以及 App 怎样把 Relic 带进它运行的会话。
+- **packaging**（`tests`）：安装器配置一个路径含空格和中文的目录，再从中启动 MCP 服务和一个 hook；它安装到找得到的宿主，停用较早的 Claude Code 版本，指定的宿主不存在时报错停止，`--host none` 时不需要任何宿主。打包测试构建两个下载包，分别解压到含空格和中文的路径并在那里运行 `install.py --configure-only`；App 和 marketplace 必须存在，`scripts/open_panel.py` 必须不存在，`install.command` 必须保持 LF 换行和 755 权限。
+
+`scripts/package.py` 为每个系统生成一个下载包：`relic-windows-v0.3.0-beta.1.zip` 和 `relic-macos-v0.3.0-beta.1.tar.gz`，外加 `SHA256SUMS.txt` 和 `release-manifest.json`；只发布 Windows 包。CI 仍在 Windows 和 macOS 上用 Python 3.11 运行同样的两条命令。
+
+发布检查不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
+### v0.2.0-beta.1
+
+Release: **v0.2.0-beta.1**, prepared 2026-10-27. Relic Bridge 0.13.0-beta.1 adds the Relic App; Claude and Codex are unchanged.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Claude unit fixtures | 20 passed on Windows, Python 3.14 |
+| Codex unit fixtures | 307 passed on Windows, Python 3.14 |
+| Bridge isolated unit fixtures | 210 passed on Windows, Python 3.14 (156 in v0.1.0-beta.1; the new fixtures cover the Relic App, threads, task reports and concurrent MCP calls) |
+| Installer, hook launch, MCP initialization and six extracted archives | 4 passed; Bridge archives contain `scripts/open_app.py` and the App, the others do not |
+| Relic App end to end, headless Microsoft Edge | 47 checks passed, no page errors: sending, mentions, quotes, threads, private chats, renaming, workspace and file preview, task reports, menus, shortcuts, back/forward, settings, installed-app mode, 人话 and 解读 from kept results |
+| Windows CI, Python 3.11 | 541 passed: packaging 4 + claude 20 + codex 307 + bridge 210 |
+| macOS arm64 CI, Python 3.11 | 541 passed: packaging 4 + claude 20 + codex 307 + bridge 210 |
+
+CI: [run 40458319380](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40458319380) on source commit `7127e06477e5cef368d9bd08d0ad25fd7ac0b1c2`.
+
+The end-to-end run used a copy of a real organization store with auto-wake off, plus an example organization whose members have no sessions; no live member was messaged and no session was renamed. Separately, 人话 and 解读 were tried once on a real organization's messages, which called the maintainer's Claude Code (`claude -p`, Sonnet). The release checks themselves make no model calls. macOS results remain development evidence only; macOS is not released.
+
+端到端测试使用真实组织存储的一份副本（自动唤醒关闭），外加一个成员都没有会话的示例组织；没有给真实成员发消息，也没有改任何会话的名字。另外在一个真实组织的消息上试过一次「人话」和「解读」，调用了维护者的 Claude Code（`claude -p`，Sonnet）。发布检查本身不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
+### v0.1.0-beta.1
 
 Release: **v0.1.0-beta.1**, prepared 2026-10-24.
 

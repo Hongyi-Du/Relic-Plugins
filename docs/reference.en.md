@@ -1,5 +1,9 @@
 # Tools and configuration reference
 
+v0.7.0-beta.1 (plugin 0.18.0-beta.1) shares check/Reply rules, Copies and person-issued protocols across Windows
+and macOS Apple silicon. Opening an older store adds `activity.paths`: an irreversible automatic schema migration
+with no automatic downgrade. Back up before upgrading; restore that backup to roll back.
+
 [中文](reference.zh-CN.md) · [User guide](guide.en.md)
 
 The exact MCP schemas are exported from the shipped code in [docs/api/relic.json](api/relic.json) (12 tools). Required fields, enums and descriptions in that file are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
@@ -54,18 +58,40 @@ This is an optional example, not an installed default. Relic maps supported Code
 | Variable | Scope |
 | --- | --- |
 | `RELIC_HOME` | Data directory, `~/.relic` by default: the organization store and everything else Relic keeps |
-| `RELIC_ACP_HOME` | Where the Relic App installs the ACP adapters; `RELIC_HOME/acp` by default |
+| `RELIC_ACP_HOME` | ACP installation root; `RELIC_HOME/acp` by default. The built-in locked pair uses `adapters/<lockfile-hash>` below it; an existing legacy installation remains a fallback |
+| `RELIC_PYTHON_PATH` | Explicit native arm64 Python 3.11+ for the macOS `install.command` launcher |
+| `RELIC_NODE_PATH`, `RELIC_NPM_PATH` | Explicit Node/npm executables; App-managed members require Node 22+, native arm64 on macOS |
 | `RELIC_ORG`, `RELIC_MEMBER`, `RELIC_ROLE` | Start a session in a seat: the SessionStart hook joins that seat |
 | `RELIC_SEAT`, `RELIC_SEAT_TOKEN` | Set by the Relic App for each session it starts: the seat (`<org id>/<member>`) and the token the App stored on the seat for that session. The Relic server answers as the seat's carrier while the token matches; do not set them by hand |
 | `RELIC_LANG` | The person's language for task titles and reports; otherwise the App's language setting, then the system language |
 | `RELIC_MAX_WAIT` | Lowers the inbox wait maximum; use 50 for the Claude Chat integration (the App uses at most 50 for the Relic server it gives a session) |
 | `RELIC_ACTOR` | Dedicated chat MCP configuration only (`claude-chat:<name>`); not a means to impersonate peers |
 | `RELIC_CODEX_WINDOWS_SANDBOX` | Windows sandbox for the Codex sessions Relic starts (`unelevated` by default; empty keeps Codex's own choice); host permissions still apply |
-| `CODEX_THREAD_ID`, `CODEX_APP_TOOLS_PIPE_PATH` | Supplied by the host, not copied from another session |
+| `RELIC_CLAUDE_DESKTOP_ENABLED` | `1` opts into macOS Claude Desktop delivery when no saved enablement setting exists. A supported CLI probe, recent public Desktop Stop observations and per-delivery receipts are still required |
+| `CODEX_THREAD_ID`, `CODEX_APP_TOOLS_PIPE_PATH` | Supplied by the host, not copied from another session. On macOS the endpoint must be a private same-user Unix socket and pass the required-tools probe |
 | `CODEX_HOME`, `CLAUDE_CONFIG_DIR` | Codex and Claude Code configuration roots; inherited where supported |
 | `CODEX_CLI_PATH` | Optional explicit Codex CLI path |
+| `CLAUDE_CODE_EXECUTABLE` | Optional explicit Claude Code executable path |
 
 Credentials are not required by the plugin itself. Per-member environment configuration may contain secrets, so treat the local database and backups as private.
+
+## Application lifecycle (development branch)
+
+`python3 -X utf8 scripts/open_app.py` starts or opens the server for the selected `RELIC_HOME`. Use `--no-window` to
+start without opening a browser, `--status` to read JSON status without starting a server, `--stop` to shut down the
+authenticated instance, and `--restart` to stop/start it while reusing its port when available. `--port` selects a
+preferred port. On Windows use `python` in place of `python3`.
+
+One server owns each data directory. Stop/restart verify the instance and ownership lock rather than killing the PID
+in `app.json`; an older or unverified server is refused. Closing the browser leaves the server running. Shutdown
+cleans up owned sessions/processes without deleting organizations. For macOS launcher installation and data-preserving
+removal, see the [macOS guide](macos.en.md).
+
+`python3 scripts/doctor.py --probe-desktop` explicitly checks desktop capabilities without sending messages. Status
+reads do not initiate probes. macOS Codex/ChatGPT delivery needs a successful host bridge handshake and host
+authorization. Claude Desktop needs explicit enablement, Claude Code 2.1.224+ verified by the probe and recent public
+Desktop Stop evidence for its target seat; exact peer/receipt checks still apply to each send. These capabilities are
+conditional, and the current machine's acceptance blockers are recorded in [validation](validation.md).
 
 ## Packaging and host references
 

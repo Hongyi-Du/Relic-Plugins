@@ -7,12 +7,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from relic_core import runner  # noqa: E402
+from relic_core import claude_desktop, desktop, runner  # noqa: E402
 from relic_core.store import Store  # noqa: E402
 
 FAKE_CLAUDE = r'''#!PYTHON
@@ -119,6 +120,34 @@ class Runner(unittest.TestCase):
     def test_first_seat_leads_a_human_founded_org(self):
         self.assertEqual(self.store.get(self.oid)["leader"], "alice")
 
+    def test_session_environment_drops_parent_identity_and_keeps_configuration(self):
+        inherited = dict.fromkeys(runner.platform_support.SESSION_IDENTITY_ENV, "parent-session")
+        with mock.patch.dict(os.environ, dict(inherited, RELIC_HOME=self.tmp.name, CUSTOM_VALUE="kept")):
+            env = runner.session_env({"env": {"FOO": "seat-value"}})
+        self.assertTrue(all(key not in env for key in inherited))
+        self.assertEqual((env["RELIC_HOME"], env["CUSTOM_VALUE"], env["FOO"]),
+                         (self.tmp.name, "kept", "seat-value"))
+
+    def test_unsupported_desktop_turn_does_not_change_session_focus(self):
+        self.store.join("existing-session", self.oid, "alice")
+        other = self.store.found("Other", "other work", "leader")["id"]
+        self.store.join("existing-session", other, "reviewer")
+        self.store.set_focus("existing-session", other)
+        before = self.store.focused("existing-session")
+        self.store.set_seat_fields(self.oid, "alice", config=dict(runner.default_config("claude-code"), surface="gui"))
+        # Change the shared platform value so capability checks see the same OS
+        # as the runner, and do not depend on installed desktop applications.
+        with mock.patch.object(sys, "platform", "darwin"), \
+                mock.patch.object(runner.platform_support.platform, "machine", return_value="arm64"), \
+                mock.patch.object(desktop, "transport_capability", return_value={"available": False}), \
+                mock.patch.object(claude_desktop, "transport_capability", return_value={"available": False}), \
+                mock.patch.object(runner.subprocess, "Popen") as launch:
+            with self.assertRaisesRegex(RuntimeError, "desktop delivery is unavailable"):
+                runner.start_turn(self.oid, "alice", "must stay manual")
+            launch.assert_not_called()
+        self.assertEqual(self.store.focused("existing-session"), before)
+        self.assertIsNone(runner.run_state(self.oid, "alice"))
+
     def test_claude_session_created_then_resumed(self):
         org = self.store.get(self.oid)
         state = self.turn("alice", runner.introduction(org, "alice"), new=True)
@@ -188,6 +217,15 @@ class Runner(unittest.TestCase):
                          ["codex-url", "codex://threads/th-1"])
 
     def test_created_session_opens_for_the_person(self):
+        if sys.platform == "darwin":
+            state = self.turn("alice", "Introduce yourself", new=True)
+            config = self.store.seat_config(self.oid, "alice")
+            with mock.patch.object(runner.platform_support, "open_terminal") as terminal:
+                args = runner.open_session(config, state["session"], "claude-code", str(self.ws))
+            self.assertEqual(args[1:3], ["--resume", state["session"]])
+            terminal.assert_called_once()
+            self.assertEqual(terminal.call_args.args[:2], (args, str(self.ws)))
+            return
         org = self.store.get(self.oid)
         runner.start_turn(self.oid, "alice", runner.introduction(org, "alice"), new_session=True, open_after=True)
         deadline = time.time() + 30

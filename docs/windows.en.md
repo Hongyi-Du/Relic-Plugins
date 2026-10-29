@@ -1,19 +1,24 @@
 # Windows installation
 
+This guide also applies to the unified v0.7.0-beta.1 candidate (plugin 0.18.0-beta.1). Build it with
+`python -X utf8 scripts/package.py --platform windows --output dist`. Before upgrading, back up the data:
+opening the old store adds `activity.paths` irreversibly; there is no automatic downgrade. Restore the
+pre-upgrade backup to roll back. No v0.7.0 GitHub Release has been published.
+
 [中文](windows.zh-CN.md) · [User guide](guide.en.md)
 
 ## Prerequisites
 
 - Windows with Python 3.11+ on PATH. Check `python --version`.
 - Claude Code and/or Codex, installed and signed in (`claude --version`, `codex --version`). The installer adds the plugin to each host whose CLI it finds, including the CLI bundled with the Codex desktop app.
-- Node.js (with npm) for members that run inside the Relic App: their ACP adapters are installed from the App's Settings → Harness connections (about 70 MB under `~/.relic/acp`).
+- Node.js 22+ (with npm) for members that run inside the Relic App: their ACP adapters are installed from the App's Settings → Harness connections (about 70 MB under `~/.relic/acp`).
 - Microsoft Edge (or Chrome) for the App window. Voice input uses Edge's online speech recognition.
 - Waking a Codex chat that is open in the Codex desktop app goes through that app's tool pipe; a CLI-only installation does not provide one. ChatGPT chat members need the ChatGPT desktop app running.
 - Git is only needed for cloning sources or member worktrees. No Docker or third-party Python package is needed.
 
 ## Download and install
 
-Download `relic-windows-v0.6.0-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
+For the older published version, download `relic-windows-v0.6.0-beta.1.zip` from the [release page](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1). Compare the archive's `Get-FileHash -Algorithm SHA256` value with `SHA256SUMS.txt` if you want to verify the download.
 
 Extract into a permanent folder such as `C:\Tools\Relic`. Open PowerShell in the extracted folder:
 

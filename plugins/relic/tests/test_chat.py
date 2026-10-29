@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,7 @@ class ChatMembers(unittest.TestCase):
             return chat.run_chatgpt(self.store, org, "gpt-chat", prompt, hop=hop, connect=lambda: app or self.app,
                                     caller=lambda app: CALLER)
 
+    @mock.patch.object(wake, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
     def test_chat_seats_have_their_own_harnesses(self):
         self.assertEqual((harness_of(CLAUDE_CHAT), harness_of("chatgpt:" + CHAT)), ("claude-chat", "chatgpt"))
         org = self.store.get(self.oid)
@@ -186,6 +188,7 @@ class ChatMembers(unittest.TestCase):
         self.assertTrue(relic_run.needs_receipt("codex", None))
         self.assertFalse(relic_run.needs_receipt("codex", "thread/resume: x already has an active writer"))
 
+    @mock.patch.object(wake, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
     def test_chat_members_wake_quickly_and_have_no_transcript(self):
         org = self.store.get(self.oid)
         self.assertEqual(wake.gap(org["members"]["gpt-chat"]), wake.CHAT_GAP)

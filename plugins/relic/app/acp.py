@@ -13,12 +13,19 @@ import collections
 import itertools
 import json
 import os
+import signal
 import subprocess
 import threading
+import time
+
+from .processes import group_has_live_members, signal_group
 
 PROTOCOL_VERSION = 1
 CLIENT_INFO = {"name": "relic-app", "title": "Relic", "version": "0.1.0"}
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+TERMINATE_WAIT = 1.0
+KILL_WAIT = 1.0
+READER_WAIT = 1.0
 
 
 class AcpError(RuntimeError):
@@ -42,17 +49,38 @@ class AcpAgent:
         self._pending = {}
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()
+        self._close_lock = threading.Lock()
+        self._close_complete = False
+        self._owned_pgid = None
+        self._readers = []
 
     # ---------------- process and connection ----------------
     def start(self, timeout=90):
-        self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     cwd=self.cwd, env=self.env, creationflags=NO_WINDOW)
-        threading.Thread(target=self._read, name="acp-read-%s" % self.name, daemon=True).start()
-        threading.Thread(target=self._read_stderr, name="acp-err-%s" % self.name, daemon=True).start()
-        self.info = self.request("initialize", {
-            "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
-            "clientInfo": CLIENT_INFO}, timeout=timeout) or {}
+        attempted = False
+        try:
+            with self._close_lock:
+                if self.proc is not None or self.closed.is_set():
+                    raise AcpError("%s has already been started or closed" % self.name)
+                attempted = True
+                # Publish process ownership atomically with respect to close(). A shutdown during Popen must
+                # wait for this handle, rather than conclude that there is nothing to stop.
+                self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                             cwd=self.cwd, env=self.env, creationflags=NO_WINDOW,
+                                             start_new_session=os.name != "nt", bufsize=0)
+                if os.name != "nt":
+                    self._owned_pgid = self.proc.pid
+                for target, label in ((self._read, "read"), (self._read_stderr, "err")):
+                    reader = threading.Thread(target=target, name="acp-%s-%s" % (label, self.name), daemon=True)
+                    self._readers.append(reader)
+                    reader.start()
+            self.info = self.request("initialize", {
+                "protocolVersion": PROTOCOL_VERSION,
+                "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
+                "clientInfo": CLIENT_INFO}, timeout=timeout) or {}
+        except BaseException:
+            if attempted:
+                self.close(wait=0)
+            raise
         return self.info
 
     @property
@@ -87,32 +115,90 @@ class AcpAgent:
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
     def close(self, wait=3):
-        """End the agent: close its input (agents exit at the end of their input), then stop the agent and the
-        programs it started (the adapter runs Claude Code or Codex as a child process) if it is still running."""
-        if not self.proc:
-            return
-        try:
-            self.proc.stdin.close()
-        except OSError:
-            pass
-        try:
-            self.proc.wait(timeout=wait)
-        except subprocess.TimeoutExpired:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True,
-                               creationflags=NO_WINDOW)
-            else:
-                self.proc.kill()
+        """Close input gracefully, then terminate our owned adapter process tree within bounded waits.
+
+        A POSIX adapter can exit before its children, which may still hold our pipes open. Its new process group
+        remains ours until cleanup finishes, so group cleanup must not depend on the adapter still being alive.
+        """
+        with self._close_lock:
+            if self._close_complete:
+                return
+            self.closed.set()
+            self._fail_pending("%s connection closed" % self.name)
+            if self.proc is None:
+                self._close_complete = True
+                return
             try:
-                self.proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-        self.closed.set()
-        for stream in (self.proc.stdout, self.proc.stderr):
-            try:
-                stream.close()
+                # Unbuffered pipes avoid waiting on a buffered writer's lock if a request is still writing.
+                self.proc.stdin.close()
             except (OSError, ValueError):
                 pass
+            if not self._wait_for_exit(max(0, wait)):
+                if self._owned_pgid is not None:
+                    self._signal_group(signal.SIGTERM)
+                    if not self._wait_for_exit(TERMINATE_WAIT):
+                        self._signal_group(signal.SIGKILL)
+                        if not self._wait_for_exit(KILL_WAIT):
+                            raise AcpError("%s process group did not stop within its shutdown deadline" % self.name)
+                elif self.proc.poll() is None:
+                    if os.name == "nt":
+                        try:
+                            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True,
+                                           creationflags=NO_WINDOW, timeout=5)
+                        except (OSError, subprocess.TimeoutExpired):
+                            self.proc.kill()
+                    else:
+                        # No owned group: only terminate the exact child, never infer a group from its PID.
+                        self.proc.kill()
+                    try:
+                        self.proc.wait(timeout=KILL_WAIT)
+                    except subprocess.TimeoutExpired:
+                        pass
+            deadline = time.monotonic() + READER_WAIT
+            for reader in self._readers:
+                if reader is not threading.current_thread() and reader.ident is not None:
+                    reader.join(max(0, deadline - time.monotonic()))
+            # Readers close their own streams in finally. Avoid closing a stream beneath a live reader.
+            for index, stream in enumerate((self.proc.stdout, self.proc.stderr)):
+                if index >= len(self._readers) or not self._readers[index].is_alive():
+                    stream.close()
+            self._owned_pgid = None
+            self._close_complete = True
+
+    def _signal_group(self, sig):
+        pgid = self._owned_pgid
+        if pgid is None or pgid != self.proc.pid or pgid <= 1 or pgid == os.getpgrp():
+            return False
+        return signal_group(pgid, sig)
+
+    def _wait_for_exit(self, timeout):
+        deadline = time.monotonic() + timeout
+        while True:
+            running = self.proc.poll() is None  # also reap the adapter if it has exited
+            if self._owned_pgid is not None:
+                running = self._signal_group(0)
+            if not running:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if self._owned_pgid is None or group_has_live_members(self._owned_pgid) is not False:
+                    return False
+                break
+            time.sleep(min(0.05, remaining))
+        # The leader may exit between poll() and group inspection. Group absence
+        # (or zombie-only state) does not reap our Popen child or set returncode.
+        try:
+            self.proc.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    def _fail_pending(self, message):
+        with self._lock:
+            pending, self._pending = list(self._pending.values()), {}
+        for slot in pending:
+            slot[1] = {"error": {"code": -32000, "message": message}}
+            slot[0].set()
 
     def _send(self, message):
         data = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
@@ -120,23 +206,39 @@ class AcpAgent:
             if not self.alive:
                 raise AcpError("%s is not running" % self.name)
             try:
-                self.proc.stdin.write(data)
-                self.proc.stdin.flush()
-            except OSError as error:
+                remaining = memoryview(data)
+                while remaining:
+                    written = self.proc.stdin.write(remaining)
+                    if not written:
+                        raise OSError("incomplete write")
+                    remaining = remaining[written:]
+            except (OSError, ValueError) as error:
                 raise AcpError("%s closed its input: %s" % (self.name, error)) from None
+
+    @staticmethod
+    def _lines(stream):
+        """Read unbuffered pipes in chunks without a buffered stream's cross-thread close lock."""
+        pending = b""
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                if pending:
+                    yield pending
+                return
+            parts = (pending + chunk).split(b"\n")
+            pending = parts.pop()
+            yield from parts
 
     def _read(self):
         try:
-            for raw in self.proc.stdout:
+            for raw in self._lines(self.proc.stdout):
                 self._handle_line(raw)
         except (OSError, ValueError):  # the pipe was closed by close()
             pass
-        self.closed.set()
-        with self._lock:
-            pending, self._pending = list(self._pending.values()), {}
-        for slot in pending:
-            slot[1] = {"error": {"code": -32000, "message": "%s exited: %s" % (self.name, self.last_error())}}
-            slot[0].set()
+        finally:
+            self.proc.stdout.close()
+            self.closed.set()
+            self._fail_pending("%s exited: %s" % (self.name, self.last_error()))
 
     def _handle_line(self, raw):
         line = raw.decode("utf-8", "replace").strip()
@@ -164,12 +266,14 @@ class AcpAgent:
 
     def _read_stderr(self):
         try:
-            for raw in self.proc.stderr:
+            for raw in self._lines(self.proc.stderr):
                 line = raw.decode("utf-8", "replace").rstrip()
                 if line:
                     self.stderr_tail.append(line[:500])
         except (OSError, ValueError):
             pass
+        finally:
+            self.proc.stderr.close()
 
     def last_error(self):
         lines = [l for l in self.stderr_tail if "error" in l.lower()]

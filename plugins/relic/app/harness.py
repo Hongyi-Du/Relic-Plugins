@@ -30,35 +30,65 @@ A harness also decides a session's Relic identity (actor): Claude Code uses its 
 id, so hooks, transcripts and wake-ups find the session.
 """
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
-from relic_core import i18n, runner
+from relic_core import i18n, runner, platform_support
 from relic_core.store import data_home
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # the Relic plugin folder this App runs from
 # Never passed on to a session the App runs: they would make it look like the session that started the App (a Codex
 # thread, a Claude Code session, a plugin hook) or like another seat.
-INHERITED = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT",
-             "CODEX_THREAD_ID", "CODEX_APP_TOOLS_PIPE_PATH", "RELIC_ACTOR", "RELIC_ORG", "RELIC_MEMBER", "RELIC_ROLE",
-             "RELIC_HARNESS", "RELIC_SEAT", "RELIC_SEAT_TOKEN")
+INHERITED = platform_support.SESSION_IDENTITY_ENV
 # What a Relic MCP server started for a session needs from the environment (a stdio server may get nothing else).
 SERVER_ENV = ("PATH", "PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
               "HOME", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "TEMP", "TMP", "TMPDIR", "LANG", "USERNAME", "USER",
               "CODEX_HOME", "CLAUDE_CONFIG_DIR", "RELIC_MAX_WAIT", "RELIC_CODEX_WINDOWS_SANDBOX", "PYTHONUTF8")
 
 REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
+ADAPTER_LOCK = Path(__file__).resolve().parent / "adapters"
+LOCKED_PACKAGES = ("@agentclientprotocol/claude-agent-acp", "@agentclientprotocol/codex-acp")
+_INSTALL_LOCK = threading.Lock()
 
 
 def acp_home():
     return Path(os.getenv("RELIC_ACP_HOME") or data_home() / "acp")
 
 
+def locked_home():
+    digest = hashlib.sha256((ADAPTER_LOCK / "package-lock.json").read_bytes()).hexdigest()[:16]
+    return acp_home() / "adapters" / digest
+
+
 def _package_entry(package):
-    return acp_home() / "node_modules" / Path(*package.split("/")) / "dist" / "index.js"
+    suffix = Path("node_modules") / Path(*package.split("/")) / "dist" / "index.js"
+    locked = locked_home() / suffix if package in LOCKED_PACKAGES else None
+    return locked if locked and locked.is_file() and _locked_ready() else acp_home() / suffix
+
+
+def _locked_ready():
+    home = locked_home()
+    try:
+        return (home / ".relic-ready").read_text().strip() == home.name and _locked_contents_valid(home)
+    except (OSError, ValueError):
+        return False
+
+
+def _locked_contents_valid(home):
+    try:
+        expected = json.loads((ADAPTER_LOCK / "package.json").read_text())["dependencies"]
+        for package, version in expected.items():
+            folder = home / "node_modules" / Path(*package.split("/"))
+            if not (folder / "dist/index.js").is_file() or json.loads((folder / "package.json").read_text())["version"] != version:
+                return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def chosen_path(harness):
@@ -82,7 +112,7 @@ def codex_program():
 def _claude_env():
     exe = claude_program()
     if not exe or not exe.lower().endswith(".exe") and os.name == "nt":
-        raise RuntimeError("Claude Code was not found on this computer (claude.exe). Install Claude Code first.")
+        raise RuntimeError("Claude Code was not found on this computer. Install Claude Code or choose its executable in Settings.")
     return {"CLAUDE_CODE_EXECUTABLE": exe}
 
 
@@ -293,11 +323,7 @@ LATER = [
 
 
 def node():
-    found = shutil.which("node")
-    if found:
-        return found
-    candidate = Path(os.getenv("ProgramFiles", r"C:\Program Files")) / "nodejs" / "node.exe"
-    return str(candidate) if candidate.is_file() else None
+    return platform_support.find_executable("node")
 
 
 def installed(harness):
@@ -323,7 +349,10 @@ def launch(harness, extra_env=None):
                                % (spec["title"], acp_home(), spec["package"]))
         exe = node()
         if not exe:
-            raise RuntimeError("Node.js was not found; the ACP adapters need it.")
+            raise RuntimeError("Node.js 22 or newer was not found; the ACP adapters need it.")
+        runtime = platform_support.node_runtime(exe)
+        if not runtime["supported"]:
+            raise RuntimeError(runtime["problem"])
         argv = [exe, str(entry)]
     else:
         program = spec["command"]()
@@ -333,7 +362,7 @@ def launch(harness, extra_env=None):
     env = {k: v for k, v in os.environ.items() if k not in INHERITED}
     env.update(spec["env"]() if spec.get("env") else {})
     env.update(extra_env or {})
-    return argv, env
+    return argv, platform_support.runtime_env(env, [node(), argv[0]])
 
 
 def actor_for(harness, session_id):
@@ -350,36 +379,70 @@ def adapter_version(harness):
         return ""
     package = HARNESSES[harness]["package"].rsplit("@", 1)[0]
     try:
-        manifest = acp_home() / "node_modules" / Path(*package.split("/")) / "package.json"
+        manifest = _package_entry(package).parents[1] / "package.json"
         return json.loads(manifest.read_text(encoding="utf-8")).get("version") or ""
     except (OSError, ValueError):
         return ""
 
 
 def install_command(harness):
+    if HARNESSES[harness]["package"].rsplit("@", 1)[0] in LOCKED_PACKAGES:
+        return ["npm", "ci", "--prefix", str(locked_home()), "--ignore-scripts", "--omit=optional", "--no-audit", "--no-fund"]
     return ["npm", "install", "--prefix", str(acp_home()), "--omit=optional", "--no-audit", "--no-fund",
             HARNESSES[harness]["package"]]
 
 
-def install(harness, log):
+def install(harness, log, processes=None):
     """Install a harness's ACP adapter with npm; `log` gets each output line. Returns npm's exit code."""
-    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    with _INSTALL_LOCK:
+        return _install(harness, log, processes)
+
+
+def _install(harness, log, processes):
+    runtime = platform_support.node_runtime(node())
+    if not runtime["supported"]:
+        log(i18n.t("harness.need_node") if not runtime["path"] else runtime["problem"])
+        return 1
+    npm = platform_support.find_executable("npm")
     if not npm:
         log(i18n.t("harness.need_npm"))
         return 1
-    acp_home().mkdir(parents=True, exist_ok=True)
-    proc = subprocess.Popen([npm] + install_command(harness)[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    command = install_command(harness)
+    if command[1] == "ci":
+        destination = locked_home()
+        if _locked_ready():
+            log("The pinned ACP adapters are already installed.")
+            return 0
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / ".relic-ready").unlink(missing_ok=True)
+        for name in ("package.json", "package-lock.json"):
+            shutil.copyfile(ADAPTER_LOCK / name, destination / name)
+    else:
+        acp_home().mkdir(parents=True, exist_ok=True)
+    spawn = processes.popen if processes is not None else subprocess.Popen
+    proc = spawn([npm] + command[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
-                            creationflags=runner.NO_WINDOW)
-    for line in proc.stdout:
-        if line.strip():
-            log(line.rstrip())
-    return proc.wait()
+                            creationflags=runner.NO_WINDOW, env=platform_support.runtime_env(executables=[runtime["path"], npm]))
+    try:
+        for line in proc.stdout:
+            if line.strip():
+                log(line.rstrip())
+        result = proc.wait()
+        if result == 0 and command[1] == "ci":
+            if not _locked_contents_valid(destination):
+                log("npm finished without a complete pinned adapter pair; installation is not ready.")
+                return 1
+            (destination / ".relic-ready").write_text(destination.name + "\n")
+        return result
+    finally:
+        if processes is not None:
+            processes.release(proc)
 
 
 def catalog():
     """Every harness with what it needs: the ACP adapter, the program it drives, Node.js."""
     out = []
+    runtime = platform_support.node_runtime(node())
     for key, spec in HARNESSES.items():
         found = program(key)
         try:
@@ -392,13 +455,14 @@ def catalog():
         if not problem and not adapter:
             problem = (i18n.t("harness.not_installed") if spec.get("package")
                        else i18n.t("harness.not_found", title=spec["title"]))
-        if not problem and spec.get("package") and not node():
-            problem = i18n.t("harness.need_node")
+        if not problem and spec.get("package") and not runtime["supported"]:
+            problem = i18n.t("harness.need_node") if not runtime["path"] else runtime["problem"]
         known = remembered(key)
         out.append({"id": key, "title": spec["title"], "vendor": spec["vendor"], "available": not problem,
                     "problem": problem, "adapter": spec.get("package") or "", "adapter_installed": adapter,
                     "adapter_version": adapter_version(key) if adapter else "", "program": found,
-                    "program_chosen": bool(chosen_path(key)), "node": node() or "", "mode": default_mode(key),
+                    "program_chosen": bool(chosen_path(key)), "node": runtime["path"] or "",
+                    "node_version": runtime["version"], "node_architecture": runtime["architecture"], "mode": default_mode(key),
                     "note": spec.get("modes_note") or "",
                     "install": " ".join(install_command(key)) if spec.get("package") else "",
                     "models": known.get("models") or [], "efforts": known.get("efforts") or []})

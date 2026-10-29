@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.97.0",
+    "@agentclientprotocol/codex-acp": "2.3.0"
+  },
+  "name": "relic-acp-adapters",
+  "version": "1.0.0",
+  "private": true
+}

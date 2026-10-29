@@ -15,11 +15,13 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import time
 import uuid
 from pathlib import Path
 
 from . import checker
+from . import paths as path_rules
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # Output fragments that signal friction between members' work (rejected pushes, conflicting changes).
@@ -91,6 +93,10 @@ def _windows_language(langid):
     """A Windows LANGID (GetUserDefaultUILanguage) as a tag: 0x0804 -> zh-CN, 0x0404 -> zh-TW, 0x0409 -> en-US. An
     unknown variant of a language counts as that language's main variant; None when the language is unknown."""
     import locale
+    # Python 3.13 changed the neutral Chinese mapping from zh_CHS to zh.
+    # Preserve the script encoded by these Windows LANGIDs on every Python.
+    if langid in (0x0004, 0x7C04):
+        return {0x0004: "zh-Hans", 0x7C04: "zh-Hant"}[langid]
     table = getattr(locale, "windows_locale", {})
     name = table.get(langid) or table.get((langid & 0x3FF) | 0x400)
     return _language_tag({"zh_CHS": "zh-Hans", "zh_CHT": "zh-Hant"}.get(name, name))
@@ -104,6 +110,11 @@ def _system_language():
             tag = _windows_language(ctypes.windll.kernel32.GetUserDefaultUILanguage())
         except Exception:
             tag = None
+        if tag:
+            return tag
+    if sys.platform == "darwin":
+        from .platform_support import preferred_language
+        tag = _language_tag(preferred_language())
         if tag:
             return tag
     names = [os.environ.get(var) for var in ("LC_ALL", "LC_MESSAGES", "LANG")]
@@ -207,7 +218,7 @@ PATCH_HEADERS = ("*** Add File: ", "*** Update File: ", "*** Delete File: ", "**
 
 
 def patch_paths(patch):
-    return [line.split(": ", 1)[1].strip().replace("\\", "/") for line in str(patch).splitlines()
+    return [path_rules.path_text(line.split(": ", 1)[1].strip()) for line in str(patch).splitlines()
             if line.startswith(PATCH_HEADERS)]
 
 
@@ -367,10 +378,10 @@ def _contains(needles, tool_input):
 
 def _paths_of(tool_input):
     if isinstance(tool_input.get("paths"), list) and tool_input["paths"]:
-        return [str(p).replace("\\", "/") for p in tool_input["paths"]]
+        return [path_rules.path_text(p) for p in tool_input["paths"] if isinstance(p, str) and p]
     for key in ("file_path", "notebook_path", "path"):
         if isinstance(tool_input.get(key), str):
-            return [tool_input[key].replace("\\", "/")]
+            return [path_rules.path_text(tool_input[key])]
     return []
 
 
@@ -379,7 +390,7 @@ def _path_of(tool_input):
     return paths[0] if paths else None
 
 
-def rule_applies(rule, member, role, tool, tool_input):
+def rule_applies(rule, member, role, tool, tool_input, cwd=None):
     if rule.get("members") and member not in rule["members"]:
         return False
     if rule.get("roles") and role not in rule["roles"]:
@@ -391,8 +402,7 @@ def rule_applies(rule, member, role, tool, tool_input):
     if rule.get("input_contains") and not _contains(rule["input_contains"], tool_input):
         return False
     if rule.get("path_glob"):
-        glob = rule["path_glob"]
-        if not any(fnmatch.fnmatch(p, glob) or fnmatch.fnmatch(p, "*/" + glob.lstrip("/")) for p in _paths_of(tool_input)):
+        if not any(path_rules.matches(p, rule["path_glob"], cwd) for p in _paths_of(tool_input)):
             return False
     return True
 
@@ -471,6 +481,15 @@ class Store:
                     db.execute("ALTER TABLE messages ADD COLUMN reply_to INTEGER")
                 except sqlite3.OperationalError:
                     pass  # another process added it a moment ago
+            # Exact path records replace guessing filenames out of the human-readable activity summary. NULL is an
+            # older writer; [] means a new writer recorded no known absolute file paths. Old named-column inserts
+            # continue working, and summaries keep their existing format for old readers.
+            if "paths" not in {r[1] for r in db.execute("PRAGMA table_info(activity)")}:
+                try:
+                    db.execute("ALTER TABLE activity ADD COLUMN paths TEXT")
+                except sqlite3.OperationalError:
+                    if "paths" not in {r[1] for r in db.execute("PRAGMA table_info(activity)")}:
+                        raise
 
     @contextlib.contextmanager
     def db(self):
@@ -2280,7 +2299,13 @@ class Store:
             raise OrgError("Unknown protocol op " + str(op))
 
     # ---------------- runtime binding (called from PreToolUse) ----------------
-    def gate(self, actor, tool, tool_input):
+    def _tool_cwd(self, org, member, tool_input, cwd=None):
+        """The tool's working directory, from host context first and the seat's configured folder as a fallback."""
+        base = cwd or self.seat_config(org["id"], member, org).get("folder")
+        override = tool_input.get("cwd") or tool_input.get("workdir")
+        return path_rules.absolute(override, base) if override else path_rules.absolute(base)
+
+    def gate(self, actor, tool, tool_input, cwd=None):
         """Return (allowed, reasons). Records review requests for require_review rules; runs the programs of the check
         rules that cover the call (side by side, each in a process of its own) and does what they answer."""
         tool, tool_input = normalize(tool, tool_input)
@@ -2288,16 +2313,23 @@ class Store:
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return True, []
+        cwd = self._tool_cwd(org, member, tool_input, cwd)
         role = org["members"][member].get("role", "")
         reasons, consumed, checks = [], [], []
         last_edit = None
+        review_input = dict(tool_input)
+        if cwd:
+            review_input["__relic_cwd"] = cwd
+        targets = path_rules.records(_paths_of(tool_input), cwd)
+        if targets:
+            review_input["__relic_paths"] = targets
         # this organization's own protocols and those in effect here from the organizations above
         for owner, p in self.effective_protocols(org):
             if p["status"] != "active" or p["strength"] != "strong":
                 continue
             pid = p["id"] if owner["id"] == org["id"] else "%s/%s" % (owner["id"], p["id"])
             for rule in p["rules"]:
-                if rule.get("tools") == [REPLY] or not rule_applies(rule, member, role, tool, tool_input):
+                if rule.get("tools") == [REPLY] or not rule_applies(rule, member, role, tool, tool_input, cwd):
                     continue  # a rule on Reply judges the reply that ends the turn (check_reply), not tool calls
                 label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
@@ -2311,11 +2343,11 @@ class Store:
                         reasons.append("%s: %s" % (label, rule.get("reason") or
                                        "first run %s after your latest edit." % rule["before"]["tools"]))
                 else:
-                    approved = self._approved_review(org, member, tool, tool_input)
+                    approved = self._approved_review(org, member, tool, review_input)
                     if approved:
                         consumed.append(approved)
                     else:
-                        rid = self._request_review(org["id"], member, pid, tool, tool_input)
+                        rid = self._request_review(org["id"], member, pid, tool, review_input)
                         reasons.append("%s: another member must approve this exact action. Review request %s is open; "
                                        "ask a member to run review approve %s, then retry the same call." % (label, rid, rid))
         outcomes = self._run_checks(org, member, role, checks, tool, tool_input)
@@ -2323,11 +2355,11 @@ class Store:
             if outcome["decision"] == "deny":
                 reasons.append("%s: %s" % (label, outcome["reason"]))
             elif outcome["decision"] == "review":
-                approved = self._approved_review(org, member, tool, tool_input)
+                approved = self._approved_review(org, member, tool, review_input)
                 if approved:
                     consumed.append(approved)
                 else:
-                    rid = self._request_review(org["id"], member, pid, tool, tool_input, why=outcome["reason"])
+                    rid = self._request_review(org["id"], member, pid, tool, review_input, why=outcome["reason"])
                     reasons.append("%s: %s. Another member must approve this exact action. Review request %s is open; "
                                    "ask a member to run review approve %s, then retry the same call."
                                    % (label, outcome["reason"].rstrip(". "), rid, rid))
@@ -2671,13 +2703,14 @@ class Store:
             return r
 
     # ---------------- activity (called from PostToolUse) ----------------
-    def record_activity(self, actor, tool, tool_input, failed=False, output=""):
+    def record_activity(self, actor, tool, tool_input, failed=False, output="", cwd=None):
         tool, tool_input = normalize(tool, tool_input)
         actor = self.focused(actor)  # work done for the organization the session works for now
         org, member = self.whoami(actor)
         if not org or is_relic_tool(tool):
             return
         kind = activity_kind(tool)
+        file_paths = path_rules.records(_paths_of(tool_input), self._tool_cwd(org, member, tool_input, cwd))
         summary = ((", ".join(_paths_of(tool_input)) if kind == "edit" else tool_input.get("command")) or _path_of(tool_input)
                    or next((str(tool_input[k]) for k in ("url", "query", "pattern", "description") if tool_input.get(k)), ""))
         # friction markers count only in the output of git commands: the same words inside files an agent reads
@@ -2685,8 +2718,9 @@ class Store:
         is_git = tool == "Bash" and "git " in str(tool_input.get("command", ""))
         signals = [m for m in FRICTION_MARKERS if m in (output or "")] if is_git else []
         with self.db() as db:
-            db.execute("INSERT INTO activity(org_id,member,tool,kind,summary,failed,at) VALUES(?,?,?,?,?,?,?)",
-                       (org["id"], member, tool, kind, str(summary)[:500], int(bool(failed)), time.time()))
+            db.execute("INSERT INTO activity(org_id,member,tool,kind,summary,failed,at,paths) VALUES(?,?,?,?,?,?,?,?)",
+                       (org["id"], member, tool, kind, str(summary)[:500], int(bool(failed)), time.time(),
+                        json.dumps(file_paths, ensure_ascii=False)))
         if failed:
             # which tool, on what, and the first line of what went wrong
             why = next((line.strip() for line in str(output or "").splitlines() if line.strip()), "")

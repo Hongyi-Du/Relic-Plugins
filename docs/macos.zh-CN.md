@@ -1,37 +1,113 @@
-# macOS 开发草稿 — 未发布
+# macOS Apple silicon 使用指南 — v0.7.0-beta.1
 
-**目前不提供 macOS 公开下载。**本次内测仅发布 Windows。CI 会构建 macOS 包（`relic-macos-v<版本>.tar.gz`），但不发布。macOS 代码与说明保留供后续真实 Mac 测试，CI 通过不能代替已登录宿主的桌面实机验收。
+**v0.7.0-beta.1（插件 0.18.0-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
+共用功能源码和版本号。这个未签名的源码候选包包含 Relic App 与 Claude Code/Codex 插件，Python、Node.js
+和已登录宿主需要另行准备。HaochenGu 的真机观察针对合并前的 v0.4.1 基础移植；合并版自动测试及尚待完成的
+真机验收见[验证记录](validation.md)。旧 v0.4.1-macos 是历史发布，v0.7.0 起使用统一发布线。
 
 [English](macos.en.md) · [完整使用指南](guide.zh-CN.md)
 
 ## 准备
 
-使用仍受维护的 Python 发行版，版本 **3.11+**，确保 Terminal 中有 `python3`。下载包包含 Python 源码，没有绑定 CPU 架构的二进制；Apple Silicon 和 Intel 都需要各自兼容的 Python 与宿主。本次发布没有认证两种架构上的真实桌面会话。
+macOS 目标平台是 **Apple silicon**，需要原生 **arm64 Python 3.11+**。Intel Mac 与 Rosetta 转译运行时
+不在支持范围内，安装器会拒绝 x86 Python。App 内的成员还需要原生 **arm64 Node.js 22+** 和 npm。
+请安装并登录 Claude Code 和/或 Codex；适配器使用这些外部 CLI，不安装可选的内置原生依赖。
 
-安装并登录 Claude Code 和/或 Codex，确认同一个 Terminal 中 `claude --version` / `codex --version` 可用。macOS 安装器 `bash install.command` 用 `python3` 运行 `scripts/install.py`，选项相同；它依赖 CLI 位于 PATH。在 Relic App 里运行的成员还需要 Node.js 来运行 ACP 适配器。
+`bash install.command` 从 PATH 或 Apple-silicon Homebrew 常见位置选择原生 Python，也可用
+`RELIC_PYTHON_PATH` 指定解释器。共享程序查找器还支持 `~/.local/bin`、Homebrew、Volta 和已安装的 nvm
+版本。用 `CODEX_CLI_PATH`、`CLAUDE_CODE_EXECUTABLE`、`RELIC_NODE_PATH`、`RELIC_NPM_PATH` 选择程序；
+显式路径无效时会报错，不会自动换用其他程序。App 的 Harness 设置也可选择其成员使用的程序。
 
-## 发布状态
+两个内置 ACP 适配器使用已提交的 npm 锁文件，成对安装到 `RELIC_ACP_HOME/adapters/<锁文件哈希>`
+（默认位于 `~/.relic/acp` 下），安装成功后写入就绪标记。旧 ACP 位置中已有的安装仍可作为回退。
+更新锁文件会使用独立的适配器目录，不会就地覆盖旧版本组合。
 
-待真实 Mac 验证完成后，再定稿安装说明并提供下载包。当前阶段不提供公开安装入口。
+## 安装与服务管理
 
-## 当前开发状态（未发布）
+将 `relic-macos-v0.7.0-beta.1.zip`（或同名 `.tar.gz`）解压到准备长期保留的目录，在该目录运行：
 
-| 功能 | 可用范围 |
+```sh
+bash install.command --host none --open
+```
+
+`--host none --open` 准备并打开 App，不向宿主注册插件。在 **设置 → Harness 连接** 安装 ACP 适配器，
+然后创建组织，添加成员时选择 **在 App 里运行**，并给每位成员明确的任务。独立插件会话可用 `--host claude`、`--host codex` 或
+`--host both` 安装，随后重启宿主并审阅、信任 hooks。默认 `--host auto` 向找到的 CLI 注册插件。
+`--configure-only` 只配置下载包，不改宿主设置，也不创建启动器。
+
+安装器创建 **`~/Applications/Relic.app`**，它是指向此目录和选定 Python 的 Finder 启动器，请保留源码
+目录。`--no-shortcut` 跳过创建；`bash install.command --remove-launcher` 只删除 Relic 自己创建的
+启动器，保留宿主注册和组织数据。从新的固定目录重新安装会更新受管理的启动器。这一本地生成的启动器
+不是已经签名的发行应用。
+
+以下命令中的 `python3` 应当是安装时选定的原生 arm64 Python 3.11+；如果 shell 选择了其他版本，
+请替换为所选解释器的完整路径。上面的 `--open` 会自动使用安装器选定的解释器。
+
+```sh
+python3 -X utf8 scripts/open_app.py --status
+python3 -X utf8 scripts/open_app.py --stop
+python3 -X utf8 scripts/open_app.py --restart
+python3 -X utf8 scripts/open_app.py --no-window
+```
+
+每个 `RELIC_HOME` 只运行一个服务。状态查询不会启动服务；停止与重启会认证保存的服务实例，并等待其
+释放占用锁。重启在端口可用时沿用原端口。对旧版或无法验证的服务，不会只凭保存的 PID 杀进程。
+关闭浏览器窗口不会停止后台服务。停止服务会清理它持有的会话与进程，组织数据仍保留在磁盘上。
+
+所有宿主应共享 `~/.relic` 或显式指定的 `RELIC_HOME`。替换包前先停止服务并备份数据目录。打开旧数据库
+时会在缺失的情况下补充活动路径字段，并保留已有记录；没有结构化路径的历史记录继续使用旧解析方式。
+宿主插件移除、marketplace 路径和回滚见 [完整指南](guide.zh-CN.md) 第 9 节。
+
+**`activity.paths` 是不可逆的自动数据库迁移，没有自动降级。**换回旧代码不会撤销它；回退时恢复升级前备份。
+
+## 与 Windows 共享的 v0.6.0 功能
+
+检查程序、给人的抄送、Stop hook 的 `Reply` 规则、人下发协议（`POST /api/org/<id>/protocols`）都在共同源码中。
+侧栏折叠整个组织子树，组织关系图支持拖动、缩放和适应窗口。Reply 约束需要宿主加载 Stop hook；
+规则与 API 细节见[参考](reference.zh-CN.md)。
+
+## 当前能力
+
+| 功能 | 预发布行为与验证情况 |
 | --- | --- |
-| Claude Code 与 Codex CLI 会话里的 Relic 工具和 hooks：组织、消息、文档、任务、治理 | 已包含，宿主需要加载 hooks；成员共享本机 `RELIC_HOME` |
-| Relic App | 已包含源码；除非 PATH 上有 `msedge` 或 `chrome`，否则在默认浏览器中打开；未在 Mac 上测试 |
-| 在 App 里运行的成员（ACP 适配器） | 已包含源码，需要 Node.js；未在 Mac 上测试 |
-| 桌面快捷方式 | 仅 Windows；用 `python3 -X utf8 scripts/open_app.py` 打开 App |
-| 唤醒被 Codex 桌面持有的聊天 | 不可用：当前通信实现只接受 Windows 命名管道 |
-| ChatGPT 聊天成员 | macOS 不可用 |
-| 成员卡片上的「打开会话」 | 未认证，请自行在 Terminal 恢复会话 |
+| CLI 工具和 hooks | 组织、消息、文档、任务与治理共享本地数据库；执行约束需要宿主加载 hooks |
+| App 内的 ACP 成员 | HaochenGu 合并前 v0.4.1 测试中，已登录的 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档修订；启动等待指令之后需要明确的任务提示 |
+| 浏览器 App | 查找 Edge/Chrome app 包或打开默认浏览器；Safari/Chromium 交互、剪贴板、输入法和触控板验收尚未完成 |
+| Finder 与 Terminal | 已实现原生文件/目录打开及交互会话启动器，失败会报告；交互验收尚未完成 |
+| 协议路径 | 记录绝对与解析后的路径，使用 NUL 分隔的 Git 路径，按 macOS Unicode 与目标卷的大小写行为匹配；检查符号链接别名并保留 Windows 匹配语义 |
+| Codex Desktop 与 ChatGPT 席位 | 已实现 Unix socket 通信；宿主提供的私有 socket 必须通过所需工具握手，并由宿主授权请求后才可用 |
+| Claude Desktop 自动回合 | 已实现，但需显式启用、通过 CLI 版本探测并观察到公共 Desktop Stop hook；每次投递还需准确对端与完成回执 |
 
-本版不声称 Windows/macOS 桌面功能完全一致。自动测试检验可移植代码和受控测试替身，不等于测试过已登录的商业桌面应用。准确运行记录见 [验证记录](validation.md)。
+配置为 GUI 的席位不会悄悄改由 CLI 写入。自动投递不可用时，已有 Code 会话仍可通过已加载的工具、hooks
+和 `inbox` 手动参与。在「概况」关闭「自动唤醒」，可让所有成员回合保持手动推进。
 
-## 后续 Mac 实机验证
+## 桌面能力检查
 
-在两个 Terminal 中使用相同的 Relic 数据目录，例如先分别执行 `export RELIC_HOME="$HOME/.relic"`，再启动宿主。Claude Code 创建 Relic 组织并记下 ID；Codex 用另一个成员名加入相同 ID。互发一条短消息并调用 `inbox`，从两边检查文档与任务后再开始更大任务。
+普通诊断使用 `python3 scripts/doctor.py`。显式执行 `python3 scripts/doctor.py --probe-desktop` 可检查
+桌面接口，不会发送聊天消息。App 设置里也提供能力检查。只读取状态不会自动探测宿主。
 
-CLI 持有的会话应与桌面应用正在持有写锁的聊天分开。显式读取 inbox 不需要桌面自动唤醒。希望完全手动推进时，在 App「概况」面板关掉「自动唤醒」开关。
+**Codex/ChatGPT：**通信只接受宿主提供的端点或其已记录副本，并验证 socket 私有且属于当前用户。
+成功的所需工具握手与 socket 身份绑定，替换 socket 后原验证失效。已从安装的 macOS 宿主确认消息分帧
+格式，但 HaochenGu 合并前实测中真实宿主关闭了握手，因此当前测试环境仍无法投递。需要打开已加载 Relic 的聊天，
+并获准使用宿主通信；app-server 连接不能替代该接口。
 
-诊断：`python3 scripts/doctor.py`。App：`python3 -X utf8 scripts/open_app.py`。备份、marketplace 路径更新、回滚和卸载见 [完整指南](guide.zh-CN.md)。
+**Claude Desktop：**先在 Relic 设置中显式启用（尚无保存的设置时也可设
+`RELIC_CLAUDE_DESKTOP_ENABLED=1`），选择 **Claude Code 2.1.224+** 并运行能力探测。在一个已有的、配置
+为 GUI 的 Relic 席位中，加载公共 Stop hook 后完成手动 Desktop 回合。记录必须仍在有效期内，每个目标
+席位都需要自己的记录。通过这些前置条件后，每次请求仍要检查准确对端和匹配的完成回执；不确定是否成功
+的发送不会被当作新投递重试。较早的检查使用 **2.1.92**，低于要求；后来的组织测试使用 **2.1.286**，
+但没有验证 Desktop 路径，其启用状态、公共 Stop 记录和回执仍未通过实测。这个 CLI 版本要求仅针对该
+桌面通信路径。
+
+## 已测试范围与已知限制
+
+HaochenGu 合并前 v0.4.1 的已登录组织测试完成了写作者和审阅者任务、双向消息、共享文档修订与过期修订号写入拒绝。启动等待指令
+之后需要显式的人类任务提示，因此不能据此宣称完全自主启动、上下级或全部治理约束已通过验收。解压 ZIP
+还单独在隔离数据目录中通过了安装、诊断、服务状态、重启和停止检查。
+
+真实浏览器验收尚未完成：Chrome 自动化不可用，内置浏览器超时，Safari 尝试挂起后被中止。这些尝试
+不计为成功的 UI 验证。Finder/Terminal 交互、剪贴板、中英文输入、触控板和拒绝权限流程尚未全部进行
+交互实测。真实宿主的取消/续接/睡眠以及完整治理和上下级流程也超出本次已完成的测试范围。桌面投递须
+通过上述宿主检查，当前环境尚未验证。合并版 Windows/macOS CI 结果见[验证记录](validation.md)。
+
+本版提供源码安装包和本地生成的启动器，未经签名或公证。

@@ -1,19 +1,24 @@
 # Windows 安装说明
 
+本指南也适用于统一的 v0.7.0-beta.1 候选版（插件 0.18.0-beta.1）。可运行
+`python -X utf8 scripts/package.py --platform windows --output dist` 构建。升级前备份数据：
+打开旧库会不可逆地添加 `activity.paths` 列，没有自动降级；回退需恢复升级前备份。
+v0.7.0 尚未发布 GitHub Release。
+
 [English](windows.en.md) · [完整使用指南](guide.zh-CN.md)
 
 ## 准备
 
 - Python 3.11+ 已加入 PATH，运行 `python --version` 检查。
 - 已经安装并登录的 Claude Code 和/或 Codex（`claude --version`、`codex --version`）。安装器会把插件加到每个找得到 CLI 的宿主，包括 Codex 桌面应用自带的 CLI。
-- 在 Relic App 里运行的成员需要 Node.js（含 npm）：它们的 ACP 适配器在 App 的「设置 → Harness 连接」里安装（约 70 MB，装在 `~/.relic/acp`）。
+- 在 Relic App 里运行的成员需要 Node.js 22+（含 npm）：它们的 ACP 适配器在 App 的「设置 → Harness 连接」里安装（约 70 MB，装在 `~/.relic/acp`）。
 - App 窗口需要 Microsoft Edge（或 Chrome）。语音输入使用 Edge 的在线语音识别。
 - 唤醒 Codex 桌面应用里打开的对话，要经过该应用自己的工具管道；仅安装 CLI 不会提供这条管道。ChatGPT 聊天成员需要 ChatGPT 桌面应用在运行。
 - 只有克隆源码或创建成员 worktree 才需要 Git。不需要 Docker 或第三方 Python 包。
 
 ## 下载与安装
 
-从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) 下载 `relic-windows-v0.6.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
+使用旧版时，从 [Release 页面](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) 下载 `relic-windows-v0.6.0-beta.1.zip`。可用 `Get-FileHash -Algorithm SHA256` 与 `SHA256SUMS.txt` 比较下载文件。
 
 解压到长期保留的目录，例如 `C:\Tools\Relic`。在解压目录打开 PowerShell：
 

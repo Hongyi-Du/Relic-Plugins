@@ -1,5 +1,53 @@
 # Changelog / 更新记录
 
+## v0.7.0-beta.1 — 2026-10-28
+
+One Relic version for Windows and macOS on Apple silicon, plugin **0.18.0-beta.1**. The macOS port contributed by
+**HaochenGu** is merged with v0.6.0; its original commits and authorship are retained. This is a release candidate in
+source, with locally buildable packages. The earlier v0.4.1-macos prerelease, published during this
+integration, remains available as a historical release; future development uses the unified version.
+
+- **Shared features.** Both systems keep check programs, Copies to the person, Stop-hook rules on `Reply`, protocols
+  issued by the person, sidebar subtree folding and the draggable/zoomable organization chart. Platform differences
+  are limited to runtime discovery, native launchers, paths, process ownership and desktop transports.
+- **macOS Apple silicon.** Native arm64 Python 3.11+, Node.js 22+ for ACP members, Finder launcher, Command shortcuts,
+  Unicode/volume-aware file matching and conditional Codex/Claude desktop connections. Intel and Rosetta are outside
+  the target; the source installer is unsigned and not notarized.
+- **Common runtime improvements.** Locked ACP adapters (Node.js 22+ on both systems), isolated session identity,
+  authenticated App lifecycle, numeric-loopback startup and owned-child cleanup. Check-rule reviews now retain the
+  same working-directory and resolved-path binding as ordinary review rules.
+- **Upgrade and rollback.** Back up the data directory before upgrading. First opening an older store automatically
+  adds the `paths` column to `activity`, on Windows as well as macOS. This schema migration is irreversible by Relic:
+  there is no automatic downgrade, and replacing code does not remove the column. Restore a pre-upgrade backup to
+  roll back. Existing rows are preserved; older writers leave `paths` null and retain the legacy interpretation.
+- **Validation.** HaochenGu recorded a real Apple silicon v0.4.1-based installation/lifecycle check and signed-in
+  Claude writer/Codex reviewer workflow (tasks, messages and document revision). Those observations precede this
+  merge. Merged-version automated Windows/macOS results are recorded in [validation](docs/validation.md); the merged
+  version has not been accepted with signed-in hosts on a real Mac. Native desktop delivery, full browser interaction,
+  all governance/hook cases and cancellation/resume/sleep still need that acceptance.
+- **Packages.** One source produces `relic-windows-v0.7.0-beta.1.zip` and `relic-macos-v0.7.0-beta.1.tar.gz` (optional
+  macOS ZIP), with platform-specific installation instructions, executable launchers, checksums and source manifests.
+
+Windows 与 Apple silicon macOS 统一为 **v0.7.0-beta.1**，插件 **0.18.0-beta.1**。
+**HaochenGu** 贡献的 macOS 移植与 v0.6.0 合并，保留原始提交和作者。集成期间已发布的旧 v0.4.1-macos 保留为历史版本，后续使用统一版本。
+当前为源码候选版，可本地构建检查包。
+
+- **共同功能。**两端都保留检查程序、给人的抄送、Stop hook 的 `Reply` 规则、人下发协议、侧栏子树折叠及
+  可拖动缩放的组织关系图。系统差异只在运行环境查找、原生启动器、路径、进程管理和桌面通信层。
+- **Mac 适配。**支持原生 arm64 Python 3.11+、Finder 启动器、Command 快捷键、Unicode 与卷大小写匹配，
+  桌面连接按本机能力启用。Intel/Rosetta 不在目标内；源码安装包未经签名或公证。
+- **共同运行时。**锁定 ACP 适配器，两端 App 内成员均需 Node.js 22+；隔离会话身份，认证服务启停，避免
+  回环 DNS 阻塞，并清理自己启动的进程。检查程序返回审核时也绑定工作目录与解析后的文件路径。
+- **升级与回退。**升级前备份数据目录。两端首次打开旧库都会给 `activity` 增加 `paths` 列；这是不可逆的
+  自动迁移，没有自动降级，换回旧代码不会撤销它。回退需恢复升级前备份。已有记录保留，旧写入方留下的
+  空字段继续按旧方式读取。
+- **验证范围。**HaochenGu 在真实 Apple silicon Mac 上记录了 v0.4.1 基础版的安装、生命周期和已登录
+  Claude/Codex 成员的任务、消息与文档修订。这些是合并前证据。合并版 Windows/macOS 自动测试见
+  [验证记录](docs/validation.md)；合并版尚未完成已登录真机验收，桌面投递、完整浏览器交互、全部治理与
+  hooks、取消/恢复/休眠仍待验证。
+- **打包。**同一源码生成 Windows ZIP 与 macOS tar.gz（可选 ZIP），提供对应系统的安装说明、启动器、
+  校验文件与来源清单。
+
 ## v0.6.0-beta.1 — 2026-10-28
 
 Sixth public beta. A strong protocol can judge the reply that ends a member's turn, and a protocol the person issues takes effect at once, with no vote. Plugin 0.17.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
@@ -47,6 +95,34 @@ Fifth public beta. A strong protocol can now run a check program its members wro
 - **抄送给你。**带 check 规则的协议由组织投票通过（或由上级下发）即生效，不等你批，同时抄送一份给你，附 `summary_for_person`：提案必须带的、用你的语言写的说明。修订版生效时也抄送。Relic App 铃铛旁边的「抄送」显示未读数；每张卡片写明组织、协议、说明、谁提的、谁投票通过、何时生效，以及程序放行、拦下、送审、出错各多少次；代码和例子折叠在下面。「知道了」标为已读；「废除这条协议」确认后立即废除，本组织和继承它的下级组织一起失效，不需要投票；群聊里有通知，成员在 `status` 里也看得到。
 - **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器。第一次使用时数据库加上 `cc`、`check_counts`、`check_alerts` 三张表，别的不变。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。所有跑 Relic hooks 的地方都要用 0.16.0：旧版本把 `check` 规则当成 `require_review`，它管的每次调用都要求别人审核。用和上次相同的 Python 安装时，Codex 里对 Relic hooks 的信任会保留。
 - **发布与检查。**`relic-windows-v0.5.0-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 列出 12 个工具；`protocol` 多了 `summary_for_person`，规则多了 `check`。
+
+## v0.4.1-macos-beta.1 — 2026-10-28
+
+First macOS Apple silicon prerelease, based on the tested v0.4.1-beta.1 codebase. Plugin
+0.15.1-macos-beta.1; the plugin id stays `relic@relic-bridge`. The newer Windows v0.6.0-beta.1
+release remains separate; this release does not include its newer protocol and reply-check features.
+
+- **Native Apple silicon installation.** arm64 Python 3.11+ and Node.js 22+ checks; PATH, Homebrew,
+  nvm and Volta executable discovery; a Finder launcher at `~/Applications/Relic.app`.
+- **App and member lifecycle.** One server per data directory, authenticated status/stop/restart,
+  port reuse and cleanup of owned adapter processes. Locked Claude/Codex ACP dependencies.
+- **macOS files and interaction.** Finder/Terminal launching, Command-key shortcuts and POSIX file
+  links; volume-aware case matching, Unicode/symlink handling and structured activity paths.
+- **Desktop connections.** Codex/ChatGPT Unix sockets and Claude Desktop delivery are conditional
+  on local capability and host authorization checks. App-managed and CLI members work independently.
+- **Distribution.** ZIP and tar.gz source installers, SHA256 checksums and a manifest recording the
+  source commit. Packages and committed launch templates contain no installation-specific paths.
+- **Validation.** A real signed-in Claude writer/Codex reviewer organization completed tasks,
+  shared document revision and message round trips. Local Python 3.11 and 3.13 suites each passed
+  406 tests with two Windows-only skips. Extracted ZIP installation and server lifecycle passed.
+  See [validation](docs/validation.md) for scope and remaining interactive coverage.
+
+首个 macOS Apple silicon 测试版，基于已验证的 v0.4.1-beta.1，插件版本为
+0.15.1-macos-beta.1。Windows v0.6.0-beta.1 独立保留，本版不包含其新增的协议与回复检查功能。
+新增原生 arm64 环境检测、Finder 启动器、进程与服务生命周期管理、锁定版本的 ACP 适配器、
+macOS 文件路径处理及快捷键。真实 Claude/Codex 成员已完成任务、共享文档修订与消息往返；
+ZIP 解压安装及启动、状态、重启、停止检查通过。桌面自动投递仍需通过本机宿主能力验证。
+提供 ZIP、tar.gz、SHA256 校验及来源清单；属于未签名的源码安装包，面向 Apple silicon。
 
 ## v0.4.1-beta.1 — 2026-10-28
 

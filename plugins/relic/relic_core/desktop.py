@@ -11,9 +11,10 @@ The app's description of send_message_to_thread asks for the person's authorizat
 only for a seat the person configured in the Relic App, in an organization whose auto-wake switch is on (Hongyi's
 decision of 2026-10-17: everything automatic); switching auto-wake off stops these messages with every other wake-up.
 
-The pipe's name changes every time the app starts. A Relic MCP server inside a desktop chat writes the name it was
-given to runs/codex-desktop.json; otherwise the pipes named codex-app-tools-* or codex-browser-use-* (the app has used
-both) are asked for their tool list (read only) and the one that serves send_message_to_thread is remembered there.
+The endpoint changes every time the app starts. A Relic MCP server inside a desktop chat remembers the endpoint the
+host supplied. Windows can also probe its named pipes. macOS uses only that explicit endpoint or its remembered copy,
+validates a private same-user Unix socket, and requires a successful tools/list handshake. Framing was confirmed in
+the installed macOS host; its peer authorizer can still refuse Relic. This bridge is separate from app-server.
 
 The same app holds ChatGPT chats (kind "chatgpt", no host), which these tools reach too. A tool call names the thread
 that makes it; a ChatGPT chat cannot be that caller, so calls about one are made in the name of a local Codex thread
@@ -22,10 +23,14 @@ that makes it; a ChatGPT chat cannot be that caller, so calls about one are made
 import json
 import os
 import re
+import socket
+import stat
 import struct
+import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 
 from . import runner
 
@@ -39,6 +44,8 @@ NOT_LOADED = "notLoaded"
 IDLE = "idle"
 FINISHED = ("completed", "failed", "interrupted")
 BUSY = "is busy in the Codex desktop app"  # a turn is running in the chat: wait for it, never interject
+MAX_FRAME = 8 * 1024 * 1024  # the desktop tools bridge's documented-by-installed-host frame limit
+REQUIRED_TOOLS = {"read_thread", "send_message_to_thread", "list_threads"}
 
 
 class DesktopError(RuntimeError):
@@ -52,6 +59,27 @@ class Uncertain(DesktopError):
 def is_codex_pipe(path):
     """Only local named pipes of the Codex app are ever opened: a stale or wrong name must never reach a file."""
     return bool(path) and CODEX_PIPE.fullmatch(str(path)) is not None
+
+
+def _socket_identity(path):
+    """Validate an explicitly supplied local socket; never discover endpoints by scanning directories.
+
+    /tmp itself is a system symlink on macOS. The socket must not be a symlink, and its immediate parent must be
+    owned by this user without group/other write permission. The socket is private to that same user.
+    """
+    if sys.platform != "darwin" or not path:
+        return None
+    try:
+        target = Path(path)
+        if not target.is_absolute() or target.suffix != ".sock" or ".." in target.parts:
+            return None
+        info, parent = target.lstat(), target.parent.stat()
+        if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or
+                not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o022):
+            return None
+        return {"device": info.st_dev, "inode": info.st_ino, "uid": info.st_uid, "ctime_ns": info.st_ctime_ns}
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 def cache_path():
@@ -74,7 +102,7 @@ def _cache(**fields):
 
 
 def remember(pipe):
-    if is_codex_pipe(pipe):
+    if is_codex_pipe(pipe) or _socket_identity(pipe):
         _cache(pipe=pipe)
 
 
@@ -106,7 +134,9 @@ def _open(pipe, tries=20):
 def exchange(pipe, message, timeout=10.0):
     """One request on the app's tool pipe: a uint32 little-endian length, then UTF-8 JSON, in each direction.
     Raises DesktopError when the request surely did not reach the app, Uncertain when it may have."""
-    if not is_codex_pipe(pipe):
+    if _socket_identity(pipe):
+        return _unix_exchange(pipe, message, timeout)
+    if not runner.WINDOWS or not is_codex_pipe(pipe):
         raise DesktopError("not a local Codex pipe: %r" % (pipe,))
     box = {}
 
@@ -114,9 +144,13 @@ def exchange(pipe, message, timeout=10.0):
         try:
             with _open(pipe) as handle:
                 body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+                if not 0 < len(body) <= MAX_FRAME:
+                    raise DesktopError("Codex request exceeds the bridge frame limit")
                 box["writing"] = True
                 handle.write(struct.pack("<I", len(body)) + body)
                 size = struct.unpack("<I", _read(handle, 4))[0]
+                if not 0 < size <= MAX_FRAME:
+                    raise DesktopError("Codex returned an invalid bridge frame length")
                 box["reply"] = json.loads(_read(handle, size).decode("utf-8"))
         except Exception as error:  # reported below, in the caller's thread
             box["error"] = error
@@ -131,17 +165,64 @@ def exchange(pipe, message, timeout=10.0):
     raise (Uncertain if worker.is_alive() or box.get("writing") else DesktopError)(problem)
 
 
+def _unix_exchange(path, message, timeout):
+    """Confirmed macOS bridge framing: uint32 little-endian size plus UTF-8 JSON (not app-server WebSockets).
+
+    A host may reject an otherwise valid local peer. This client never changes its identity or circumvents that
+    authorization. Any error after a write starts is uncertain; callers must not resend a tool call automatically.
+    """
+    body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+    if not 0 < len(body) <= MAX_FRAME:
+        raise DesktopError("Codex request exceeds the bridge frame limit")
+    writing = False
+    deadline = time.monotonic() + timeout
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            def remaining():
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError("the Codex desktop bridge did not answer before its deadline")
+                connection.settimeout(left)
+
+            def receive(size):
+                data = bytearray()
+                while len(data) < size:
+                    remaining()
+                    chunk = connection.recv(size - len(data))
+                    if not chunk:
+                        raise DesktopError("the host closed the desktop bridge connection (peer access may be refused)")
+                    data.extend(chunk)
+                return data
+
+            remaining()
+            connection.connect(path)
+            remaining()
+            writing = True
+            connection.sendall(struct.pack("<I", len(body)) + body)
+            size = struct.unpack("<I", receive(4))[0]
+            if not 0 < size <= MAX_FRAME:
+                raise DesktopError("Codex returned an invalid bridge frame length")
+            reply = json.loads(receive(size).decode("utf-8"))
+            if not isinstance(reply, dict) or reply.get("id") != message.get("id"):
+                raise DesktopError("Codex returned an unmatched bridge response")
+            return reply
+    except (OSError, ValueError, DesktopError) as error:
+        raise (Uncertain if writing else DesktopError)(str(error)) from None
+
+
 def serves_codex_app(pipe, timeout=3.0):
     reply = exchange(pipe, {"id": 1, "jsonrpc": "2.0", "method": "tools/list", "params": {"threadStartKind": "all"}},
                      timeout)
     tools = (reply.get("result") or {}).get("tools") or []
-    return any(t.get("name") == SEND and t.get("namespace") == NAMESPACE for t in tools)
+    names = {t.get("name") for t in tools if isinstance(t, dict) and t.get("namespace") == NAMESPACE}
+    return REQUIRED_TOOLS <= names if _socket_identity(pipe) else SEND in names
 
 
 def find_pipe(listdir=os.listdir):
-    """The desktop app's tool pipe, or None (the app is not running, or this is not Windows)."""
+    """Find the Windows bridge, or verify only a host-supplied/cached Unix endpoint on macOS."""
     if not runner.WINDOWS:
-        return None
+        status = transport_capability(probe=True)
+        return status.get("endpoint") if status["available"] else None
     known = [(os.getenv(PIPE_ENV) or "").strip(), str(_cached().get("pipe") or "")]
     try:
         names = listdir(PIPE_DIR)
@@ -160,6 +241,49 @@ def find_pipe(listdir=os.listdir):
         except DesktopError:
             continue
     return None
+
+
+def transport_capability(probe=False):
+    """Read verified bridge availability; opt-in probes call tools/list only, never chat tools.
+
+    A successful probe is tied to the socket inode. Replacing/removing the socket invalidates the proof. API/UI
+    reads use probe=False, so polling capabilities never opens connections or starts account/model operations.
+    """
+    if sys.platform != "darwin":
+        return {"available": runner.WINDOWS, "transport": "windows-named-pipe" if runner.WINDOWS else "none",
+                "reason": "Windows desktop bridge" if runner.WINDOWS else "No desktop bridge on this platform"}
+    cached = _cached()
+    candidates = list(dict.fromkeys(p for p in ((os.getenv(PIPE_ENV) or "").strip(), cached.get("pipe")) if isinstance(p, str) and p))
+    valid = [(path, _socket_identity(path)) for path in candidates]
+    valid = [(path, identity) for path, identity in valid if identity]
+    for path, identity in valid:
+        proof = cached.get("verification") or {}
+        if not isinstance(proof, dict):
+            proof = {}
+        if not probe and proof.get("endpoint") == path and proof.get("identity") == identity and proof.get("available"):
+            return dict(proof, transport="unix-socket", reason="Host bridge handshake verified; delivery still requires host authorization")
+        if probe:
+            try:
+                available = serves_codex_app(path, timeout=3.0)
+                reason = "Host bridge handshake verified" if available else "Host bridge lacks the required Relic desktop tools"
+            except DesktopError as error:
+                available, reason = False, str(error)
+            proof = {"available": available, "endpoint": path, "identity": identity, "checked_at": time.time(), "reason": reason}
+            _cache(pipe=path, verification=proof)
+            if available:
+                return dict(proof, transport="unix-socket")
+    last = _cached().get("verification") or {}
+    if not isinstance(last, dict):
+        last = {}
+    reason = (last.get("reason") if any(last.get("endpoint") == path and last.get("identity") == identity for path, identity in valid)
+              else "Desktop endpoint is not verified; run doctor.py --probe-desktop" if valid
+              else "No private host-supplied desktop socket; open a chat with the Relic plugin loaded")
+    return {"available": False, "transport": "unix-socket", "reason": reason, "checked_at": last.get("checked_at")}
+
+
+def reset_transport_verification():
+    """Forget a local handshake result without changing the host or its supplied endpoint."""
+    _cache(verification={})
 
 
 class Desktop:
