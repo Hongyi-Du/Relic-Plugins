@@ -8,6 +8,20 @@ concurrency:
   group: native-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require complete reference route, vocabulary and flow coverage
+        run: python scripts/check_native_parity.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-parity-report
+          path: test-results/native-parity.json
   windows:
     runs-on: windows-2025
     timeout-minutes: 30
