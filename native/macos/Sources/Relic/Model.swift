@@ -60,6 +60,7 @@ import RelicCore
     @Published var threadDraft = ""
     private var threadPreviousPane = "overview"
     @Published var file = Node()
+    @Published var workspaceMember = ""
     @Published var fileImage: NSImage?
     @Published var fileLine = 0
     @Published var plainMode = false
@@ -80,6 +81,7 @@ import RelicCore
     private var plainTask: Task<Void, Never>?
     private var plainQueue: Set<String> = []
     private var refreshing = false, pending = false, starting = false
+    private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
@@ -137,10 +139,12 @@ import RelicCore
             let retry = Array(plainPending); plainPending = []
             for id in retry { enqueuePlain(id) }
             if digestOpen { run { try await self.loadDigest(false) } }
+            schedule(); return
         }
         if type == "prefs" {
             do { preferences = try await get("/api/prefs"); words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
             catch { self.error = error.localizedDescription }
+            return
         }
         if type == "install" {
             let id = event["id"].text
@@ -156,7 +160,7 @@ import RelicCore
                 if !event["status"].isNull { liveStatus = event["status"] }
             }
         }
-        schedule()
+        if ["orgs", "cc"].contains(type) || ["org", "decision"].contains(type) && event["org"].text == organization { schedule() }
     }
     func persistDraft() {
         guard !organization.isEmpty else { return }
@@ -176,8 +180,24 @@ import RelicCore
         }
     }
     func refresh() async throws {
-        if refreshing { pending = true; return }; refreshing = true; pending = false
-        defer { refreshing = false; if pending { schedule() } }
+        if refreshing {
+            pending = true
+            return try await withCheckedThrowingContinuation { refreshWaiters.append($0) }
+        }
+        refreshTask?.cancel(); refreshTask = nil; refreshing = true
+        do {
+            repeat { pending = false; try await refreshOnce() } while pending
+            refreshing = false
+            let waiting = refreshWaiters; refreshWaiters = []
+            for waiter in waiting { waiter.resume() }
+        } catch {
+            refreshing = false; pending = false
+            let waiting = refreshWaiters; refreshWaiters = []
+            for waiter in waiting { waiter.resume(throwing: error) }
+            throw error
+        }
+    }
+    private func refreshOnce() async throws {
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
         copies = try await get("/api/cc")["items"].rows
         let unreadCopies = copies.filter { !$0["read"].flag }.count
@@ -193,7 +213,7 @@ import RelicCore
         var live = Node(), convo = Node()
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
-        guard selected == selection else { pending = true; return }
+        guard selected == selection else { return }
         snapshot = snap; messages = Timeline.merge(messages, chat["items"].rows); moreChat = chat["more"].flag
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
@@ -320,10 +340,17 @@ import RelicCore
     }
     func openFile(_ path: String, line: Int = 0) async throws {
         let selected = selection, request = UUID(); fileRequest = request
-        let result: Node
-        do { result = try await get("/api/fs/read?path=" + Client.segment(path)) } catch { throw RelicError.message(t("file.open_failed", ["error": error.localizedDescription])) }
-        var image: NSImage?; if result["kind"].text == "image" { image = NSImage(data: try await bytes("/api/fs/raw?path=" + Client.segment(path))) }
-        guard selection == selected, fileRequest == request else { return }; file = result; fileImage = image; fileLine = line; setPane("files")
+        file = Node(["path": path]); fileImage = nil; fileLine = line; setPane("files")
+        do {
+            let result = try await get("/api/fs/read?path=" + Client.segment(path))
+            var image: NSImage?
+            if result["kind"].text == "image" { image = NSImage(data: try await bytes("/api/fs/raw?path=" + Client.segment(path))) }
+            guard selection == selected, fileRequest == request else { return }
+            file = result; fileImage = image
+        } catch {
+            guard selection == selected, fileRequest == request else { return }
+            file = Node(["path": path, "error": error.localizedDescription])
+        }
     }
     func acceptPlain(_ items: Node, ids: [String]) {
         for (id, value) in items.object { plain[id] = Node(value) }

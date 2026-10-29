@@ -41,7 +41,10 @@ struct RichText: View {
     @EnvironmentObject var m: Model
     let text: String
     var pointSize: CGFloat? = nil
-    init(_ text: String, pointSize: CGFloat? = nil) { self.text = text; self.pointSize = pointSize }
+    var document = false
+    init(_ text: String, pointSize: CGFloat? = nil, document: Bool = false) { self.text = text; self.pointSize = pointSize; self.document = document }
+    private var baseSize: CGFloat { pointSize ?? (document ? 13.5 : m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) }
+    private var textLineHeight: CGFloat { baseSize * (document ? 1.7 : 1.65) }
     var body: some View {
         IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
             VStack(alignment: .leading, spacing: 8) {
@@ -59,7 +62,7 @@ struct RichText: View {
         })
     }
     private var preferredWidth: CGFloat {
-        let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
+        let size = baseSize
         return NativeMarkdown.blocks(text).map { block -> CGFloat in
             switch block.kind {
             case "code": return NativeTextStyle.preferredWidth(NativeTextStyle.render(AttributedString(block.text), size: 11.25, monospaced: true)) + 24
@@ -72,15 +75,15 @@ struct RichText: View {
         }.max() ?? 0
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: NativeMarkdown.attributed(value), pointSize: pointSize).help(m.t("chat.path_preview"))
+        SelectableText(value: NativeMarkdown.attributed(value), pointSize: baseSize, lineHeight: textLineHeight).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
         case "code": ScrollView(.horizontal) {
-            SelectableText(value: AttributedString(block.text), pointSize: 11.25, lineHeight: 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
+            SelectableText(value: AttributedString(block.text), pointSize: document ? 10.8 : 11.25, lineHeight: document ? 18.6 : 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
         }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
-        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold).padding(.top, 8).padding(.bottom, 4)
+        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight).padding(.top, document ? 10 : 8).padding(.bottom, 4)
         case "quote":
             SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary)
                 .padding(.leading, 13).padding(.vertical, 2)
@@ -128,10 +131,15 @@ struct ChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
-                VStack(spacing: 6) {
-                    Text(m.t("chat.no_orgs")).font(RelicStyle.font(18, weight: 600))
-                    Text(m.t("chat.no_orgs_hint")).font(RelicStyle.font(14, weight: 400)).foregroundStyle(RelicStyle.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                }.padding(30).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7)
+                ReferenceLabel("Relic", size: 15, weight: 650, lineHeight: 19.5).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 20).frame(height: 56)
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                ScrollView {
+                    VStack(spacing: 14) {
+                        ReferenceLabel(m.t("chat.no_orgs"), size: 18, weight: 650, alignment: .center)
+                        ReferenceLabel(m.t("chat.no_orgs_hint"), size: 14, color: RelicStyle.muted, lines: 0, alignment: .center).padding(.bottom, 14)
+                    }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8)
+                }.measuredRegion("conversation")
             } else {
                 header.measuredRegion("conversation")
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
@@ -242,6 +250,7 @@ struct MessageView: View {
     var continued = false
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
+    @State private var originalExpanded = false
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
     private var groupPlain: Bool { m.plainMode && m.member.isEmpty && !inThread }
@@ -277,22 +286,32 @@ struct MessageView: View {
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { HStack(spacing: 6) {
                         Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).font(RelicStyle.font(12.5, weight: 600)).foregroundStyle(RelicStyle.secondary).lineLimit(1)
-                        if m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { Text(item["from"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted) }
-                        if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
+                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { Text(item["from"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted) }
+                        if item["type"].text == "receipt" { Text(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])).foregroundStyle(RelicStyle.muted) }
+                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
                         Text(m.clock(item["at"])).foregroundStyle(RelicStyle.muted).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
                     }.font(RelicStyle.font(12, weight: 400)) }
-                    VStack(alignment: .leading, spacing: 6) {
-                    if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
-                    else if wantsPlain, let plain = m.plain[item["id"].text] { Label(m.t("common.plain_words"), systemImage: "sparkles").font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.violet); RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
-                    else { RichText(bodyText) }
-                    if wantsPlain && m.plain[item["id"].text] == nil {
-                        if m.plainFailed.contains(item["id"].text) { Button(m.t("plain.retry")) { m.run { try await m.requestPlain([item["id"].text]) } } }
-                        else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(RelicStyle.font(12, weight: 400)) }
+                    if item["type"].text == "receipt" {
+                        MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
+                    } else if wantsPlain, let plain = m.plain[item["id"].text] {
+                        messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Button { originalExpanded.toggle() } label: {
+                                ReferenceLabel((originalExpanded ? "▾ " : "▸ ") + m.t("msg.original"), size: 11.5, color: RelicStyle.muted)
+                                    .padding(.horizontal, 2).modifier(RecordedSurface(background: .clear, expanded: originalExpanded))
+                            }.buttonStyle(.plain)
+                            if originalExpanded { messageBubble(bodyText) }
+                        }
+                    } else {
+                        messageBubble(bodyText)
+                        if wantsPlain {
+                            if m.plainFailed.contains(item["id"].text) { TextButton(m.t("plain.retry"), size: 11.5, weight: 400, color: RelicStyle.red) { m.run { try await m.requestPlain([item["id"].text]) } }.buttonStyle(.plain) }
+                            else { HStack(spacing: 6) {
+                                if m.plainPending.contains(item["id"].text) { ProgressView().controlSize(.mini).frame(width: 10, height: 10) }
+                                ReferenceLabel(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting"), size: 11.5, color: RelicStyle.muted)
+                            } }
+                        }
                     }
-                    }.padding(.horizontal, 13).padding(.vertical, 9)
-                        .modifier(RecordedSurface(background: mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble,
-                            border: wantsPlain ? RelicStyle.violet.opacity(0.22) : .clear, borderWidth: wantsPlain ? 1 : 0, radius: 14, kind: "card",
-                            cornerRadii: mine ? [14,4,14,14] : [4,14,14,14], insetLeadingWidth: item["from"].text == m.secretary ? 3 : 0, insetLeadingColor: RelicStyle.violet))
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
                         ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted)
                     }
@@ -317,6 +336,30 @@ struct MessageView: View {
                 else { Spacer(minLength: 0) }
             }.onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
+    }
+    private func messageBubble(_ text: String, plain: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if plain { HStack(spacing: 4) { ReferenceIcon(name: "lang", size: 13, color: RelicStyle.violet); ReferenceLabel(m.t("msg.plain"), size: 11, weight: 650, color: RelicStyle.violet) } }
+            RichText(text)
+        }.padding(.horizontal, plain ? 14 : 13).padding(.vertical, plain ? 10 : 9)
+            .modifier(RecordedSurface(background: mine ? RelicStyle.mine : plain ? RelicStyle.violetSoft : RelicStyle.bubble,
+                border: plain ? RelicStyle.violet.opacity(0.22) : .clear, borderWidth: plain ? 1 : 0, radius: 14, kind: "card",
+                cornerRadii: mine ? [14,4,14,14] : [4,14,14,14], insetLeadingWidth: item["from"].text == m.secretary ? 3 : 0, insetLeadingColor: RelicStyle.violet))
+    }
+}
+
+struct MessageReceipt: View {
+    let text: String
+    @State private var expanded = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                ReferenceLabel((expanded ? "▾ " : "▸ ") + ReferenceText.clip(text, to: 90), size: 12.5, color: RelicStyle.muted, lines: 0)
+                    .modifier(RecordedSurface(background: .clear, expanded: expanded))
+            }.buttonStyle(.plain)
+            if expanded { SelectableText(value: AttributedString(text), color: RelicStyle.secondary, pointSize: 12, lineHeight: 18.6) }
+        }.padding(.horizontal, 11).padding(.vertical, 7).frame(maxWidth: 640, alignment: .leading)
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "card"))
     }
 }
 
@@ -492,46 +535,75 @@ struct ComposerSendButton: View {
 struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(RelicStyle.font(13, weight: 600)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "x") { m.closeThread() } }
-            ScrollView { LazyVStack(alignment: .leading, spacing: 16) {
-                if !m.threadData["root"].isNull { MessageView(item: m.threadData["root"], inThread: true) }
-                Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
-                if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
-            } }
-            VStack(alignment: .leading, spacing: 6) {
-                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(RelicStyle.font(12, weight: 400)) }
-                MentionEditor(text: $m.threadDraft, contextID: "thread", placeholder: m.t("thread.reply_placeholder"), members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
-                HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
-            }.padding(10).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(RelicStyle.border))
-        }.padding(14).onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if !m.threadData["error"].text.isEmpty || m.threadData["root"].isNull {
+                    OverviewBlock { ReferenceLabel(m.threadData["error"].text.isEmpty ? m.t("common.loading") : m.t("common.load_failed", ["error": m.threadData["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) }
+                } else {
+                    MessageView(item: m.threadData["root"], inThread: true).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
+                        .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                    ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(m.conversationRows(m.threadData["replies"].rows, separators: false)) { row in
+                            MessageView(item: row.item, inThread: true, continued: row.continued).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
+                        }
+                    }.padding(.horizontal, 16).padding(.bottom, 16)
+                    ThreadComposer().padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 14)
+                }
+            }
+        }
+    }
+}
+
+struct ThreadComposer: View {
+    @EnvironmentObject var m: Model
+    @State private var focused = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !m.quote.isEmpty { ComposerQuote() }
+            MentionEditor(text: $m.threadDraft, contextID: "thread", placeholder: m.t("thread.reply_placeholder"), focusChanged: { focused = $0 }, members: [], onMention: { _ in }, send: send).accessibilityLabel(m.t("thread.reply_placeholder"))
+            HStack(spacing: 6) { Spacer(minLength: 0); VoiceButton(text: $m.threadDraft, size: 32); ComposerSendButton(action: send).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
+        }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
+            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "region", shadows: SurfaceShadow.small))
+            .onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }
     private func send() { m.run { try await m.sendThread() } }
 }
 
-struct DigestCard: View {
+struct ComposerQuote: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles").foregroundStyle(RelicStyle.violet)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(m.t("digest.title")).font(RelicStyle.font(13, weight: 600))
-                    if !m.digest["text"].text.isEmpty {
+        HStack(alignment: .top, spacing: 8) {
+            ReferenceLabel(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression), size: 12.5, color: RelicStyle.secondary, lines: 3).frame(maxWidth: .infinity, alignment: .leading).help(m.quote)
+            IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" }
+        }.padding(.leading, 13).padding(.trailing, 8).padding(.vertical, 6)
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "region"))
+    }
+}
+
+struct DigestCard: View {
+    @EnvironmentObject var m: Model
+    private var hasDigest: Bool { !m.digest["text"].text.isEmpty }
+    var body: some View {
+        FittingScroll(maxHeight: m.windowSize.height * 0.4) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    ReferenceIcon(name: "sparkle", size: 15, color: RelicStyle.violet)
+                    ReferenceLabel(m.t("digest.title"), size: 13.5, weight: 700).fixedSize()
+                    if hasDigest {
                         let newer = m.messages.filter { $0["id"].integer > m.digest["last_id"].integer }.count
-                        Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
+                        ReferenceLabel(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)]), size: 12.5, color: RelicStyle.muted, lines: 0)
                     }
+                    Spacer(minLength: 0)
+                    if m.digestPending { HStack(spacing: 6) { ProgressView().controlSize(.mini).frame(width: 10, height: 10); ReferenceLabel(m.t("digest.pending"), size: 11.5, color: RelicStyle.muted) } }
+                    else { TextButton(m.t(hasDigest ? "digest.update" : "chat.digest"), size: 12) { m.run { try await m.loadDigest(true) } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).fixedSize() }
+                    if !m.secretary.isEmpty { TextButton(m.t("digest.ask"), size: 12) { m.run { try await m.askSecretary() } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).fixedSize().help(m.t("digest.ask_title")) }
+                    IconButton(title: m.t("common.collapse"), icon: "x", size: 14, height: 24, width: 24) { m.toggleDigest() }
                 }
-                Spacer(minLength: 4)
-                Button(m.t("digest.update")) { m.run { try await m.loadDigest(true) } }.buttonStyle(.link).disabled(m.digestPending)
-                if !m.secretary.isEmpty { Button(m.t("digest.ask")) { m.run { try await m.askSecretary() } }.buttonStyle(.link).help(m.t("digest.ask_title")) }
-                IconButton(title: m.t("common.collapse"), icon: "x") { m.toggleDigest() }
-            }
-            if m.digestPending { Text(m.t("digest.pending")) }
-            if m.digest["text"].text.isEmpty { Text(m.t(m.digestPending ? "digest.reading" : "digest.none")) }
-            else {
-                RichText(m.digest["text"].text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.font(RelicStyle.font(12, weight: 400)).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.violet.opacity(0.3))).padding(.horizontal, 20).padding(.vertical, 10)
+                if hasDigest { RichText(m.digest["text"].text, document: true).frame(maxWidth: .infinity, alignment: .leading) }
+                else { ReferenceLabel(m.t(m.digestPending ? "digest.reading" : "digest.none"), size: 12.5, color: RelicStyle.muted, lines: 0) }
+            }.padding(.horizontal, 15).padding(.top, 11).padding(.bottom, 13)
+        }.modifier(RecordedSurface(background: RelicStyle.violetSoft, border: RelicStyle.violet.opacity(0.28), borderWidth: 1, radius: 12, kind: "card"))
+            .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 10)
     }
 }

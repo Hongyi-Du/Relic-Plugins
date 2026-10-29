@@ -138,7 +138,7 @@ struct SidebarChatRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
                         ReferenceLabel(title, size: 13.3, weight: 550, lineHeight: 17.955, owner: owner)
-                        if secretary, let who { Text(who["role"].text.isEmpty ? m.t("common.secretary") : who["role"].text).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
+                        if secretary, let who { Text(who.display == m.t("common.secretary") ? who["name"].text : who.display).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
                         else if who?["leader"].flag == true { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
                     }.frame(height: 18, alignment: .leading)
                     if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }

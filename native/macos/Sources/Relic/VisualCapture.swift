@@ -76,7 +76,7 @@ import RelicAX
                     case "group": break
                     case "private": try await model.select(fixture["org"].text, fixture["member"].text)
                     case "overview": model.setPane("overview")
-                    case "workspace": model.setPane("workspace")
+                    case "workspace": model.workspaceMember = fixture["member"].text; model.setPane("workspace")
                     case "thread": try await model.openThread(fixture["thread"].text)
                     case "copies", "copy-rules": model.expandRules = scene == "copy-rules"; model.sheet = .copies
                     case "chart": model.sheet = .chart
@@ -96,7 +96,7 @@ import RelicAX
                     case "mention": model.draft = ""
                     case "digest": model.digest = fixture["digest"]; model.digestOpen = true
                     case "plain": model.plain = Dictionary(uniqueKeysWithValues: model.messages.map { ($0["id"].text, Node(["text": fixture["plain"].text])) }); model.plainMode = true
-                    case "quick-start": model.organizations = []; model.organization = ""; model.snapshot = Node(); model.messages = []
+                    case "quick-start": model.setSelection(ChatSelection(), record: false); model.organizations = []
                     default: throw RelicError.message("Unimplemented native scene: " + scene)
                     }
                 }
@@ -113,6 +113,9 @@ import RelicAX
                     guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker: text=\(editor.string), selection=\(editor.selectedRange()), candidates=\(editor.mentionCandidates().count), frame=\(editor.frame), anchor=\(editor.mentionAnchorRect()), attached=\(editor.window != nil)") }
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
+                if scene == "quick-start" {
+                    guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
+                }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])

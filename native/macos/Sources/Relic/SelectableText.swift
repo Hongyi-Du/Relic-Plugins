@@ -63,7 +63,7 @@ struct SelectableText: NSViewRepresentable {
         let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
         container.containerSize.width = width
         layout.ensureLayout(for: container)
-        return CGSize(width: width, height: max(1, ceil(layout.usedRect(for: container).height)))
+        return CGSize(width: width, height: max(1, layout.usedRect(for: container).height))
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SelectableText
