@@ -135,7 +135,22 @@ import CoreText
         guard let manager = view.layoutManager, let container = view.textContainer, let storage = view.textStorage else { return [] }
         manager.ensureLayout(for: container)
         var rows: [[String: Any]] = []
+        var codeParents: [String: Int] = [:]
+        let codeManager = manager as? InlineCodeLayoutManager
+        let codeFragments = codeManager?.codeFragments(in: container) ?? []
         storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length), options: []) { attributes, range, _ in
+            if let group = attributes[.relicCodeGroup] as? String, codeParents[group] == nil {
+                codeParents[group] = rows.count
+                for fragment in codeFragments.filter({ $0.group == group }) {
+                    let rect = fragment.rect.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+                    rows.append(["text": "", "range": ["location": fragment.range.location, "length": fragment.range.length], "local_rect": NSValue(rect: rect), "lines": [box(rect)], "kind": "card",
+                                 "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()],
+                                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": rgba(codeManager?.fill), "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 5,
+                                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [5,5,5,5], "opacity": (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue), "background_image": "none", "shadow": []],
+                                 "attributes": ["source": "InlineCodeLayoutManager.drawBackground", "group": group, "horizontal_padding": 5, "vertical_padding": 1]])
+                }
+            }
+            if attributes[.relicCodePadding] as? Bool == true { return }
             let text = (storage.string as NSString).substring(with: range)
             guard !text.isEmpty else { return }
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -165,6 +180,7 @@ import CoreText
                           "opacity": (view as? ReferenceLabelView)?.measuredOpacity ?? (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue),
                           "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull()],
                 "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
+            if let group = attributes[.relicCodeGroup] as? String, let parent = codeParents[group] { rows[rows.count - 1]["parent_run"] = parent }
         }
         return rows
     }
@@ -196,9 +212,9 @@ import CoreText
             let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
@@ -226,6 +242,7 @@ import CoreText
                         "state": ["enabled": textView.isSelectable, "focused": false, "selected": NSNull(), "expanded": NSNull(), "checked": NSNull()],
                         "visible": !visible.isNull && visible.width > 0 && visible.height > 0,
                         "pixelSamples": samples(visible, bitmap: bitmap)]
+                    if let parent = run["parent_run"] as? Int { projected["parent"] = path + "/text-" + String(parent) }
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
                     projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
@@ -259,7 +276,7 @@ import CoreText
         for var label in ownedLabels.reversed() {
             if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
                 let identifier = label["production_owner"] as! String
-                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/")
+                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/") || identifier.hasPrefix("relic-chip/") || identifier.hasPrefix("relic-badge/") || identifier.hasPrefix("relic-tab/")
                 if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
                     var style = elements[owner]["style"] as! [String: Any]
                     let textStyle = label["style"] as! [String: Any]
@@ -289,7 +306,7 @@ import CoreText
             let candidates = elements.indices.filter { index in
                 if let owner { return elements[index]["identifier"] as? String == owner }
                 let other = bounds(elements[index])
-                return ["button", "icon-button", "tab", "menu-item", "region", "card", "list-row"].contains(elements[index]["kind"] as? String ?? "") &&
+                return ["button", "icon-button", "tab", "menu-item", "region", "card", "list-row", "chip", "badge", "avatar"].contains(elements[index]["kind"] as? String ?? "") &&
                     abs(rect.minX - other.minX) < 0.5 && abs(rect.minY - other.minY) < 0.5 &&
                     abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
             }

@@ -43,6 +43,7 @@ struct FlowLayout: Layout {
 struct OverviewChip: View {
     let text: String
     var tone = ""
+    @State private var identity = "relic-chip/" + UUID().uuidString
     private var foreground: Color {
         switch tone { case "ok": return RelicStyle.green; case "warn": return RelicStyle.amber; case "bad": return RelicStyle.red; case "sec": return RelicStyle.violet; case "accent": return RelicStyle.accent; default: return RelicStyle.secondary }
     }
@@ -50,10 +51,10 @@ struct OverviewChip: View {
         switch tone { case "ok": return RelicStyle.green.opacity(0.14); case "warn": return RelicStyle.amberSoft; case "bad": return RelicStyle.redSoft; case "sec": return RelicStyle.violetSoft; case "accent": return RelicStyle.accent.opacity(0.13); default: return RelicStyle.hover }
     }
     var body: some View {
-        Text(text).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(foreground).lineLimit(1).fixedSize()
+        ReferenceLabel(text, size: 11.5, color: foreground, lineHeight: 20, owner: identity).fixedSize()
             .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
-            .modifier(RecordedSurface(background: background, radius: 10, kind: "chip"))
-            .accessibilityIdentifier("relic-chip/" + text)
+            .modifier(RecordedSurface(background: background, radius: 10, kind: "chip", owner: identity))
+            .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity)
     }
 }
 

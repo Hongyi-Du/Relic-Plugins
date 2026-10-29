@@ -14,12 +14,12 @@ struct Overview: View {
                     HStack(spacing: 2) {
                         ForEach(Choices.modes, id: \.0) { value, key in
                             Button { m.overviewMode = value } label: {
-                                ReferenceLabel(m.t(key), size: 12, color: m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary, lines: 0, alignment: .center)
+                                ReferenceLabel(m.t(key), size: 12, color: m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary, lines: 0, alignment: .center, owner: "relic-tab/overview-" + value)
                                     .padding(.horizontal, 9).padding(.vertical, 2)
-                                    .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6, shadows: m.overviewMode == value ? SurfaceShadow.small : [], selected: m.overviewMode == value))
-                            }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
+                                    .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6, kind: "tab", owner: "relic-tab/overview-" + value, shadows: m.overviewMode == value ? SurfaceShadow.small : [], selected: m.overviewMode == value))
+                            }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : []).accessibilityIdentifier("relic-tab/overview-" + value).accessibilityLabel(m.t(key))
                         }
-                    }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
+                    }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
                         .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
                 }
                 Text(org["name"].text).font(RelicStyle.font(16, weight: 700)).frame(minHeight: 21.6)
@@ -38,7 +38,7 @@ struct Overview: View {
                 Toggle(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } })).toggleStyle(OverviewToggleStyle())
             }
             OverviewBlock {
-                HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { Text(String(m.snapshot["decisions"].rows.count)).font(RelicStyle.font(11, weight: 700)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).modifier(RecordedSurface(background: RelicStyle.accent, radius: 9, kind: "badge")) } }
+                HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { NativeCountBadge(text: String(m.snapshot["decisions"].rows.count)) } }
                 if m.snapshot["decisions"].rows.isEmpty { empty("decision.none") }
                 Rows(m.snapshot["decisions"].rows) { DecisionView(decision: $0) }
             }
