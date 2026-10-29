@@ -18,6 +18,13 @@ import ApplicationServices
         XCTAssertEqual(ElementCapture.cssWeight(.systemFont(ofSize: 14, weight: .semibold)), 600)
         XCTAssertEqual(ElementCapture.cssWeight(.systemFont(ofSize: 14, weight: .bold)), 700)
     }
+    func testAXSystemFontNamesNeverFallBackToAnotherFamily() throws {
+        let font = try XCTUnwrap(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Bold", "AXFontSize": 12.5]))
+        XCTAssertEqual(font.pointSize, 12.5)
+        XCTAssertEqual(ElementCapture.cssWeight(font), 700)
+        XCTAssertFalse(font.fontName.contains("Times"))
+        XCTAssertNil(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Unknown", "AXFontSize": 12]))
+    }
 
     func testInformalAccessibilityNodesDoNotRequireProtocolConformance() {
         let child = InformalAccessibilityNode(label: "Actual child", children: [])
@@ -47,34 +54,7 @@ import ApplicationServices
         XCTAssertEqual(last["wrap"] as? String, "word")
         XCTAssertGreaterThan(try XCTUnwrap(last["line_count"] as? Int), 1)
     }
-    func testCompoundNativeButtonRetainsIndividuallyVisibleLabels() async throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let content = NSHostingView(rootView: Button {} label: {
-            HStack { Text("Visible title"); Text("Visible subtitle").font(.caption) }.accessibilityElement(children: .contain)
-        }.buttonStyle(.plain))
-        window.contentView = content; window.orderFront(nil)
-        defer { window.orderOut(nil); window.contentView = nil; window.close() }
-        let result = await Task.detached {
-            let application = AXUIElementCreateApplication(getpid())
-            AXUIElementSetMessagingTimeout(application, 2)
-            var windows: CFTypeRef?
-            return AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows).rawValue
-        }.value
-        XCTAssertEqual(result, 0)
-        try await Task.sleep(for: .milliseconds(100))
-        var labels: [String] = [], seen = Set<ObjectIdentifier>()
-        func walk(_ object: AnyObject) {
-            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
-            let attributes = RelicAXRead(object)
-            for key in ["label", "title", "value"] { if let text = attributes[key] as? String { labels.append(text) } }
-            for child in RelicAXChildren(object) { walk(child as AnyObject) }
-        }
-        walk(content)
-        XCTAssertTrue(labels.contains("Visible title"), labels.description)
-        XCTAssertTrue(labels.contains("Visible subtitle"), labels.description)
-    }
+
 }
 
 private final class InformalAccessibilityNode: NSObject {

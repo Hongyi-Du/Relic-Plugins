@@ -3,6 +3,7 @@ import SwiftUI
 import QuartzCore
 import ApplicationServices
 import RelicCore
+import RelicAX
 
 // CI-only capture of the real application window and native controls. The shared
 // harness owns fixture creation, reference captures and side-by-side composition.
@@ -54,7 +55,7 @@ import RelicCore
                 model.detailTask = ""; model.detailFilter = "open"; model.editMember = ""
                 model.newSecretary = false; model.memberMode = "app"; model.expandRules = false
                 model.appMenu = nil; model.recipientPicker = false
-                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel"); model.defaults.set(520.0, forKey: "width.files")
+                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(340.0, forKey: "width.panel"); model.defaults.set(520.0, forKey: "width.files")
                 try await model.select(fixture["org"].text)
                 model.pane = "overview"; model.detailMember = fixture["member"].text; model.cardMember = fixture["member"].text
                 model.windowSize = CGSize(width: CGFloat(width), height: CGFloat(height))
@@ -106,6 +107,10 @@ import RelicCore
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
             }
+            // AX IPC needs a launched app. XCTest's command-line host returns
+            // kAXErrorNotImplemented; this integration assertion runs in the real
+            // bundle and still fails the visual job after preserving all captures.
+            try await verifyCompoundAccessibilityLabels()
             try receipt([], count: results.count, beside: manifestURL)
             model.stop(); NSApp.terminate(nil)
         } catch {
@@ -113,6 +118,37 @@ import RelicCore
             fputs("Relic visual capture failed: " + error.localizedDescription + "\n", stderr)
             model.stop(); exit(1)
         }
+    }
+    private static func verifyCompoundAccessibilityLabels() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = NSHostingView(rootView: Button {} label: {
+            HStack { ReferenceLabel("Visible title"); ReferenceLabel("Visible subtitle", size: 12) }.accessibilityElement(children: .contain)
+        }.buttonStyle(.plain))
+        window.contentView = content; window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let result = await Task.detached {
+            let application = AXUIElementCreateApplication(getpid())
+            AXUIElementSetMessagingTimeout(application, 2)
+            var windows: CFTypeRef?
+            return AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows).rawValue
+        }.value
+        guard result == 0 else { throw RelicError.message("Compound-label AX initialization failed: \(result)") }
+        try await Task.sleep(for: .milliseconds(100))
+        var labels: [String] = [], seen = Set<ObjectIdentifier>()
+        func walk(_ object: AnyObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            let attributes = RelicAXRead(object)
+            for key in ["label", "title", "value"] { if let text = attributes[key] as? String { labels.append(text) } }
+            for child in RelicAXChildren(object) { walk(child as AnyObject) }
+            if let view = object as? NSView { for child in view.subviews { walk(child) } }
+        }
+        walk(content)
+        guard labels.contains("Visible title"), labels.contains("Visible subtitle") else {
+            throw RelicError.message("Compound native button lost independently visible labels: " + labels.description)
+        }
+        print("Compound-label accessibility integration check passed")
     }
     private static func textEditors(_ view: NSView?) -> [ComposerTextView] {
         guard let view else { return [] }; return (view as? ComposerTextView).map { [$0] } ?? view.subviews.flatMap { textEditors($0) }

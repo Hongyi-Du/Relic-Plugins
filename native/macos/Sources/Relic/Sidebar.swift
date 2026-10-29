@@ -40,7 +40,8 @@ struct Sidebar: View {
                 }.buttonStyle(QuietButtonStyle()).help(m.t("page.me"))
                 IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
             }.padding(8)
-        }.background(RelicStyle.sidebar).accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
+        }.modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
+            .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
     }
 }
@@ -53,6 +54,7 @@ struct OrgTree: View {
     var depth = 0
     private var id: String { node["id"].text }
     private var active: Bool { m.organization == id }
+    private var owner: String { "relic-org/" + id }
     private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
     private var children: [Node] { m.organizations.filter { $0["parent"].text == id && !ancestors.union([id]).contains($0["id"].text) } }
     private var query: String { m.search.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -73,11 +75,11 @@ struct OrgTree: View {
                             .foregroundStyle(RelicStyle.avatar(id, background: false, dark: false))
                             .background(RelicStyle.avatar(id, background: true, dark: false), in: RoundedRectangle(cornerRadius: 6))
                             .overlay { if node["kind"].text == "subgroup" { RoundedRectangle(cornerRadius: 6).strokeBorder(RelicStyle.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2])) } }
-                        Text(node["name"].text).font(RelicStyle.font(13.44, weight: 600)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                        if !active { Text(m.shortWhen(node["last_at"])).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted) }
+                        ReferenceLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144, lines: 2, owner: owner).frame(maxWidth: .infinity, alignment: .leading)
+                        if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, owner: owner) }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
-                }.buttonStyle(QuietButtonStyle(selected: active)).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
+                }.buttonStyle(QuietButtonStyle(selected: active)).accessibilityIdentifier(owner).accessibilityLabel(node["name"].text).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
                 if active && !folded {
@@ -111,6 +113,7 @@ struct SidebarChatRow: View {
     @EnvironmentObject var m: Model
     let who: Node?
     let group: Bool
+    private var owner: String { "relic-row/" + m.organization + "/" + (group ? "group" : name) }
     private var secretary: Bool { !group && (who == nil || who?["secretary"].flag == true) }
     private var name: String { who?["name"].text ?? "" }
     private var selected: Bool { group ? m.member.isEmpty : !name.isEmpty && m.member == name }
@@ -134,20 +137,20 @@ struct SidebarChatRow: View {
                 avatar.frame(width: 30)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
-                        Text(title).font(RelicStyle.font(13.3, weight: 550)).lineLimit(1)
+                        ReferenceLabel(title, size: 13.3, weight: 550, lineHeight: 17.955, owner: owner)
                         if secretary, let who { Text(who["role"].text.isEmpty ? m.t("common.secretary") : who["role"].text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
                         else if who?["leader"].flag == true { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
                     }.frame(height: 18, alignment: .leading)
-                    if !subtitle.isEmpty { Text(subtitle).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(height: 16.2, alignment: .leading) }
+                    if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 3) {
                     let date = head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"]
-                    if !date.isNull { Text(m.shortWhen(date)).font(.system(size: 11)).foregroundStyle(RelicStyle.muted) }
+                    if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, owner: owner) }
                     if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(.system(size: 11, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
-        }.buttonStyle(QuietButtonStyle(selected: selected)).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+        }.buttonStyle(QuietButtonStyle(selected: selected)).accessibilityIdentifier(owner).accessibilityLabel(title + ", " + subtitle).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }
     private var avatar: some View {

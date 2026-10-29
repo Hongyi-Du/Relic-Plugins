@@ -58,7 +58,10 @@ struct RichText: View {
         }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line))
         case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold).padding(.top, 8).padding(.bottom, 4)
         case "quote":
-            HStack(alignment: .top, spacing: 10) { Rectangle().fill(RelicStyle.border).frame(width: 3); SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary) }.padding(.vertical, 2).padding(.bottom, 8).fixedSize(horizontal: false, vertical: true).accessibilityLabel(m.t("common.quote"))
+            SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary)
+                .padding(.leading, 13).padding(.vertical, 2)
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "card"))
+                .padding(.bottom, 8).fixedSize(horizontal: false, vertical: true)
         case "list":
             VStack(alignment: .leading, spacing: 3) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
@@ -106,7 +109,7 @@ struct ChatView: View {
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
                 ConversationStream()
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
     }
     private var header: some View {
@@ -339,10 +342,31 @@ struct LiveItem: View {
     @EnvironmentObject var m: Model
     let item: Node
     var body: some View {
-        if item["type"].text == "permission" { DecisionView(decision: Node(item.object.merging(["kind": "permission", "member": m.member]) { _, new in new })) }
+        if item["type"].text == "permission" { PermissionCard(item: item) }
         else if ["tool", "tool_call", "tool_result"].contains(item["type"].text) {
             DisclosureGroup(item["title"].text + " · " + m.t(item["status"].text == "pending" ? "live.pending" : item["status"].text == "completed" ? "task.done" : item["status"].text == "failed" ? "common.failed" : "task.working")) { Text(item["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
         } else { RichText(item["text"].text).foregroundStyle(item["type"].text == "error" ? .red : .primary) }
+    }
+}
+
+struct PermissionCard: View {
+    @EnvironmentObject var m: Model
+    let item: Node
+    @State private var sending = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) { ReferenceIcon(name: "bell", size: 14, color: RelicStyle.amber); Text(m.t("perm.ask")).font(.system(size: 12, weight: .bold)) }.foregroundStyle(RelicStyle.amber)
+            Text(item["title"].text).fixedSize(horizontal: false, vertical: true)
+            FlowLayout {
+                Rows(item["options"].rows) { option in
+                    Button(option["name"].text.isEmpty ? option["kind"].text : option["name"].text) {
+                        sending = true
+                        m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(item["id"].text), ["option": option["id"].text]); try await m.refresh() }
+                    }.buttonStyle(ReferenceButtonStyle(primary: option["kind"].text.hasPrefix("allow"), small: true))
+                }
+            }
+        }.padding(.vertical, 10).padding(.horizontal, 12).frame(maxWidth: 620, alignment: .leading)
+            .modifier(RecordedSurface(background: RelicStyle.amberSoft, border: RelicStyle.amber.opacity(0.45), borderWidth: 1, radius: 12, kind: "card")).disabled(sending)
     }
 }
 

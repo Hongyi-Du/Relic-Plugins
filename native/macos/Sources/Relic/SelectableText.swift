@@ -11,6 +11,7 @@ struct SelectableText: NSViewRepresentable {
     @EnvironmentObject var m: Model
     @Environment(\.openURL) private var openURL
     @Environment(\.selectedAuthor) private var author
+    @Environment(\.captureOpacity) private var opacity
     let value: AttributedString
     var scale: CGFloat = 1
     var weight: NSFont.Weight = .regular
@@ -27,6 +28,7 @@ struct SelectableText: NSViewRepresentable {
     func updateNSView(_ view: NSTextView, context: Context) {
         context.coordinator.parent = self
         if let selectable = view as? QuoteTextView {
+            selectable.measuredOpacity = opacity
             selectable.quoteTitle = m.t("common.quote")
             selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
         }
@@ -88,6 +90,7 @@ struct SelectableText: NSViewRepresentable {
 }
 
 final class QuoteTextView: NSTextView {
+    var measuredOpacity: Double = 1
     var quoteTitle = ""
     var quote: ((String) -> Void)?
     override func menu(for event: NSEvent) -> NSMenu? {

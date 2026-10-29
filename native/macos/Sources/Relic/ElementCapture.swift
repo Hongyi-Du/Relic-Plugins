@@ -53,6 +53,18 @@ import RelicAX
         if let value = value as? NSAttributedString { return value.string }
         return ""
     }
+    static func fontFromAX(_ attributes: [String: Any]) -> NSFont? {
+        guard let name = attributes["AXFontName"] as? String, let size = attributes["AXFontSize"] as? NSNumber else { return nil }
+        // Public system font factories preserve the actual face reported by AX.
+        // NSFont(name: ".SFNS-…") silently substitutes Times New Roman on CI.
+        if name.hasPrefix(".SFNS-"), attributes["AXFontFamily"] as? String == ".AppleSystemUIFont" {
+            let weights: [String: NSFont.Weight] = ["ultralight": .ultraLight, "thin": .thin, "light": .light, "regular": .regular, "medium": .medium, "semibold": .semibold, "bold": .bold, "heavy": .heavy, "black": .black]
+            guard let weight = weights[String(name.dropFirst(6)).lowercased()] else { return nil }
+            return NSFont.systemFont(ofSize: CGFloat(size.doubleValue), weight: weight)
+        }
+        guard NSFontManager.shared.availableFonts.contains(name) else { return nil }
+        return NSFont(name: name, size: CGFloat(size.doubleValue))
+    }
     private static func style(_ object: AnyObject, text: String) -> [String: Any] {
         var result: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(), "borderWidth": NSNull(), "borderRadius": NSNull()]
         var font: NSFont?, foreground: NSColor?, background: NSColor?
@@ -67,7 +79,7 @@ import RelicAX
             if let axFont = attributes[NSAttributedString.Key("AXFont")] as? [String: Any] {
                 result["fontSize"] = axFont["AXFontSize"] ?? NSNull()
                 result["fontFamily"] = axFont["AXFontFamily"] ?? axFont["AXFontName"] ?? NSNull()
-                if let name = axFont["AXFontName"] as? String, let size = axFont["AXFontSize"] as? NSNumber { font = NSFont(name: name, size: CGFloat(size.doubleValue)) ?? font }
+                font = fontFromAX(axFont) ?? font
             }
             if let value = attributes[NSAttributedString.Key("AXForegroundColor")] {
                 if let color = value as? NSColor { foreground = color }
@@ -105,7 +117,7 @@ import RelicAX
                 if NSIntersectionRange(glyphs, lineRange).length > 0 { lines.append(box(used.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
             }
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
-            let mode = paragraph?.lineBreakMode ?? container.lineBreakMode
+            let mode = container.maximumNumberOfLines > 0 ? container.lineBreakMode : paragraph?.lineBreakMode ?? container.lineBreakMode
             let wrap = mode == .byCharWrapping ? "character" : mode == .byWordWrapping ? "word" : "none"
             let truncation = [.byTruncatingHead, .byTruncatingMiddle, .byTruncatingTail].contains(mode) ? "ellipsis" : mode == .byClipping ? "clip" : "none"
             let font = attributes[.font] as? NSFont ?? view.font
@@ -118,7 +130,10 @@ import RelicAX
                           "fontFamily": font?.familyName as Any? ?? NSNull(),
                           "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
                           "backgroundColor": rgba(attributes[.backgroundColor] as? NSColor ?? .clear),
-                          "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0],
+                          "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
+                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
+                          "opacity": (view as? ReferenceLabelView)?.measuredOpacity ?? (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue),
+                          "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull()],
                 "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
         }
         return rows
@@ -144,7 +159,7 @@ import RelicAX
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
             let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
-            if isIcon || ["region", "image", "divider"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let assignedRegion = path == "window" ? "window" : inheritedRegion == "dialog" || inheritedRegion == "menu" ? inheritedRegion : region(rect, fallback: inheritedRegion)
@@ -170,7 +185,9 @@ import RelicAX
                         "visible": !visible.isNull && visible.width > 0 && visible.height > 0,
                         "pixelSamples": samples(visible, bitmap: bitmap)]
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
-                    projected["projection"] = evidence; raw.append(projected)
+                    projected["projection"] = evidence
+                    if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
+                    raw.append(projected)
                     if projected["visible"] as? Bool == true { elements.append(projected) }
                 }
             }
@@ -188,6 +205,16 @@ import RelicAX
         visit(content, path: "window", parent: nil, inheritedRegion: "window", clip: viewport)
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
             visit(child.contentView!, path: "surface-" + String(index), parent: nil, inheritedRegion: child === window.attachedSheet ? "dialog" : "menu", clip: viewport)
+        }
+        // Ownership comes from the production button's identifier passed into its
+        // native label. It is not inferred from an expected string or element count.
+        let ownedLabels = elements.filter { $0["production_owner"] is String }
+        elements.removeAll { $0["production_owner"] is String }
+        for var label in ownedLabels.reversed() {
+            if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
+                label["parent"] = elements[owner]["id"]!
+                elements.insert(label, at: owner + 1)
+            } else { elements.append(label) }
         }
         var surfaceGaps: [String] = []
         func bounds(_ node: [String: Any]) -> NSRect {
