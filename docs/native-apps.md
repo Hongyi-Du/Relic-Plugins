@@ -45,6 +45,17 @@ through `quote`/`recipients`, with no `mention` PNG. `client.log` ends with
 `NSSpellServer suggestCompletionsForPartialWordRange timed out`; please inspect
 the actual native mention/completion path. The artifact is downloaded under
 `S:\Codex\Outputs\Relic-native-visual\iteration-3\macos` for read-only review.
+Changes for the clients: six shared `native.color_*` labels (clay, ink, indigo,
+blue, rose, amber) now localize accent swatch tooltips; language names come from
+the `/api/i18n` `languages` array. Windows message headers/read receipts now sit
+outside bubbles, code blocks show every line, and file/workspace actions use
+compact native toolbars and selectors. No API payloads changed.
+The Windows `DrawSidebar` COM exception reported by macOS for `40868069780`
+is fixed: reusable inputs are explicitly removed from their owning containers,
+without relying on a detached WinUI element's visual `Parent` property. The
+new field wrappers and thread composer follow the same ownership rule.
+The platform diagnostic localization request is being implemented in the App
+response layer so transport state and cached diagnostics remain unchanged.
 
 All reference functionality is required on both systems. The draft PR cannot
 leave draft until the per-function inventory is done on both, the route and

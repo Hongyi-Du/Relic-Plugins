@@ -24,36 +24,35 @@ public sealed partial class MainWindow
         if (!candidates.Any(m => m.Text("name") == workspaceMember)) workspaceMember = candidates.FirstOrDefault(m => m.Text("name") == member).Text("name");
         if (workspaceMember.Length == 0) workspaceMember = candidates.FirstOrDefault().Text("name");
         if (workspaceMember.Length == 0) { workspaceBody.Children.Add(Text(T("work.no_members"))); return; }
-        var select = Choice(workspaceBody, "work.whose", candidates.Select(m => (m.Text("name"), m.Text("display")))); SetChoice(select, workspaceMember);
-        select.SelectionChanged += async (_, _) => { workspaceMember = Value(select); directory = ""; await Run(Workspace); };
+        workspaceBody.Children.Add(Quiet(T("work.whose"), 11)); var people = new ActionRow();
+        foreach (var candidate in candidates) { var pick = QuietButton(candidate.Text("display"), async () => { workspaceMember = candidate.Text("name"); directory = ""; await Workspace(); }); pick.BorderThickness = new Thickness(1); pick.BorderBrush = candidate.Text("name") == workspaceMember ? Accent : Line; pick.CornerRadius = new CornerRadius(14); people.Children.Add(pick); } workspaceBody.Children.Add(people);
         var ws = await api!.Get(PathFor("/workspace?member=" + Client.Segment(workspaceMember)));
         if (epoch != workspaceEpoch || org != selectedOrg || pane != "workspace") return;
         var folder = ws.Text("folder");
         if (folder.Length == 0) { workspaceBody.Children.Add(Text(T("work.no_folder", ("name", Display(workspaceMember))))); return; }
-        workspaceBody.Children.Add(Text(folder));
-        workspaceBody.Children.Add(Button(T("work.open_in_explorer"), () => OpenDefault(folder, true)));
+        workspaceBody.Children.Add(TwoColumns(Quiet(T("member.work_folder"), 11), IconButton("\uE8A7", "work.open_in_explorer", () => OpenDefault(folder, true)))); workspaceBody.Children.Add(Quiet(folder, 12));
         if (!ws.Flag("exists")) { workspaceBody.Children.Add(Text(T("work.folder_missing"))); return; }
         var git = ws["git"];
         if (git != null)
         {
-            workspaceBody.Children.Add(Text(T("work.git_changes") + " · " + git.Text("branch"), 18));
+            workspaceBody.Children.Add(Quiet(T("work.git_changes") + " · " + git.Text("branch"), 12));
             if (git.Rows("changes").Count == 0) workspaceBody.Children.Add(Text(T("work.no_changes")));
-            foreach (var change in git.Rows("changes")) workspaceBody.Children.Add(Button(change.Text("status") + "  " + change.Text("path"), () => OpenFile(System.IO.Path.Combine(git.Text("root"), change.Text("path")))));
+            foreach (var change in git.Rows("changes")) workspaceBody.Children.Add(QuietButton(change.Text("status") + "  " + change.Text("path"), () => OpenFile(System.IO.Path.Combine(git.Text("root"), change.Text("path")))));
         }
         if (ws.Rows("recent").Count > 0)
         {
-            workspaceBody.Children.Add(Text(T("work.recent_files"), 18));
-            foreach (var recent in ws.Rows("recent")) workspaceBody.Children.Add(Button(recent.Text("path") + " · " + recent.Text("tool") + " · " + When(recent.Text("at")), () => OpenFile(recent.Text("path"))));
+            workspaceBody.Children.Add(Quiet(T("work.recent_files"), 12));
+            foreach (var recent in ws.Rows("recent")) { var recentFile = QuietButton(System.IO.Path.GetFileName(recent.Text("path")) + " · " + recent.Text("tool"), () => OpenFile(recent.Text("path"))); ToolTipService.SetToolTip(recentFile, recent.Text("path") + " · " + When(recent.Text("at"))); workspaceBody.Children.Add(recentFile); }
         }
-        workspaceBody.Children.Add(Text(T("work.files"), 18));
+        workspaceBody.Children.Add(Quiet(T("work.files"), 12));
         await Files(directory.Length > 0 ? directory : folder, epoch);
     }
     private async Task Files(string path, int epoch)
     {
         var list = await api!.Get("/api/fs/list?path=" + Client.Segment(path));
         if (epoch != workspaceEpoch || pane != "workspace") return;
-        directory = list.Text("path"); workspaceBody.Children.Add(Text(directory, 12));
-        if (list.Text("parent").Length > 0) workspaceBody.Children.Add(Button("↑ " + list.Text("parent"), async () => { directory = list.Text("parent"); await Workspace(); }));
+        directory = list.Text("path");
+        if (list.Text("parent").Length > 0) { var parent = QuietButton("↑  " + System.IO.Path.GetFileName(list.Text("parent")), async () => { directory = list.Text("parent"); await Workspace(); }); ToolTipService.SetToolTip(parent, list.Text("parent")); workspaceBody.Children.Add(parent); }
         if (list.Rows("entries").Count == 0) workspaceBody.Children.Add(Text(T("work.empty_dir")));
         foreach (var entry in list.Rows("entries")) workspaceBody.Children.Add(FileEntry(entry!, epoch));
         workspaceBody.Children.Add(Text(T("work.file_count", ("n", list.Rows("entries").Count)), 12));
@@ -61,7 +60,7 @@ public sealed partial class MainWindow
     }
     private UIElement FileEntry(JsonNode entry, int epoch)
     {
-        if (!entry.Flag("dir")) return Button(entry.Text("name") + " · " + Bytes(entry.Text("size")), () => OpenFile(entry.Text("path")));
+        if (!entry.Flag("dir")) { var file = QuietButton("", () => OpenFile(entry.Text("path"))); var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(Glyph("\uE8A5", 13)); var name = Ellipsis(entry.Text("name")); Grid.SetColumn(name, 1); row.Children.Add(name); file.Content = row; file.HorizontalAlignment = HorizontalAlignment.Stretch; file.HorizontalContentAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(file, entry.Text("path") + " · " + Bytes(entry.Text("size"))); return file; }
         var children = new StackPanel { Spacing = 3, Margin = new Thickness(12, 0, 0, 0) };
         var folder = new Expander { Header = entry.Text("name"), Content = children, HorizontalAlignment = HorizontalAlignment.Stretch };
         folder.Expanding += async (_, _) => await Run(async () =>
@@ -94,10 +93,9 @@ public sealed partial class MainWindow
     private void DrawFile()
     {
         if (filePath.Length == 0) { detail.Children.Add(Text(T("file.empty"))); return; }
-        detail.Children.Add(Text(fileData.Text("name"), 20)); detail.Children.Add(Text(filePath, 12));
-        detail.Children.Add(Button(T("file.copy_path"), () => { Copy(filePath); return Task.CompletedTask; }));
-        detail.Children.Add(Button(T("file.open_default"), () => OpenDefault(filePath)));
-        detail.Children.Add(Text(Bytes(fileData.Text("size")) + " · " + T("file.modified", ("when", When(fileData.Text("mtime")))), 12));
+        var actions = new ActionRow { Spacing = 2 }; actions.Children.Add(IconButton("\uE8C8", "file.copy_path", () => { Copy(filePath); return Task.CompletedTask; })); actions.Children.Add(IconButton("\uE8A7", "file.open_default", () => OpenDefault(filePath)));
+        var name = Stack(Heading(fileData.Text("name"), 14), Ellipsis(filePath, 11)); name.Spacing = 2; detail.Children.Add(TwoColumns(name, actions));
+        var information = Quiet(Bytes(fileData.Text("size")) + " · " + T("file.modified", ("when", Ago(fileData.Text("mtime")))), 11); detail.Children.Add(information);
         if (fileData.Flag("truncated")) detail.Children.Add(Text(T("file.truncated")));
         if (fileData.Text("kind") == "image")
         {
@@ -108,9 +106,9 @@ public sealed partial class MainWindow
         if (fileData.Text("kind") == "binary") { detail.Children.Add(Text(T("file.binary"))); return; }
         if (fileData.Text("kind") == "markdown")
         {
-            var mode = Choice(detail, "file.preview", [("preview", T("file.preview")), ("source", T("file.source"))]); SetChoice(mode, fileMode);
-            mode.SelectionChanged += (_, _) => { fileMode = Value(mode); DrawDetail(); };
-            if (fileMode == "preview") { detail.Children.Add(Rich(fileData.Text("text"))); return; }
+            var modes = new SelectorBar { HorizontalAlignment = HorizontalAlignment.Right }; foreach (var (id, key) in new[] { ("preview", "file.preview"), ("source", "file.source") }) modes.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = fileMode == id, FontSize = 12 });
+            modes.SelectionChanged += (_, _) => { if (modes.SelectedItem?.Tag is string value && fileMode != value) { fileMode = value; DrawDetail(); } }; detail.Children.Remove(information); detail.Children.Add(TwoColumns(information, modes));
+            if (fileMode == "preview") { detail.Children.Add(Card(Rich(fileData.Text("text")))); return; }
         }
         var text = fileData.Text("text");
         if (fileData.Text("kind") == "json") { try { text = JsonNode.Parse(text)?.ToJsonString(new() { WriteIndented = true }) ?? text; } catch { } }

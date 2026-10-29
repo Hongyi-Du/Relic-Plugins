@@ -27,6 +27,7 @@ public sealed partial class MainWindow
         }
         visibleDialog = dialog;
         dialog.RequestedTheme = root.ActualTheme;
+        foreach (var resource in root.Resources) dialog.Resources[resource.Key] = resource.Value;
         dialog.Resources["ContentDialogMaxWidth"] = Math.Min(940d, Math.Max(480d, root.ActualWidth - 96));
         dialog.Resources["ContentDialogMaxHeight"] = Math.Max(400d, root.ActualHeight - 80);
         visibleDialogTask = dialog.ShowAsync().AsTask();
@@ -85,6 +86,7 @@ public sealed partial class MainWindow
         side.Spacing = 2;
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
         ThemeSurfaces();
+        if (visibleDialog != null) { visibleDialog.RequestedTheme = root.RequestedTheme; foreach (var resource in root.Resources) if (resource.Key is string key && !key.StartsWith("ContentDialog")) visibleDialog.Resources[resource.Key] = resource.Value; }
         foreach (var weak in microphoneButtons.ToArray()) { if (!weak.TryGetTarget(out var mic)) { microphoneButtons.Remove(weak); continue; } Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); }
     }
     private async Task SettingsScreen(string section = "profile")
@@ -117,7 +119,7 @@ public sealed partial class MainWindow
                     break;
                 case "language":
                     content.Children.Add(Text(T("settings.language.title"), 20));
-                    var language = Choice(content, "settings.language.label", [("zh-CN", "简体中文"), ("en-US", "English")]); SetChoice(language, words.Language);
+                    var language = Choice(content, "settings.language.label", words.Languages.Select(item => (item.Text("code"), item.Text("name")))); SetChoice(language, words.Language);
                     content.Children.Add(Text(T("settings.language.hint"), 12));
                     content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
                     language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await Draw(key); });
@@ -127,7 +129,6 @@ public sealed partial class MainWindow
                     content.Children.Add(Text(T("common.voice_input"), 20));
                     PreferenceChoice(content, "common.voice_input", "native.voice_hint", "voice", ("browser", T("native.voice_system")), ("off", T("settings.voice_off")));
                     var sample = Field(content, "settings.voice_try", true); sample.PlaceholderText = T("settings.voice_try_here");
-                    content.Children.Add(Microphone(sample));
                     break;
                 case "notify":
                     content.Children.Add(Text(T("settings.notify"), 20));

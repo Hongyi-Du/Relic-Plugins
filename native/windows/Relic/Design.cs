@@ -118,10 +118,10 @@ public sealed partial class MainWindow
     private void AccentPreference(StackPanel target)
     {
         var controls = new ActionRow { Spacing = 8 };
-        foreach (var (value, hex) in new[] { ("clay", "C8643F"), ("ink", "3A3936"), ("indigo", "5B61D6"), ("blue", "2F6BD8"), ("rose", "C4456C"), ("amber", "B9821D") })
+        foreach (var (value, hex, label) in new[] { ("clay", "C8643F", "native.color_clay"), ("ink", "3A3936", "native.color_ink"), ("indigo", "5B61D6", "native.color_indigo"), ("blue", "2F6BD8", "native.color_blue"), ("rose", "C4456C", "native.color_rose"), ("amber", "B9821D", "native.color_amber") })
         {
             var b = Button("", () => SavePreferences(new JsonObject { ["accent"] = value })); b.Width = b.Height = 28; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(14); b.Background = Paint(hex); b.BorderBrush = Ink; b.BorderThickness = new Thickness(preferences.Text("accent") == value ? 2 : 0);
-            AutomationProperties.SetName(b, T("settings.accent") + " " + value); ToolTipService.SetToolTip(b, T("settings.accent") + " " + value); controls.Children.Add(b);
+            AutomationProperties.SetName(b, T("settings.accent") + " " + T(label)); ToolTipService.SetToolTip(b, T("settings.accent") + " " + T(label)); controls.Children.Add(b);
         }
         target.Children.Add(new Border { Child = TwoColumns(Stack(Heading(T("settings.accent"), 13), Quiet(T("settings.accent_hint"))), controls), Padding = new Thickness(0, 12, 0, 20), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line });
     }

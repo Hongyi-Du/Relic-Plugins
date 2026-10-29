@@ -34,12 +34,11 @@ public sealed partial class MainWindow
     }
     private void DrawSidebar()
     {
-        side.Children.Clear(); sidebarFooter.Children.Clear();
+        searchSurface.Children.Clear(); side.Children.Clear(); sidebarFooter.Children.Clear();
         var create = QuietButton(T("common.new_org"), CreateOrg); create.HorizontalAlignment = HorizontalAlignment.Stretch;
         side.Children.Add(create); search.Margin = new Thickness(0); search.MinHeight = 32; search.FontSize = 12; search.Padding = new Thickness(28, 5, 30, 5); search.BorderThickness = new Thickness(0); search.CornerRadius = new CornerRadius(8); search.Background = Paint("EFEEEA", "262624");
-        if (search.Parent is Panel oldSearch) oldSearch.Children.Remove(search);
-        var searchRow = new Grid { Margin = new Thickness(2, 6, 2, 12) }; searchRow.Children.Add(search); var searchIcon = Glyph("\uE721", 13); searchIcon.HorizontalAlignment = HorizontalAlignment.Left; searchIcon.Margin = new Thickness(9, 0, 0, 0); searchIcon.IsHitTestVisible = false; searchRow.Children.Add(searchIcon);
-        var searchMic = Microphone(search); searchMic.HorizontalAlignment = HorizontalAlignment.Right; searchRow.Children.Add(searchMic); side.Children.Add(searchRow);
+        searchSurface.Margin = new Thickness(2, 6, 2, 12); searchSurface.Children.Add(search); var searchIcon = Glyph("\uE721", 13); searchIcon.HorizontalAlignment = HorizontalAlignment.Left; searchIcon.Margin = new Thickness(9, 0, 0, 0); searchIcon.IsHitTestVisible = false; searchSurface.Children.Add(searchIcon);
+        var searchMic = Microphone(search); searchMic.HorizontalAlignment = HorizontalAlignment.Right; searchSurface.Children.Add(searchMic); side.Children.Add(searchSurface);
         var caption = Quiet(T("page.tree"), 11); caption.Margin = new Thickness(8, 6, 8, 8); side.Children.Add(caption);
         var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0) };
         list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); };
@@ -111,17 +110,17 @@ public sealed partial class MainWindow
     }
     private void DrawCopies()
     {
-        if (copiesBody == null) return; var content = copiesBody; content.Children.Clear(); content.Children.Add(Text(T("cc.intro")));
+        if (copiesBody == null) return; var content = copiesBody; content.Children.Clear(); content.Children.Add(Quiet(T("cc.intro"), 12));
         if (copies.Count == 0) content.Children.Add(Text(T("cc.empty")));
         foreach (var c in copies)
         {
             var card = new StackPanel { Spacing = 8 }; var live = c.Text("status") == "active" && c.Text("org_status") is "" or "active";
-            card.Children.Add(Text(c.Text("org_name") + " · " + c.Text("protocol_id") + " " + c.Text("title"), 18));
-            card.Children.Add(Text((c.Flag("read") ? "" : T("cc.unread") + " · ") + (c.Text("supersedes").Length > 0 ? T("cc.revision") + " · " : "") + CopyState(c!)));
-            card.Children.Add(Rich(c.Text("summary")));
-            card.Children.Add(Text(T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))), 12));
-            if (c.Rows("approved_display").Count > 0) card.Children.Add(Text(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))), 12));
-            if (c.Text("activated_at").Length > 0) card.Children.Add(Text(T("cc.effective", ("when", When(c.Text("activated_at")))), 12));
+            var badges = new ActionRow { Spacing = 4 }; if (!c.Flag("read")) badges.Children.Add(Badge(T("cc.unread"), true)); if (c.Text("supersedes").Length > 0) badges.Children.Add(Badge(T("cc.revision"))); badges.Children.Add(Badge(CopyState(c!)));
+            var heading = Stack(Quiet(c.Text("org_name"), 11), Heading(c.Text("protocol_id") + " " + c.Text("title"), 14)); heading.Spacing = 3; card.Children.Add(TwoColumns(heading, badges));
+            card.Children.Add(new Border { Child = Rich(c.Text("summary")), Background = Paint("F8F7F5", "2A2A28"), Padding = new Thickness(10), CornerRadius = new CornerRadius(8) });
+            var metadata = new List<string> { T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))) };
+            if (c.Rows("approved_display").Count > 0) metadata.Add(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))));
+            if (c.Text("activated_at").Length > 0) metadata.Add(T("cc.effective", ("when", When(c.Text("activated_at"))))); card.Children.Add(Quiet(string.Join(" · ", metadata), 11));
             if (c.Text("supersedes").Length > 0) card.Children.Add(Text(T("cc.replaces", ("id", c.Text("supersedes"))), 12));
             var stats = c?["stats"];
             card.Children.Add(Text(stats.Text("total") is "" or "0" ? T("cc.stats_none") : T("cc.stats", ("n", stats.Text("total")), ("allow", stats.Text("allow")), ("deny", stats.Text("deny")), ("review", stats.Text("review")), ("error", stats.Text("error")))));
@@ -133,7 +132,7 @@ public sealed partial class MainWindow
                 try { await api!.Post("/api/cc/" + c.Text("id") + "/retire", new { }); await Refresh(); Note(T("cc.retired", ("id", c.Text("protocol_id")), ("title", c.Text("title")))); await ShowCopies(); }
                 catch (Exception ex) { Note(T("cc.retire_failed", ("error", ex.Message))); }
             }));
-            InlineActions(card); content.Children.Add(Card(card));
+            InlineActions(card); var surface = Card(card); if (!c.Flag("read")) { surface.BorderBrush = Accent; surface.BorderThickness = new Thickness(3, 1, 1, 1); } content.Children.Add(surface);
         }
     }
     private string CopyState(JsonNode c) => c.Text("org_status") is not ("" or "active") ? T("cc.status_ended") : c.Text("status") == "active" ? T("cc.status_active") : c.Text("status") == "retired" && c.Text("retired_by") == "human" ? T("cc.status_retired_person") : c.Text("status") == "superseded" ? T("cc.status_superseded", ("id", c.Text("superseded_by"))) : T("cc.status_retired");

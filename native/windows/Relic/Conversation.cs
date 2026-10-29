@@ -17,6 +17,7 @@ public sealed partial class MainWindow
     private bool plainMode, digestOpen, digestPending;
     private string quoteWho = "", quoteText = "", threadId = "", previousPane = "overview";
     private readonly TextBox threadEditor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
+    private Panel? threadEditorContainer;
     private readonly TextBlock quoteLabel = new() { TextWrapping = TextWrapping.Wrap };
     private Button? recipientButton;
     private const int chatLimit = 1000;
@@ -187,7 +188,7 @@ public sealed partial class MainWindow
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
-        if (item.Text("type") == "notice") { var note = Quiet(item.Text("text"), 11); note.TextAlignment = TextAlignment.Center; note.Margin = new Thickness(26, 3, 26, 3); return note; }
+        if (item.Text("type") == "notice") { var note = Quiet(item.Text("text"), 11); note.TextAlignment = TextAlignment.Center; return new Border { Child = note, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(26, 0, 26, 0), Padding = new Thickness(9, 3, 9, 3), CornerRadius = new CornerRadius(12), Background = Paint("F8F7F5", "252523") }; }
         if (item.Text("type") == "acts") return ToolActions(item);
         if (item.Text("type") == "step")
         {
@@ -197,12 +198,16 @@ public sealed partial class MainWindow
         var from = item.Text("from"); var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
         var mine = from == "human";
         var box = new StackPanel { Spacing = 6 };
+        var column = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (!continued)
         {
             var time = DateTimeOffset.TryParse(item.Text("at"), out var at) ? at.ToLocalTime().ToString("HH:mm") : "";
-            var label = Quiet((item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from)) + "  " + time, 11); box.Children.Add(label);
+            var label = Text("", 12); label.HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+            label.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            var names = item.Rows("to").Select(x => x.Text()).ToArray(); var everyone = names.Contains("all") || snap.Rows("members").Where(m => m.Text("name") != from).All(m => names.Contains(m.Text("name")));
+            var to = !inThread && member.Length == 0 ? " " + T("msg.to", ("names", everyone ? T("msg.everyone") : words.List(names.Select(Display)))) : "";
+            label.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = to + "  " + time, Foreground = Muted }); column.Children.Add(label);
         }
-        if (!inThread && member.Length == 0 && !item.Rows("to").Any(x => x.Text() == "all")) box.Children.Add(Quiet(T("msg.to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), 11));
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
         if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
         else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
@@ -216,21 +221,25 @@ public sealed partial class MainWindow
                 if (!plainPending.Contains(key) && !plainFailed.Contains(key) && !inThread && member.Length == 0) plainTargets[item.Text("id")] = box;
             }
         }
+        var after = new StackPanel { Spacing = 3, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (from == "human" && item.Rows("to").Count > 0)
         {
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
-            box.Children.Add(Text(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 12));
-            if (others.Length > 1) box.Children.Add(new Expander { Header = T("msg.read_count", ("read", read), ("total", others.Length)), Content = Text(string.Join("\n", others.Select(name => Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread")))) });
+            var receipt = QuietButton("", () => Task.CompletedTask); receipt.Content = Quiet(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 11); receipt.Padding = new Thickness(0); receipt.MinHeight = 20;
+            if (others.Length > 1) { var readers = new MenuFlyout(); foreach (var name in others) readers.Items.Add(new MenuFlyoutItem { Text = Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread") }); receipt.Flyout = readers; }
+            after.Children.Add(receipt);
         }
         var actions = new ActionRow { Spacing = 2 };
         if (explainable) actions.Children.Add(IconButton("\uE8D4", plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words", async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); }));
         actions.Children.Add(IconButton("\uE8F2", "common.quote", () => { Quote(Display(from), body); return Task.CompletedTask; }));
         if (!inThread && long.TryParse(item.Text("id"), out _)) actions.Children.Add(IconButton("\uE97A", "msg.reply_in_thread", () => OpenThread(item.Text("id"))));
         actions.Children.Add(IconButton("\uE8C8", "common.copy", () => { Copy(body); return Task.CompletedTask; }));
-        if (!inThread && item["thread"] != null) box.Children.Add(Button(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))));
-        var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = mine ? Paint("EEDDD2", "594033") : Line, BorderThickness = new Thickness(1), MaxWidth = inThread ? 600 : 600, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        if (!inThread && item["thread"] != null) { var replies = QuietButton(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))); replies.Foreground = Accent; after.Children.Add(replies); }
+        var secretary = from == snap["org"].Text("secretary");
+        var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7660C8", "A899E1") : Line, BorderThickness = new Thickness(secretary ? 3 : 0, 0, 0, 0), MaxWidth = 680, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        column.Children.Add(bubble); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
-        message.Children.Add(bubble); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
+        message.Children.Add(column); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
         message.PointerEntered += (_, _) => actions.Opacity = 1; message.PointerExited += (_, _) => actions.Opacity = 0;
         message.GotFocus += (_, _) => actions.Opacity = 1;
         var outer = new Grid { ColumnSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -329,8 +338,8 @@ public sealed partial class MainWindow
         foreach (var reply in threadData.Rows("replies")) detail.Children.Add(Message(reply!, true));
         if (quoteText.Length > 0) { detail.Children.Add(Text(T("composer.quoting", ("who", quoteWho)) + quoteText)); detail.Children.Add(Button(T("composer.cancel_quote"), () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; })); }
         threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0);
-        if (threadEditor.Parent is Panel previousReply) previousReply.Children.Remove(threadEditor);
-        var replyComposer = Stack(threadEditor); var actions = new ActionRow { HorizontalAlignment = HorizontalAlignment.Right }; actions.Children.Add(Microphone(threadEditor));
+        threadEditorContainer?.Children.Remove(threadEditor);
+        var replyComposer = Stack(threadEditor); threadEditorContainer = replyComposer; var actions = new ActionRow { HorizontalAlignment = HorizontalAlignment.Right }; actions.Children.Add(Microphone(threadEditor));
         var send = IconButton("\uE74A", "common.send", SendThread); send.Background = Accent; send.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White); actions.Children.Add(send); replyComposer.Children.Add(actions); detail.Children.Add(Card(replyComposer));
     }
     private async Task SendThread()

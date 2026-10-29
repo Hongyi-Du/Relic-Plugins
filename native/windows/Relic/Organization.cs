@@ -35,9 +35,8 @@ public sealed partial class MainWindow
         foreach (var decision in snap.Rows("decisions")) detail.Children.Add(Decision(decision!));
         var start = detail.Children.Count; Hierarchy(o!); var hierarchy = new StackPanel { Spacing = 10 };
         while (detail.Children.Count > start) { var child = detail.Children[start]; detail.Children.RemoveAt(start); hierarchy.Children.Add(child); }
-        detail.Children.Add(new Expander { Header = T("org.hierarchy"), Content = hierarchy, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-        detail.Children.Add(Button(T("org.current_work"), () => Details("tasks")));
-        detail.Children.Add(Button(T("org.done_count", ("n", tasks.Count(t => t.Text("status") == "done"))), () => Details("tasks", taskId: "done")));
+        detail.Children.Add(new Expander { Header = T("org.hierarchy"), Content = hierarchy, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+        detail.Children.Add(TwoColumns(QuietButton(T("org.current_work"), () => Details("tasks")), QuietButton(T("org.done_count", ("n", tasks.Count(t => t.Text("status") == "done"))), () => Details("tasks", taskId: "done"))));
         if (tasks.Count == 0) detail.Children.Add(Text(T("org.no_tasks")));
         var open = tasks.Where(t => t.Text("status") is not ("done" or "dropped")).ToArray();
         if (tasks.Count > 0 && open.Length == 0) detail.Children.Add(Text(T("org.nothing_open", ("n", tasks.Count(t => t.Text("status") == "done")))));
@@ -80,7 +79,7 @@ public sealed partial class MainWindow
         if (o.Text("kind") == "subgroup") detail.Children.Add(Text(T("org.subgroup_note", ("name", orgs.FirstOrDefault(x => x.Text("id") == o.Text("home")).Text("name")))));
         else
         {
-            var cabinet = new ToggleSwitch { Header = T("org.cabinet_toggle"), IsOn = o.Flag("cabinet"), IsEnabled = activeOrg }; detail.Children.Add(cabinet);
+            var cabinet = new ToggleSwitch { Header = Text(T("org.cabinet_toggle"), 12), IsOn = o.Flag("cabinet"), IsEnabled = activeOrg, OnContent = "", OffContent = "" }; detail.Children.Add(cabinet);
             var other = orgs.FirstOrDefault(x => x.Flag("cabinet") && x.Text("id") != org);
             detail.Children.Add(Text(o.Flag("cabinet") ? T("org.cabinet_on_hint") : other != null ? T("org.cabinet_elsewhere", ("name", other.Text("name"))) : T("org.cabinet_hint"), 12));
             cabinet.Toggled += async (_, _) => await Run(async () => { try { await Post("/cabinet", new { on = cabinet.IsOn }); } catch (Exception ex) { Note(T("org.cabinet_failed", ("error", ex.Message))); } });
