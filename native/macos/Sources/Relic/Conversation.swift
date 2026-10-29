@@ -91,7 +91,7 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
                 ContentUnavailableView(m.t("chat.no_orgs"), systemImage: "person.3", description: Text(m.t("chat.no_orgs_hint")))
-                Button(m.t("common.new_org")) { m.sheet = .create }
+                Button(m.t("common.new_org")) { m.sheet = .create }.buttonStyle(.borderedProminent).padding(.bottom, 32)
             } else {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
@@ -104,7 +104,7 @@ struct ChatView: View {
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
                 ConversationStream()
             }
-        }.background(RelicStyle.background)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background)
     }
     private var header: some View {
         HStack(spacing: 8) {
@@ -349,20 +349,26 @@ struct ThreadView: View {
 struct DigestCard: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
-                Text(m.t("digest.title")).font(.headline); Spacer()
-                Button(m.t("digest.update")) { m.run { try await m.loadDigest(true) } }.disabled(m.digestPending)
-                if !m.secretary.isEmpty { Button(m.t("digest.ask")) { m.run { try await m.askSecretary() } }.help(m.t("digest.ask_title")) }
-                Button(m.t("common.collapse")) { m.toggleDigest() }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").foregroundStyle(RelicStyle.violet)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(m.t("digest.title")).font(.system(size: 13, weight: .semibold))
+                    if !m.digest["text"].text.isEmpty {
+                        let newer = m.messages.filter { $0["id"].integer > m.digest["last_id"].integer }.count
+                        Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 4)
+                Button(m.t("digest.update")) { m.run { try await m.loadDigest(true) } }.buttonStyle(.link).disabled(m.digestPending)
+                if !m.secretary.isEmpty { Button(m.t("digest.ask")) { m.run { try await m.askSecretary() } }.buttonStyle(.link).help(m.t("digest.ask_title")) }
+                IconButton(title: m.t("common.collapse"), icon: "xmark") { m.toggleDigest() }
             }
             if m.digestPending { Text(m.t("digest.pending")) }
             if m.digest["text"].text.isEmpty { Text(m.t(m.digestPending ? "digest.reading" : "digest.none")) }
             else {
-                RichText(m.digest["text"].text)
-                let newer = m.messages.filter { $0["id"].integer > m.digest["last_id"].integer }.count
-                Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(.caption)
+                RichText(m.digest["text"].text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.padding(10).background(.tint.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+        }.font(.system(size: 12)).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.violet.opacity(0.3))).padding(.horizontal, 20).padding(.vertical, 10)
     }
 }
