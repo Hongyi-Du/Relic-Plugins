@@ -91,7 +91,8 @@ struct CopiesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(m.t("cc.title")).font(.system(size: 17, weight: .semibold)); Text(m.t("cc.intro")).font(.system(size: 12)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) { Label(m.t("cc.title"), systemImage: "doc.on.doc").font(.system(size: 17, weight: .semibold)); if m.copies.contains(where: { !$0["read"].flag }) { SmallBadge(text: String(m.copies.filter { !$0["read"].flag }.count), color: RelicStyle.accent) } }
+                Text(m.t("cc.intro")).font(.system(size: 12)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
                 if m.copies.isEmpty { Text(m.t("cc.empty")) }
                 Rows(m.copies) { copy in
                     VStack(alignment: .leading, spacing: 8) {
