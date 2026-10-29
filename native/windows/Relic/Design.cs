@@ -150,6 +150,7 @@ public sealed partial class MainWindow
         paneHeader.Children.Add(new ScrollViewer { Content = tabs, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
         var close = IconButton("\uE711", "panel.hide", TogglePanel, T("panel.hide_title"));
+        AutomationProperties.SetName(close, T("panel.hide"));
         Grid.SetColumn(close, 1); close.VerticalAlignment = VerticalAlignment.Center; paneHeader.Children.Add(close);
     }
     private Grid TwoColumns(UIElement left, UIElement right)

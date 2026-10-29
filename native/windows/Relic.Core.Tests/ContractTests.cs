@@ -44,10 +44,13 @@ public class ContractTests
     [Fact] public void InlinePathsRespectUrlsPunctuationAndLineNumbers()
     {
         var parts = InlineParts.Parse("See /tmp/a.py:12:3， and `C:\\work folder\\x.py:4` https://example.com/a/b.").ToArray();
-        var links = parts.Where(p => p.Kind == "link").ToArray(); Assert.Equal(3, links.Length);
-        Assert.Equal(("/tmp/a.py", 12), InlineParts.PathTarget(links[0].Target));
-        Assert.Equal(("C:\\work folder\\x.py", 4), InlineParts.PathTarget(links[1].Target));
-        Assert.Equal("https://example.com/a/b.", links[2].Target);
+        var path = Assert.Single(parts.Where(p => p.Kind == "path"));
+        var code = Assert.Single(parts.Where(p => p.Kind == "code"));
+        var url = Assert.Single(parts.Where(p => p.Kind == "url"));
+        Assert.Equal(("/tmp/a.py", 12), InlineParts.PathTarget(path.Text));
+        Assert.True(InlineParts.IsAbsolute(code.Text));
+        Assert.Equal(("C:\\work folder\\x.py", 4), InlineParts.PathTarget(code.Text));
+        Assert.Equal("https://example.com/a/b.", url.Text);
         Assert.Contains(parts, p => p.Kind == "text" && p.Text.Contains('，'));
     }
     [Fact] public async Task TokenRotationRequiresMatchingAuthenticatedLifecycle()

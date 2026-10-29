@@ -47,97 +47,121 @@ public sealed partial class MainWindow
         try { var package = new DataPackage(); package.SetText(value); Clipboard.SetContent(package); Note(T("msg.copied")); }
         catch { Note(T("msg.copy_failed")); }
     }
-    private UIElement Rich(string markdown)
+    private UIElement Rich(string markdown, bool documentStyle = false)
     {
-        var content = new StackPanel { Spacing = 8 };
+        var baseSize = documentStyle ? 13.5 : preferences.Text("font") == "large" ? 15.5 : preferences.Text("font") == "small" ? 13 : 14;
+        var lineRatio = documentStyle ? 1.7 : 1.65; var content = new StackPanel();
+        var blocks = new List<(FrameworkElement Element, double Before, double After, bool Paragraph)>();
+        void Add(FrameworkElement element, double before = 0, double after = 8, bool paragraph = false) { blocks.Add((element, before, after, paragraph)); content.Children.Add(element); }
+        RichTextBlock Inline(string value, double ratio = 1) => InlineText(value, baseSize * ratio, lineRatio, false);
         var lines = markdown.Replace("\r\n", "\n").Split('\n');
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
             if (line.TrimStart().StartsWith("```"))
             {
-                var code = new List<string>(); var language = line.Trim()[3..];
-                while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                var source = string.Join("\n", code); var codeText = Text(source, 12.5); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
-                codeText.LineHeight = 19.375; codeText.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                var block = new Grid(); var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
-                block.Children.Add(new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) });
-                var copy = IconButton("\uE8C8", "common.copy", () => { Copy(source); return Task.CompletedTask; }); copy.HorizontalAlignment = HorizontalAlignment.Right; copy.VerticalAlignment = VerticalAlignment.Top; copy.Opacity = 0; block.Children.Add(copy);
-                block.PointerEntered += (_, _) => copy.Opacity = 1; block.PointerExited += (_, _) => copy.Opacity = 0; block.GotFocus += (_, _) => copy.Opacity = 1;
-                content.Children.Add(block); continue;
+                var code = new List<string>(); while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
+                var source = string.Join("\n", code); var codeSize = documentStyle ? 12 : 12.5; var codeText = OverviewText(source, codeSize, lineHeight: codeSize * 1.55); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
+                var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+                Add(new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) }, documentStyle ? 12 : 6, documentStyle ? 12 : 6); continue;
             }
-            if (i + 1 < lines.Length && line.Contains('|') && Regex.IsMatch(lines[i + 1], @"^\s*\|?\s*:?-{3,}"))
+            if (Regex.IsMatch(line, @"^\s*\|.*\|\s*$"))
             {
-                var table = new Grid(); var rows = new List<string[]> { line.Trim().Trim('|').Split('|') }; i++;
-                while (i + 1 < lines.Length && lines[i + 1].Contains('|')) rows.Add(lines[++i].Trim().Trim('|').Split('|'));
-                for (var col = 0; col < rows.Max(r => r.Length); col++) table.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                for (var row = 0; row < rows.Count; row++)
+                var tableLines = new List<string> { line }; while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s*\|.*\|\s*$")) tableLines.Add(lines[++i]);
+                bool Rule(string text) => Regex.IsMatch(text, @"^\s*\|?\s*:?-{2,}"); var hasHeading = tableLines.Count > 1 && Rule(tableLines[1]);
+                var rows = tableLines.Where(text => !Rule(text)).Select(text => text.Trim().Trim('|').Split('|')).ToArray(); var table = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+                for (var col = 0; col < rows.Select(row => row.Length).DefaultIfEmpty().Max(); col++) table.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                for (var row = 0; row < rows.Length; row++)
                 {
                     table.RowDefinitions.Add(new() { Height = GridLength.Auto });
                     for (var col = 0; col < rows[row].Length; col++)
                     {
-                        var label = InlineText(rows[row][col].Trim(), 13.02); label.FontWeight = row == 0 ? FontWeights.SemiBold : FontWeights.Normal;
-                        var shade = Ink.Color; shade.A = 10;
-                        var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(col == 0 ? 1 : 0, row == 0 ? 1 : 0, 1, 1), BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 ? new SolidColorBrush(shade) : new SolidColorBrush(Colors.Transparent) };
+                        var label = Inline(rows[row][col].Trim(), .93); label.FontWeight = row == 0 && hasHeading ? FontWeights.SemiBold : FontWeights.Normal;
+                        var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(col == 0 ? 1 : 0, row == 0 ? 1 : 0, 1, 1), BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 && hasHeading ? OverviewAlpha(Ink, .04) : new SolidColorBrush(Colors.Transparent) };
                         Grid.SetRow(cell, row); Grid.SetColumn(cell, col); table.Children.Add(cell);
                     }
                 }
-                content.Children.Add(table); continue;
+                Add(new ScrollViewer { Content = table, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, 6, 6); continue;
             }
             var heading = Regex.Match(line, @"^(#{1,6})\s+(.+)");
-            if (heading.Success) { var title = InlineText(heading.Groups[2].Value); title.FontWeight = FontWeights.Bold; title.Margin = new Thickness(0, 0, 0, -4); content.Children.Add(title); continue; }
+            if (heading.Success) { var title = Inline(heading.Groups[2].Value, documentStyle ? 1.02 : 1); title.FontWeight = FontWeights.Bold; Add(title, documentStyle ? 10 : 8, 4); continue; }
             if (string.IsNullOrWhiteSpace(line)) continue;
-            if (line.StartsWith(">"))
+            if (Regex.IsMatch(line, @"^\s*>"))
             {
-                content.Children.Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(10, 2, 0, 2), Child = InlineText(Regex.Replace(line.TrimStart('>', ' '), @"^([^:：]+)[:：]\s*", match => T("chat.quote_from", ("name", match.Groups[1].Value))), 12.88) }); continue;
+                var quoteLines = new List<string> { Regex.Replace(line, @"^\s*>\s?", "") }; while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s*>")) quoteLines.Add(Regex.Replace(lines[++i], @"^\s*>\s?", ""));
+                var quote = string.Join("\n", quoteLines); var author = Regex.Match(quote, @"^([^\n：:]{1,40})[：:]\s?([\s\S]*)$");
+                var text = OverviewText("", baseSize * .92, lineHeight: baseSize * .92 * lineRatio); text.Foreground = Paint("5A5853", "B8B5AE");
+                if (author.Success) { text.Inlines.Add(new Run { Text = T("chat.quote_from", ("name", author.Groups[1].Value)), FontWeight = FontWeights.SemiBold, Foreground = Ink }); text.Inlines.Add(new Run { Text = author.Groups[2].Value }); } else text.Text = quote;
+                Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(10, 2, 0, 2), Child = text }); continue;
             }
             var list = Regex.Match(line, @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$");
             if (list.Success)
             {
-                var items = new StackPanel { Spacing = 0, Margin = new Thickness(0, 2, 0, 0) };
+                var ordered = char.IsDigit(list.Groups[2].Value[0]); var count = ordered && int.TryParse(list.Groups[2].Value.TrimEnd('.', ')'), out var startAt) ? startAt : 1; var items = new StackPanel();
                 do
                 {
-                    var marker = char.IsDigit(list.Groups[2].Value[0]) ? list.Groups[2].Value.TrimEnd(')') + (list.Groups[2].Value.EndsWith(')') ? "." : "") : "•";
-                    var row = new Grid { Margin = new Thickness(list.Groups[1].Value.Length >= 2 ? 18 : 0, 0, 0, 0) };
-                    row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                    var bullet = Text(marker); bullet.LineHeight = 23.1; bullet.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; row.Children.Add(bullet);
-                    var item = InlineText(list.Groups[3].Value); Grid.SetColumn(item, 1); row.Children.Add(item); items.Children.Add(row);
-                    if (i + 1 >= lines.Length) break;
-                    list = Regex.Match(lines[i + 1], @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"); if (!list.Success) break; i++;
+                    var itemText = list.Groups[3].Value; var sub = list.Groups[1].Value.Length >= 2;
+                    while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s{2,}\S") && !Regex.IsMatch(lines[i + 1], @"^\s*(?:>|\|.*\|\s*$|(?:[-*•+]|\d+[.)])\s+)")) itemText += "\n" + lines[++i].Trim();
+                    var row = new Grid { Margin = new Thickness(sub ? 18 : 0, 0, 0, 0) }; row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                    var bullet = OverviewText(ordered ? count++ + "." : "•", baseSize, lineHeight: baseSize * lineRatio); bullet.TextAlignment = TextAlignment.Right; bullet.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(bullet);
+                    var item = Inline(itemText); Grid.SetColumn(item, 1); row.Children.Add(item); items.Children.Add(row);
+                    if (i + 1 >= lines.Length) break; list = Regex.Match(lines[i + 1], @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"); if (!list.Success) break; i++;
                 } while (true);
-                content.Children.Add(items); continue;
+                Add(items, 2, 8); continue;
             }
             var paragraphLines = new List<string> { line };
-            while (i + 1 < lines.Length && !string.IsNullOrWhiteSpace(lines[i + 1]) && !Regex.IsMatch(lines[i + 1], @"^\s*(?:```|>|#{1,6}\s|[-*•+]\s|\d+[.)]\s|\|)")) paragraphLines.Add(lines[++i]);
-            content.Children.Add(InlineText(string.Join("\n", paragraphLines)));
+            while (i + 1 < lines.Length && !string.IsNullOrWhiteSpace(lines[i + 1]) && !Regex.IsMatch(lines[i + 1], @"^\s*(?:```|>|#{1,6}\s|[-*•+]\s|\d+[.)]\s|\|.*\|\s*$)")) paragraphLines.Add(lines[++i]);
+            Add(Inline(string.Join("\n", paragraphLines)), paragraph: true);
+        }
+        // Normal HTML block margins collapse between adjacent runs. Express
+        // that measured spacing through native layout margins, not blank rows.
+        for (var index = 0; index < blocks.Count; index++)
+        {
+            var block = blocks[index]; var top = index == 0 ? block.Before : Math.Max(blocks[index - 1].After, block.Before);
+            var bottom = index == blocks.Count - 1 && !block.Paragraph ? block.After : 0; block.Element.Margin = new Thickness(0, top, 0, bottom);
         }
         return content;
     }
-    private RichTextBlock InlineText(string value, double size = 14)
+    private RichTextBlock InlineText(string value, double size = 14, double lineRatio = 1.65, bool useFontPreference = true)
     {
-        var fontSize = size * (preferences.Text("font") == "large" ? 15.5 / 14 : preferences.Text("font") == "small" ? 13d / 14 : 1);
-        var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
-            LineHeight = fontSize * 1.65, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+        var fontSize = size * (useFontPreference ? preferences.Text("font") == "large" ? 15.5 / 14 : preferences.Text("font") == "small" ? 13d / 14 : 1 : 1);
+        var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
+            LineHeight = fontSize * lineRatio, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
         var paragraph = new Paragraph();
+        Hyperlink Link(string targetText, bool path, bool code = false)
+        {
+            var link = new Hyperlink { Foreground = code ? Ink : Accent, UnderlineStyle = path ? UnderlineStyle.None : UnderlineStyle.Single }; link.Inlines.Add(new Run { Text = targetText });
+            if (path) ToolTipService.SetToolTip(link, T("chat.path_preview"));
+            link.Click += async (_, _) => await Run(async () =>
+            {
+                if (path) { var target = InlineParts.PathTarget(targetText); await OpenFile(target.Path, target.Line); }
+                else if (Uri.TryCreate(targetText, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
+            });
+            return link;
+        }
         foreach (var part in InlineParts.Parse(value))
         {
             switch (part.Kind)
             {
-                case "link":
-                    var link = new Hyperlink(); link.Inlines.Add(new Run { Text = part.Text });
-                    ToolTipService.SetToolTip(link, part.Target.StartsWith("http") ? part.Target : T("chat.path_preview"));
-                    link.Click += async (_, _) => await Run(async () =>
-                    {
-                        if (Uri.TryCreate(part.Target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
-                        else { var target = InlineParts.PathTarget(part.Target); await OpenFile(target.Path, target.Line); }
-                    }); paragraph.Inlines.Add(link); break;
+                case "path": paragraph.Inlines.Add(Link(part.Text, true)); break;
+                case "url": paragraph.Inlines.Add(Link(part.Text, false)); break;
                 case "code":
                     var shade = Ink.Color; shade.A = 18;
-                    var code = new TextBlock { Text = part.Text, FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code"), Foreground = Ink,
-                        LineHeight = fontSize * 1.65, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
-                    paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = code, Padding = new Thickness(5, 1, 5, 1), Background = new SolidColorBrush(shade), CornerRadius = new CornerRadius(5) } }); break;
+                    var code = new TextBlock { FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code"), Foreground = Ink,
+                        LineHeight = fontSize * lineRatio, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
+                    UIElement codeContent = code;
+                    if (InlineParts.IsAbsolute(part.Text))
+                    {
+                        code.Inlines.Add(Link(part.Text, true, true));
+                        var decorated = new Grid(); decorated.Children.Add(code);
+                        var underline = new Microsoft.UI.Xaml.Shapes.Line { Stroke = OverviewAlpha(Accent, .7), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 1, 1 }, IsHitTestVisible = false };
+                        decorated.Children.Add(underline);
+                        code.SizeChanged += (_, _) => { underline.X2 = code.ActualWidth; underline.Y1 = underline.Y2 = code.BaselineOffset + 1; };
+                        codeContent = decorated;
+                    }
+                    else code.Text = part.Text;
+                    paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = codeContent, Padding = new Thickness(5, 1, 5, 1), Background = new SolidColorBrush(shade), CornerRadius = new CornerRadius(5) } }); break;
                 case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
-                case "italic": var italic = new Italic(); italic.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(italic); break;
                 default: paragraph.Inlines.Add(new Run { Text = part.Text }); break;
             }
         }
@@ -271,22 +295,12 @@ public sealed partial class MainWindow
     }
     private UIElement DetailsReport(JsonNode task)
     {
-        var content = new StackPanel { Spacing = 6 }; var header = new ActionRow { Spacing = 6 }; var icon = (ReferenceVectorIcon)ReferenceIcon("check", 14); icon.Foreground = Paint("3E9B5E", "6CC287"); icon.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(icon); header.Children.Add(OverviewText(T("report.title"), 12.5, weight: 700)); if (task.Text("done_at").Length > 0) header.Children.Add(OverviewText(When(task.Text("done_at")), 12.5, true)); content.Children.Add(header); content.Children.Add(DetailsMarkdown(task.Text("report")));
+        var content = new StackPanel { Spacing = 6 }; var header = new DetailsFilterRow { Spacing = 6 }; var icon = (ReferenceVectorIcon)ReferenceIcon("check", 14); icon.Foreground = Paint("3E9B5E", "6CC287"); icon.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(icon); header.Children.Add(OverviewText(T("report.title"), 12.5, weight: 700)); if (task.Text("done_at").Length > 0) header.Children.Add(OverviewText(When(task.Text("done_at")), 12.5, true)); content.Children.Add(header); content.Children.Add(DetailsMarkdown(task.Text("report")));
         var background = Paint("FFFFFF", "252523").Color; var green = Paint("3E9B5E", "6CC287").Color;
         var blend = Windows.UI.Color.FromArgb(255, (byte)Math.Round(background.R * .94 + green.R * .06), (byte)Math.Round(background.G * .94 + green.G * .06), (byte)Math.Round(background.B * .94 + green.B * .06));
         return new Border { Child = content, BorderBrush = OverviewAlpha(Paint("3E9B5E", "6CC287"), .3), BorderThickness = new Thickness(1), Background = new SolidColorBrush(blend), Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(10) };
     }
-    private UIElement DetailsMarkdown(string value)
-    {
-        var body = Rich(value);
-        void Style(DependencyObject element)
-        {
-            if (element is RichTextBlock text) { text.FontSize = 13.5; text.LineHeight = 22.95; }
-            if (element is Panel panel) foreach (var child in panel.Children) Style(child);
-            else if (element is Border border && border.Child != null) Style(border.Child);
-        }
-        Style(body); return body;
-    }
+    private UIElement DetailsMarkdown(string value) => Rich(value, true);
     private UIElement Protocol(JsonNode p, bool inherited)
     {
         var state = inherited ? T("details.status_active") : p.Text("status") switch { "active" => T("details.status_active"), "proposed" => T("details.status_proposed"), "rejected" => T("details.status_rejected"), "superseded" => T("details.status_superseded"), "retired" => T("details.status_retired"), "enacted" => T("details.status_enacted"), _ => p.Text("status") };
@@ -328,10 +342,10 @@ public sealed partial class MainWindow
             var block = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) }; body.Children.Add(block);
             var scope = new List<string> { rule.Rows("tools").Count == 1 && rule.Rows("tools")[0].Text() == "Reply" ? T("cc.scope_reply") : string.Join(" / ", rule.Rows("tools").Select(x => x.Text())) };
             if (rule.Text("path_glob").Length > 0) scope.Add(T("cc.scope_path", ("glob", rule.Text("path_glob"))));
-            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", string.Join(",", rule.Rows("input_contains").Select(x => x.Text())))));
+            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", words.List(rule.Rows("input_contains").Select(x => x.Text())))));
             var who = rule.Rows("roles").Concat(rule.Rows("members")).ToArray(); var except = rule.Rows("except_roles").Concat(rule.Rows("except_members")).ToArray();
-            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", string.Join(",", who.Select(x => x.Text())))));
-            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", string.Join(",", except.Select(x => x.Text())))));
+            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", words.List(who.Select(x => x.Text())))));
+            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", words.List(except.Select(x => x.Text())))));
             block.Children.Add(OverviewText(T("cc.scope", ("what", string.Join(" · ", scope))), 12, true));
             block.Children.Add(OverviewText(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow"), 12, true));
             var program = OverviewText(rule.Text("code"), 12, lineHeight: 18.6); program.FontFamily = new FontFamily("Cascadia Code"); program.TextWrapping = TextWrapping.NoWrap;
@@ -369,45 +383,90 @@ public sealed partial class MainWindow
         disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => { chevron.RenderTransformOrigin = new(.5, .5); chevron.RenderTransform = new RotateTransform { Angle = disclosure.IsExpanded ? 90 : 0 }; });
         return disclosure;
     }
+    private static string TraceToolLabel(string value)
+    {
+        var title = Regex.Replace(value.Length > 0 ? value : "tool", "^mcp__plugin_relic_org__|^mcp__relic_org__", "Relic "); return Regex.Replace(title, "^mcp__", "");
+    }
+    private static bool TraceTruthy(JsonNode? value) => value is JsonObject or JsonArray || value is JsonValue scalar && !(scalar.TryGetValue<bool>(out var boolean) && !boolean || scalar.TryGetValue<double>(out var number) && number == 0 || scalar.TryGetValue<string>(out var text) && text.Length == 0);
+    private static string TraceString(JsonNode? value)
+    {
+        if (value is JsonArray list) return string.Join(",", list.Select(item => item == null ? "" : TraceString(item)));
+        if (value is JsonObject) return "[object Object]";
+        return value.Text();
+    }
+    private static string TraceClip(string value, int length)
+    {
+        var text = Regex.Replace(value, "[\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]+", " ").Trim(' '); return text.Length > length ? text[..(length - 1)] + "…" : text;
+    }
+    private static string TraceArgument(JsonNode? step)
+    {
+        var text = step.Text("text");
+        try
+        {
+            var parsed = JsonNode.Parse(text); var selected = parsed is JsonObject values ? new[] { "command", "cmd", "file_path", "pattern", "url", "query", "description", "prompt", "path", "body" }.Select(key => values[key]).FirstOrDefault(TraceTruthy) : null;
+            text = selected != null ? TraceString(selected) : parsed?.ToJsonString(new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) ?? "null";
+        }
+        catch (System.Text.Json.JsonException) { }
+        return TraceClip(text, 120);
+    }
+    private static string TraceClock(string at)
+    {
+        if (!DateTimeOffset.TryParse(at, out var stamp)) { if (!double.TryParse(at, out var seconds)) return ""; stamp = DateTimeOffset.FromUnixTimeSeconds((long)seconds); }
+        return stamp.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+    }
     private async Task Trace(StackPanel box, string who)
     {
-        box.Children.Clear(); if (who.Length == 0) return;
-        var card = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who);
-        box.Children.Add(Heading(T("trace.title", ("name", Display(who))), 15));
-        box.Children.Add(Quiet(card.Text("harness_label") + " · " + card.Text("surface_label") + " · " + T("trace.session", ("id", card.Text("session"))) + (card.Text("parent").Length > 0 ? T("trace.in_session", ("name", Display(card.Text("parent")))) : ""), 12));
-        var role = new SelectorBar();
-        foreach (var (id, key) in new[] { ("all", "common.all"), ("talk", "trace.filter_talk"), ("tools", "trace.filter_actions") }) role.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = id == "all", FontSize = 12, Padding = new Thickness(6, 4, 6, 4) });
-        var query = new TextBox { PlaceholderText = T("trace.search"), FontSize = 12, MinHeight = 30, Width = 220, VerticalAlignment = VerticalAlignment.Center };
-        var filters = new ActionRow { Spacing = 10 }; filters.Children.Add(role); filters.Children.Add(query); box.Children.Add(filters);
-        var steps = new List<JsonNode?>(); var list = new StackPanel { Spacing = 3 }; JsonNode data = new JsonObject();
+        box.Children.Clear(); box.Spacing = 0; var targetOrg = org;
+        var card = snap.Rows("members").FirstOrDefault(item => item.Text("name") == who); if (card == null) return;
+        var title = OverviewText(T("trace.title", ("name", Display(who))), 16.38, weight: 700); title.Margin = new Thickness(0, 0, 0, 2); box.Children.Add(title);
+        var session = card.Text("agent").Length > 0 ? "subagent " + card.Text("agent")[..Math.Min(12, card.Text("agent").Length)] + (card.Text("parent").Length > 0 ? T("trace.in_session", ("name", Display(card.Text("parent")))) : "") : card.Text("session").Length > 0 ? T("trace.session", ("id", card.Text("session")[..Math.Min(12, card.Text("session").Length)])) : "";
+        var meta = OverviewText(string.Join(" · ", new[] { who, card.Text("harness_label"), card.Text("surface_label"), card.Text("model"), session }.Where(value => value.Length > 0)), 12.5, true); meta.Margin = new Thickness(0, 0, 0, 12); box.Children.Add(meta);
+        var query = SettingsInput("", T("trace.search")); query.Height = 30; query.Padding = new Thickness(10, 3, 10, 3);
+        var steps = new List<JsonNode?>(); var list = new StackPanel(); JsonNode? data = null; var selectedRole = "all";
         void Draw()
         {
-            list.Children.Clear(); if (data.Flag("missing")) { list.Children.Add(Text(T("trace.no_session"))); return; }
-            var filter = role.SelectedItem?.Tag?.ToString() ?? "all";
-            var selected = steps.Where(s => (filter == "all" || (filter == "talk" ? s.Text("role") is "user" or "assistant" : s.Text("role") is "tool_call" or "tool_result")) && s.Text("text").Contains(query.Text, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (selected.Length == 0) list.Children.Add(Text(T("trace.no_steps")));
+            list.Children.Clear(); if (data.Flag("missing")) { list.Children.Add(DetailsEmpty(T("trace.no_session"))); return; }
+            var selected = steps.Where(step => (selectedRole == "all" || (selectedRole == "talk" ? step.Text("role") is "user" or "assistant" : step.Text("role") is "tool_call" or "tool_result")) && step.Text("text").ToLowerInvariant().Contains(query.Text.ToLowerInvariant(), StringComparison.Ordinal)).ToArray();
+            if (selected.Length == 0) list.Children.Add(DetailsEmpty(T(data == null ? "common.loading" : "trace.no_steps")));
+            var actions = new StackPanel { Padding = new Thickness(0, 4, 0, 4) };
             foreach (var step in selected)
             {
-                var title = step.Text("role") switch { "user" => T("trace.user"), "assistant" => T("common.reply"), "tool_call" => step.Text("tool"), "tool_result" => T("common.result"), "thinking" => T("trace.thinking"), "context" => T("trace.injected"), _ => step.Text("role") };
-                var full = Stack(Text(step.Text("text"), 12)); full.HorizontalAlignment = HorizontalAlignment.Stretch;
-                var preview = step.Text("text").Replace('\n', ' '); if (preview.Length > 100) preview = preview[..100] + "…";
-                var clock = DateTimeOffset.TryParse(step.Text("at"), out var stamp) ? stamp.ToLocalTime().ToString("HH:mm") : "";
-                var header = Stack(TwoColumns(Heading(title, 12), Quiet(clock, 11)), Quiet(preview, 11)); header.Spacing = 1; header.HorizontalAlignment = HorizontalAlignment.Left; header.MaxWidth = Math.Max(240, Math.Min(720, root.ActualWidth - 440));
-                header.Children.OfType<TextBlock>().Last().MaxLines = 1; header.Children.OfType<TextBlock>().Last().TextTrimming = TextTrimming.CharacterEllipsis;
-                ToolTipService.SetToolTip(header, When(step.Text("at")) + "\n" + preview);
-                var expand = new Expander { Header = header, MinHeight = 28, Padding = new Thickness(10, 6, 10, 6), Background = Paint("F8F7F5", "2A2A28"), IsExpanded = step.Text("role") is "user" or "assistant", Content = full, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-                expand.Expanding += async (_, _) => await Run(async () => { var exact = await api!.Get(PathFor("/step?member=" + Client.Segment(who) + "&i=" + step.Text("i"))); full.Children.Clear(); full.Children.Add(Text(exact.Text("text"), 12)); });
-                list.Children.Add(expand);
+                var label = step.Text("role") switch { "user" => T("trace.user"), "assistant" => T("common.reply"), "tool_call" => TraceToolLabel(step.Text("tool")), "tool_result" => T("common.result"), "thinking" => T("trace.thinking"), "context" => T("trace.injected"), _ => step.Text("role") };
+                var header = new Grid { ColumnSpacing = 8, Padding = new Thickness(12, 3, 10, 3) };
+                header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                header.Children.Add(new Border { Width = 7, Height = 7, CornerRadius = new CornerRadius(3.5), VerticalAlignment = VerticalAlignment.Center, Background = step.Flag("error") ? Paint("C2412D", "EE8A78") : step.Text("role") == "tool_result" ? Paint("3E9B5E", "6CC287") : Paint("B8B5AF", "5F5D58") });
+                var tool = OverviewText(label, 12.5, weight: 600); tool.IsTextSelectionEnabled = false; tool.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(tool, 1); header.Children.Add(tool);
+                var preview = OverviewText(step.Text("role") == "tool_call" ? TraceArgument(step) : TraceClip(step.Text("text"), 120), 11.5, true); preview.FontFamily = new FontFamily("Cascadia Code"); preview.IsTextSelectionEnabled = false; preview.TextWrapping = TextWrapping.NoWrap; preview.TextTrimming = TextTrimming.CharacterEllipsis; preview.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(preview, 2); header.Children.Add(preview);
+                var clock = OverviewText(TraceClock(step.Text("at")), 11, true); clock.IsTextSelectionEnabled = false; clock.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(clock, 3); header.Children.Add(clock);
+                var source = OverviewText(step.Text("text"), 11.5, lineHeight: 17.825); source.FontFamily = new FontFamily("Cascadia Code");
+                var sourceScroll = Scroll(source); sourceScroll.MaxHeight = 344;
+                var program = new Border { Child = sourceScroll, Padding = new Thickness(9, 7, 9, 7), Background = Paint("F6F5F2", "232321"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), MaxHeight = 360 };
+                var inner = new Border { Child = program, Padding = new Thickness(27, 2, 10, 8) };
+                var expand = DetailsDisclosure(header, inner, step.Text("role") is "user" or "assistant");
+                // Keep the existing full-step API for any abbreviated record;
+                // the organization/member are captured before asynchronous work.
+                var loading = false; var fullLoaded = !step.Flag("cut");
+                expand.Expanding += async (_, _) =>
+                {
+                    if (loading || fullLoaded) return; loading = true;
+                    try { await Run(async () => { var exact = await api!.Get(Client.Org(targetOrg, "/step?member=" + Client.Segment(who) + "&i=" + step.Text("i"))); source.Text = exact.Text("text"); fullLoaded = true; }); }
+                    finally { loading = false; }
+                };
+                actions.Children.Add(expand);
             }
-            list.Children.Add(Quiet(T("trace.total", ("n", data.Text("total"))) + " · " + data.Text("path"), 11));
+            if (selected.Length > 0) list.Children.Add(new Border { Child = actions, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Background = Paint("FFFFFF", "1F1F1E") });
+            if (data.Text("total") is not ("" or "0")) { var total = OverviewText(T("trace.total", ("n", data.Text("total"))) + (data.Text("path").Length > 0 ? " · " + data.Text("path") : ""), 12, true); total.Margin = new Thickness(0, 8, 0, 0); list.Children.Add(total); }
         }
-        Button? older = null;
+        var role = DetailsTabs(new[] { ("all", T("common.all")), ("talk", T("trace.filter_talk")), ("tools", T("trace.filter_actions")) }, selectedRole, value => { selectedRole = value; Draw(); return Task.CompletedTask; }); role.VerticalAlignment = VerticalAlignment.Center;
+        var filters = new DetailsFilterRow { Spacing = 8, Margin = new Thickness(0, 0, 0, 12) }; filters.Children.Add(role); filters.Children.Add(SettingsVoiceField(query, 220)); query.Padding = new Thickness(10, 3, preferences.Text("voice") == "off" ? 10 : 34, 3); box.Children.Add(filters);
+        var fetching = false; Button? older = null;
         async Task Fetch(string before = "")
         {
-            data = await api!.Get(PathFor("/transcript?member=" + Client.Segment(who) + "&limit=400" + (before.Length > 0 ? "&before=" + before : "")));
-            steps.InsertRange(0, data.Rows("steps")); if (older != null) older.Visibility = data.Text("start") is "" or "0" ? Visibility.Collapsed : Visibility.Visible; Draw();
+            if (fetching) return; fetching = true;
+            try { data = await api!.Get(Client.Org(targetOrg, "/transcript?member=" + Client.Segment(who) + "&limit=400" + (before.Length > 0 ? "&before=" + before : ""))); steps.InsertRange(0, data.Rows("steps")); if (older != null) older.Visibility = data.Text("start") is "" or "0" ? Visibility.Collapsed : Visibility.Visible; Draw(); }
+            finally { fetching = false; }
         }
-        older = Button(T("trace.load_older"), () => Fetch(data.Text("start"))); box.Children.Add(older); box.Children.Add(list);
-        role.SelectionChanged += (_, _) => Draw(); query.TextChanged += (_, _) => Draw(); await Fetch();
+        older = Button("", () => Fetch(data.Text("start"))); older.Content = OverviewText(T("trace.load_older"), 12); ((TextBlock)older.Content).Foreground = Paint("5A5853", "B8B5AE"); older.Padding = new Thickness(12, 3, 12, 3); older.MinHeight = 0; older.CornerRadius = new CornerRadius(14); older.HorizontalAlignment = HorizontalAlignment.Center; older.Margin = new Thickness(0, 8, 0, 8); box.Children.Add(older); box.Children.Add(list);
+        query.TextChanged += (_, _) => Draw(); await Fetch();
     }
 }

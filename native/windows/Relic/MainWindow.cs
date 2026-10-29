@@ -275,7 +275,7 @@ public sealed partial class MainWindow : Window
         switch (pane)
         {
             case "thread": DrawThread(); break;
-            case "workspace": detail.Children.Add(workspaceBody); break;
+            case "workspace": DrawWorkspace(); break;
             case "files": DrawFile(); break;
             default: DrawOverview(); break;
         }

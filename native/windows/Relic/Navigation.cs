@@ -163,10 +163,11 @@ public sealed partial class MainWindow
     {
         menu.Items.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
-        MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title), Height = 28, Padding = new Thickness(9, 0, 9, 0), FontSize = 13, MinWidth = 0, CornerRadius = new CornerRadius(7) }; menu.Items.Add(group); return group; }
+        StyleNativeMenuBar();
+        MenuBarItem Group(string title) { var group = NativeMenuGroup(T(title)); menu.Items.Add(group); return group; }
         void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "", bool check = false)
         {
-            var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut, Style = (Style)Application.Current.Resources["RelicMenuItemStyle"] };
+            var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut, Style = NativeMenuItemStyle(shortcut.Length > 0) };
             if (check) { var glyph = (ReferenceVectorIcon)ReferenceIcon("check", 14); glyph.Foreground = Accent; item.Tag = glyph; }
             item.Click += async (_, _) => { await Run(action); BuildMenus(); DrawToolbar(); }; group.Items.Add(item);
         }
@@ -175,29 +176,29 @@ public sealed partial class MainWindow
         Item(file, T("appmenu.add_existing"), () => MemberDialog("existing"), org.Length > 0);
         var secretary = snap["org"].Text("secretary");
         Item(file, T(secretary.Length > 0 ? "appmenu.open_secretary" : "appmenu.set_up_secretary"), () => secretary.Length > 0 ? Select(org, secretary) : SecretarySetup(), org.Length > 0);
-        file.Items.Add(new MenuFlyoutSeparator());
+        file.Items.Add(NativeMenuSeparator());
         Item(file, T("appmenu.org_details"), () => Details(), org.Length > 0);
         Item(file, T("appmenu.open_data"), async () => { await api!.Post("/api/open", new { what = "data" }); });
         Item(file, T("appmenu.open_logs"), async () => { await api!.Post("/api/open", new { what = "logs" }); });
-        file.Items.Add(new MenuFlyoutSeparator()); Item(file, T("appmenu.settings"), Settings, shortcut: "Ctrl+,");
+        file.Items.Add(NativeMenuSeparator()); Item(file, T("appmenu.settings"), Settings, shortcut: "Ctrl+,");
         var edit = Group("appmenu.edit");
         foreach (var (key, action) in new[] { ("appmenu.undo", "undo"), ("appmenu.redo", "redo"), ("appmenu.cut", "cut"), ("common.copy", "copy"), ("appmenu.paste", "paste"), ("appmenu.select_all", "all"), ("appmenu.quote_selection", "quote") })
         {
-            if (action is "cut" or "quote") edit.Items.Add(new MenuFlyoutSeparator());
+            if (action is "cut" or "quote") edit.Items.Add(NativeMenuSeparator());
             Item(edit, T(key), () => Edit(action), shortcut: action switch { "undo" => "Ctrl+Z", "redo" => "Ctrl+Y", "cut" => "Ctrl+X", "copy" => "Ctrl+C", "paste" => "Ctrl+V", "all" => "Ctrl+A", _ => "" });
         }
         Item(edit, T("page.search"), FocusSearch, shortcut: "Ctrl+K");
         var view = Group("appmenu.view"); Item(view, T("appmenu.sidebar"), ToggleSide, shortcut: "Ctrl+B", check: sideOpen); Item(view, T("page.panel"), TogglePanel, shortcut: "Ctrl+Alt+B", check: panelOpen);
-        view.Items.Add(new MenuFlyoutSeparator());
+        view.Items.Add(NativeMenuSeparator());
         int paneNumber = 0;
         foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") }) Item(view, T("appmenu.pane", ("pane", T(key))), () => SetPane(id), shortcut: "Alt+" + ++paneNumber, check: panelOpen && pane == id);
-        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.org_chart"), Chart, orgs.Count > 0);
-        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }, org.Length > 0, shortcut: "Ctrl+Shift+L", check: plainMode); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); }, org.Length > 0, check: digestOpen);
-        view.Items.Add(new MenuFlyoutSeparator());
+        view.Items.Add(NativeMenuSeparator()); Item(view, T("appmenu.org_chart"), Chart, orgs.Count > 0);
+        view.Items.Add(NativeMenuSeparator()); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }, org.Length > 0, shortcut: "Ctrl+Shift+L", check: plainMode); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); }, org.Length > 0, check: digestOpen);
+        view.Items.Add(NativeMenuSeparator());
         foreach (var (value, key) in new[] { ("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark") }) Item(view, T("appmenu.theme", ("theme", T(key))), () => SavePreferences(new() { ["theme"] = value }), check: preferences.Text("theme") == value);
         foreach (var (value, key) in new[] { ("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large") }) Item(view, T("appmenu.font_size", ("size", T(key))), () => SavePreferences(new() { ["font"] = value }), check: preferences.Text("font") == value);
-        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.reload"), Refresh, shortcut: "Ctrl+R");
-        var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); help.Items.Add(new MenuFlyoutSeparator()); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
+        view.Items.Add(NativeMenuSeparator()); Item(view, T("appmenu.reload"), Refresh, shortcut: "Ctrl+R");
+        var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); help.Items.Add(NativeMenuSeparator()); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
         if (sendButton != null) { AutomationProperties.SetName(sendButton, T("common.send")); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
         search.PlaceholderText = T("page.search"); AutomationProperties.SetName(search, T("page.search")); AutomationProperties.SetName(side, T("page.side")); AutomationProperties.SetName(stream, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));
     }
@@ -221,13 +222,28 @@ public sealed partial class MainWindow
     }
     private Task Shortcuts()
     {
-        var box = new StackPanel { Spacing = 12 };
+        var box = new StackPanel { Width = Math.Min(520, Math.Max(0, root.ActualWidth - 32)), Padding = new Thickness(22), Spacing = 14, UseLayoutRounding = false };
+        var title = OverviewText(T("shortcuts.title"), 17, weight: 650); title.IsTextSelectionEnabled = false; box.Children.Add(title);
+        var keys = new Grid { ColumnSpacing = 16, RowSpacing = 9, Margin = new Thickness(0, 4, 0, 0) };
+        keys.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); keys.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         foreach (var (key, text) in new[] { ("Ctrl+B", "shortcuts.toggle_sidebar"), ("Ctrl+Alt+B", "shortcuts.toggle_panel"), ("Alt+1 / 2 / 3", "shortcuts.panes"), ("Alt+← / Alt+→", "shortcuts.back_forward"), ("Ctrl+K", "page.search"), ("Ctrl+Shift+L", "appmenu.plain_group"), ("Ctrl+,", "common.settings"), ("Enter / Shift+Enter", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close") })
         {
-            var row = new Grid { ColumnSpacing = 20 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(170) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            var cap = Badge(key); cap.HorizontalAlignment = HorizontalAlignment.Right; ((TextBlock)cap.Child).FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"); row.Children.Add(cap);
-            var label = Text(T(text), 13); label.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(label, 1); row.Children.Add(label); box.Children.Add(row);
+            var row = keys.RowDefinitions.Count; keys.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            var cap = NativeShortcutCap(key); Grid.SetRow(cap, row); keys.Children.Add(cap);
+            var label = OverviewText(T(text), 13); label.Foreground = Paint("5A5853", "B8B5AE"); label.IsTextSelectionEnabled = false; label.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(label, 1); Grid.SetRow(label, row); keys.Children.Add(label);
         }
-        box.Children.Add(Button(T("shortcuts.ok"), () => { visibleDialog?.Hide(); return Task.CompletedTask; })); return Show(T("shortcuts.title"), box);
+        box.Children.Add(keys);
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = box };
+        AutomationProperties.SetName(dialog, T("shortcuts.title"));
+        var ok = NativeShortcutConfirm(T("shortcuts.ok")); ok.Click += (_, _) => dialog.Hide(); box.Children.Add(ok);
+        dialog.Opened += (_, _) =>
+        {
+            if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
+            if (DialogPart<Border>(dialog, "BackgroundElement") is { } background) background.Padding = new Thickness(0);
+            if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } scroll) scroll.Padding = new Thickness(0);
+            if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
+        };
+        return Dialog(dialog);
     }
 }
