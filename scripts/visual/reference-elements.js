@@ -59,6 +59,7 @@
   const snapshotLayout = snapshotDocument?.layout, snapshotTextBoxes = snapshotDocument?.textBoxes;
   const snapshotElements = new Map(), snapshotPseudo = new Map(), pseudoByOwner = new WeakMap();
   const snapshotInputBoxes = new WeakMap(), snapshotInputFontOwners = new WeakMap(), snapshotBackend = new WeakMap(), snapshotRenderedText = new WeakMap(), snapshotPaintOrder = new WeakMap();
+  const snapshotTextLayouts = new WeakMap();
   const axByBackend = new Map(), raw_ax_nodes = meta.ax_tree?.nodes || [];
   const axById = new Map(raw_ax_nodes.map(node => [node.nodeId, node]));
   for (const ax of raw_ax_nodes) {
@@ -92,6 +93,7 @@
       const li = layoutByNode.get(index);
       if (li !== undefined && snapshotLayout.paintOrders?.[li] !== undefined) snapshotPaintOrder.set(actual, snapshotLayout.paintOrders[li]);
     }
+    const snapshotRect = a => ({ x: a[0] - (snapshotDocument.scrollOffsetX || 0), y: a[1] - (snapshotDocument.scrollOffsetY || 0), width: a[2], height: a[3] });
     const textPositions = new Map();
     for (let i = 0; i < snapshotNodes.nodeType.length; i++) {
       if (snapshotNodes.nodeType[i] !== Node.TEXT_NODE) continue;
@@ -106,11 +108,16 @@
         snapshotBackend.set(actual, snapshotNodes.backendNodeId?.[i]);
         const layoutIndex = layoutByNode.get(i);
         if (layoutIndex !== undefined) snapshotRenderedText.set(actual, snapshotStrings[snapshotLayout.text[layoutIndex]] || '');
+        const layouts = snapshotLayout.nodeIndex.flatMap((nodeIndex, position) => nodeIndex === i ? [position] : []);
+        snapshotTextLayouts.set(actual, { source: 'CDP.DOMSnapshot.captureSnapshot', backend_node_id: snapshotNodes.backendNodeId?.[i], node_index: i,
+          layout_rows: layouts.map(position => ({ layout_index: position, text: snapshotStrings[snapshotLayout.text[position]] || '', bounds: snapshotRect(snapshotLayout.bounds[position]) })),
+          text_boxes: (snapshotTextBoxes?.layoutIndex || []).flatMap((position, k) => layouts.includes(position)
+            ? [{ layout_index: position, bounds: snapshotRect(snapshotTextBoxes.bounds[k]), start: snapshotTextBoxes.start[k], length: snapshotTextBoxes.length[k] }] : []),
+          quantity: 'post-layout text fragments; not certified painted glyph ink or generated ellipsis geometry' });
       }
       else extraction_errors.push({ type: 'snapshot_text_identity_changed', snapshot_node: i, parent: selectorForSnapshot(parentIndex), reason: 'The live text node no longer matches the DOMSnapshot node.' });
     }
     function selectorForSnapshot(index) { return selectors.get(index) || null; }
-    const snapshotRect = a => ({ x: a[0] - (snapshotDocument.scrollOffsetX || 0), y: a[1] - (snapshotDocument.scrollOffsetY || 0), width: a[2], height: a[3] });
     const descendantOf = (node, ancestor) => {
       for (let p = node; p >= 0; p = snapshotNodes.parentIndex[p]) if (p === ancestor) return true;
       return false;
@@ -187,19 +194,32 @@
       height: /hidden|clip|scroll|auto/.test(s.overflowY) ? owner.clientHeight : original.height };
     const ownBounds = intersect(original, ownClip);
     const boxes = ranges.map(box => visibleRect(owner, box, true)).filter(Boolean);
-    const ellipsis = s.textOverflow === 'ellipsis' && owner.scrollWidth > owner.clientWidth || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 && owner.scrollHeight > owner.clientHeight;
+    const ellipsisOwners = [];
+    for (let p = owner; p; p = p.parentElement) {
+      const style = styleOf(p);
+      if (style.textOverflow === 'ellipsis' && p.scrollWidth > p.clientWidth || style.webkitLineClamp !== 'none' && Number(style.webkitLineClamp) > 0 && p.scrollHeight > p.clientHeight)
+        ellipsisOwners.push({ selector: pathOf(p), direct_owner: p === owner, text_overflow: style.textOverflow, line_clamp: style.webkitLineClamp,
+          display: style.display, white_space: style.whiteSpace, scroll_width: p.scrollWidth, client_width: p.clientWidth,
+          scroll_height: p.scrollHeight, client_height: p.clientHeight });
+    }
+    const ellipsis = ellipsisOwners.length > 0;
     const inlineTextBoxes = (axByBackend.get(snapshotBackend.get(node)) || []).flatMap(ax => (ax.childIds || []).map(id => axById.get(id)))
       .filter(ax => ax?.role?.value === 'InlineTextBox')
       .map(ax => ({ node_id: ax.nodeId, parent_id: ax.parentId, ignored: ax.ignored, name: ax.name?.value ?? null,
         properties: ax.properties || [], source: 'CDP.Accessibility.getFullAXTree', bounds: null }));
-    const data = { bounds: ownBounds, visible_bounds: visibleRect(owner, original, true), boxes,
+    const data = { range_bounds: ownBounds, clipped_range_envelope: visibleRect(owner, original, true), range_boxes: boxes, glyph_bounds: null,
       evidence: { source: 'DOMRange + actual owner content/ancestor overflow clips', backend_node_id: snapshotBackend.get(node) ?? null,
-        source_text: node.nodeValue, raw_bounds: original, raw_rectangles: ranges, owner_content_clip: ownClip,
+        source_text: node.nodeValue, raw_bounds: original, raw_rectangles: ranges, owner_element_box: rect(ownBox), owner_content_clip: ownClip,
+        clipped_range_envelope: visibleRect(owner, original, true), clipped_range_boxes: boxes, glyph_bounds: null,
+        dom_snapshot_layout: snapshotTextLayouts.get(node) || null,
         owner_selector: pathOf(owner), overflow_x: s.overflowX, overflow_y: s.overflowY, text_overflow: s.textOverflow,
         scroll_width: owner.scrollWidth, client_width: owner.clientWidth, scroll_height: owner.scrollHeight, client_height: owner.clientHeight,
-        css_ellipsis_active: ellipsis, ax_inline_text_boxes: inlineTextBoxes,
+        css_ellipsis_active: ellipsis, ellipsis_overflow_owners: ellipsisOwners,
+        ellipsis_detection_quantity: 'computed ellipsis/clamp request plus overflow metrics; actual glyph visibility and geometry remain unmeasured',
+        ax_inline_text_boxes: inlineTextBoxes,
         inline_text_geometry_note: inlineTextBoxes.length ? 'AX exposes text fragments, including generated ellipses, but no bounds. It can also retain the unclipped original fragment; none is promoted to painted geometry.' : null,
-        geometry_kind: ellipsis ? 'clipped-range-envelope-with-unresolved-ellipsis-ink' : 'clipped-dom-range' } };
+        geometry_kind: ellipsis ? 'unmeasured-painted-ellipsis-with-retained-range-evidence' : 'font-metric-text-advance-range',
+        range_quantity: 'CSSOM font ascent/descent and text advance rectangles; clipping does not turn these into glyph ink bounds' } };
     measuredText.set(node, data); return data;
   };
   const textNodes = el => {
@@ -207,11 +227,30 @@
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       if (n.parentElement.closest('svg,script,style,option')) continue;
       const s = styleOf(n.parentElement), text = visibleText(n, s);
-      if (text.trim() && textMeasurement(n).visible_bounds) output.push(n);
+      if (text.trim() && textMeasurement(n).clipped_range_envelope) output.push(n);
     }
     return output;
   };
-  const textRects = nodes => nodes.flatMap(n => textMeasurement(n).boxes);
+  const textRects = nodes => nodes.flatMap(n => textMeasurement(n).range_boxes);
+  const textGeometry = (measurements, boxes, kind, elementBounds, elementVisibleBounds) => {
+    const unknownEllipsis = measurements.some(measurement => measurement.evidence.css_ellipsis_active);
+    const envelopes = measurements.map(measurement => measurement.clipped_range_envelope).filter(Boolean);
+    const envelope = envelopes.length ? { x: Math.min(...envelopes.map(box => box.x)), y: Math.min(...envelopes.map(box => box.y)),
+      width: Math.max(...envelopes.map(box => box.x + box.width)) - Math.min(...envelopes.map(box => box.x)),
+      height: Math.max(...envelopes.map(box => box.y + box.height)) - Math.min(...envelopes.map(box => box.y)) } : null;
+    const unknownBox = () => ({ x: null, y: null, width: null, height: null });
+    // Preserve directly measured control boxes. For a standalone text element,
+    // unknown ellipsis paint must not be replaced by either the owner's box or
+    // a clipped advance range. The latter remains report-only evidence.
+    const count = boxes.length ? lineCount(boxes) : null;
+    return { bounds: unknownEllipsis && kind === 'text' ? unknownBox() : elementBounds,
+      visible_bounds: unknownEllipsis && kind === 'text' ? unknownBox() : elementVisibleBounds,
+      text_bounds: unknownEllipsis ? null : boxes, text_layout_bounds: boxes,
+      line_count: unknownEllipsis && count !== 1 ? null : count,
+      line_count_source: count === 1 ? 'one measured visible layout line; ellipsis does not add a line' : unknownEllipsis ? null : 'measured visible DOMRange line rectangles',
+      clipped_range_envelope: envelope, unknown_ellipsis: unknownEllipsis,
+      text_bounds_quantity: unknownEllipsis ? 'unmeasured-painted-ellipsis-text' : 'font-metric-text-advance-range' };
+  };
   const lineCount = boxes => new Set(boxes.filter(b => b.width >= 0 && b.height > 0).map(b => Math.round(b.y * 2) / 2)).size;
   const inputTextMeasurement = el => {
     const backend = snapshotBackend.get(el), primary = snapshotInputBoxes.get(el) || [];
@@ -568,16 +607,20 @@
     const accessibility = accessibilityOf(options.textNode || el, options.axBackend);
     const actualFonts = platformFonts(el, text, id, options);
     paintStyle.rendered_fonts = actualFonts.fonts;
-    const textMeasurements = (options.ownedTextNodes || (options.textNode ? [options.textNode] : [])).map(n => textMeasurement(n).evidence);
+    const measured = (options.ownedTextNodes || (options.textNode ? [options.textNode] : [])).map(textMeasurement);
+    const textMeasurements = measured.map(measurement => measurement.evidence);
+    const geometry = textGeometry(measured, boxes, kind, options.unclippedBounds || rect(el.getBoundingClientRect()), bounds);
     for (const measurement of textMeasurements.filter(value => value.css_ellipsis_active))
       unmeasured.push({ element: id, property: 'text.ellipsis_glyph_geometry', evidence: measurement,
-        reason: 'DOMRange exposes original and clipped text advances, but not the generated ellipsis glyph bounds. The clipped envelope is retained; no inferred ellipsis width or hidden suffix is claimed as painted glyph evidence.' });
+        reason: 'DOMRange and DOMSnapshot expose layout text advances; AX names identify text fragments but do not locate the generated ellipsis. Actual text geometry is null. The clipped range envelope is diagnostic evidence only, never substituted for painted glyph bounds.' });
     const item = { id, parent, region, order: regionOrders.get(region) || 0, kind, text,
-      name: accessibility.name, bounds: options.unclippedBounds || rect(el.getBoundingClientRect()), visible_bounds: bounds, style: paintStyle,
+      name: accessibility.name, bounds: geometry.bounds, visible_bounds: geometry.visible_bounds, style: paintStyle,
       state: stateOf(el), layout: { wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
-        truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : boxes.length ? lineCount(boxes) : null },
+        truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : geometry.line_count },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
-        class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
+        class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()),
+        text_bounds: geometry.text_bounds, text_layout_bounds: geometry.text_layout_bounds, text_bounds_quantity: geometry.text_bounds_quantity,
+        clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
         font_request: text ? fontRequestEvidence(s) : null,
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
@@ -703,19 +746,24 @@
     if (s.overflowX === 'scroll' || s.overflowX === 'auto' && el.scrollWidth > el.clientWidth) axes.push('horizontal');
     if (s.overflowY === 'scroll' || s.overflowY === 'auto' && el.scrollHeight > el.clientHeight) axes.push('vertical');
     if (!axes.length) return null;
-    const parts = ['::-webkit-scrollbar', '::-webkit-scrollbar-track', '::-webkit-scrollbar-thumb', '::-webkit-scrollbar-corner'].map(pseudo => {
+    const parts = ['::-webkit-scrollbar', '::-webkit-scrollbar-button', '::-webkit-scrollbar-track', '::-webkit-scrollbar-track-piece', '::-webkit-scrollbar-thumb', '::-webkit-scrollbar-corner', '::-webkit-resizer'].map(pseudo => {
       const p = getComputedStyle(el, pseudo);
       return { pseudo, display: p.display, visibility: p.visibility, opacity: p.opacity,
+        source: 'computed pseudo style request, not evidence that the UA painted this part', painted_presence: null, painted_bounds: null,
         width: p.width, height: p.height, background: p.backgroundColor, background_clip: p.backgroundClip,
         border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Width']),
         border_colors: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Color']),
         corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => p['border' + corner + 'Radius']) };
     });
-    if (parts[0].display === 'none' || parts[0].visibility === 'hidden' || Number(parts[0].opacity) === 0) return null;
+    if (parts[0].display === 'none' || parts[0].visibility === 'hidden' || parts[0].opacity?.trim() !== '' && Number(parts[0].opacity) === 0) return null;
     return { source: 'actual scroll metrics + getComputedStyle UA pseudo styles', axes, owner_bounds: rect(el.getBoundingClientRect()),
       client_width: el.clientWidth, client_height: el.clientHeight, client_left: el.clientLeft, client_top: el.clientTop,
       offset_width: el.offsetWidth, offset_height: el.offsetHeight, scroll_width: el.scrollWidth, scroll_height: el.scrollHeight,
-      scroll_left: el.scrollLeft, scroll_top: el.scrollTop, scrollbar_width: s.scrollbarWidth, parts,
+      scroll_left: el.scrollLeft, scroll_top: el.scrollTop, scrollbar_width: s.scrollbarWidth, scrollbar_gutter: s.scrollbarGutter,
+      direction: s.direction, writing_mode: s.writingMode, overflow_x: s.overflowX, overflow_y: s.overflowY, parts,
+      dom_snapshot_parts: (pseudoByOwner.get(el) || []).filter(part => /scrollbar|resizer/.test(part.type)),
+      actual_ua_parts_presence: null,
+      measurement_limit: 'CSS overflow and integer client/offset metrics establish a scroll container, not actual overlay visibility or individual track/thumb/button paint bounds. Computed pseudo styles do not establish part existence.',
       measured_part_bounds: null, measured_part_pixels: null };
   };
   const all = Array.from(document.body.querySelectorAll('*'));
@@ -756,11 +804,11 @@
       const n = childText[i], text = visibleText(n, s);
       if (!text.trim() || suppressedText.has(n)) continue;
       if (!snapshotRenderedText.has(n)) unmeasured.push({ element: id + ':text-' + i, property: 'text.rendered_whitespace', reason: 'No CDP LayoutText string; raw text is preserved without whitespace substitutions.' });
-      const measurement = textMeasurement(n), textBounds = measurement.visible_bounds;
+      const measurement = textMeasurement(n), textBounds = measurement.clipped_range_envelope;
       if (!textBounds) continue;
       const visible = fragmentsOf(el, textBounds);
       if (!visible.length) continue;
-      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { textNode: n, unclippedBounds: measurement.bounds, textBoxes: measurement.boxes, evidence: { source_text: n.nodeValue, visible_fragments: visible } });
+      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { textNode: n, unclippedBounds: measurement.range_bounds, textBoxes: measurement.range_boxes, evidence: { source_text: n.nodeValue, visible_fragments: visible, visible_fragments_quantity: 'candidate font-metric range envelopes after clipping and occlusion; not measured glyph ink' } });
       raw.emitted.push(emitted);
     }
     for (const pseudo of ['::before', '::after', '::marker']) {

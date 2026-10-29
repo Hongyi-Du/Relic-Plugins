@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using Relic.Core;
 using System.Text.Json.Nodes;
 
@@ -10,6 +12,7 @@ public sealed partial class MainWindow
     private readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 40 };
     private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 4, 2, 4) };
     private StackPanel? copiesBody;
+    private readonly HashSet<string> expandedCopies = [];
     private HashSet<string>? knownCopies;
     private void DrawToolbar()
     {
@@ -169,9 +172,21 @@ public sealed partial class MainWindow
     };
     private async Task ShowCopies()
     {
-        copiesBody = new StackPanel { Spacing = 16 }; var body = copiesBody; DrawCopies();
-        var unread = copies.Count(c => !c.Flag("read"));
-        await Show(T("cc.title") + (unread > 0 ? " · " + unread : ""), body); if (copiesBody == body) copiesBody = null;
+        expandedCopies.Clear();
+        copiesBody = new StackPanel { Spacing = 12, Padding = new Thickness(22), Width = Math.Min(760, root.ActualWidth - 32) };
+        var body = copiesBody; DrawCopies();
+        var scroll = Scroll(body); scroll.MaxHeight = root.ActualHeight - 56;
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = scroll };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("cc.title"));
+        dialog.Opened += (_, _) =>
+        {
+            dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogMaxHeight"] = root.ActualHeight - 56;
+            if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
+            if (DialogPart<Border>(dialog, "BackgroundElement") is { } background) background.Padding = new Thickness(0);
+            if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } wrapper) { wrapper.Padding = new Thickness(0); wrapper.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; }
+            if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
+        };
+        await Dialog(dialog); if (copiesBody == body) copiesBody = null;
     }
     private void CopyNotifications()
     {
@@ -181,29 +196,76 @@ public sealed partial class MainWindow
     }
     private void DrawCopies()
     {
-        if (copiesBody == null) return; var content = copiesBody; content.Children.Clear(); content.Children.Add(Quiet(T("cc.intro"), 12));
-        if (copies.Count == 0) content.Children.Add(Text(T("cc.empty")));
+        if (copiesBody == null) return; var content = copiesBody; content.Children.Clear();
+        var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        var symbol = (ReferenceVectorIcon)ReferenceIcon("cc", 18); symbol.Foreground = Paint("5A5853", "B8B5AE"); heading.Children.Add(symbol);
+        heading.Children.Add(OverviewText(T("cc.title"), 17, weight: 650));
+        var unread = copies.Count(c => !c.Flag("read")); if (unread > 0) heading.Children.Add(OverviewCount(unread));
+        var close = IconButton("\uE711", "common.close", () => { visibleDialog?.Hide(); return Task.CompletedTask; }); close.Width = close.Height = 30;
+        content.Children.Add(OverviewHeading(heading, close));
+        var intro = OverviewText(T("cc.intro"), 13, lineHeight: 22.1); intro.Foreground = Paint("5A5853", "B8B5AE"); content.Children.Add(intro);
+        var list = new StackPanel { Spacing = 10 }; content.Children.Add(list);
+        if (copies.Count == 0) list.Children.Add(new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("cc.empty"), 14, true) });
         foreach (var c in copies)
         {
             var card = new StackPanel { Spacing = 8 }; var live = c.Text("status") == "active" && c.Text("org_status") is "" or "active";
-            var badges = new ActionRow { Spacing = 4 }; if (!c.Flag("read")) badges.Children.Add(Badge(T("cc.unread"), true)); if (c.Text("supersedes").Length > 0) badges.Children.Add(Badge(T("cc.revision"))); badges.Children.Add(Badge(CopyState(c!)));
-            var heading = Stack(Quiet(c.Text("org_name"), 11), Heading(c.Text("protocol_id") + " " + c.Text("title"), 14)); heading.Spacing = 3; card.Children.Add(TwoColumns(heading, badges));
-            card.Children.Add(new Border { Child = Rich(c.Text("summary")), Background = Paint("F8F7F5", "2A2A28"), Padding = new Thickness(10), CornerRadius = new CornerRadius(8) });
+            var badges = new ActionRow { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+            if (!c.Flag("read"))
+            {
+                var badge = OverviewChip(T("cc.unread")); badge.Background = OverviewAlpha(Accent, .13); badge.Foreground = Accent;
+                if (badge.Content is TextBlock label) label.Foreground = Accent; badges.Children.Add(badge);
+            }
+            if (c.Text("supersedes").Length > 0) badges.Children.Add(OverviewChip(T("cc.revision")));
+            var stateStyle = c.Text("org_status") is not ("" or "active") ? "" : c.Text("status") == "active" ? "ok" : c.Text("status") == "retired" && c.Text("retired_by") == "human" ? "bad" : "";
+            badges.Children.Add(OverviewChip(CopyState(c!), stateStyle));
+            var top = new Grid { ColumnSpacing = 10 }; top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            var organization = orgs.FirstOrDefault(o => o.Text("id") == c.Text("org")) ?? new JsonObject { ["id"] = c.Text("org"), ["name"] = c.Text("org_name") };
+            var avatar = SidebarOrgFace(organization!); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Margin = new Thickness(0, 2, 0, 0); top.Children.Add(avatar);
+            var titles = new StackPanel(); var orgName = OverviewText(c.Text("org_name"), 12, true, lineHeight: 16.8); orgName.TextWrapping = TextWrapping.NoWrap; orgName.TextTrimming = TextTrimming.CharacterEllipsis; titles.Children.Add(orgName);
+            var title = new RichTextBlock { FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = 14, FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }, Foreground = Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 19.6, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
+            var paragraph = new Paragraph(); paragraph.Inlines.Add(new Run { Text = c.Text("protocol_id"), FontFamily = new FontFamily("Cascadia Code"), FontSize = 12.88, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Paint("5A5853", "B8B5AE") }); paragraph.Inlines.Add(new Run { Text = " " + c.Text("title") }); title.Blocks.Add(paragraph); titles.Children.Add(title);
+            Grid.SetColumn(titles, 1); top.Children.Add(titles); Grid.SetColumn(badges, 2); top.Children.Add(badges);
+            top.SizeChanged += (_, args) => badges.MaxWidth = args.NewSize.Width * .45; card.Children.Add(top);
+            card.Children.Add(new Border { Child = Rich(c.Text("summary")), Background = live ? Paint("F8F7F5", "191918") : Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10), Opacity = live ? 1 : .8 });
             var metadata = new List<string> { T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))) };
             if (c.Rows("approved_display").Count > 0) metadata.Add(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))));
-            if (c.Text("activated_at").Length > 0) metadata.Add(T("cc.effective", ("when", When(c.Text("activated_at"))))); card.Children.Add(Quiet(string.Join(" · ", metadata), 11));
-            if (c.Text("supersedes").Length > 0) card.Children.Add(Text(T("cc.replaces", ("id", c.Text("supersedes"))), 12));
+            if (c.Text("activated_at").Length > 0) metadata.Add(T("cc.effective", ("when", When(c.Text("activated_at")))));
+            if (c.Text("supersedes").Length > 0) metadata.Add(T("cc.replaces", ("id", c.Text("supersedes")))); card.Children.Add(OverviewText(string.Join(" · ", metadata), 12, true));
             var stats = c?["stats"];
-            card.Children.Add(Text(stats.Text("total") is "" or "0" ? T("cc.stats_none") : T("cc.stats", ("n", stats.Text("total")), ("allow", stats.Text("allow")), ("deny", stats.Text("deny")), ("review", stats.Text("review")), ("error", stats.Text("error")))));
-            if (c.Rows("rules").Any(r => r.Text("effect") == "check")) card.Children.Add(CheckRules(c.Rows("rules")));
-            if (!c.Flag("read")) card.Children.Add(Button(T("cc.ack"), async () => { await api!.Post("/api/cc/" + c.Text("id") + "/read", new { }); await Refresh(); }));
-            if (live) card.Children.Add(Button(T("cc.retire"), async () =>
+            string Count(string key) => stats.Text(key).Length > 0 ? stats.Text(key) : "0";
+            card.Children.Add(OverviewText(stats.Text("total") is "" or "0" ? T("cc.stats_none") : T("cc.stats", ("n", Count("total")), ("allow", Count("allow")), ("deny", Count("deny")), ("review", Count("review")), ("error", Count("error"))), 12, true));
+            if (c.Rows("rules").Any(r => r.Text("effect") == "check"))
+            {
+                var rules = CheckRules(c.Rows("rules"));
+                if (rules is Expander disclosure) { disclosure.IsExpanded = expandedCopies.Contains(c.Text("id")); disclosure.Expanding += (_, _) => expandedCopies.Add(c.Text("id")); disclosure.Collapsed += (_, _) => expandedCopies.Remove(c.Text("id")); }
+                card.Children.Add(rules);
+            }
+            var actions = new ActionRow { Spacing = 6 };
+            if (!c.Flag("read"))
+            {
+                var ack = OverviewAction(T("cc.ack"), async () => { await api!.Post("/api/cc/" + c.Text("id") + "/read", new { }); await Refresh(); });
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center }; row.Children.Add(ReferenceIcon("check", 14));
+                if (ack.Content is UIElement label) { ack.Content = null; row.Children.Add(label); } ack.Content = row; actions.Children.Add(ack);
+            }
+            if (live)
+            {
+                var retire = OverviewAction(T("cc.retire"), async () =>
             {
                 if (!await Confirm(T("cc.retire_confirm", ("id", c.Text("protocol_id")), ("title", c.Text("title")), ("org", c.Text("org_name"))))) return;
                 try { await api!.Post("/api/cc/" + c.Text("id") + "/retire", new { }); await Refresh(); Note(T("cc.retired", ("id", c.Text("protocol_id")), ("title", c.Text("title")))); await ShowCopies(); }
                 catch (Exception ex) { Note(T("cc.retire_failed", ("error", ex.Message))); }
-            }));
-            InlineActions(card); var surface = Card(card); if (!c.Flag("read")) { surface.BorderBrush = Accent; surface.BorderThickness = new Thickness(3, 1, 1, 1); } content.Children.Add(surface);
+                }); if (retire.Content is TextBlock label) label.Foreground = Paint("C2412D", "EE8A78"); actions.Children.Add(retire);
+            }
+            if (actions.Children.Count > 0) card.Children.Add(actions);
+            var surface = new Border { Child = card, Background = live ? Paint("FFFFFF", "252523") : Paint("F8F7F5", "191918"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 12, 14, 12) };
+            if (!c.Flag("read"))
+            {
+                var a = Accent.Color; var b = Line.Color;
+                surface.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)Math.Round(a.R * .45 + b.R * .55), (byte)Math.Round(a.G * .45 + b.G * .55), (byte)Math.Round(a.B * .45 + b.B * .55)));
+                surface.Padding = new Thickness(0); surface.Child = null;
+                surface.Child = new Border { Child = card, BorderBrush = Accent, BorderThickness = new Thickness(3, 0, 0, 0), CornerRadius = new CornerRadius(11), Padding = new Thickness(11, 12, 14, 12) };
+            }
+            list.Children.Add(surface);
         }
     }
     private string CopyState(JsonNode c) => c.Text("org_status") is not ("" or "active") ? T("cc.status_ended") : c.Text("status") == "active" ? T("cc.status_active") : c.Text("status") == "retired" && c.Text("retired_by") == "human" ? T("cc.status_retired_person") : c.Text("status") == "superseded" ? T("cc.status_superseded", ("id", c.Text("superseded_by"))) : T("cc.status_retired");

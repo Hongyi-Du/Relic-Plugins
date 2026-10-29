@@ -1,5 +1,4 @@
 {
- "native.speech": "系统语音识别",
  "native.speech_permission": "点击麦克风后，Relic 将语音转写到正在编辑的消息中。",
  "native.microphone_permission": "Relic 仅在你开始录音时使用麦克风进行语音输入。",
  "native.speech_unavailable": "语音识别不可用，请检查系统语音设置及麦克风权限。",

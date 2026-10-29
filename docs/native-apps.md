@@ -8,6 +8,31 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (measurement audit): active CSS ellipsis no longer
+exports a clipped layout range as measured painted text. Unknown standalone
+text bounds retain null coordinates; directly measured control boxes remain.
+Raw ranges, actual AX fragments and `evidence.clipped_range_envelope` remain
+auditable. HTML shows the latter with an explicitly unmeasured dashed outline;
+coverage and geometry still fail. See native-reference-evidence.md. Windows
+also reconciles a uniquely identical UIA/XAML control whose actual cumulative
+opacity is zero, preserving both raw nodes and never hiding provider subtrees.
+
+Changes for the clients (current CI): `ca7ff11` Windows and macOS build/test
+jobs passed in 40962107208, but static coverage flags four macOS-only settings
+keys removed from Windows to match its reference. No inert strings or new
+allowlist entries were added. Package CI found a shared-object alias in the
+new rule-display regression and unused `native.speech`; per-rule copying and
+removal of the unused vocabulary entry fix those failures for the next run.
+
+Changes for the clients (details and copies): Windows now uses the reference
+details dialog dimensions, single top bar, 250px navigation, task and protocol
+rows, and native check-rule disclosures. Copies include the organization avatar,
+title/count, state colors, complete metadata, inline icon/actions and preserved
+disclosure state. This is implementation awaiting CI screenshots, not parity.
+The complete `1e3b7c5` failed report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-1e3b7c5\`; both platforms still have
+zero fully measured/passing scenes. No exceptions are approved.
+
 Changes for the clients (expanded check examples): normalized check-rule
 examples now include additive `call_display` and `call_json` in snapshot and
 copy responses. They follow the reference's command/file_path/path priority,

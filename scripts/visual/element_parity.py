@@ -698,10 +698,17 @@ def outlines(elements: list[dict], statuses: dict, viewport: dict, image: str | 
     shapes = []
     for element in elements:
         box = element.get("bounds", {})
-        if not all(number(box.get(k)) for k in ("x", "y", "width", "height")): continue
+        measured = isinstance(box, dict) and all(number(box.get(k)) for k in ("x", "y", "width", "height"))
+        if not measured:
+            # This is a navigation aid only. A clipped CSS layout range cannot
+            # establish the actual painted prefix/ellipsis glyph boundaries.
+            box = element.get("evidence", {}).get("clipped_range_envelope")
+            if not isinstance(box, dict) or not all(number(box.get(k)) for k in ("x", "y", "width", "height")): continue
         status = statuses.get(element["id"], "mismatch")
         title = html.escape(f"{status}: {element['id']} | {element.get('kind')} | {element.get('text', '')} | {element.get('name', '')}")
-        shapes.append(f'<rect x="{box["x"]}" y="{box["y"]}" width="{box["width"]}" height="{box["height"]}" fill="none" stroke="{colors[status]}" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>{title}</title></rect>')
+        if not measured: title += " | UNMEASURED: clipped layout envelope only; not actual glyph bounds"
+        dash = '' if measured else ' stroke-dasharray="5 3"'
+        shapes.append(f'<rect x="{box["x"]}" y="{box["y"]}" width="{box["width"]}" height="{box["height"]}" fill="none" stroke="{colors[status]}" stroke-width="1.5"{dash} vector-effect="non-scaling-stroke"><title>{title}</title></rect>')
     width, height = viewport["width"], viewport["height"]
     background = f'<image href="{html.escape(image, quote=True)}" width="{width}" height="{height}"/>' if image else f'<rect width="{width}" height="{height}" fill="#eee"/><text x="20" y="40" fill="red">MISSING SCREENSHOT</text>'
     return f'<figure><figcaption>{html.escape(label)}</figcaption><svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">{background}<g class="outlines">{"".join(shapes)}</g></svg></figure>'
@@ -714,6 +721,7 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
     chunks = [f'<!doctype html><meta charset="utf-8"><title>{html.escape(scene)}</title><style>{PAGE_STYLE}</style>',
               f'<p><a href="index.html">All scenes</a> · <a href="summary.json">Summary JSON</a> · <a href="{html.escape(scene, quote=True)}.parity.json">This scene: complete machine report</a></p><h1>{html.escape(scene)}</h1>',
               '<p class="legend"><span style="color:#159447">Green: match</span><span style="color:#e02020">Red: missing</span><span style="color:#ef8b00">Orange: mismatch</span><span style="color:#9b38dd">Purple: extra</span></p>',
+              '<p>Dashed outlines locate a clipped layout envelope when actual glyph bounds are unknown. They are not accepted measurements; extraction and geometry failures remain in the report.</p>',
               '<label><input type="checkbox" checked onchange="document.body.classList.toggle(\'hide-outlines\', !this.checked)"> Show every extracted element</label>']
     base_chunks = list(chunks)
     combined_chunks = list(chunks)

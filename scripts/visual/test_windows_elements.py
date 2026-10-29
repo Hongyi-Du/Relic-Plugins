@@ -7,7 +7,7 @@ import unittest
 
 from PIL import Image
 
-from windows_elements import host_container_ownership, project, transformed_box_edges
+from windows_elements import host_container_ownership, project, transformed_box_edges, transparent_uia_ownership
 
 
 SCENE = "zh-CN-light-1024x700-group"
@@ -171,6 +171,53 @@ class ProjectionTests(unittest.TestCase):
         result = self.capture([item, check, label], [uia_node("provider", "MenuItem", "All")])
         self.assertEqual(self.by_id(result)["item"]["text"], "")
         self.assertEqual(self.by_id(result)["label"]["text"], "All")
+
+    def test_zero_opacity_actual_control_owns_only_its_unique_provider(self):
+        # Recorded 1e3 group: UIA uia-136 stays onscreen for XAML xaml-574,
+        # although the rendered Quote action's cumulative opacity is exactly 0.
+        action = xaml_node("xaml-574", "Button", accessible_name="Quote", bounds=box(940, 272, 30, 30),
+                           opacity=0, hidden_reason="zero opacity")
+        provider = uia_node("uia-136", "Button", "Quote", bounds=action["bounds"])
+        popup = xaml_node("popup", "Button", accessible_name="Open", bounds=box(900, 350, 80, 30))
+        popup_provider = uia_node("uia-popup", "Button", "Open", parent="uia-136", bounds=popup["bounds"])
+        result = self.capture([action, popup], [provider, popup_provider])
+        ownership = [record for record in result["projection"] if record.get("source") == "uia-136"]
+        self.assertEqual(len(ownership), 1)
+        self.assertEqual(ownership[0]["owner"], "xaml-574")
+        self.assertEqual(ownership[0]["visibility_evidence"]["opacity"], 0)
+        self.assertFalse(ownership[0]["visibility_evidence"]["uia_offscreen"])
+        self.assertNotIn("xaml-574", self.by_id(result))
+        self.assertEqual(self.by_id(result)["popup"]["evidence"]["uia_id"], "uia-popup")
+        self.assertFalse(any(gap["id"] == "uia-136" and gap["property"] == "render correspondence"
+                             for gap in result["coverage"]["unmeasured"]))
+
+    def test_transparent_provider_requires_unique_exact_native_identity(self):
+        action = xaml_node("hidden", "Button", accessible_name="Quote", opacity=0, hidden_reason="zero opacity")
+        provider = uia_node("provider", "Button", "Quote")
+        self.assertEqual(len(transparent_uia_ownership([provider], [action])), 1)
+        duplicate = deepcopy(action)
+        duplicate["id"] = "other-hidden"
+        self.assertEqual(transparent_uia_ownership([provider], [action, duplicate]), [])
+        duplicate.update(id="visible", opacity=1, hidden_reason=None)
+        self.assertEqual(transparent_uia_ownership([provider], [action, duplicate]), [])
+        second_provider = deepcopy(provider)
+        second_provider["id"] = "second-provider"
+        self.assertEqual(transparent_uia_ownership([provider, second_provider], [action]), [])
+        wrong_name = deepcopy(provider)
+        wrong_name["name"] = "Copy"
+        self.assertEqual(transparent_uia_ownership([wrong_name], [action]), [])
+        near_box = deepcopy(provider)
+        near_box["bounds"]["x"] += .5
+        self.assertEqual(transparent_uia_ownership([near_box], [action]), [])
+        opacity_unknown = deepcopy(action)
+        opacity_unknown["opacity"] = None
+        self.assertEqual(transparent_uia_ownership([provider], [opacity_unknown]), [])
+
+    def test_transparent_ambiguous_providers_keep_coverage_failure(self):
+        action = xaml_node("hidden", "Button", accessible_name="Quote", opacity=0, hidden_reason="zero opacity")
+        result = self.capture([action], [uia_node("first", "Button", "Quote"), uia_node("second", "Button", "Quote")])
+        failures = {gap["id"] for gap in result["coverage"]["unmeasured"] if gap["property"] == "render correspondence"}
+        self.assertTrue({"first", "second"} <= failures)
 
     def test_actual_panel_subclass_and_stroked_rectangle_are_not_lost(self):
         legend = xaml_node("legend", "ChartFlexPanel", bounds=box(10, 20, 400, 34),

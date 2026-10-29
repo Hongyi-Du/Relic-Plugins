@@ -456,7 +456,9 @@ def protocol_rules(rules):
     each interpreting an absent on_error field. Example labels and tooltips
     follow the reference's formatting. This never rewrites the store.
     """
-    result = copy.deepcopy(rules or [])
+    # A caller may reuse an example object in separate rules. Add display
+    # fields only to the check rule, without leaking across that alias.
+    result = [copy.deepcopy(rule) for rule in rules or []]
     for rule in result:
         if rule.get("effect") == "check":
             rule["on_error"] = "deny" if rule.get("on_error") == "deny" else "allow"
