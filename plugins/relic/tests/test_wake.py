@@ -8,7 +8,6 @@ import sys
 import tempfile
 import time
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
 
@@ -16,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "hooks"))
 
-from relic_core import desktop, runner, wake  # noqa: E402
+from relic_core import claude_desktop, desktop, runner, wake  # noqa: E402
 from relic_core.store import Store, now  # noqa: E402
 import relic_hook  # noqa: E402
 import server  # noqa: E402
@@ -87,7 +86,10 @@ class Wake(unittest.TestCase):
     def test_mac_desktop_messages_wait_for_inbox_without_claims_or_retries(self):
         self.store.set_seat_fields(self.oid, "cody", config=dict(runner.default_config("codex"), surface="gui"))
         self.store.send(LEAD, ["cody"], "read this manually")
-        with mock.patch.object(wake, "sys", SimpleNamespace(platform="darwin")):
+        with mock.patch.object(sys, "platform", "darwin"), \
+                mock.patch.object(runner.platform_support.platform, "machine", return_value="arm64"), \
+                mock.patch.object(desktop, "transport_capability", return_value={"available": False}), \
+                mock.patch.object(claude_desktop, "transport_capability", return_value={"available": False}):
             self.assertEqual(self.dispatch(), [])
             self.assertFalse(wake.wakeable({"carrier": "chatgpt:chat", "harness": "chatgpt",
                                            "config": runner.default_config("chatgpt")}))

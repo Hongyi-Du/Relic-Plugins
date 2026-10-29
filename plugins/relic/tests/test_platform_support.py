@@ -48,10 +48,17 @@ class Discovery(unittest.TestCase):
 
     def test_path_is_used_before_mac_fallbacks(self):
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(platforms.sys, "platform", "darwin"), \
+                mock.patch.object(platforms.Path, "home", return_value=self.root), \
                 mock.patch.object(platforms.shutil, "which", return_value="/custom/bin/node"), \
                 mock.patch.object(platforms, "_mac_bin_dirs") as directories:
             self.assertEqual(platforms.find_executable("node"), "/custom/bin/node")
             directories.assert_not_called()
+
+    def test_path_discovery_survives_an_unavailable_home_directory(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(platforms.Path, "home", side_effect=RuntimeError("Could not determine home directory")), \
+                mock.patch.object(platforms.shutil, "which", return_value="/custom/bin/node"):
+            self.assertEqual(platforms.find_executable("node"), "/custom/bin/node")
 
     def test_sparse_path_finds_homebrew_without_shell_startup(self):
         expected = str(Path("/opt/homebrew/bin/node"))

@@ -180,6 +180,12 @@ class TaskReports(unittest.TestCase):
                             (0x0809, "en-GB"), (0x0411, "ja-JP"), (0x0004, "zh-Hans"), (0x7C04, "zh-Hant")):
             self.assertEqual(store_module._windows_language(langid), tag, hex(langid))
         self.assertIsNone(store_module._windows_language(0))
+        # The neutral Chinese locale names changed between Python 3.11 and
+        # 3.13. Their Windows IDs must retain the same script in either table.
+        for table in ({0x0004: "zh_CHS", 0x7C04: "zh_CHT"}, {0x0004: "zh", 0x7C04: "zh"}, {}):
+            with mock.patch("locale.windows_locale", table):
+                self.assertEqual(store_module._windows_language(0x0004), "zh-Hans")
+                self.assertEqual(store_module._windows_language(0x7C04), "zh-Hant")
         # elsewhere: the locale
         with mock.patch.object(store_module.os, "name", "posix"), mock.patch.object(store_module.sys, "platform", "linux"), \
                 mock.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": "pt_BR.UTF-8"}):

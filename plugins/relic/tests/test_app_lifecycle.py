@@ -44,7 +44,8 @@ def free_port():
 
 # Only this local fixture knows a fake harness. The production launcher never enables one from an environment flag.
 FAKE_SERVER = r'''
-import os, sys
+import faulthandler, os, sys
+faulthandler.dump_traceback_later(8)
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from app import harness, hub, web
@@ -59,6 +60,13 @@ def start(self, *args, **kwargs):
     return result
 AcpAgent.start = start
 web.main(int(sys.argv[2]))
+'''
+
+SERVER = r'''
+import faulthandler, runpy, sys
+faulthandler.dump_traceback_later(8)
+entry, sys.argv = sys.argv[1], sys.argv[1:]
+runpy.run_path(entry, run_name="__main__")
 '''
 
 
@@ -95,17 +103,44 @@ class Isolated(unittest.TestCase):
             for handle in self.logs:
                 handle.close()
             self.environment.stop()
-            self.temp.cleanup()
+            # On Windows the server lease is released just before interpreter
+            # exit closes inherited log handles. Bound that brief exit race;
+            # a real leaked server still fails cleanup instead of being ignored.
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    self.temp.cleanup()
+                    break
+                except PermissionError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.05)
 
     def start(self, port=None, fake=False):
         port = port or free_port()
         log = open(self.root / ("server-%d.log" % len(self.processes)), "w+", encoding="utf-8")
         self.logs.append(log)
         command = ([sys.executable, "-B", "-c", FAKE_SERVER, str(ROOT), str(port)] if fake else
-                   [sys.executable, "-B", str(ENTRY), "--serve", "--port", str(port)])
+                   [sys.executable, "-B", "-c", SERVER, str(ENTRY), "--serve", "--port", str(port)])
         process = subprocess.Popen(command, env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         self.processes.append(process)
-        info = wait_for(relic_app.running)
+        try:
+            def ready():
+                if process.poll() is not None:
+                    raise AssertionError("server exited with code %s" % process.returncode)
+                return relic_app.running()
+            info = wait_for(ready)
+        except AssertionError as error:
+            log.flush()
+            log.seek(0)
+            detail = log.read()[-12000:]
+            record = relic_app.saved_info()
+            if record:
+                try:
+                    relic_app.endpoint(record, "/api/lifecycle")
+                except Exception as failure:
+                    detail += "\nLifecycle request: %s: %s" % (type(failure).__name__, failure)
+            self.fail("%s\nServer output:\n%s" % (error, detail))
         return process, info
 
     def cli(self, *args):
@@ -120,8 +155,10 @@ class RecordsAndLocks(Isolated):
         path = Path(self.env["RELIC_HOME"]) / "app-server.lock"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"pid": os.getpid(), "acquired": 0}), encoding="utf-8")
-        with web.LifecycleLock("app-server.lock", timeout=0):
-            self.assertEqual(json.loads(path.read_text())["pid"], os.getpid())
+        with web.LifecycleLock("app-server.lock", timeout=0) as lease:
+            # Windows byte-range locks deny a second handle even in this process.
+            lease.handle.seek(0)
+            self.assertEqual(json.load(lease.handle)["pid"], os.getpid())
         self.assertTrue(path.exists())  # keeping the inode avoids two independent lock owners
 
     def test_live_owner_blocks_with_a_bounded_wait(self):
@@ -224,6 +261,22 @@ class Authentication(Isolated):
 
 
 class ServerLifecycle(Isolated):
+    def test_startup_timeout_reaps_its_own_child(self):
+        spawn = subprocess.Popen
+        children = []
+
+        def stalled(*args, **kwargs):
+            child = spawn([sys.executable, "-B", "-c", "import time; time.sleep(30)"], **kwargs)
+            children.append(child)
+            self.processes.append(child)
+            return child
+
+        with mock.patch.object(relic_app.subprocess, "Popen", side_effect=stalled):
+            with self.assertRaisesRegex(RuntimeError, "server did not start"):
+                relic_app.start_server(timeout=0.05)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].poll())
+
     def test_duplicate_direct_serve_is_rejected_and_stop_cleans_metadata(self):
         process, info = self.start()
         duplicate = subprocess.run([sys.executable, "-B", str(ENTRY), "--serve", "--port", str(info["port"])],
@@ -259,6 +312,10 @@ class ServerLifecycle(Isolated):
             output = []
             for process in processes:
                 stdout, stderr = process.communicate(timeout=35)
+                if process.returncode:
+                    log = Path(self.env["RELIC_HOME"]) / "runs/relic-app.log"
+                    if log.exists():
+                        stderr += "\nServer output:\n" + log.read_text(encoding="utf-8", errors="replace")[-12000:]
                 self.assertEqual(process.returncode, 0, stderr)
                 output.append(stdout.strip())
             return output

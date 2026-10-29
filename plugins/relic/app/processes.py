@@ -7,8 +7,46 @@ from persistent state, process-name search, or inherited process group is used.
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
+
+
+def group_has_live_members(pgid):
+    """Inspect state, never command lines; None means absence could not be established."""
+    try:
+        result = subprocess.run(["/bin/ps", "-axo", "pgid=,stat="], capture_output=True, text=True,
+                                timeout=1, env=dict(os.environ, LC_ALL="C"))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode or not result.stdout.strip():
+        return None
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2 or not fields[0].isdigit():
+            return None
+        if int(fields[0]) == pgid and not fields[1].startswith("Z"):
+            return True
+    return False
+
+
+def signal_group(pgid, sig):
+    """Signal an already-owned group; return False only when no live members remain.
+
+    XNU's killpg1 excludes zombies and can return EPERM for a zombie-only group.
+    Do not confuse that with denied permission to terminate a living process. A
+    failed or incomplete state inspection preserves the original permission error.
+    Callers must validate group ownership before entering this helper.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        if sys.platform == "darwin" and group_has_live_members(pgid) is False:
+            return False
+        raise
+    return True
 
 
 class _Child:
@@ -21,21 +59,12 @@ class _Child:
     def active(self):
         if self.group is None:
             return self.process.poll() is None
-        try:
-            os.killpg(self.group, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
+        return signal_group(self.group, 0)
 
     def signal_group(self, sig):
         if self.group is None or self.group <= 1 or self.group != self.process.pid or self.group == os.getpgrp():
             raise RuntimeError("The App does not own this process group.")
-        try:
-            os.killpg(self.group, sig)
-        except ProcessLookupError:
-            pass
+        return signal_group(self.group, sig)
 
     def wait(self, duration):
         deadline = time.monotonic() + duration
@@ -44,7 +73,9 @@ class _Child:
             if not self.active():
                 return True
             if time.monotonic() >= deadline:
-                return False
+                # Some POSIX kernels also report successful killpg(0) for
+                # zombie-only groups. Do not wait for another process to reap them.
+                return self.group is not None and group_has_live_members(self.group) is False
             time.sleep(min(0.02, max(0, deadline - time.monotonic())))
 
     def close(self):
@@ -56,7 +87,8 @@ class _Child:
                     self.signal_group(signal.SIGTERM)
                     if not self.wait(0.75):
                         self.signal_group(signal.SIGKILL)
-                        self.wait(0.75)
+                        if not self.wait(0.75):
+                            raise RuntimeError("An App-owned process group did not stop within its shutdown deadline.")
                 elif self.process.poll() is None:
                     try:
                         subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.process.pid)],

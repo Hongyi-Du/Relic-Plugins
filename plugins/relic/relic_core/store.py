@@ -92,6 +92,10 @@ def _windows_language(langid):
     """A Windows LANGID (GetUserDefaultUILanguage) as a tag: 0x0804 -> zh-CN, 0x0404 -> zh-TW, 0x0409 -> en-US. An
     unknown variant of a language counts as that language's main variant; None when the language is unknown."""
     import locale
+    # Python 3.13 changed the neutral Chinese mapping from zh_CHS to zh.
+    # Preserve the script encoded by these Windows LANGIDs on every Python.
+    if langid in (0x0004, 0x7C04):
+        return {0x0004: "zh-Hans", 0x7C04: "zh-Hant"}[langid]
     table = getattr(locale, "windows_locale", {})
     name = table.get(langid) or table.get((langid & 0x3FF) | 0x400)
     return _language_tag({"zh_CHS": "zh-Hans", "zh_CHT": "zh-Hant"}.get(name, name))

@@ -82,6 +82,9 @@ def running(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    if sys.platform == "darwin":
+        state = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=1)
+        return state.returncode == 0 and bool(state.stdout.strip()) and not state.stdout.strip().startswith("Z")
     if sys.platform.startswith("linux"):
         try:
             return Path("/proc/%s/stat" % pid).read_text().split(")", 1)[1].split()[0] != "Z"
@@ -257,6 +260,22 @@ class ProcessLifecycle(unittest.TestCase):
         self.assertIsNone(agent._owned_pgid)
         self.assertTrue(agent.closed.is_set())
         agent.close(wait=0)
+
+    def test_failed_group_shutdown_retains_ownership_for_retry(self):
+        agent = acp.AcpAgent(["fixture"])
+        agent.proc = mock.Mock(pid=4321)
+        agent._owned_pgid = 4321
+        with mock.patch.object(agent, "_wait_for_exit", return_value=False), \
+                mock.patch.object(agent, "_signal_group") as signal_group:
+            with self.assertRaisesRegex(acp.AcpError, "shutdown deadline"):
+                agent.close(wait=0)
+        self.assertFalse(agent._close_complete)
+        self.assertEqual(agent._owned_pgid, 4321)
+        self.assertEqual(signal_group.call_args_list, [mock.call(signal.SIGTERM), mock.call(signal.SIGKILL)])
+        with mock.patch.object(agent, "_wait_for_exit", return_value=True):
+            agent.close(wait=0)
+        self.assertTrue(agent._close_complete)
+        self.assertIsNone(agent._owned_pgid)
 
     def test_shutdown_during_spawn_waits_for_ownership_and_reaps_the_child(self):
         agent = self.agent("graceful")

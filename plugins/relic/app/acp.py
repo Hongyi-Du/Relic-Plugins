@@ -18,6 +18,8 @@ import subprocess
 import threading
 import time
 
+from .processes import group_has_live_members, signal_group
+
 PROTOCOL_VERSION = 1
 CLIENT_INFO = {"name": "relic-app", "title": "Relic", "version": "0.1.0"}
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
@@ -136,7 +138,8 @@ class AcpAgent:
                     self._signal_group(signal.SIGTERM)
                     if not self._wait_for_exit(TERMINATE_WAIT):
                         self._signal_group(signal.SIGKILL)
-                        self._wait_for_exit(KILL_WAIT)
+                        if not self._wait_for_exit(KILL_WAIT):
+                            raise AcpError("%s process group did not stop within its shutdown deadline" % self.name)
                 elif self.proc.poll() is None:
                     if os.name == "nt":
                         try:
@@ -166,11 +169,7 @@ class AcpAgent:
         pgid = self._owned_pgid
         if pgid is None or pgid != self.proc.pid or pgid <= 1 or pgid == os.getpgrp():
             return False
-        try:
-            os.killpg(pgid, sig)
-        except ProcessLookupError:
-            return False
-        return True
+        return signal_group(pgid, sig)
 
     def _wait_for_exit(self, timeout):
         deadline = time.monotonic() + timeout
@@ -182,7 +181,7 @@ class AcpAgent:
                 return True
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return False
+                return self._owned_pgid is not None and group_has_live_members(self._owned_pgid) is False
             time.sleep(min(0.05, remaining))
 
     def _fail_pending(self, message):

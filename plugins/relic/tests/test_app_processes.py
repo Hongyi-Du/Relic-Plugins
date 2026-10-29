@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import explain, naming, processes, web  # noqa: E402
+from app import acp, explain, naming, processes, web  # noqa: E402
 
 
 TREE = r'''
@@ -46,12 +46,78 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    if sys.platform == "darwin":
+        state = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=1)
+        return state.returncode == 0 and bool(state.stdout.strip()) and not state.stdout.strip().startswith("Z")
     if sys.platform.startswith("linux"):
         try:
             return Path("/proc/%d/stat" % pid).read_text().split(")", 1)[1].split()[0] != "Z"
         except FileNotFoundError:
             return False
     return True
+
+
+class GroupSignals(unittest.TestCase):
+    def test_successful_probe_only_finishes_for_confirmed_zombie_group(self):
+        for output, stopped in (("4321 Z\n9876 S\n", True), ("4321 S\n", False), ("unknown\n", False)):
+            with self.subTest(output=output), \
+                    mock.patch.object(processes.os, "killpg", create=True), \
+                    mock.patch.object(processes.os, "getpgrp", create=True, return_value=9876), \
+                    mock.patch.object(processes.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output)):
+                process = mock.Mock(pid=4321)
+                process.poll.return_value = 0
+                child = processes._Child(process)
+                child.group = 4321
+                self.assertEqual(child.wait(0), stopped)
+                agent = acp.AcpAgent(["fixture"])
+                agent.proc, agent._owned_pgid = process, 4321
+                self.assertEqual(agent._wait_for_exit(0), stopped)
+
+    def test_darwin_zombie_only_or_disappeared_group_is_not_alive(self):
+        for output in ("4321 Z\n4321 Z+\n9876 S\n", "9876 S\n"):
+            for sig in (0, signal.SIGTERM, 9):
+                with self.subTest(output=output, signal=sig), \
+                        mock.patch.object(processes.sys, "platform", "darwin"), \
+                        mock.patch.object(processes.os, "killpg", create=True, side_effect=PermissionError(1, "denied")), \
+                        mock.patch.object(processes.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output)):
+                    self.assertFalse(processes.signal_group(4321, sig))
+
+    def test_denied_live_group_and_inconclusive_snapshot_still_raise(self):
+        snapshots = [SimpleNamespace(returncode=0, stdout="4321 Z\n4321 S\n"),
+                     SimpleNamespace(returncode=0, stdout="unparseable\n"),
+                     SimpleNamespace(returncode=0, stdout=""),
+                     SimpleNamespace(returncode=1, stdout=""),
+                     OSError("cannot inspect"), subprocess.TimeoutExpired("ps", 1)]
+        for snapshot in snapshots:
+            with self.subTest(snapshot=snapshot), \
+                    mock.patch.object(processes.sys, "platform", "darwin"), \
+                    mock.patch.object(processes.os, "killpg", create=True, side_effect=PermissionError(1, "denied")), \
+                    mock.patch.object(processes.subprocess, "run") as inspect:
+                if isinstance(snapshot, Exception):
+                    inspect.side_effect = snapshot
+                else:
+                    inspect.return_value = snapshot
+                with self.assertRaises(PermissionError):
+                    processes.signal_group(4321, 9)
+
+    @unittest.skipUnless(sys.platform == "darwin", "XNU zombie-only process group behavior")
+    def test_real_unreaped_zombie_group_can_finish_cleanup(self):
+        # Keep the zombie's parent outside the owned group, so it deliberately
+        # remains unreaped until we have exercised Darwin's EPERM behavior.
+        code = ("import subprocess,sys; "
+                "child=subprocess.Popen([sys.executable,'-B','-c','pass'],start_new_session=True); "
+                "print(child.pid,flush=True); sys.stdin.readline(); child.wait()")
+        parent = subprocess.Popen([sys.executable, "-B", "-c", code], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            pgid = int(parent.stdout.readline())
+            wait_for(lambda: processes.group_has_live_members(pgid) is False)
+            with self.assertRaises(PermissionError):
+                os.killpg(pgid, 0)
+            for sig in (0, signal.SIGTERM, signal.SIGKILL):
+                self.assertFalse(processes.signal_group(pgid, sig))
+        finally:
+            parent.communicate("reap\n", timeout=5)
 
 
 class Registry(unittest.TestCase):
@@ -82,6 +148,22 @@ class Registry(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.registry.popen(["missing"])
         self.assertEqual(self.registry._children, {})
+
+    @unittest.skipIf(os.name == "nt", "POSIX owned process groups")
+    def test_failed_group_shutdown_keeps_job_open_for_retry(self):
+        process = mock.Mock(pid=4321)
+        child = processes._Child(process)
+        with mock.patch.object(child, "active", return_value=True), \
+                mock.patch.object(child, "signal_group") as signal_group, \
+                mock.patch.object(child, "wait", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "process group.*shutdown deadline"):
+                child.close()
+        self.assertFalse(child.closed)
+        process.wait.assert_not_called()
+        self.assertEqual(signal_group.call_args_list, [mock.call(signal.SIGTERM), mock.call(signal.SIGKILL)])
+        with mock.patch.object(child, "active", return_value=False):
+            child.close()
+        self.assertTrue(child.closed)
 
     def test_windows_cleanup_targets_only_a_live_owned_child(self):
         process = mock.Mock(pid=4321)

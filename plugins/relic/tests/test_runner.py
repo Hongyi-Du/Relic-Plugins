@@ -8,13 +8,12 @@ import tempfile
 import time
 import unittest
 from unittest import mock
-from types import SimpleNamespace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from relic_core import runner  # noqa: E402
+from relic_core import claude_desktop, desktop, runner  # noqa: E402
 from relic_core.store import Store  # noqa: E402
 
 FAKE_CLAUDE = r'''#!PYTHON
@@ -136,7 +135,12 @@ class Runner(unittest.TestCase):
         self.store.set_focus("existing-session", other)
         before = self.store.focused("existing-session")
         self.store.set_seat_fields(self.oid, "alice", config=dict(runner.default_config("claude-code"), surface="gui"))
-        with mock.patch.object(runner, "sys", SimpleNamespace(platform="darwin")), \
+        # Change the shared platform value so capability checks see the same OS
+        # as the runner, and do not depend on installed desktop applications.
+        with mock.patch.object(sys, "platform", "darwin"), \
+                mock.patch.object(runner.platform_support.platform, "machine", return_value="arm64"), \
+                mock.patch.object(desktop, "transport_capability", return_value={"available": False}), \
+                mock.patch.object(claude_desktop, "transport_capability", return_value={"available": False}), \
                 mock.patch.object(runner.subprocess, "Popen") as launch:
             with self.assertRaisesRegex(RuntimeError, "desktop delivery is unavailable"):
                 runner.start_turn(self.oid, "alice", "must stay manual")

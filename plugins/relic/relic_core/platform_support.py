@@ -117,7 +117,9 @@ def find_executable(name, explicit=None):
             home = Path(os.getenv("RELIC_HOME") or Path.home() / ".relic")
             settings = json.loads((home / "app/prefs.json").read_text(encoding="utf-8"))
             override = (settings.get("paths") or {}).get({"claude": "claude-code"}.get(name, name))
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, RuntimeError):
+            # A service or stripped Windows environment may have no home
+            # directory. Optional preferences must not prevent PATH discovery.
             pass
     if override:
         return _executable(override)

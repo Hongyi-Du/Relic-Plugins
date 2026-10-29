@@ -142,6 +142,15 @@ def _start_server(port=0, timeout=20):
                 return info
             break
         time.sleep(0.1)
+    # This exact child was created above. A failed readiness check must not leave
+    # it running or holding the log open; never terminate a PID from app.json.
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
     raise RuntimeError("The Relic App server did not start; see %s" % (log_dir / "relic-app.log"))
 
 
