@@ -111,7 +111,7 @@ import RelicAX
                     case "member-app", "member-host", "member-existing": model.openMemberForm(mode: String(scene.dropFirst(7)))
                     case "member-host-model-suggestions": model.openMemberForm(mode: "host")
                     case "member-existing-seat-suggestions": model.openMemberForm(mode: "existing")
-                    case "member-card": model.openCard(fixture["member"].text)
+                    case "member-card", "member-card-rename", "member-card-model", "member-card-avatar-hover": model.openCard(fixture["member"].text)
                     case "member-edit": model.editMember = fixture["member"].text; model.memberMode = "host"; model.sheet = .member
                     case "forward": model.cardMember = "advisor"; model.sheet = .forward
                     case "secretary": model.sheet = .secretary
@@ -130,6 +130,10 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
+                if scene.hasPrefix("member-card-") {
+                    let action = try await openMemberCardState(scene, model: model, window: window)
+                    try evidence(action, suffix: ".scene-action.json", item: item, output: output)
+                }
                 if scene == "live-tool-output" {
                     let action = try await openLiveOutput(prepared, model: model, window: window)
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
@@ -217,6 +221,31 @@ import RelicAX
     private static func evidence(_ value: Any, suffix: String, item: Node, output: URL) throws {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent(item["id"].text + suffix))
     }
+    private static func openMemberCardState(_ scene: String, model: Model, window: NSWindow) async throws -> [String: Any] {
+        guard let content = window.contentView else { throw RelicError.message("Member card has no native content") }
+        let target: NSRect?, expected: String
+        if scene == "member-card-avatar-hover" {
+            target = accessibilityFrame(identifier: "relic-row/member-avatar", root: content)
+            expected = "relic-member-avatar-hover"
+        } else {
+            let label = model.t(scene == "member-card-rename" ? "card.rename_hint" : "common.change")
+            target = accessibilityFrame(root: content) { attributes in
+                attributes["role"] as? String == "AXButton" && ["label", "title", "value"].contains { attributes[$0] as? String == label }
+            }
+            expected = scene == "member-card-rename" ? "relic-input/member-rename" : "relic-dropdown/" + model.t("common.model")
+        }
+        guard let target else { throw RelicError.message("Member card action is not visible: " + scene) }
+        if scene == "member-card-avatar-hover" {
+            guard let primary = NSScreen.screens.first else { throw RelicError.message("No display for actual native hover") }
+            let point = CGPoint(x: target.midX, y: primary.frame.maxY - target.midY)
+            guard CGWarpMouseCursorPosition(point) == .success,
+                  let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { throw RelicError.message("Cannot dispatch actual avatar hover") }
+            event.post(tap: .cghidEventTap)
+        } else { try click(target, window: window) }
+        try await Task.sleep(for: .milliseconds(300))
+        guard accessibilityFrame(identifier: expected, root: content) != nil else { throw RelicError.message("Member card action did not present its real state: " + scene) }
+        return ["action": scene == "member-card-avatar-hover" ? "native pointer motion at measured avatar" : "native mouse down/up on measured card control", "target_screen_bounds": ElementCapture.box(target), "visible_result_identifier": expected]
+    }
     private static func openLiveOutput(_ prepared: Node, model: Model, window: NSWindow) async throws -> [String: Any] {
         let matches = model.displayLiveItems.filter { $0["type"].text == "tool" && $0["title"].text == prepared["tool"]["title"].text }
         guard matches.count == 1, let tool = matches.first, let content = window.contentView,
@@ -244,11 +273,14 @@ import RelicAX
         }
     }
     private static func accessibilityFrame(identifier: String, root: AnyObject) -> NSRect? {
+        accessibilityFrame(root: root) { $0["identifier"] as? String == identifier }
+    }
+    private static func accessibilityFrame(root: AnyObject, matches: ([String: Any]) -> Bool) -> NSRect? {
         var seen = Set<ObjectIdentifier>()
         func walk(_ object: AnyObject) -> NSRect? {
             guard seen.insert(ObjectIdentifier(object)).inserted else { return nil }
             let attributes = RelicAXRead(object)
-            if attributes["identifier"] as? String == identifier,
+            if matches(attributes),
                attributes["hidden"] as? Bool != true,
                let frame = (attributes["frame"] as? NSValue)?.rectValue, !frame.isEmpty { return frame }
             for child in RelicAXChildren(object) { if let frame = walk(child as AnyObject) { return frame } }

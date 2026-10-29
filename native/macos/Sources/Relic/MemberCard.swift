@@ -8,9 +8,9 @@ struct MemberCard: View {
     @State private var model = ""
     @State private var effort = ""
     @State private var confirmation = ""
-    @State private var status = ""
     @State private var editingName = false
     @State private var editingModel = false
+    @State private var avatarHovered = false
     private var who: String { m.cardMember }
     private var own: Bool { !["chat", "subagent"].contains(card["surface"].text) }
     private var hosted: Bool { own && !card["embedded"].flag && (!card["config"]["harness"].text.isEmpty || ["cli", "desktop"].contains(card["surface"].text)) }
@@ -19,7 +19,6 @@ struct MemberCard: View {
             header
                 VStack(alignment: .leading, spacing: 7) {
                     information
-                    if !status.isEmpty { Text(status).foregroundStyle(RelicStyle.accent).fixedSize(horizontal: false, vertical: true) }
                 }.padding(.top, 13)
                     .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region"))
                     .padding(.vertical, 12.5)
@@ -33,33 +32,39 @@ struct MemberCard: View {
     }
     private var header: some View {
         HStack(spacing: 14) {
-            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 60, showState: true, stateBorder: RelicStyle.card) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
+            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: {
+                Avatar(member: who, size: 60, showState: true, stateBorder: RelicStyle.card).overlay {
+                    if avatarHovered {
+                        ReferenceLabel(m.t("card.change_avatar"), size: 11, color: .white, lines: 0, alignment: .center).frame(width: 60, height: 60)
+                            .modifier(RecordedSurface(background: .black.opacity(0.45), radius: 14, kind: "card"))
+                            .accessibilityIdentifier("relic-member-avatar-hover")
+                    }
+                }
+            }.buttonStyle(.plain).help(m.t("card.change_avatar")).accessibilityLabel(m.t("card.change_avatar")).accessibilityIdentifier("relic-row/member-avatar").onHover { avatarHovered = $0 }
             VStack(alignment: .leading, spacing: 0) {
-                FlowLayout(spacing: 6, centerRows: true) {
+                if editingName {
+                    HStack(spacing: 6) {
+                        MemberNameInput(placeholder: card.display.isEmpty ? m.t("card.new_name") : card.display, text: $name, save: saveName, cancel: { editingName = false })
+                        TextButton(m.t("common.save"), size: 12, color: RelicStyle.background, action: saveName).buttonStyle(ReferenceButtonStyle(primary: true, small: true)).fixedSize()
+                    }
+                } else { FlowLayout(spacing: 6, centerRows: true) {
                     ReferenceLabel(card.display, size: 17, weight: 650, lineHeight: 22.1, lines: 0).help(card.display)
                     if card["leader"].flag { tag(m.t("common.leader"), color: RelicStyle.accent, background: RelicStyle.accent.opacity(0.13)) }
                     if card["secretary"].flag { tag(m.t("common.secretary"), color: RelicStyle.violet, background: RelicStyle.violetSoft) }
                     if !card["ex_officio"].isNull { tag(m.t("card.ex_officio_tag")) }
                     IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName, size: 14, height: 24, width: 24) { editingName.toggle() }
-                }
+                } }
                 ReferenceLabel(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named")), size: 12, color: RelicStyle.muted, lineHeight: 19.2, monospaced: true).help(who)
             }
         }
     }
     private func tag(_ text: String, color: Color = RelicStyle.secondary, background: Color = RelicStyle.hover) -> some View {
-        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18).padding(.horizontal, 6).frame(height: 18)
-            .modifier(RecordedSurface(background: background, radius: 5, kind: "badge"))
+        MemberTag(text: text, color: color, background: background)
     }
     private func value(_ text: String, mono: Bool = false) -> some View {
         ReferenceLabel(text, size: mono ? 11.5 : 12.5, lineHeight: 20, lines: 0, monospaced: mono)
     }
     @ViewBuilder private var information: some View {
-        if editingName {
-            HStack {
-                TextField(m.t("card.new_name"), text: $name).textFieldStyle(.roundedBorder).help(m.t("card.rename_hint")).dictation($name)
-                Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; editingName = false; try await m.refresh(); try await load() } }.buttonStyle(.borderedProminent)
-            }
-        }
         row("common.role") { value(card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text) }
         row("card.identity") { value(m.identity(card)) }
         if !card["ex_officio"]["org"].text.isEmpty {
@@ -76,13 +81,15 @@ struct MemberCard: View {
             } } }
         }
         row("common.model") {
-            HStack(spacing: 4) {
-                value([card["model"].text.isEmpty ? m.t("common.default_model") : card["model"].text, card["effort"].text].filter { !$0.isEmpty }.joined(separator: " · "))
-                if card["model_editable"].flag { TextButton(m.t(editingModel ? "common.collapse" : "common.change"), size: 12) { editingModel.toggle() }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)) }
+            VStack(alignment: .leading, spacing: 0) {
+                FlowLayout(spacing: 4, centerRows: true) {
+                    value([card["model"].text.isEmpty ? m.t("common.default_model") : card["model"].text, card["effort"].text].filter { !$0.isEmpty }.joined(separator: " · "))
+                    if card["model_editable"].flag { TextButton(m.t(editingModel ? "common.collapse" : "common.change"), size: 12) { editingModel.toggle() }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)) }
+                }
+                if editingModel && card["model_editable"].flag { modelEditor.padding(.top, 6) }
+                else if !card["model_editable"].flag && !card["model_note"].text.isEmpty { ReferenceLabel(card["model_note"].text, size: 11.5, color: RelicStyle.muted, lineHeight: 18.4, lines: 0).padding(.top, 2) }
             }
         }
-        if editingModel && card["model_editable"].flag { modelEditor }
-        else if !card["model_editable"].flag && !card["model_note"].text.isEmpty { Text(card["model_note"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
         row("common.status") {
             HStack(spacing: 6) {
                 OverviewChip(text: m.stateLabel(card["state"].text), tone: ["running", "working"].contains(card["state"].text) ? "ok" : card["state"].text == "waiting" ? "warn" : card["state"].text == "error" ? "bad" : "")
@@ -115,20 +122,16 @@ struct MemberCard: View {
 
     }
     private var modelEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker(m.t("common.model"), selection: $model) {
-                Text(m.t("common.default_model")).tag("")
-                if !model.isEmpty && !card["models"].rows.contains(where: { $0.text == model }) { Text(model).tag(model) }
-                Rows(card["models"].rows.filter { !$0.text.isEmpty }) { Text($0.text).tag($0.text) }
-            }
-            Picker(m.t("member.effort"), selection: $effort) {
-                Text(m.t("common.default_effort")).tag("")
-                if !effort.isEmpty && !card["efforts"].rows.contains(where: { $0.text == effort }) { Text(effort).tag(effort) }
-                Rows(card["efforts"].rows.filter { !$0.text.isEmpty }) { Text($0.text).tag($0.text) }
-            }
-            Text(card["model_note"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
-            Button(m.t("card.save_model")) { m.run { let result = try await m.post(m.path("/model"), ["member": who, "model": model, "effort": effort]); status = m.t(result["applied"].text == "now" ? "card.model_switched" : "card.model_next_turn"); editingModel = false; try await m.refresh(); try await load() } }.buttonStyle(.borderedProminent)
-        }.padding(10).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8))
+        VStack(alignment: .leading, spacing: 6) {
+            cardSelect(m.t("common.model"), value: $model, options: [("", m.t("common.default_model"))] + card["models"].rows.map { ($0.text, $0.text) })
+            cardSelect(m.t("member.effort"), value: $effort, options: [("", m.t("common.default_effort"))] + card["efforts"].rows.map { ($0.text, $0.text) })
+            ReferenceLabel(card["model_note"].text, size: 11.5, color: RelicStyle.muted, lineHeight: 18.4, lines: 0)
+            TextButton(m.t("card.save_model"), size: 12, color: RelicStyle.background) { m.run { let result = try await m.post(m.path("/model"), ["member": who, "model": model, "effort": effort]); m.notice = m.t(result["applied"].text == "now" ? "card.model_switched" : "card.model_next_turn"); editingModel = false; try await m.refresh(); try await load() } }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)).frame(maxWidth: .infinity)
+        }
+    }
+    private func cardSelect(_ title: String, value: Binding<String>, options: [(String, String)]) -> some View {
+        ReferenceSelect(title: title, selection: value, options: options, pointSize: 12.5).padding(.horizontal, 9).frame(height: 30)
+            .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 8, owner: "relic-dropdown/" + title))
     }
     private var actions: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -136,9 +139,10 @@ struct MemberCard: View {
                 Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { ReferenceLabel(m.t("card.message"), size: 13, weight: 600, color: RelicStyle.background).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
                 Button { m.openDetails("trace", member: who) } label: { ReferenceLabel(m.t("common.context_trace"), size: 13, weight: 600).frame(maxWidth: .infinity) }
             }.buttonStyle(ReferenceButtonStyle())
-            FlowLayout(spacing: 6) { seatActions }.padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region")).font(RelicStyle.font(12, weight: 600))
+            if hasSeatActions { FlowLayout(spacing: 6) { seatActions }.padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region")).font(RelicStyle.font(12, weight: 600)) }
         }
     }
+    private var hasSeatActions: Bool { own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) || hosted || card["harness"].text == "chatgpt" || !card["session"].text.isEmpty }
     @ViewBuilder private var seatActions: some View {
         if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { Button(m.t("card.new_session")) { confirmation = "fresh" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.new_session_hint")) }
         if hosted && !card["session"].text.isEmpty { Button(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.open_session_hint")) }
@@ -152,11 +156,23 @@ struct MemberCard: View {
             content().frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
         }
     }
-    func load() async throws { card = try await m.get(m.path("/member/" + Client.segment(who))); name = card["display_custom"].flag ? card.display : ""; model = card["model"].text; effort = card["effort"].text }
+    private func saveName() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        m.run {
+            let result = try await m.post(m.path("/rename"), ["member": who, "name": trimmed])
+            m.notice = trimmed.isEmpty ? m.t("card.name_reset") : m.t("card.renamed") + (result["note"].text.isEmpty ? "" : " " + result["note"].text)
+            editingName = false; try await m.refresh(); try await load()
+        }
+    }
+    func load() async throws {
+        card = try await m.get(m.path("/member/" + Client.segment(who))); name = card["display_custom"].flag ? card.display : ""
+        model = card["models"].rows.contains { $0.text == card["model"].text } ? card["model"].text : ""
+        effort = card["efforts"].rows.contains { $0.text == card["effort"].text } ? card["effort"].text : ""
+    }
     func seatAction(_ action: String) async throws {
         let route: String
         switch action { case "fresh": route = "/fresh"; case "unbind": route = "/unbind"; default: route = "/open_session" }
-        try await m.post(m.path(route), ["member": who]); status = m.t(["fresh": "seat.fresh", "unbind": "seat.unbind", "open_session": "seat.open_session"][action] ?? "seat.done", ["name": m.name(who)]); try await m.refresh(); try await load()
+        try await m.post(m.path(route), ["member": who]); m.notice = m.t(["fresh": "seat.fresh", "unbind": "seat.unbind", "open_session": "seat.open_session"][action] ?? "seat.done", ["name": m.name(who)]); try await m.refresh(); try await load()
     }
 }
 

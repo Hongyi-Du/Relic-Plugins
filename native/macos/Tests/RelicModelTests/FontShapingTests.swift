@@ -4,6 +4,18 @@ import CoreText
 @testable import Relic
 
 @MainActor final class FontShapingTests: XCTestCase {
+    func testNativeStrongEmphasisPreservesTheReferenceFaceAndOpticalAdvances() throws {
+        // Independent DOMRange / CDP font evidence from 8fbed05,
+        // en-US/light/1440x900/group. Never consumed by production rendering.
+        let value = try AttributedString(markdown: "**Chat, Overview, Workspace, and Settings**")
+        let production = NativeTextStyle.render(value, size: 14)
+        let line = CTLineCreateWithAttributedString(production)
+        let actual = CTLineGetTypographicBounds(line, nil, nil, nil)
+        let faces = ElementCapture.renderedFonts(production).compactMap { $0["postscript_name"] as? String }
+        print("FONT STRONG actual=\(actual) reference=292.40625 faces=\(faces)")
+        XCTAssertEqual(actual, 292.40625, accuracy: 0.5)
+        XCTAssertEqual(Set(faces), ["PingFangSC-Semibold"])
+    }
     // Recorded DOMRange widths from the macOS reference capture, 4e18fc3,
     // en-US/light/1440x900/group. These are regression assertions only;
     // production rendering and element extraction never read this fixture.

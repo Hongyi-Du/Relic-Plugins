@@ -1,5 +1,13 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Please add `member-card-rename`, `member-card-model`, and `member-card-avatar-hover`
+to the shared matrix/reference harness: start from `member-card`, click the real
+rename button, click the real model Change button, or hover the real avatar,
+respectively. macOS now renders the rename field in the header, the model editor
+inside its value column and the avatar hover layer, and will perform those real
+native actions in these additional scenes. Keep all existing 47 scenes and
+tolerances. These previously unmeasured states are required by Amendment 4.
+
 macOS consumes `fixture.scene_endpoint` before every case, records the actual
 response as `<case>.scene-fixture.json`, reloads the returned member's real Hub
 state, and opens the live tool disclosure by native mouse events at its measured
@@ -26,6 +34,17 @@ same measurement quantity for both platforms, preserving each provider's raw
 components and raster evidence. This is not a request to relax alpha/DeltaE
 tolerances or copy reference colors into native data. Native values remain
 unchanged until a measured conversion is implemented and tested.
+
+Canonical layout-container question: native AX exposes transparent grouping
+nodes (`AXGroup`, `AXScrollArea`, `AXOpaqueProviderGroup`) independently of
+visible paint. The reference `kindOf()` omits equivalent transparent DOM layout
+wrappers except its explicitly named regions. Current macOS export retains
+these as canonical regions as well as in raw AX, so a group screen has several
+extra regions at the same bounds. Please document the common rule for projecting
+unpainted layout-only wrappers versus visible/interactive region elements.
+Native will retain every raw node and unresolved paint coverage failure; this
+must not become a blanket element/scene exclusion or an exception. Painted
+container borders/fills, scrollbars and actual controls remain separate evidence.
 
 ## 2026-10-29: literal Harness label in the reference member form
 

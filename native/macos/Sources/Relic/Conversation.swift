@@ -164,23 +164,17 @@ struct ChatView: View {
             if m.organization.isEmpty {
                 ReferenceLabel(m.t("common.app_name"), size: 15, weight: 650, lineHeight: 19.5).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 20).frame(height: 56)
-                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
                 ScrollView {
                     VStack(spacing: 14) {
                         ReferenceLabel(m.t("chat.no_orgs"), size: 18, weight: 650, alignment: .center)
                         ReferenceLabel(m.t("chat.no_orgs_hint"), size: 14, color: RelicStyle.muted, lines: 0, alignment: .center).padding(.bottom, 14)
                     }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8)
-                }.measuredRegion("conversation")
-            } else {
-                header.measuredRegion("conversation")
-                if m.member.isEmpty && m.digestOpen { DigestCard() }
-                if !m.member.isEmpty {
-                    Text(m.banner(m.selectedMember)).font(RelicStyle.font(12, weight: 400)).padding(8).background(.quaternary.opacity(0.4))
-                    Rows(m.snapshot["decisions"].rows.filter { $0["member"].text == m.member }) { DecisionView(decision: $0) }
-                    if !m.selectedMember["detail"].text.isEmpty { Text(m.selectedMember["detail"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary) }
                 }
-                if m.snapshot["org"]["status"].text == "closed" { Text(m.t("org.ended_closed")) }
-                if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
+            } else {
+                header
+                if m.member.isEmpty && m.digestOpen { DigestCard() }
+                if !m.member.isEmpty { ConversationBanner() }
                 ConversationStream()
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
@@ -192,15 +186,15 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
-                    Text(title).font(RelicStyle.font(15, weight: 600)).lineLimit(1).help(title)
-                    if m.member.isEmpty { Text(m.t("common.members", ["n": String(m.members.count)])).font(RelicStyle.font(15, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                    ReferenceLabel(title, size: 15, weight: 650, lineHeight: 19.5).help(title)
+                    if m.member.isEmpty { ReferenceLabel(m.t("common.members", ["n": String(m.members.count)]), size: 15, color: RelicStyle.muted, lineHeight: 19.5) }
                     else {
-                        if !m.selectedMember["display"].text.isEmpty && m.selectedMember["display"].text != m.member { Text(m.member).font(.system(size: 13.8, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
-                        if m.selectedMember["leader"].flag { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
+                        if !m.selectedMember["display"].text.isEmpty && m.selectedMember["display"].text != m.member { ReferenceLabel(m.member, size: 13.8, color: RelicStyle.muted, lineHeight: 17.94, monospaced: true) }
+                        if m.selectedMember["leader"].flag { MemberTag(text: m.t("common.leader"), color: RelicStyle.accent, background: RelicStyle.accent.opacity(0.13)) }
                     }
                 }.frame(height: 19.5, alignment: .leading)
                 let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : [m.snapshot["org"]["name"].text, m.selectedMember["harness_label"].text, m.selectedMember["surface_label"].text, m.selectedMember["model"].text, m.stateLabel(m.selectedMember["state"].text)].filter { !$0.isEmpty }.joined(separator: " · ")
-                Text(meta).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta).frame(height: 16.8, alignment: .leading)
+                ReferenceLabel(meta, size: 12, color: RelicStyle.muted, lineHeight: 16.8).help(meta).frame(height: 16.8, alignment: .leading)
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 2) {
             if m.member.isEmpty {
@@ -214,7 +208,8 @@ struct ChatView: View {
                 if m.selectedMember["surface"].text != "chat" { IconButton(title: m.t("chat.workspace"), icon: "work") { m.setPane("workspace") } }
             }
             }.fixedSize()
-        }.padding(.leading, 20).padding(.trailing, 14).frame(height: 56).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+        }.padding(.leading, 20).padding(.trailing, 14).frame(height: 56)
+            .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
     }
 }
 
@@ -254,7 +249,7 @@ struct ConversationStream: View {
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
-                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation").measuredRegion("conversation")
+                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             // A digest, inspector resize, or late text measurement
                             // changes geometry without the person scrolling away.
@@ -295,7 +290,7 @@ struct MessageView: View {
         if item["type"].text == "notice" {
             NoticeLayout {
                 ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
-                    .padding(.horizontal, 10).padding(.vertical, 2).modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "region"))
+                    .padding(.horizontal, 10).padding(.vertical, 2).modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
             }.padding(.top, 8)
         }
         else if item["type"].text == "acts" {
@@ -505,7 +500,7 @@ struct ComposerView: View {
                     .disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty)
             }
         }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
-            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "region", shadows: SurfaceShadow.small))
+            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "card", shadows: SurfaceShadow.small))
             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)
             .onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
@@ -562,7 +557,7 @@ struct ThreadComposer: View {
             MentionEditor(text: $m.threadDraft, contextID: "thread", placeholder: m.t("thread.reply_placeholder"), focusChanged: { focused = $0 }, members: [], onMention: { _ in }, send: send).accessibilityLabel(m.t("thread.reply_placeholder"))
             HStack(spacing: 6) { Spacer(minLength: 0); VoiceButton(text: $m.threadDraft, size: 32); ComposerSendButton(action: send).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
         }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
-            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "region", shadows: SurfaceShadow.small))
+            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "card", shadows: SurfaceShadow.small))
             .onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }
     private func send() { m.run { try await m.sendThread() } }
