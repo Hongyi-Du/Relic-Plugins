@@ -22,8 +22,7 @@ struct MainView: View {
         GeometryReader { geometry in
         VStack(spacing: 0) {
             AppToolbar().measuredRegion("header").zIndex(50)
-            if !m.error.isEmpty { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
-            if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
+            if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
                 if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
@@ -42,6 +41,7 @@ struct MainView: View {
         .overlay { if m.recipientPicker { RecipientLayer() } }
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .overlay { if m.inputSuggestions != nil { InputSuggestionsLayer() } }
+        .overlay(alignment: .bottom) { NativeToasts() }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))
         .tracking(0)

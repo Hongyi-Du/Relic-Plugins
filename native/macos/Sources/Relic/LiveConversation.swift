@@ -8,8 +8,7 @@ struct LiveTurnView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let prompt = turn.prompt {
                 HStack(alignment: .top, spacing: 10) {
-                    Spacer(minLength: 0)
-                    liveBubble(prompt["text"].text, mine: true)
+                    liveBubble(prompt["text"].text, mine: true).frame(maxWidth: .infinity, alignment: .trailing)
                     Avatar(member: "human", size: 36)
                 }.padding(.top, messageGap).environment(\.selectedAuthor, "human")
             }
@@ -29,8 +28,9 @@ struct LiveTurnView: View {
     }
     private var messageGap: CGFloat { m.preferences["density"].text == "compact" ? 7 : 14 }
     private func liveBubble(_ text: String, mine: Bool = false) -> some View {
-        RichText(text).padding(.horizontal, 13).padding(.vertical, 9).frame(maxWidth: 720, alignment: .leading)
+        RichText(text).padding(.horizontal, 13).padding(.vertical, 9)
             .modifier(RecordedSurface(background: mine ? RelicStyle.mine : RelicStyle.bubble, radius: 14, kind: "card", cornerRadii: mine ? [14,4,14,14] : [4,14,14,14]))
+            .frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
     }
 }
 
@@ -69,7 +69,7 @@ struct LiveItem: View {
             NoticeLayout {
                 ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.red, lines: 0, alignment: .center)
                     .padding(.horizontal, 10).padding(.vertical, 2).modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
-            }.padding(.top, 8)
+            }.padding(.vertical, 8)
         default: EmptyView()
         }
     }

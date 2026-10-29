@@ -87,7 +87,11 @@ import RelicAX
                 window.setContentSize(targetSize)
                 hosting.setFrameSize(targetSize)
                 model.windowSize = targetSize
-                window.setFrameOrigin(NSPoint(x: 0, y: 0)); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                // Leave a physical margin for the real pointer even when the
+                // content exceeds the runner display. PNG coordinates remain
+                // relative to the unchanged requested content size.
+                window.setFrameOrigin(NSPoint(x: 20, y: 20)); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                try movePointer(to: NSPoint(x: 10, y: 10))
                 try await Task.sleep(for: .milliseconds(400))
                 if scene.hasPrefix("settings-") { model.settingsSection = String(scene.dropFirst(9)); model.sheet = .settings }
                 else if scene.hasPrefix("file-") { try await model.openFile(fixture["files"][String(scene.dropFirst(5))].text, line: scene == "file-code" ? 2 : 0) }
@@ -95,6 +99,7 @@ import RelicAX
                 else {
                     switch scene {
                     case "group": break
+                    case "message-hover", "message-copy-toast": break
                     case "live-busy", "live-tool-output", "live-typing":
                         // select reloads the real organization snapshot before
                         // loading the returned member's Hub turn and transcript.
@@ -134,6 +139,10 @@ import RelicAX
                     let action = try await openMemberCardState(scene, model: model, window: window)
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
                 }
+                if scene == "message-hover" || scene == "message-copy-toast" {
+                    let action = try await openMessageAction(scene, messageID: fixture["thread"].text, model: model, window: window)
+                    try evidence(action, suffix: ".scene-action.json", item: item, output: output)
+                }
                 if scene == "live-tool-output" {
                     let action = try await openLiveOutput(prepared, model: model, window: window)
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
@@ -155,6 +164,12 @@ import RelicAX
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 if scene == "quick-start" {
                     guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
+                }
+                if !["member-card-avatar-hover", "message-hover", "message-copy-toast"].contains(scene) {
+                    try movePointer(to: NSPoint(x: 10, y: 10))
+                    try await Task.sleep(for: .milliseconds(80))
+                    let screen = window.convertToScreen(hosting.convert(hosting.bounds, to: nil))
+                    guard !screen.contains(NSEvent.mouseLocation) else { throw RelicError.message("Native pointer remained inside a non-hover capture") }
                 }
                 if isLive {
                     let clocks = TypingIndicatorView.pauseVisibleClocks()
@@ -236,15 +251,30 @@ import RelicAX
         }
         guard let target else { throw RelicError.message("Member card action is not visible: " + scene) }
         if scene == "member-card-avatar-hover" {
-            guard let primary = NSScreen.screens.first else { throw RelicError.message("No display for actual native hover") }
-            let point = CGPoint(x: target.midX, y: primary.frame.maxY - target.midY)
-            guard CGWarpMouseCursorPosition(point) == .success,
-                  let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { throw RelicError.message("Cannot dispatch actual avatar hover") }
-            event.post(tap: .cghidEventTap)
+            try movePointer(to: NSPoint(x: target.midX, y: target.midY))
         } else { try click(target, window: window) }
         try await Task.sleep(for: .milliseconds(300))
         guard accessibilityFrame(identifier: expected, root: content) != nil else { throw RelicError.message("Member card action did not present its real state: " + scene) }
         return ["action": scene == "member-card-avatar-hover" ? "native pointer motion at measured avatar" : "native mouse down/up on measured card control", "target_screen_bounds": ElementCapture.box(target), "visible_result_identifier": expected]
+    }
+    private static func openMessageAction(_ scene: String, messageID: String, model: Model, window: NSWindow) async throws -> [String: Any] {
+        let bounds = MessageInteractionAnchor.visibleBounds(messageID: messageID)
+        guard bounds.count == 1, let target = bounds.first, let content = window.contentView else { throw RelicError.message("Expected one visible production message: " + messageID) }
+        try movePointer(to: NSPoint(x: target.midX, y: target.midY))
+        try await Task.sleep(for: .milliseconds(200))
+        guard let control = accessibilityFrame(identifier: "relic-icon-button/message-copy/" + messageID, root: content) else { throw RelicError.message("Actual message hover did not expose its copy action") }
+        var result: [String: Any] = ["action": "native pointer motion at measured production message", "message_id": messageID, "message_screen_bounds": ElementCapture.box(target), "copy_screen_bounds": ElementCapture.box(control)]
+        if scene == "message-copy-toast" {
+            try click(control, window: window)
+            try await Task.sleep(for: .milliseconds(150))
+            guard let message = model.messages.first(where: { $0["id"].text == messageID }),
+                  NSPasteboard.general.string(forType: .string) == message["body"].text,
+                  model.toasts.contains(where: { $0.text == model.t("msg.copied") }) else { throw RelicError.message("Real message copy did not produce the expected clipboard content and toast") }
+            result["action"] = "native hover then mouse down/up on the actual copy button"
+            result["clipboard"] = NSPasteboard.general.string(forType: .string)
+            result["toast_ids"] = model.toasts.map { $0.id.uuidString }
+        }
+        return result
     }
     private static func openLiveOutput(_ prepared: Node, model: Model, window: NSWindow) async throws -> [String: Any] {
         let matches = model.displayLiveItems.filter { $0["type"].text == "tool" && $0["title"].text == prepared["tool"]["title"].text }
@@ -271,6 +301,13 @@ import RelicAX
             }
             window.sendEvent(event)
         }
+    }
+    private static func movePointer(to screen: NSPoint) throws {
+        guard let primary = NSScreen.screens.first else { throw RelicError.message("No display for native pointer movement") }
+        let point = CGPoint(x: screen.x, y: primary.frame.maxY - screen.y)
+        guard CGWarpMouseCursorPosition(point) == .success,
+              let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { throw RelicError.message("Cannot dispatch actual native pointer movement") }
+        event.post(tap: .cghidEventTap)
     }
     private static func accessibilityFrame(identifier: String, root: AnyObject) -> NSRect? {
         accessibilityFrame(root: root) { $0["identifier"] as? String == identifier }

@@ -160,7 +160,7 @@ struct MemberCard: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         m.run {
             let result = try await m.post(m.path("/rename"), ["member": who, "name": trimmed])
-            m.notice = trimmed.isEmpty ? m.t("card.name_reset") : m.t("card.renamed") + (result["note"].text.isEmpty ? "" : " " + result["note"].text)
+            m.showNotice(trimmed.isEmpty ? m.t("card.name_reset") : m.t("card.renamed") + (result["note"].text.isEmpty ? "" : " " + result["note"].text), seconds: 5)
             editingName = false; try await m.refresh(); try await load()
         }
     }

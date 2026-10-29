@@ -17,6 +17,20 @@ use a production NSAnimation clock and native drawing; capture stops and seeks
 that actual clock and retains before/after clock and draw receipts. This work
 still awaits macOS build/capture validation and does not establish parity.
 
+Also add `message-hover` and `message-copy-toast`: in the group chat, hover the
+real `.msg[data-id="<fixture.thread>"]`; for the toast scene click that message's
+real Copy icon and retain the actual clipboard/visible toast receipt. macOS
+implements both scenes by actual pointer/mouse events against live view/AX
+bounds. Hover scene captures must keep the pointer at the target; the existing
+unconditional `page.mouse.move(width + 20, height + 20)` would erase these states
+and the requested `member-card-avatar-hover` state. Other scenes continue moving
+the actual pointer outside the viewport. No screenshot-only hover flags are used.
+
+Native default notices now use the reference's independently expiring 3.6-second
+bottom toast; member renames retain the reference's explicit 5-second duration.
+The native message hover toolbar also has its actual icons/order and icon-only
+Copy control. These added states still need reference measurement, not exemptions.
+
 Shared checker run `40970311201`, job `123786329669`, fails Node tests 9 and 25:
 `overflow scrollbar evidence retains actual metrics without inventing thumb bounds`
 and `zero scrollbar gutter is not proof that overlay scrollbars are absent`.
@@ -24,6 +38,9 @@ Both report `SyntaxError: Unexpected token ';'` while evaluating the extracted
 `scrollbarEvidence` expression (`test_reference_elements.mjs:176` and `:433`).
 Please fix the shared test/extractor boundary on `native-apps`; macOS leaves
 these files and the failure gate untouched.
+Resolved by the shared changes merged through `ddf7759`: the shared checker jobs
+in runs `40974621706` and `40974672159` now pass. The historical failure above is
+retained as the evidence for the request; no shared file was edited here.
 
 Color evidence question: the reference `color()` rasterizes the computed CSS
 color through a 1x1 OffscreenCanvas and exports RGBA8 `getImageData`, whereas
