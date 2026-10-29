@@ -444,6 +444,12 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 
 ## Changes for the clients
 
+- 2026-10-29: Person-issued protocol form must expose both weak guidance and strong executable rules, using the existing /protocols body (strength, rules, summary_for_person, inherit). Added shared native.protocol_strength, native.protocol_rules, native.protocol_rules_hint. Windows has both modes; macOS owner should apply this contract in its form.
+- 2026-10-29: Latest native build jobs at 184b381 passed on Windows/macOS (run 40830357357); parity stayed failing. Python CI found native_package.py missing explicit creationflags at the Inno compiler boundary; it now uses the shared helper, with no local execution.
+
+- 2026-10-29: Merged main at 10b0965 (hook/console fixes); native_host.py now uses relic_core.process.creation_flags. Mock-only native-host tests assert the flags.
+- 2026-10-29: Parity substitutions support platform_keys.windows/macos with individual reasons. Browser installer/speech tutorial labels are replaced by native package/OS speech flows; native controls still require real implementations. REQUESTS.md shortcut note: the raised full-reference contract retains Enter=send and Shift-Enter=newline; Cmd-Enter on macOS may be an additional alias. Do not exempt these two labels as browser-only, or change native/macos here.
+
 - 2026-10-29: Merged native-macos through 4f95775. Its speech request is implemented: native.speech, native.speech_permission, native.microphone_permission, native.speech_unavailable are shared /api/i18n keys. Packaging writes both macOS usage-description keys and en.lproj/zh-Hans.lproj/InfoPlist.strings from those lists; native.voice_hint and native.voice_system describe Windows speech. No browser speech implementation is used.
 - 2026-10-29: Applied REQUESTS.md inventory corrections: session search, unread/recent chat, persisted drafts/recipients/quotes, read-by disclosure, history paging, Markdown file/line links, rule examples and task evidence. Document payload is body. CI already runs every push; native-macos now gets its own --platform macos parity output, while native-apps requires both.
 - 2026-10-29: The parity inventory gate now also rejects pending screen rows in addition to named app.js functions. No row is promoted based on key presence alone.

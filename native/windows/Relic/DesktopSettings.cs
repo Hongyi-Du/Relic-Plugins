@@ -63,7 +63,8 @@ public sealed partial class MainWindow
     }
     private async Task SavePreferences(JsonObject changes)
     {
-        await api!.Post("/api/prefs", changes); await LoadPreferences(); ApplyAppearance(); await Refresh();
+        try { await api!.Post("/api/prefs", changes); await LoadPreferences(); ApplyAppearance(); await Refresh(); }
+        catch (Exception ex) { throw new InvalidOperationException(T("prefs.save_failed", ("error", ex.Message)), ex); }
     }
     private void ApplyAppearance()
     {
@@ -112,6 +113,7 @@ public sealed partial class MainWindow
                     content.Children.Add(Text(T("settings.language.title"), 20));
                     var language = Choice(content, "settings.language.label", [("zh-CN", "简体中文"), ("en-US", "English")]); SetChoice(language, words.Language);
                     content.Children.Add(Text(T("settings.language.hint"), 12));
+                    content.Children.Add(Button(T("settings.language.system"), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
                     language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await Draw(key); });
                     PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names");
                     break;
@@ -159,6 +161,7 @@ public sealed partial class MainWindow
         }
         var platform = await api!.Get("/api/platform");
         var connections = Stack(Text(T("settings.desktop_connections")), Text(platform.Text("desktop_transport")), Text(platform.Text("claude_desktop")));
+        if (!platform.Flag("claude_desktop_wake")) connections.Children.Add(Text(T("settings.claude_desktop_hint")));
         connections.Children.Add(Button(T("settings.desktop_probe"), async () => { var result = await api.Post("/api/platform", new { probe = true }); Note(result.ToJsonString()); }));
         content.Children.Add(new Expander { Header = T("settings.desktop_probe_hint"), Content = connections });
         var list = (await api.Get("/api/harnesses")).Rows();

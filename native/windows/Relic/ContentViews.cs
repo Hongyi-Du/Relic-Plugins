@@ -15,9 +15,21 @@ public sealed partial class MainWindow
 {
     private string When(string at)
     {
-        if (!DateTimeOffset.TryParse(at, out var date)) return at;
+        if (!DateTimeOffset.TryParse(at, out var date)) { if (double.TryParse(at, out var seconds) && seconds > 0) date = DateTimeOffset.FromUnixTimeSeconds((long)seconds); else return at; }
         var local = date.ToLocalTime(); var delta = DateTimeOffset.Now - local;
         return local.ToString("g", System.Globalization.CultureInfo.GetCultureInfo(words.Language));
+    }
+    private string Ago(string at)
+    {
+        if (!DateTimeOffset.TryParse(at, out var date)) { if (double.TryParse(at, out var seconds)) date = DateTimeOffset.FromUnixTimeSeconds((long)seconds); else return at; }
+        var elapsed = DateTimeOffset.Now - date;
+        return elapsed.TotalMinutes < 1 ? T("time.just_now") : elapsed.TotalHours < 1 ? T("time.minutes_ago", ("n", (int)elapsed.TotalMinutes)) : elapsed.TotalDays < 1 ? T("time.hours_ago", ("n", (int)elapsed.TotalHours)) : Day(at);
+    }
+    private string Day(string at)
+    {
+        if (!DateTimeOffset.TryParse(at, out var date)) return When(at);
+        var day = date.LocalDateTime.Date;
+        return day == DateTime.Today ? T("time.today") : day == DateTime.Today.AddDays(-1) ? T("time.yesterday") : day.ToString("d", System.Globalization.CultureInfo.GetCultureInfo(words.Language));
     }
     private void Copy(string value)
     {
@@ -60,7 +72,7 @@ public sealed partial class MainWindow
             if (Regex.IsMatch(line.Trim(), @"^(-{3,}|\*{3,}|_{3,})$")) { content.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.Gray) }); continue; }
             if (line.StartsWith(">"))
             {
-                content.Children.Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = new SolidColorBrush(Colors.Gray), Padding = new Thickness(10, 2, 2, 2), Child = InlineText(line.TrimStart('>', ' ')) }); continue;
+                content.Children.Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = new SolidColorBrush(Colors.Gray), Padding = new Thickness(10, 2, 2, 2), Child = InlineText(Regex.Replace(line.TrimStart('>', ' '), @"^([^:：]+)[:：]\s*", match => T("chat.quote_from", ("name", match.Groups[1].Value)))) }); continue;
             }
             line = Regex.Replace(line, @"^\s*[-*+]\s+", "• "); content.Children.Add(InlineText(line));
         }
@@ -78,6 +90,7 @@ public sealed partial class MainWindow
             {
                 var target = match.Groups[2].Success ? match.Groups[2].Value : match.Value;
                 var link = new Hyperlink(); link.Inlines.Add(new Run { Text = match.Groups[1].Success ? match.Groups[1].Value : match.Value });
+                ToolTipService.SetToolTip(link, target.StartsWith("http") ? target : T("chat.path_preview"));
                 link.Click += async (_, _) => await Run(async () =>
                 {
                     if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
@@ -140,7 +153,7 @@ public sealed partial class MainWindow
     private void DrawTasks(StackPanel box, string? focus)
     {
         var filters = Choice(box, "common.tasks", [("open", T("task.working")), ("blocked", T("task.blocked")), ("done", T("details.filter_done")), ("all", T("common.all"))]);
-        SetChoice(filters, focus == null ? "open" : "all"); var list = new StackPanel { Spacing = 12 }; box.Children.Add(list);
+        SetChoice(filters, focus == "done" ? "done" : focus == null ? "open" : "all"); var list = new StackPanel { Spacing = 12 }; box.Children.Add(list);
         void Draw()
         {
             list.Children.Clear(); var filter = Value(filters);
@@ -168,6 +181,8 @@ public sealed partial class MainWindow
         if (p.Text("retire_target").Length > 0) box.Children.Add(Text(T("details.label_retires") + " " + p.Text("retire_target")));
         if (p.Text("supersedes").Length > 0) box.Children.Add(Text(T("details.label_supersedes") + " " + p.Text("supersedes")));
         if (p.Flag("inherit")) box.Children.Add(Text(T("org.protocol_inherits")));
+        if (p.Flag("check")) box.Children.Add(Text(T("org.protocol_check")));
+        if (p.Flag("replaces_above") && p["supersedes"] != null) box.Children.Add(Text(T("org.protocol_overrides", ("ref", p["supersedes"] is JsonObject reference ? T("org.protocol_ref", ("id", reference.Text("id")), ("org", reference.Text("org"))) : p.Text("supersedes")))));
         if (p.Text("trigger").Length > 0) box.Children.Add(Text(T("details.label_applies") + " " + p.Text("trigger")));
         box.Children.Add(Rich(p.Text("guidance")));
         if (p.Text("summary_for_person").Length > 0) box.Children.Add(Stack(Text(T("details.label_summary")), Rich(p.Text("summary_for_person"))));
@@ -177,16 +192,20 @@ public sealed partial class MainWindow
     private UIElement CheckRules(JsonArray rules)
     {
         var body = new StackPanel { Spacing = 10 };
-        foreach (var rule in rules)
+        foreach (var rule in rules.Where(r => r.Text("effect") == "check"))
         {
-            body.Children.Add(Text(rule?.ToJsonString(new() { WriteIndented = true }) ?? ""));
-            if (rule.Text("effect") == "check")
-            {
-                body.Children.Add(Text(T("cc.scope", ("what", rule.Text("on") == "reply" ? T("cc.scope_reply") : rule.Text("tools")))));
-                body.Children.Add(Text(rule.Text("on_error") == "allow" ? T("cc.on_error_allow") : T("cc.on_error_deny")));
-                body.Children.Add(Text(T("cc.examples")));
-                foreach (var example in rule.Rows("examples")) body.Children.Add(Text(example?.ToJsonString(new() { WriteIndented = true }) ?? ""));
-            }
+            var scope = new List<string> { rule.Rows("tools").Count == 1 && rule.Rows("tools")[0].Text() == "Reply" ? T("cc.scope_reply") : string.Join(" / ", rule.Rows("tools").Select(x => x.Text())) };
+            if (rule.Text("path_glob").Length > 0) scope.Add(T("cc.scope_path", ("glob", rule.Text("path_glob"))));
+            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", string.Join(", ", rule.Rows("input_contains").Select(x => x.Text())))));
+            var who = rule.Rows("roles").Concat(rule.Rows("members")).ToArray(); var except = rule.Rows("except_roles").Concat(rule.Rows("except_members")).ToArray();
+            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", string.Join(", ", who.Select(x => x.Text())))));
+            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", string.Join(", ", except.Select(x => x.Text())))));
+            body.Children.Add(Text(T("cc.scope", ("what", string.Join(" · ", scope)))));
+            body.Children.Add(Text(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow")));
+            var code = Text(rule.Text("code"), 12); code.FontFamily = new FontFamily("Consolas"); body.Children.Add(code);
+            if (rule.Text("code_sha256").Length > 0) body.Children.Add(Text("sha256 " + rule.Text("code_sha256"), 11));
+            if (rule.Rows("examples").Count > 0) body.Children.Add(Text(T("cc.examples")));
+            foreach (var example in rule.Rows("examples")) body.Children.Add(new Expander { Header = T(example.Text("expect") switch { "deny" => "cc.decision_deny", "review" => "cc.decision_review", _ => "cc.decision_allow" }) + " · " + example?["call"].Text("tool"), Content = Stack(Text(example?["call"]?.ToJsonString(new() { WriteIndented = true }) ?? ""), Text(example.Text("note"))), HorizontalAlignment = HorizontalAlignment.Stretch });
         }
         return new Expander { Header = T("cc.code"), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch };
     }

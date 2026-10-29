@@ -68,7 +68,8 @@ def main():
     platforms = (args.platform,) if args.platform else ("windows", "macos")
     for platform in platforms:
         source = implementation(platform)
-        missing_keys = sorted(key for key in keys if key not in allow["keys"] and ('"' + key + '"') not in source)
+        exemptions = dict(allow["keys"], **allow.get("platform_keys", {}).get(platform, {}))
+        missing_keys = sorted(key for key in keys if key not in exemptions and ('"' + key + '"') not in source)
         missing_routes = sorted(route for route in routes if route not in allow["routes"] and not route_present(route, source))
         column = 0 if platform == "windows" else 1
         missing_flows = [name + "@" + str(line) for name, line in functions
@@ -80,6 +81,9 @@ def main():
     for section in ("keys", "routes"):
         if any(not isinstance(reason, str) or len(reason.strip()) < 20 for reason in allow[section].values()):
             raise ValueError("Every parity exemption requires a specific native rationale")
+    for platform, substitutions in allow.get("platform_keys", {}).items():
+        if platform not in ("windows", "macos") or any(not isinstance(reason, str) or len(reason.strip()) < 20 for reason in substitutions.values()):
+            raise ValueError("Every platform substitution requires a specific native rationale")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, ensure_ascii=False))

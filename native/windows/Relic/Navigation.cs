@@ -86,6 +86,7 @@ public sealed partial class MainWindow
         for (int i = 0; i < 2; i++)
         {
             var left = i == 0; var thumb = new Thumb { Width = 6, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left, Opacity = .3 };
+            thumb.Loaded += (_, _) => ToolTipService.SetToolTip(thumb, T("panel.resize"));
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
             thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
             thumb.DragCompleted += (_, _) => SaveViewState();
@@ -136,6 +137,7 @@ public sealed partial class MainWindow
     private void BuildMenus()
     {
         menu.Items.Clear();
+        AutomationProperties.SetName(menu, T("appbar.menus"));
         MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title) }; menu.Items.Add(group); return group; }
         void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true) { var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled }; item.Click += async (_, _) => await Run(action); group.Items.Add(item); }
         var file = Group("common.file");

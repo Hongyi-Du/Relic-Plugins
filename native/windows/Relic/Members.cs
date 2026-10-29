@@ -47,7 +47,7 @@ public sealed partial class MainWindow
         }
         box.Children.Add(Text(c.Text("model_note"), 12));
         Row("common.status", T("state." + c.Text("state")) + " " + c.Text("detail"));
-        Row("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", When(c.Text("doing_at")))) : c.Text("doing"));
+        Row("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", Ago(c.Text("doing_at")))) : c.Text("doing"));
         Row("card.owns", string.Join("\n", c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).Select(t => t.Text("id") + " " + t.Text("title"))));
         if (c.Rows("tasks").Count > 0 && c.Rows("tasks").All(t => t.Text("status") is "done" or "dropped")) Row("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
         Row("common.session", c.Text("session") + (c.Text("agent").Length > 0 ? " / " + c.Text("agent") : "") + (c.Text("parent").Length > 0 ? T("card.in_parent_session", ("parent", Display(c.Text("parent")))) : ""));
@@ -136,7 +136,7 @@ public sealed partial class MainWindow
         var start = new CheckBox { Content = T("member.start_now"), IsChecked = true, Visibility = edit == null ? Visibility.Visible : Visibility.Collapsed }; hostFields.Children.Add(start);
         var existing = new StackPanel { Spacing = 8 }; form.Children.Add(existing);
         var find = new TextBox { PlaceholderText = T("member.session_search") }; existing.Children.Add(find);
-        var list = new ListView { MaxHeight = 240, SelectionMode = ListViewSelectionMode.Single }; existing.Children.Add(list);
+        var list = new ListView { MaxHeight = 240, SelectionMode = ListViewSelectionMode.Single }; existing.Children.Add(list); var empty = Text(T("member.finding_sessions")); existing.Children.Add(empty);
         var found = sessions.Rows("sessions").Where(s => s.Text("harness") != "chatgpt" || platform.Flag("chatgpt_delivery")).ToArray();
         void FindSessions()
         {
@@ -145,18 +145,27 @@ public sealed partial class MainWindow
             foreach (var s in found.Where(s => (s.Text("title") + " " + s.Text("cwd") + " " + s.Text("id")).Contains(find.Text, StringComparison.OrdinalIgnoreCase)))
                 list.Items.Add(new ListViewItem { Tag = s, Content = HarnessTitle(s.Text("harness")) + " · " + (s.Text("title").Length > 0 ? s.Text("title") : s.Text("id")) + "\n" + s.Text("cwd") + (Delivery(s.Text("harness"), s.Text("surface")) ? "" : "\n" + T("member.manual_delivery") + " · " + T("member.desktop_manual")) });
             list.SelectedItem = list.Items.Cast<ListViewItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, previous));
+            empty.Text = list.Items.Count == 0 ? T(find.Text.Trim().Length > 0 ? "member.no_match" : "member.no_sessions") : "";
         }
         FindSessions(); find.TextChanged += (_, _) => FindSessions();
         existing.Children.Add(Text(found.Length == 0 ? T("member.no_sessions") : T("member.which_seat"), 12));
         existing.Children.Add(Text(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(p => p.Text())), 12));
+        form.Children.Clear(); form.Children.Add(run); form.Children.Add(note); var fields = new StackPanel { Spacing = 10 }; form.Children.Add(fields);
         void DrawMode()
         {
             var value = Value(run); note.Text = edit != null ? T("member.edit_note") : value switch { "app" => T("member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
             appFields.Visibility = value == "app" ? Visibility.Visible : Visibility.Collapsed; hostFields.Visibility = value == "host" ? Visibility.Visible : Visibility.Collapsed; existing.Visibility = value == "existing" ? Visibility.Visible : Visibility.Collapsed;
             name.Header = value == "existing" ? T("member.which_seat") : T("member.name_label"); name.PlaceholderText = value == "existing" ? T("member.seat_placeholder") : T("member.name_placeholder");
             role.Header = value == "existing" ? T("member.role_new") : T("common.role");
+            fields.Children.Clear();
+            if (value == "existing") fields.Children.Add(existing);
+            fields.Children.Add(name); fields.Children.Add(role);
+            if (preferences.Text("voice") != "off") fields.Children.Add(Microphone(role));
+            if (value == "app") fields.Children.Add(appFields); else if (value == "host") fields.Children.Add(hostFields);
+            if (visibleDialog != null) visibleDialog.PrimaryButtonText = SubmitLabel();
         }
-        run.SelectionChanged += (_, _) => DrawMode(); DrawMode();
+        string SubmitLabel() => edit != null ? T("common.save") : Value(run) == "existing" ? T("member.bind") : Value(run) == "app" ? T(secretary ? "member.create_secretary" : "member.create_member") : T(start.IsChecked == true ? "member.create_start" : "member.create_seat_only");
+        run.SelectionChanged += (_, _) => DrawMode(); start.Checked += (_, _) => DrawMode(); start.Unchecked += (_, _) => DrawMode(); DrawMode();
         await Form(edit != null ? T("member.edit_title", ("name", card.Text("display"))) : secretary ? T("secretary.new_embedded") : T("common.add_member"), form, async () =>
         {
             var seat = name.Text.Trim(); if (seat.Length == 0) throw new ArgumentException(Value(run) == "existing" ? T("member.need_seat_name") : T("member.need_name"));
@@ -174,6 +183,6 @@ public sealed partial class MainWindow
                     Note(edit != null ? T("member.edit_saved") : start.IsChecked == true ? T("member.starting_first", ("name", seat)) : T("member.seat_created")); break;
             }
             await Select(target, seat);
-        });
+        }, SubmitLabel());
     }
 }

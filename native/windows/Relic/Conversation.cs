@@ -25,6 +25,7 @@ public sealed partial class MainWindow
     private void Quote(string who, string body)
     {
         quoteWho = who; quoteText = Regex.Replace(body, @"^(>.*\n?)+\n*", "").Trim();
+        if (quoteText.Length > 1200) quoteText = quoteText[..1200] + "…";
         quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; SaveViewState();
         if (pane == "thread") threadEditor.Focus(FocusState.Programmatic); else editor.Focus(FocusState.Programmatic);
     }
@@ -87,21 +88,26 @@ public sealed partial class MainWindow
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
         var output = new List<JsonNode?>(); var busy = liveData["status"].Text("state") is "running" or "starting" or "waiting";
         var cut = busy ? liveData.Rows("items").LastOrDefault(x => x.Flag("start")).Text("at") : "";
+        JsonObject? actions = null;
+        void Flush() { if (actions != null) { output.Add(actions); actions = null; } }
         foreach (var step in conversation.Rows("steps"))
         {
             if (cut.Length > 0 && string.CompareOrdinal(step.Text("at"), cut) >= 0) continue;
             var role = step.Text("role"); var text = step.Text("text"); var at = step.Text("at");
-            if (role is "tool_call" or "tool_result") { var item = step?.DeepClone(); if (item != null) item["type"] = "step"; output.Add(item); continue; }
+            if (role is "tool_call" or "tool_result") { actions ??= new JsonObject { ["type"] = "acts", ["at"] = at, ["member"] = member, ["steps"] = new JsonArray() }; actions.Rows("steps").Add(step?.DeepClone()); continue; }
+            Flush();
             if (role is not ("user" or "assistant")) continue;
             var from = role == "assistant" ? member : "human"; var type = "message";
             if (role == "user")
             {
-                if (text.StartsWith("[Relic auto-wake]")) { type = "notice"; text = T("msg.auto_woken"); }
+                if (text.StartsWith(Transcript.PersonPrefix)) text = Transcript.PersonText(text);
+                else if (text.StartsWith("[Relic auto-wake]")) { type = "notice"; text = T("msg.auto_woken"); }
                 else if (text.StartsWith("You now hold the seat")) { type = "notice"; text = T("msg.seat_briefing"); }
                 else if (m.Text("agent").Length > 0) from = m.Text("parent").Length > 0 ? m.Text("parent") : member;
             }
-            output.Add(new JsonObject { ["type"] = type, ["from"] = from, ["body"] = text, ["text"] = text, ["at"] = at });
+            output.Add(new JsonObject { ["type"] = type, ["from"] = from, ["fromLabel"] = role == "user" && from != "human" ? T("msg.task_from", ("name", m.Text("parent").Length > 0 ? Display(m.Text("parent")) : T("msg.parent_session"))) : Display(from), ["to"] = new JsonArray(JsonValue.Create(role == "assistant" ? "human" : member)), ["body"] = text, ["text"] = text, ["at"] = at });
         }
+        Flush();
         if (!m.Flag("embedded") || conversation.Rows("steps").Count == 0) output.AddRange(messages);
         return output.OrderBy(x => x.Text("at"));
     }
@@ -117,8 +123,8 @@ public sealed partial class MainWindow
         if (member.Length == 0)
         {
             chatHead.Children.Add(Stack(Text(T("common.group_chat") + " · " + T("common.members", ("n", snap.Rows("members").Count)), 20), Text(T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name"))), 12)));
-            chatHead.Children.Add(Button(plainMode ? T("chat.plain_on") : T("common.plain_words"), TogglePlain));
-            chatHead.Children.Add(Button(T("chat.digest"), ToggleDigest)); chatHead.Children.Add(Button(T("common.tasks"), () => Details("tasks")));
+            var plainButton = Button(plainMode ? T("chat.plain_on") : T("common.plain_words"), TogglePlain); ToolTipService.SetToolTip(plainButton, T("chat.plain_title")); chatHead.Children.Add(plainButton);
+            var digestButton = Button(T("chat.digest"), ToggleDigest); ToolTipService.SetToolTip(digestButton, T("chat.digest_title")); chatHead.Children.Add(digestButton); chatHead.Children.Add(Button(T("common.tasks"), () => Details("tasks")));
             if (digestOpen) stream.Children.Add(DigestCard());
         }
         else
@@ -132,29 +138,37 @@ public sealed partial class MainWindow
             stream.Children.Add(Text(banner, 12));
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
-        if (chatMore || conversation.Flag("more")) stream.Children.Add(Button(T("trace.load_more"), async () => { chatLimit += 1000; await Refresh(); }));
+        if (chatMore || conversation.Flag("more")) stream.Children.Add(Button(T("trace.load_older"), async () => { chatLimit += 1000; await Refresh(); }));
         var items = ConversationItems().ToArray();
         if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
-        string day = "";
+        string day = ""; JsonNode? previous = null;
         foreach (var item in items)
         {
-            var date = item.Text("at").Split('T')[0]; if (date != day && date.Length > 0) { stream.Children.Add(Text(When(item.Text("at")), 12)); day = date; }
-            stream.Children.Add(Message(item!, false));
+            var date = item.Text("at").Split('T')[0]; if (date != day && date.Length > 0) { stream.Children.Add(Text(Day(item.Text("at")), 12)); day = date; }
+            stream.Children.Add(Message(item!, false, Transcript.SameMessageGroup(previous, item!))); previous = item;
         }
         if (member.Length > 0) DrawLive(stream);
         if (atBottom) DispatcherQueue.TryEnqueue(() => chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null));
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
     }
-    private UIElement Message(JsonNode item, bool inThread)
+    private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
         if (item.Text("type") == "notice") return Text(item.Text("text"), 12);
+        if (item.Text("type") == "acts") return ToolActions(item);
         if (item.Text("type") == "step")
         {
             var content = Text(item.Text("text")); var expand = new Expander { Header = item.Text("tool").Length > 0 ? item.Text("tool") : T("common.result"), Content = content, HorizontalAlignment = HorizontalAlignment.Stretch };
             expand.Expanding += async (_, _) => await Run(async () => { if (item.Flag("cut")) content.Text = (await api!.Get(PathFor("/step?member=" + Client.Segment(member) + "&i=" + item.Text("i")))).Text("text"); }); return expand;
         }
         var from = item.Text("from"); var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
-        var box = Stack(Text(Display(from) + " · " + When(item.Text("at")), 12));
+        var box = new StackPanel { Spacing = 6 };
+        if (!continued)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
+            var avatar = Button("", () => from == "human" ? Settings() : MemberCard(from)); avatar.Content = Avatar(from == "human" ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from)); row.Children.Add(avatar);
+            row.Children.Add(Text((item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from)) + " · " + When(item.Text("at")), 12)); box.Children.Add(row);
+        }
         if (!inThread && member.Length == 0) box.Children.Add(Text(T("msg.to", ("names", string.Join(", ", item.Rows("to").Select(x => Display(x.Text()))))), 12));
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
         if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", string.Join(", ", item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
@@ -173,6 +187,7 @@ public sealed partial class MainWindow
         {
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
             box.Children.Add(Text(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 12));
+            if (others.Length > 1) box.Children.Add(new Expander { Header = T("msg.read_count", ("read", read), ("total", others.Length)), Content = Text(string.Join("\n", others.Select(name => Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread")))) });
         }
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
         if (explainable) actions.Children.Add(Button(plainOne.Contains(key) ? T("msg.hide_plain") : T("common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); }));
@@ -236,7 +251,7 @@ public sealed partial class MainWindow
         }
         else card.Children.Add(Text(digestPending ? T("digest.reading") : T("digest.none")));
         card.Children.Add(Button(digestPending ? T("digest.pending") : T("digest.update"), () => LoadDigest(true)));
-        if (snap["org"].Text("secretary").Length > 0) card.Children.Add(Button(T("digest.ask"), async () => { var sec = snap["org"].Text("secretary"); await api!.Post(PathFor("/send"), new { to = new[] { sec }, channel = "private", body = T("digest.ask_message") }); await Select(org, sec); }));
+        if (snap["org"].Text("secretary").Length > 0) { var ask = Button(T("digest.ask"), async () => { var sec = snap["org"].Text("secretary"); await api!.Post(PathFor("/send"), new { to = new[] { sec }, channel = "private", body = T("digest.ask_message") }); await Select(org, sec); }); ToolTipService.SetToolTip(ask, T("digest.ask_title")); card.Children.Add(ask); }
         card.Children.Add(Button(T("common.collapse"), ToggleDigest)); return card;
     }
     private async Task OpenThread(string id)
@@ -248,7 +263,7 @@ public sealed partial class MainWindow
     private void DrawThread()
     {
         detail.Children.Add(Button(T("common.close"), () => { threadId = ""; pane = previousPane; DrawDetail(); return Task.CompletedTask; }));
-        if (threadData["root"] == null) { detail.Children.Add(Text(T("common.loading"))); return; }
+        if (threadData["root"] == null) { detail.Children.Add(Text(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"))); return; }
         detail.Children.Add(Message(threadData["root"]!, true));
         detail.Children.Add(Text(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies")));
         foreach (var reply in threadData.Rows("replies")) detail.Children.Add(Message(reply!, true));
@@ -259,5 +274,30 @@ public sealed partial class MainWindow
             var sent = threadEditor.Text; await api!.Post(PathFor("/send"), new { body = Quoted(sent), reply_to = long.Parse(threadId), channel = member.Length == 0 ? "group" : "private" });
             if (threadEditor.Text == sent) threadEditor.Text = ""; ClearQuote(); await OpenThread(threadId); await Refresh();
         }));
+    }
+    private UIElement ToolActions(JsonNode group)
+    {
+        var pairs = Transcript.PairTools(group.Rows("steps"));
+        var failed = pairs.Count(p => p.Result.Flag("error")); var content = new StackPanel { Spacing = 6 };
+        var expand = new Expander { Header = T("step.actions", ("n", pairs.Count)) + (failed > 0 ? " · " + T("step.failed", ("n", failed)) : ""), Content = content, HorizontalAlignment = HorizontalAlignment.Stretch };
+        expand.Expanding += (_, _) =>
+        {
+            if (content.Children.Count > 0) return;
+            foreach (var (call, result) in pairs)
+            {
+                var body = new StackPanel { Spacing = 6 }; var tool = call.Text("tool").Replace("mcp__plugin_relic_org__", "Relic ").Replace("mcp__relic_org__", "Relic ").Replace("mcp__", "");
+                var row = new Expander { Header = (tool.Length > 0 ? tool : T("common.result")) + " · " + (result.Flag("error") ? T("common.failed") : When((call ?? result).Text("at"))), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch };
+                row.Expanding += async (_, _) => await Run(async () =>
+                {
+                    if (body.Children.Count > 0) return;
+                    foreach (var step in new[] { call, result }.Where(s => s != null))
+                    {
+                        var text = Text(step.Text("text"), 12); body.Children.Add(text);
+                        if (step.Flag("cut")) { var full = await api!.Get(PathFor("/step?member=" + Client.Segment(group.Text("member")) + "&i=" + step.Text("i"))); text.Text = full.Text("text"); }
+                    }
+                }); content.Children.Add(row);
+            }
+        };
+        return expand;
     }
 }

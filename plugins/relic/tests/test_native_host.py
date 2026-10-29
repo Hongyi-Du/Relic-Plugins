@@ -33,7 +33,7 @@ class NativeHostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(native, "data_home", return_value=Path(temp)), \
                 patch.object(native, "LifecycleLock", return_value=contextlib.nullcontext()), \
-                patch.object(native.launcher, "NO_WINDOW", 0x08000000), \
+                patch.object(native, "creation_flags", return_value=0x08000000), \
                 patch.object(native.launcher, "running", side_effect=[None, info, info]), \
                 patch.object(native.launcher, "unverified_server", return_value=False), \
                 patch.object(native.subprocess, "Popen", return_value=child) as spawn, \
