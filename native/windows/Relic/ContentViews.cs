@@ -198,13 +198,19 @@ public sealed partial class MainWindow
             foreach (var task in tasks)
             {
                 var detail = Stack(Text(T("details.label_title") + " " + task.Text("title")), Text(T("details.label_created_by") + " " + Display(task.Text("created_by"))));
-                if (task.Text("report").Length > 0) detail.Children.Add(Stack(Text(T("report.title") + " · " + When(task.Text("done_at")), 18), Rich(task.Text("report"))));
+                if (task.Text("report").Length > 0) detail.Children.Add(new Border { Child = Stack(Heading(T("report.title") + " · " + When(task.Text("done_at")), 13), Rich(task.Text("report"))), Background = Paint("F2F8F4", "223129"), BorderBrush = Paint("C9E4D4", "345343"), BorderThickness = new Thickness(1), Padding = new Thickness(10), CornerRadius = new CornerRadius(8) });
                 detail.Children.Add(Text(T("details.label_evidence")));
                 if (task.Rows("evidence").Count == 0) detail.Children.Add(Text(T("details.no_evidence"))); else foreach (var ev in task.Rows("evidence")) detail.Children.Add(Rich(ev.Text()));
                 if (task.Text("owner").Length > 0) detail.Children.Add(Button(T("details.ask", ("name", Display(task.Text("owner")))), async () => { visibleDialog?.Hide(); await Select(org, task.Text("owner")); }));
-                var header = Stack(Heading(task.Text("id") + " " + task.Text("title")), Quiet((task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("task." + task.Text("status"))), Quiet(T("details.updated", ("when", When(task.Text("at")))) + (task.Text("report").Length > 0 ? " · " + T("details.has_report") : ""), 11)); header.Spacing = 4; header.MaxWidth = Math.Min(600, root.ActualWidth - 280);
-                header.HorizontalAlignment = HorizontalAlignment.Left;
-                list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Header = header, Content = detail });
+                var header = new Grid { ColumnSpacing = 10, Width = Math.Min(1000, root.ActualWidth - 250), HorizontalAlignment = HorizontalAlignment.Left };
+                header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                var owner = snap.Rows("members").FirstOrDefault(m => m.Text("name") == task.Text("owner")); header.Children.Add(SmallAvatar(owner.Text("avatar"), Display(task.Text("owner"))));
+                var labels = Stack(Heading(task.Text("title")), Quiet(task.Text("id") + " · " + (task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("details.updated", ("when", When(task.Text("at")))), 11)); labels.Spacing = 3; Grid.SetColumn(labels, 1); header.Children.Add(labels);
+                var badges = new ActionRow { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; if (task.Text("report").Length > 0) badges.Children.Add(Badge(T("details.has_report"), true));
+                var status = Badge(T("task." + task.Text("status")), task.Text("status") == "blocked");
+                if (task.Text("status") == "done") { status.Background = Paint("EAF5EE", "263B2D"); ((TextBlock)status.Child).Foreground = Paint("387A50", "83C49B"); }
+                badges.Children.Add(status); Grid.SetColumn(badges, 2); header.Children.Add(badges);
+                list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, MinHeight = 36, Padding = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Header = header, Content = detail });
             }
         }
         filters.SelectionChanged += (_, _) => Draw(); Draw();

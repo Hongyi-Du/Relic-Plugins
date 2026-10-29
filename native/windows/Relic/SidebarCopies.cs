@@ -102,7 +102,8 @@ public sealed partial class MainWindow
     private async Task ShowCopies()
     {
         copiesBody = new StackPanel { Spacing = 16 }; var body = copiesBody; DrawCopies();
-        await Show(T("cc.title"), body); if (copiesBody == body) copiesBody = null;
+        var unread = copies.Count(c => !c.Flag("read"));
+        await Show(T("cc.title") + (unread > 0 ? " · " + unread : ""), body); if (copiesBody == body) copiesBody = null;
     }
     private void CopyNotifications()
     {

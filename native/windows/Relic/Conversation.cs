@@ -18,6 +18,7 @@ public sealed partial class MainWindow
     private string quoteWho = "", quoteText = "", threadId = "", previousPane = "overview";
     private readonly TextBox threadEditor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
     private Panel? threadEditorContainer;
+    private Button? threadSendButton;
     private readonly TextBlock quoteLabel = new() { TextWrapping = TextWrapping.Wrap };
     private Button? recipientButton;
     private const int chatLimit = 1000;
@@ -27,7 +28,11 @@ public sealed partial class MainWindow
     private readonly HashSet<TextBox> composing = new();
     private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(32) };
     private readonly Border conversationBanner = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 0, 20, 10) };
-    private void UpdateSendState() { if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .45; } }
+    private void UpdateSendState()
+    {
+        if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .45; }
+        if (threadSendButton != null) threadSendButton.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0;
+    }
     private string PlainKey(string id) => org + "/" + id;
     private void Quote(string who, string body)
     {
@@ -351,7 +356,7 @@ public sealed partial class MainWindow
         threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0);
         threadEditorContainer?.Children.Remove(threadEditor);
         var replyComposer = Stack(threadEditor); threadEditorContainer = replyComposer; var actions = new ActionRow { HorizontalAlignment = HorizontalAlignment.Right }; actions.Children.Add(Microphone(threadEditor));
-        var send = IconButton("\uE74A", "common.send", SendThread); send.Background = Accent; send.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White); actions.Children.Add(send); replyComposer.Children.Add(actions); detail.Children.Add(Card(replyComposer));
+        var send = IconButton("\uE74A", "common.send", SendThread); threadSendButton = send; send.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0; send.Background = Accent; send.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White); actions.Children.Add(send); replyComposer.Children.Add(actions); detail.Children.Add(Card(replyComposer));
     }
     private async Task SendThread()
     {

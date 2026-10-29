@@ -4,6 +4,21 @@ PR #4 is back in draft after the person's Windows review rejected the interface.
 Route/key coverage is implementation coverage, not visual acceptance. No screen
 is visually accepted until its three-way comparison has been opened and reviewed.
 
+The first complete full-matrix run is [40886071671](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40886071671)
+at `a4f3b11`: 504 comparisons, no missing captures. Subsequent Windows polish
+adds task avatars/status badges/report surfaces, compact trace and document
+columns, protocol hierarchy, paired member fields and the selected accent on
+dialog actions. Final evidence must use the later final commit's full run.
+
+Review finding for the macOS owner (outside Windows ownership): a check rule
+without `on_error` is displayed as blocked in `Overview.swift:251`, whereas the
+reference, Windows and engine default to allow. The shared fixture intentionally
+exposes this omitted-field case. Current engine-created protocols normally write
+the explicit value, but the native fallback is still inconsistent and needs a
+macOS correction. Do not hide this difference by changing screenshots or claiming
+that capture completion certifies all semantics. PR #4 remains draft pending
+resolution/review; no local app or test execution is authorized.
+
 `scripts/visual/scenes.json` is the shared capture matrix: 42 screens and dialog
 states, both languages, both themes, 1440x900 / 1280x800 / 1024x700. The full run
 produces 504 comparisons. `smoke` is an iteration aid, never the final gate.

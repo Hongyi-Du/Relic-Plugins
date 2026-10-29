@@ -63,6 +63,10 @@ public sealed partial class MainWindow : Window
     {
         VisualStartup("constructing window");
         Title = "Relic";
+        // Global accelerators belong to the window. Their automatic tooltip
+        // must not appear over unrelated controls; menus and buttons supply
+        // their own localized shortcut labels/tooltips.
+        root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         SystemBackdrop = new MicaBackdrop();
         Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
@@ -102,7 +106,7 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
         root.SizeChanged += (_, _) => LayoutColumns();
         root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
-        threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; SaveViewState(); };
+        threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; UpdateSendState(); SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
         editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; UpdateSendState(); SaveViewState(); };
         AddShortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, () => pane == "thread" && threadEditor.FocusState != FocusState.Unfocused ? SendThread() : Send());
