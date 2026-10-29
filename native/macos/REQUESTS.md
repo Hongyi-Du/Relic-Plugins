@@ -54,6 +54,15 @@ The run's failed job log and `visual-windows-zh-CN-dark` artifact preserve evide
 No macOS route or manifest change is requested; another full comparison follows
 the shared repair. Native builds/tests/parity passed at `40877622668`.
 
+Static diagnosis: Windows `Client.Post` uses `PostAsJsonAsync`, whose streaming
+JSON content can use `Transfer-Encoding: chunked`. `Handler._body` only reads
+`Content-Length`; absent length becomes `{}`, leaving chunk bytes in the reused
+HTTP/1.1 connection. The next GET can then receive Python's HTML parser error.
+Please send the serialized UTF-8 body with an explicit/computable Content-Length
+(e.g. buffered JSON StringContent), and add a CI regression for POST then GET on
+one keep-alive connection. macOS already assigns Data to URLRequest.httpBody.
+This diagnosis is source-based; no local server or test was run.
+
 ### Active: capture a selected document in the shared `documents` scene
 
 The 42-scene English/dark comparison at `40875042406` shows empty document bodies
@@ -63,7 +72,7 @@ clients. After `await openDetails('docs')`, the reference can click the actual
 `.details .left .chat-row` button (verify the enclosing details class from
 `app.js:2390`), then wait for `.doc-body`. Windows should invoke its existing
 first-document selection. Do not replace the renderer or inject body markup.
-The API is unchanged: `/api/orgs/<id>/document?key=review-plan` (use existing
+The API is unchanged: `/api/org/<id>/document?key=review-plan` (use existing
 `orgPath('/document?key=' + enc(key))`, not a new route). macOS already invokes
 that real GET when DocumentsView selects the first key. No missing fixture data.
 
