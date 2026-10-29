@@ -1,6 +1,6 @@
-# macOS Apple silicon 使用指南 — v0.7.0-beta.1
+# macOS Apple silicon 使用指南 — v0.7.1-beta.1
 
-**v0.7.0-beta.1（插件 0.18.0-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
+**v0.7.1-beta.1（插件 0.18.1-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
 共用功能源码和版本号。这个未签名的源码候选包包含 Relic App 与 Claude Code/Codex 插件，Python、Node.js
 和已登录宿主需要另行准备。HaochenGu 的真机观察针对合并前的 v0.4.1 基础移植；合并版自动测试及尚待完成的
 真机验收见[验证记录](validation.md)。旧 v0.4.1-macos 是历史发布，v0.7.0 起使用统一发布线。
@@ -24,7 +24,7 @@ macOS 目标平台是 **Apple silicon**，需要原生 **arm64 Python 3.11+**。
 
 ## 安装与服务管理
 
-将 `relic-macos-v0.7.0-beta.1.zip`（或同名 `.tar.gz`）解压到准备长期保留的目录，在该目录运行：
+将 `relic-macos-v0.7.1-beta.1.zip`（或同名 `.tar.gz`）解压到准备长期保留的目录，在该目录运行：
 
 ```sh
 bash install.command --host none --open

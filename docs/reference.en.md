@@ -1,6 +1,6 @@
 # Tools and configuration reference
 
-v0.7.0-beta.1 (plugin 0.18.0-beta.1) shares check/Reply rules, Copies and person-issued protocols across Windows
+v0.7.1-beta.1 (plugin 0.18.1-beta.1) shares check/Reply rules, Copies and person-issued protocols across Windows
 and macOS Apple silicon. Opening an older store adds `activity.paths`: an irreversible automatic schema migration
 with no automatic downgrade. Back up before upgrading; restore that backup to roll back.
 
@@ -17,7 +17,7 @@ Claude Code shows the tools as `mcp__plugin_relic_org__*`; Codex shows them as `
 | `create` | `name`, `purpose`, `member`, optional `role`, `governance: leader|peer`; once a secretariat is marked, a member's `create` becomes a request for the secretary-general |
 | `join` | `org_id`, `member`, optional `role`; rejoining a seat replaces its carrier; joining another organization adds a seat and keeps the session's others; joining one it sits in makes that its main seat |
 | `status` | Current member's organization, shared state, rules and outstanding work; with `org` naming an organization below, that organization as seen from above |
-| `inbox` | Read unread messages of every seat; bounded `wait` in seconds (maximum 600, lower with `RELIC_MAX_WAIT`) |
+| `inbox` | Read unread messages of every seat; bounded `wait` in seconds (maximum 600, lower with `RELIC_MAX_WAIT`); `message_id` rereads one addressed message, read or unread, and ignores `wait`. An empty inbox lists open assigned tasks. |
 | `message` | `to: [member names]`, `["all"]` or `["human"]` (the person, who reads it in the Relic App), `body`, optional `episode_id`; `reply_to` answers inside a message's thread (without `to`, the thread's participants get it); `org`: an organization below, or one above to report to (a sender named `<org id>/<member>` is answered with that name in `to`) |
 | `work` | `doc_read`, `doc_write`, `task`, `role`, `note`; `task` with status `done` needs `evidence` and a `report` (Markdown, at most 1000 characters); `org`: an organization below, for `task` (a new task needs an owner, one of its members) and `doc_read` |
 | `episode` | `open`, `close`, `reflect` |
@@ -28,6 +28,18 @@ Claude Code shows the tools as `mcp__plugin_relic_org__*`; Codex shows them as `
 | `panel` | Open the Relic App on the person's screen |
 
 Every tool except `create`, `join` and `panel` also takes `org` naming an organization the session sits in, by id or exact name: the call then acts as the session's member there, and that organization's protocols bind the session's tool calls until its turn ends. `inbox` with such an `org` reads only that seat's messages. A message that reached a seat other than the main one is shown as `[msg 12 · <organization> from <sender>]`. The [user guide](guide.en.md#6-organizations-above-and-below) describes organizations above and below, subgroups, the secretariat and ex officio seats.
+
+For example, `inbox {"message_id": 3784, "org": "org_example"}` returns that message's full text only if it was
+addressed to the session's seat there. Without `org`, every held seat is eligible. Missing or unaddressed ids return
+an error. An empty inbox is not an empty task list: check `status`. Hook output is limited to 9500 characters;
+only whole delivered messages are marked read, and previews/omissions remain available through `inbox`.
+An explicit `org` that names a held seat selects that identity even above the main organization, including replies.
+Replies to cross-organization participants remain in that seat's thread and also reach those participants in their
+own organizations; omitting `to` includes them along with local thread participants.
+
+Codex's hook configuration is separate from Claude's: the installer supplies `commandWindows` with PowerShell's
+call operator for quoted interpreter paths. The hook caps output at 9500 characters; Codex uses
+`additionalContextLimit: 0` to deliver that already-bounded context without another preview cut.
 
 Example shared document:
 

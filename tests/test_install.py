@@ -59,8 +59,25 @@ class InstallerTests(unittest.TestCase):
             hook_env = dict(env, PLUGIN_ROOT=str(plugin), CLAUDE_PLUGIN_ROOT=str(plugin))
             event = json.dumps({'hook_event_name': 'SessionStart', 'session_id': 'release-fixture', 'cwd': str(Path(temp))})
             hook_run = subprocess.run(hooks['SessionStart'][0]['hooks'][0]['command'], shell=True, input=event,
-                                      capture_output=True, text=True, encoding='utf-8', env=hook_env, timeout=20)
+                                      capture_output=True, text=True, encoding='utf-8', env=hook_env, timeout=20,
+                                      creationflags=installer.platform_support.creation_flags())
             self.assertEqual(hook_run.returncode, 0, hook_run.stderr)
+            codex_manifest = installer.read_json(plugin / '.codex-plugin/plugin.json')
+            codex_hooks = installer.read_json(plugin / codex_manifest['hooks'])['hooks']
+            for name in ('SessionStart', 'UserPromptSubmit', 'SubagentStart', 'PostToolUse'):
+                self.assertEqual(codex_hooks[name][0]['hooks'][0]['additionalContextLimit'], 0)
+            if os.name == 'nt':
+                # CI-only real PowerShell check: stdin reaches the hook, with a
+                # private store and no seat, member turn, App, or native window.
+                command = codex_hooks['PostToolUse'][0]['hooks'][0]['commandWindows']
+                self.assertTrue(command.startswith("& '"))
+                event = json.dumps({'hook_event_name': 'PostToolUse', 'session_id': 'release-fixture',
+                                    'tool_name': 'Read', 'tool_input': {}})
+                result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', command],
+                                        input=event, capture_output=True, text=True, encoding='utf-8', env=hook_env,
+                                        timeout=20, creationflags=installer.platform_support.creation_flags())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {})
 
     def test_installs_into_the_hosts_it_finds_and_turns_off_earlier_claude_editions(self):
         commands = []

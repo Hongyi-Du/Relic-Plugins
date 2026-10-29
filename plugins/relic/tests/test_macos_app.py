@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import relic_app  # noqa: E402
 from app import files, web  # noqa: E402
-from relic_core import platform_support  # noqa: E402
+from relic_core import platform_support, process  # noqa: E402
 
 
 class Request(web.Handler):
@@ -113,6 +113,7 @@ class BrowserWindows(unittest.TestCase):
 
     def test_app_mode_uses_the_discovered_bundle_executable(self):
         with mock.patch.object(relic_app, "WINDOWS", False), \
+                mock.patch.object(process, "WINDOWS", False), \
                 mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
                 mock.patch.object(relic_app, "installed_edge_app", return_value=None), \
                 mock.patch.object(relic_app, "data_home", return_value=Path("/Users/test/Relic Data")), \
@@ -159,6 +160,7 @@ class BrowserWindows(unittest.TestCase):
 
     def test_existing_windows_edge_app_is_still_reused(self):
         with mock.patch.object(relic_app, "WINDOWS", True), \
+                mock.patch.object(process, "WINDOWS", True), \
                 mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
                 mock.patch.object(relic_app, "installed_edge_app", return_value=("Profile 1", "app-id")), \
                 mock.patch.object(platform_support, "browser_executable", return_value="msedge.exe"), \
@@ -166,7 +168,7 @@ class BrowserWindows(unittest.TestCase):
             relic_app.open_window(self.URL)
             self.assertEqual(popen.call_args.args[0], ["msedge.exe", "--profile-directory=Profile 1", "--app-id=app-id"])
             self.assertFalse(popen.call_args.kwargs["start_new_session"])
-            self.assertEqual(popen.call_args.kwargs["creationflags"], 0x00000200)
+            self.assertEqual(popen.call_args.kwargs["creationflags"], 0x08000200)
 
     def test_install_window_opens_a_regular_bundle_browser_window(self):
         with mock.patch.object(platform_support, "browser_executable", return_value=self.BROWSER), \

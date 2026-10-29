@@ -10,6 +10,9 @@ import subprocess
 import sys
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/relic'))
+from relic_core.process import creation_flags
+
 
 def cases(suite):
     for case in suite:
@@ -34,7 +37,8 @@ class IsolatedTkFixture(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, '-B', '-X', 'utf8', str(Path(__file__).resolve()),
              '--test-id', self.test_id],
-            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60,
+            creationflags=creation_flags())
         detail = proc.stdout + proc.stderr
         if proc.returncode == 77:
             self.skipTest(detail.strip())

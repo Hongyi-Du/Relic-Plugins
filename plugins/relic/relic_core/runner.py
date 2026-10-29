@@ -35,7 +35,7 @@ from . import __version__, platform_support
 from .store import Store, data_home
 
 WINDOWS = os.name == "nt"
-NO_WINDOW = 0x08000000 if WINDOWS else 0
+NO_WINDOW = platform_support.creation_flags()
 CLAUDE_MODES = ["auto", "acceptEdits", "plan", "dontAsk"]
 CODEX_SANDBOXES = ["workspace-write", "read-only"]
 EFFORTS = ["", "low", "medium", "high", "xhigh", "max"]
@@ -254,7 +254,7 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     args = [str(python), "-X", "utf8", str(script), "--org", org_id, "--member", member, "--prompt-file", prompt_file]
     if new_session:
         args.append("--new")
-    if open_after:
+    if open_after and not wake_from and not wake_hop:
         args.append("--open")
     if wake_from:
         args += ["--wake-from", ",".join(wake_from)]
@@ -364,7 +364,7 @@ def open_session(config, session_id, harness, cwd):
                 exe = codex_desktop_exe()
                 if not exe:
                     raise RuntimeError("Could not open the Codex desktop app; open the chat from its sidebar.")
-                subprocess.Popen([exe, url], env=env)
+                subprocess.Popen([exe, url], env=env, creationflags=platform_support.creation_flags())
         else:
             platform_support.open_external(url)
         return args
@@ -376,12 +376,20 @@ def open_session(config, session_id, harness, cwd):
             raise RuntimeError("Claude Desktop launch failed; no GUI turn was delivered.")
         return {"status": "launch_requested", "turn_delivered": False, "command": args}
     elif WINDOWS:
-        subprocess.Popen(args, cwd=cwd, env=env, creationflags=0x00000010)  # CREATE_NEW_CONSOLE: its own terminal window
+        # Opening a terminal is an explicit person action. The launcher itself
+        # still must not allocate a surprise console when Relic runs via pythonw.
+        terminal = shutil.which("wt.exe")
+        if not terminal:
+            raise RuntimeError("Windows Terminal was not found; open the session from your terminal with: "
+                               + subprocess.list2cmdline(args))
+        subprocess.Popen([terminal, "-w", "new", "--", *args], cwd=cwd, env=env,
+                         creationflags=platform_support.creation_flags())
     elif sys.platform == "darwin":
         platform_support.open_terminal(args, cwd, env, runs_dir())
     else:
         terminal = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
-        subprocess.Popen(([terminal, "--"] if terminal else []) + args, cwd=cwd, env=env)
+        subprocess.Popen(([terminal, "--"] if terminal else []) + args, cwd=cwd, env=env,
+                         creationflags=platform_support.creation_flags())
     return args
 
 

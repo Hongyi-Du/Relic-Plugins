@@ -77,7 +77,8 @@ TOOLS = [
           "episode_id": S,
           "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
                                                          "without `to`, the thread's participants receive it."},
-          "org": dict(ORG, description="Write to members of another organization: one below yours, or one above "
+          "org": dict(ORG, description="An organization you hold a seat in always selects that seat, even above "
+                                       "your main organization. Otherwise write to one below yours, or one above "
                                        "it to report. A sender named <org id>/<member> is answered with "
                                        "to=['<org id>/<member>'] or with org=<org id>, to=[member].")},
          ["body"]),
@@ -85,8 +86,12 @@ TOOLS = [
          "reached another seat than your main one names its organization. wait (seconds; the longest this client "
          "allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after "
          "messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. "
-         "org: only that seat's messages.",
-         {"wait": {"type": "integer"}, "org": SEAT}),
+         "org: only that seat's messages. message_id: read one message addressed to your seats in full, even if "
+         "already read (ignores wait). When nothing is unread, lists your open assigned tasks; an empty inbox "
+         "is not an empty task list: check status.",
+         {"wait": {"type": "integer"}, "org": SEAT,
+          "message_id": {"type": "integer", "description": "Read or reread this message id, addressed to one of "
+                         "your seats (or only the seat selected by org). Returns its full text and marks it read."}}),
     tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
          "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
          "role {member?, role} | note {body} (private to you; not inherited by a replacement). "
@@ -223,6 +228,9 @@ def call(store, name, args, meta=None):
             wake.dispatch_for_actor(store, actor)  # recipients with an idle configured session get a turn now
             if isinstance(result, dict) and result.get("org_id"):  # written in another organization
                 wake.dispatch(store, result["org_id"])
+            if name == "message" and isinstance(result, dict):
+                for org_id in result.get("delivered_orgs", []):
+                    wake.dispatch(store, org_id)
             cab = store.cabinet() if name in ("group", "create") else None
             if cab:  # a request for the secretary-general
                 wake.dispatch(store, cab["id"])
@@ -231,14 +239,28 @@ def call(store, name, args, meta=None):
     return result
 
 
-def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time):
+def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time, message_id=None):
     """Unread messages, marked read; with wait, first wait up to that many seconds for one to arrive."""
     store.require(actor)
+    if message_id is not None:
+        messages = store.unread(actor, message_id=message_id)
+        if not messages:
+            raise OrgError("No message #%s is addressed to your selected seats." % message_id)
+        return {"messages": messages, "text": render_messages(messages)}
     deadline = clock() + max(0, min(int(wait or 0), max_wait()))
     while not store.unread(actor, mark=False, limit=1) and clock() < deadline:
         sleep(min(poll, max(0.0, deadline - clock())))
     messages = store.unread(actor)
-    return {"messages": messages, "text": render_messages(messages) if messages else "No unread messages."}
+    if messages:
+        return {"messages": messages, "text": render_messages(messages)}
+    tasks = [dict(id=t["id"], title=t["title"], status=t["status"], org_id=org["id"], org_name=org["name"],
+                  owner=member) for org, member, _ in store.seats_of(actor) for t in org["tasks"].values()
+             if t["owner"] == member and t["status"] not in ("done", "dropped")]
+    text = "No unread messages. An empty inbox is not an empty task list: check status."
+    if tasks:
+        text += "\nYour open assigned tasks:\n" + "\n".join(
+            "- %s: %s [%s] — %s (%s)" % (t["id"], t["title"], t["status"], t["org_name"], t["org_id"]) for t in tasks)
+    return {"messages": [], "tasks": tasks, "text": text}
 
 
 def seated(store, name, args, actor):
@@ -286,7 +308,7 @@ def handle_call(store, name, args, actor):
         return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"),
                           reply_to=args.get("reply_to"), org=args.get("org"))
     if name == "inbox":
-        return inbox(store, actor, args.get("wait") or 0)
+        return inbox(store, actor, args.get("wait") or 0, message_id=args.get("message_id"))
     if name == "work":
         return store.work(actor, args.pop("op"), args)
     if name == "episode":

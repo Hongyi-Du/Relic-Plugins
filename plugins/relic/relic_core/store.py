@@ -1551,15 +1551,21 @@ class Store:
         org: the organization to write in when it is not your own (one below yours, or one above it to report).
         Recipients named "<org id>/<member>", the way a message from another organization names its sender, say
         it too."""
+        seated = self.scoped(actor, org) if org else None
+        if seated:  # explicit held seat wins before interpreting qualified recipients
+            self.set_focus(actor, self.split_actor(seated)[1])
+            actor, org = seated, None
+        explicit_seat = self.split_actor(actor)[1] is not None
+        seat_reply = bool(explicit_seat and reply_to and not org)
         names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
-        if not org and names and all("/" in n for n in names):
+        if not seat_reply and not org and names and all("/" in n for n in names):
             places = {n.split("/", 1)[0] for n in names}
             if len(places) != 1:
                 raise OrgError("Write to one organization at a time.")
             org, to = places.pop(), [n.split("/", 1)[1] for n in names]
-        elif any("/" in n for n in names):
+        elif not seat_reply and any("/" in n for n in names):
             raise OrgError("Write to members of another organization in a message of its own (org=<its id>).")
-        seated = self.scoped(actor, org) if org else None
+        seated = self.scoped(actor, org) if org and not explicit_seat else None
         if seated:  # an organization the session sits in: write there as its member
             self.set_focus(actor, self.split_actor(seated)[1])
             actor, org = seated, None
@@ -1572,9 +1578,19 @@ class Store:
             raise OrgError("Empty message.")
         with self.db() as db:
             root = self._thread_root(db, org["id"], reply_to)
+            people = self._thread_people(db, org["id"], root) if root else []
+            external = {}
+            for name in people:
+                place, _, other = name.partition("/")
+                if other and place != org["id"]:
+                    try:
+                        there = self._load(db, place)
+                    except OrgError:
+                        continue
+                    if there.get("status") == "active" and other in there["members"]:
+                        external[name] = (place, other)
             if root and not to:
-                recipients = [m for m in self._thread_people(db, org["id"], root)
-                              if m != member and (m in org["members"] or m == HUMAN)]
+                recipients = [m for m in people if m != member and (m in org["members"] or m == HUMAN or m in external)]
                 if not recipients:
                     raise OrgError("Nobody else is in thread #%d; name the recipients with to." % root)
             elif not to or to == ["all"] or to == "all":
@@ -1582,7 +1598,7 @@ class Store:
             else:
                 recipients = list(dict.fromkeys(to if isinstance(to, list) else [to]))
                 # "human" is the person: they read and answer in the Relic App 
-                unknown = set(recipients) - set(org["members"]) - {HUMAN}
+                unknown = set(recipients) - set(org["members"]) - {HUMAN} - set(external)
                 if unknown:
                     raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
             if not recipients:
@@ -1592,7 +1608,23 @@ class Store:
                                                          now(), self._sender_hop(org["id"], member), root))
             thread = {"reply_to": root} if root else {}
             self._event(db, org["id"], member, "message.sent", dict({"id": cur.lastrowid, "to": recipients}, **thread))
-            return dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
+            result = dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
+            reached = []
+            for recipient in recipients:
+                if recipient not in external:
+                    continue
+                place, other = external[recipient]
+                # Keep the reply in this seat's thread, and deliver a copy to a
+                # participant who wrote from another organization, as receipts do.
+                copied = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                                    "VALUES(?,?,?,?,?,?,?,?)", (place, qualified(org["id"], member), json.dumps([other]),
+                                    body, None, now(), self._sender_hop(org["id"], member), None))
+                self._event(db, place, qualified(org["id"], member), "message.sent",
+                            {"id": copied.lastrowid, "to": [other], "from_org": org["id"], "source_reply": cur.lastrowid})
+                reached.append(place)
+            if reached:
+                result["delivered_orgs"] = list(dict.fromkeys(reached))
+            return result
 
     def _send_across(self, own, member, target, way, to, body, episode_id, reply_to):
         """A message from a member of `own` to members of `target`, an organization below it (way "down") or above it
@@ -1839,9 +1871,10 @@ class Store:
             return 0
         return int(state.get("wake_hop") or 0) if state.get("status") == "running" else 0
 
-    def unread(self, actor, mark=True, limit=20):
+    def unread(self, actor, mark=True, limit=20, message_id=None):
         """Unread messages to the session in every seat it holds ("<actor>#<org id>": in that seat only), oldest
-        first. A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
+        first. message_id selects one addressed message whether read or unread; limit=None removes the page limit.
+        A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
         seats = self.seats_of(actor)
         if not seats:
             return []
@@ -1850,10 +1883,12 @@ class Store:
             for org, member, main in seats:
                 # Filter by recipient before taking `limit`: messages to other members are never marked read by this
                 # one, so a LIMIT in SQL could fill up with them and hide this member's own messages.
+                condition = ("m.id=?" if message_id is not None else """m.sender<>? AND NOT EXISTS
+                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)""")
+                parameters = (message_id,) if message_id is not None else (member, member)
                 rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
-                    FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
-                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
-                    ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
+                    FROM messages m WHERE m.org_id=? AND m.recipients LIKE ? AND """ + condition + " ORDER BY m.id",
+                                  (org["id"], "%" + json.dumps(member) + "%") + parameters).fetchall()
                 found = 0
                 for mid, sender, recipients, body, ep, at, reply_to in rows:
                     rec = json.loads(recipients)
@@ -1867,7 +1902,7 @@ class Store:
                         m.update(org_id=org["id"], org_name=org["name"])
                     out.append(m)
                     found += 1
-                    if found >= limit:
+                    if limit is not None and found >= limit:
                         break
             out = sorted(out, key=lambda m: m["id"])[:limit]
             read = {}
