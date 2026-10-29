@@ -42,7 +42,7 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
-### Active: Windows zh-CN/dark HTTP startup failure in `40877623363`
+### Active: Windows HTTP startup failure, repeated in three full runs
 
 At `fc4fd58`, all four macOS shards and three Windows shards completed, but
 Windows zh-CN/dark failed before native capture with `HttpRequestException:
@@ -62,6 +62,12 @@ Please send the serialized UTF-8 body with an explicit/computable Content-Length
 (e.g. buffered JSON StringContent), and add a CI regression for POST then GET on
 one keep-alive connection. macOS already assigns Data to URLRequest.httpBody.
 This diagnosis is source-based; no local server or test was run.
+
+The same error reproduced in `40880037477` (zh-CN/dark), then `40882519398`
+(zh-CN/dark, en-US/light, en-US/dark). It is not limited to one locale/theme.
+All reference captures complete before this Windows startup error. The latest
+macOS source is `f7a6bfd`, with 57 passing XCTest cases and native builds/parity
+green at `40882519547`; its full native captures are independent of this failure.
 
 ### Active: capture a selected document in the shared `documents` scene
 
