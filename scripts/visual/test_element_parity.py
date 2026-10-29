@@ -230,6 +230,70 @@ class MatrixReportTests(unittest.TestCase):
             self.assertEqual(result["summary"]["windows"]["scenes_expected"], 2)
             self.assertEqual(result["summary"]["windows"]["scenes_passed"], 1)
 
+    def test_raw_tree_sidecars_are_copied_next_to_element_json(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                data = capture(client, [element(client)], scene, viewport)
+                if client == "windows":
+                    data["raw_evidence"] = {kind: f"{scene}.{kind}.json" for kind in ("uia", "xaml", "dom", "ax")}
+                    for kind, filename in data["raw_evidence"].items():
+                        (path / filename).write_text(json.dumps({"tree_kind": kind, "raw_nodes": ["independent capture"]}), encoding="utf-8")
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            # An independently saved sidecar must survive even if an extractor
+            # has not yet added a raw_evidence key to its projected JSON.
+            raw_dom = source / "reference" / f"{scene}.dom.json"
+            raw_dom.write_text('{"documents": ["unprojected reference"]}', encoding="utf-8")
+            result = run(source, output, spec=spec)
+            self.assertTrue(result["passed"])
+            copied_json = output / "elements" / "windows" / f"{scene}.elements.json"
+            references = json.loads(copied_json.read_text(encoding="utf-8"))["raw_evidence"]
+            for filename in references.values():
+                self.assertEqual((copied_json.parent / filename).read_bytes(), (source / "windows" / filename).read_bytes())
+            self.assertEqual((output / "elements" / "reference" / raw_dom.name).read_bytes(), raw_dom.read_bytes())
+            # A dangling raw evidence reference fails even when the projected
+            # elements and screenshots otherwise all match.
+            (source / "windows" / f"{scene}.uia.json").unlink()
+            result = run(source, root / "missing-sidecar", spec=spec)
+            self.assertFalse(result["passed"])
+            errors = result["scenes"][0]["platforms"]["windows"]["extraction_errors"]
+            self.assertTrue(any(f"{scene}.uia.json" in error["reason"] for error in errors))
+
+    def test_raw_invalid_native_elements_are_counted_and_reported(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                items = [element(client)]
+                if client == "macos":
+                    items = [{"legacy_text": "First extracted element"}, {"legacy_text": "Second extracted element"}]
+                data = capture(client, items, scene, viewport)
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            result = run(source, output, spec=spec)
+            self.assertFalse(result["passed"])
+            for values in (result["summary"]["macos"], result["scenes"][0]["platforms"]["macos"]):
+                self.assertEqual(values["raw_native_elements"], 2)
+                self.assertEqual(values["valid_native_elements"], 0)
+                self.assertEqual(values["invalid_native_elements"], 2)
+                self.assertEqual(values["native_elements"], 0)  # backward-compatible field
+                self.assertGreater(values["counts"]["extraction_errors"], 0)
+            self.assertEqual(result["summary"]["windows"]["raw_native_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["valid_native_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["invalid_native_elements"], 0)
+            scene_html = (output / f"{scene}-macos.html").read_text(encoding="utf-8")
+            self.assertIn("2 raw elements; 0 structurally comparable; 2 unusable", scene_html)
+            copied = json.loads((output / "elements" / "macos" / f"{scene}.elements.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(copied["elements"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,13 @@ visible text. A shown tooltip and its text are elements.
   applicable, including false values. Preserve actual wrapping, truncation and
   measured text-line count. `wrap` is `none`, `word` or `character`; `truncation`
   is `none`, `clip` or `ellipsis`. Unknown values fail extraction coverage.
+- Inapplicability requested by macOS at `61b2740`: an element with **no visible
+  text** has null font size/weight and null text wrapping/truncation/line count.
+  Non-text backgrounds also have null foreground; icon/edge stroke or fill is
+  still measured as foreground. Preserve inherited but unused DOM/XAML text
+  properties in raw evidence. This rule must never null an unmeasured property
+  on actual text, input placeholders or control labels. It removes no element
+  and does not waive any tolerance or mismatch.
 
 ## Matching, reports and gate
 

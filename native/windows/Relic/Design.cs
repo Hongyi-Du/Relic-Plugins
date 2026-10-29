@@ -40,10 +40,25 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(t, value); return t;
     }
     private TextBlock Heading(string value, double size = 14) { var t = Text(value, size); t.FontWeight = FontWeights.SemiBold; return t; }
-    private FontIcon Glyph(string glyph, double size = 16) => new() { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = size };
+    private FrameworkElement Glyph(string glyph, double size = 16)
+    {
+        var name = glyph switch
+        {
+            "\uE700" => "sidebar", "\uE72B" => "back", "\uE72A" => "fwd", "\uE7BA" or "\uEA8F" => "bell", "\uE715" => "cc",
+            "\uE8FD" => "org", "\uE8B7" => "work", "\uE8A5" => "file", "\uE721" => "search", "\uE713" => "gear",
+            "\uE8D4" => "lang", "\uE945" => "sparkle", "\uE73A" => "check", "\uE71A" => "stop", "\uE81C" => "trace",
+            "\uE8F2" => "quote", "\uE97A" => "thread", "\uE8C8" => "copy", "\uE711" => "x", "\uE74A" => "up", "\uE720" => "mic",
+            "\uE8A7" => "open", "\uE738" => "minus", "\uE710" => "plus", "\uE9A6" => "fit", "\uE790" => "palette",
+            "\uE774" => "globe", "\uE839" => "plug", "\uE946" => "info", "\uE70F" => "neworg", "\uE77B" => "user",
+            "\uE76C" or "\uE70D" => "chev", _ => throw new ArgumentOutOfRangeException(nameof(glyph), glyph, "Icon has no reference vector")
+        };
+        var icon = (FrameworkElement)ReferenceIcon(name, size);
+        if (glyph == "\uE70D") { icon.RenderTransformOrigin = new(.5, .5); icon.RenderTransform = new RotateTransform { Angle = 90 }; }
+        return icon;
+    }
     private Button IconButton(string glyph, string key, Func<Task> action, string? tooltip = null)
     {
-        var b = Button("", action); b.Content = Glyph(glyph); b.Width = 30; b.Height = 30;
+        var b = Button("", action); b.Content = key == "chat.card" ? ReferenceIcon("card") : key == "card.new_name" ? ReferenceIcon("edit") : Glyph(glyph, glyph is "\uE720" or "\uE74A" ? 17 : 16); b.Width = 30; b.Height = 30;
         b.Padding = new Thickness(5); b.BorderThickness = new Thickness(0); b.Background = new SolidColorBrush(Colors.Transparent);
         AutomationProperties.SetName(b, T(key)); ToolTipService.SetToolTip(b, tooltip ?? T(key)); return b;
     }

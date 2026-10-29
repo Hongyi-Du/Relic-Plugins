@@ -19,7 +19,10 @@ public sealed partial class MainWindow
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Element capture is CI-only");
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
+        var declaredContent = new Dictionary<DependencyObject, string>();
         var viewport = new Rect(0, 0, width, height);
+        var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
+        var hovered = new HashSet<UIElement>(VisualTreeHelper.FindElementsInHostCoordinates(new Point(cursor.x - clientOrigin.x, cursor.y - clientOrigin.y), root, true));
         string Region(DependencyObject value, string current)
         {
             if (ReferenceEquals(value, sidebarSurface)) return "sidebar";
@@ -36,6 +39,9 @@ public sealed partial class MainWindow
             if (!visited.Add(value)) return;
             var id = "xaml-" + nodes.Count; var type = value.GetType().Name; region = Region(value, region);
             var node = new JsonObject { ["id"] = id, ["parent"] = parent, ["type"] = type, ["region"] = region, ["order"] = nodes.Count };
+            if (declaredContent.TryGetValue(value, out var contentOwner)) node["declared_content_owner"] = contentOwner;
+            if (value is ContentControl contentControl && contentControl.Content is DependencyObject controlContent) declaredContent[controlContent] = id;
+            if (value is Expander contentExpander && contentExpander.Content is DependencyObject expanderContent) declaredContent[expanderContent] = id;
             nodes.Add(node);
             var opacity = ancestorOpacity;
             if (value is UIElement ui)
@@ -71,10 +77,17 @@ public sealed partial class MainWindow
                         ["selected"] = element is SelectorBarItem tab ? tab.IsSelected : element is SelectorItem item ? item.IsSelected : null,
                         ["checked"] = element is ToggleButton toggle ? toggle.IsChecked : element is ToggleSwitch change ? change.IsOn : null,
                         ["expanded"] = element is Expander expander ? expander.IsExpanded : null,
-                        ["hovered"] = null, ["unread"] = null
+                        ["hovered"] = hovered.Contains(element), ["unread"] = null
                     };
                     node["layout"] = CaptureTextLayout(element);
                     if (element is FontIcon fontIcon) node["icon"] = new JsonObject { ["source"] = fontIcon.FontFamily.Source, ["glyph"] = fontIcon.Glyph };
+                    else if (element is ReferenceVectorIcon vectorIcon)
+                    {
+                        var shape = new JsonObject { ["tag"] = "svg", ["attributes"] = new JsonObject { ["height"] = vectorIcon.Height.ToString(System.Globalization.CultureInfo.InvariantCulture), ["viewBox"] = "0 0 24 24", ["width"] = vectorIcon.Width.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                            ["children"] = new JsonArray(new JsonObject { ["tag"] = "path", ["attributes"] = new JsonObject { ["d"] = vectorIcon.PathData }, ["children"] = new JsonArray() }) };
+                        node["icon"] = new JsonObject { ["source"] = "svg", ["glyph"] = shape.ToJsonString() };
+                        node["vector_path"] = vectorIcon.PathData; node["vector_stroke_width"] = vectorIcon.VectorPath.StrokeThickness;
+                    }
                     else if (element is SymbolIcon symbolIcon) node["icon"] = new JsonObject { ["source"] = "Segoe MDL2 Assets", ["glyph"] = ((int)symbolIcon.Symbol).ToString("X") };
                     else if (element is Microsoft.UI.Xaml.Shapes.Path path) node["icon"] = new JsonObject { ["source"] = "xaml-path", ["glyph"] = path.Data?.ToString() };
                     if (element is TextBlock block) node["font_family"] = block.FontFamily.Source;
@@ -163,12 +176,28 @@ public sealed partial class MainWindow
     {
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
+        int? lines = null; var boxes = new JsonArray();
+        TextPointer? start = element switch { TextBlock t => t.ContentStart, RichTextBlock t => t.ContentStart, _ => null };
+        TextPointer? end = element switch { TextBlock t => t.ContentEnd, RichTextBlock t => t.ContentEnd, _ => null };
+        if (start != null && end != null)
+        {
+            var ys = new HashSet<double>();
+            for (var offset = 0; offset < end.Offset - start.Offset; offset++)
+            {
+                var pointer = start.GetPositionAtOffset(offset, LogicalDirection.Forward);
+                if (pointer == null) continue;
+                var box = pointer.GetCharacterRect(LogicalDirection.Forward);
+                if (box.Height > 0) { ys.Add(Math.Round(box.Y, 2)); boxes.Add(CaptureBox(box)); }
+            }
+            lines = ys.Count;
+        }
         return new JsonObject
         {
             ["wrap"] = wrap.Length == 0 ? null : wrap == "NoWrap" ? "none" : wrap == "WrapWholeWords" ? "word" : "character",
             ["truncation"] = trim.Length == 0 ? null : trim.Contains("Ellipsis") ? "ellipsis" : trim == "Clip" ? "clip" : "none",
-            ["line_count"] = null,
+            ["line_count"] = lines, ["character_boxes"] = boxes,
             ["placeholder"] = element is TextBox text ? text.PlaceholderText : null
         };
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(ref CapturePoint point);
 }

@@ -57,7 +57,14 @@
   const snapshotStrings = snapshot?.strings || [], snapshotNodes = snapshotDocument?.nodes;
   const snapshotLayout = snapshotDocument?.layout, snapshotTextBoxes = snapshotDocument?.textBoxes;
   const snapshotElements = new Map(), snapshotPseudo = new Map(), pseudoByOwner = new WeakMap();
-  const snapshotInputBoxes = new WeakMap();
+  const snapshotInputBoxes = new WeakMap(), snapshotBackend = new WeakMap(), snapshotRenderedText = new WeakMap();
+  const axByBackend = new Map(), raw_ax_nodes = meta.ax_tree?.nodes || [];
+  for (const ax of raw_ax_nodes) {
+    if (ax.backendDOMNodeId === undefined) continue;
+    const group = axByBackend.get(ax.backendDOMNodeId) || [];
+    group.push(ax); axByBackend.set(ax.backendDOMNodeId, group);
+  }
+  if (!raw_ax_nodes.length) extraction_errors.push({ type: 'accessibility_tree_unavailable', reason: 'CDP Accessibility.getFullAXTree returned no nodes; computed names must not be guessed from title or innerText.' });
   if (snapshotNodes && snapshotLayout) {
     for (let i = 0; i < (snapshotNodes.pseudoType?.index?.length || 0); i++) snapshotPseudo.set(snapshotNodes.pseudoType.index[i], snapshotStrings[snapshotNodes.pseudoType.value[i]]);
     const elementChildren = new Map(), selectors = new Map();
@@ -72,10 +79,31 @@
       const selector = attrs.id ? '#' + CSS.escape(attrs.id) : tag === 'html' || tag === 'body' ? tag : selectors.has(parentIndex) ? selectors.get(parentIndex) + ' > ' + tag + ':nth-of-type(' + position + ')' : null;
       if (!selector) continue;
       selectors.set(i, selector);
-      try { const actual = document.querySelector(selector); if (actual) snapshotElements.set(i, actual); }
+      try {
+        const actual = document.querySelector(selector);
+        if (actual) { snapshotElements.set(i, actual); snapshotBackend.set(actual, snapshotNodes.backendNodeId?.[i]); }
+      }
       catch { /* UA shadow nodes may have non-selector node names. */ }
     }
     const layoutByNode = new Map(snapshotLayout.nodeIndex.map((index, position) => [index, position]));
+    const textPositions = new Map();
+    for (let i = 0; i < snapshotNodes.nodeType.length; i++) {
+      if (snapshotNodes.nodeType[i] !== Node.TEXT_NODE) continue;
+      const parentIndex = snapshotNodes.parentIndex[i], actualParent = snapshotElements.get(parentIndex);
+      if (!actualParent) continue;
+      const position = textPositions.get(parentIndex) || 0;
+      textPositions.set(parentIndex, position + 1);
+      const actual = Array.from(actualParent.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)[position];
+      // Verify the text identity too; a mismatch means the DOM changed between
+      // snapshots, rather than permission to attach another node's AX name.
+      if (actual && actual.nodeValue === snapshotStrings[snapshotNodes.nodeValue[i]]) {
+        snapshotBackend.set(actual, snapshotNodes.backendNodeId?.[i]);
+        const layoutIndex = layoutByNode.get(i);
+        if (layoutIndex !== undefined) snapshotRenderedText.set(actual, snapshotStrings[snapshotLayout.text[layoutIndex]] || '');
+      }
+      else extraction_errors.push({ type: 'snapshot_text_identity_changed', snapshot_node: i, parent: selectorForSnapshot(parentIndex), reason: 'The live text node no longer matches the DOMSnapshot node.' });
+    }
+    function selectorForSnapshot(index) { return selectors.get(index) || null; }
     const snapshotRect = a => ({ x: a[0] - (snapshotDocument.scrollOffsetX || 0), y: a[1] - (snapshotDocument.scrollOffsetY || 0), width: a[2], height: a[3] });
     const descendantOf = (node, ancestor) => {
       for (let p = node; p >= 0; p = snapshotNodes.parentIndex[p]) if (p === ancestor) return true;
@@ -125,8 +153,9 @@
     return nonempty(clipped) ? clipped : null;
   };
   const visibleText = (node, s) => {
+    if (snapshotRenderedText.has(node)) return snapshotRenderedText.get(node);
     const text = node.nodeValue || '';
-    return /^(pre|pre-wrap|break-spaces)$/.test(s.whiteSpace) ? text : text.replace(/[\t\r\n\f ]+/g, ' ').trim();
+    return text;
   };
   const textNodes = el => {
     const output = [], walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -143,12 +172,12 @@
     return Array.from(range.getClientRects()).map(rect).map(r => visibleRect(n.parentElement, r)).filter(Boolean);
   });
   const lineCount = boxes => new Set(boxes.filter(nonempty).map(b => Math.round(b.y * 2) / 2)).size;
-  const nameOf = el => {
-    if (el.hasAttribute('aria-labelledby')) return el.getAttribute('aria-labelledby').split(/\s+/).map(id => document.getElementById(id)?.textContent || '').join(' ').trim();
-    if (el.hasAttribute('aria-label')) return el.getAttribute('aria-label');
-    if (el.labels?.length) return Array.from(el.labels).map(x => x.innerText).join(' ').trim();
-    if (el.localName === 'img') return el.getAttribute('alt') || '';
-    return el.getAttribute('title') || '';
+  const accessibilityOf = (node, backendOverride = null) => {
+    const backend = backendOverride ?? snapshotBackend.get(node), nodes = axByBackend.get(backend) || [];
+    const primary = nodes.find(ax => !ax.ignored && ax.role?.value !== 'InlineTextBox') || nodes.find(ax => !ax.ignored) || nodes[0];
+    return { backend_node_id: backend ?? null, node_ids: nodes.map(ax => ax.nodeId),
+      measured: !!primary, ignored: primary?.ignored ?? null, name: typeof primary?.name?.value === 'string' ? primary.name.value : '',
+      role: primary?.role?.value ?? null, name_sources: primary?.name?.sources || [], properties: primary?.properties || [] };
   };
   const kindOf = (el, s) => {
     const tag = el.localName, role = el.getAttribute('role');
@@ -192,7 +221,7 @@
     const first = styleOf(nodes[0].parentElement);
     const uniform = nodes.every(n => ['fontFamily', 'fontSize', 'fontWeight', 'color', 'whiteSpace'].every(k => styleOf(n.parentElement)[k] === first[k]));
     if (!uniform) return null;
-    return { text: (el.innerText || nodes.map(n => visibleText(n, first)).join('')).trim(), nodes, style: first };
+    return { text: el.innerText || nodes.map(n => visibleText(n, first)).join(''), nodes, style: first };
   };
   const styleData = (el, s, text, pseudo = null) => {
     const sides = ['Top', 'Right', 'Bottom', 'Left'];
@@ -238,6 +267,7 @@
     const paintStyle = styleData(el, options.pseudo ? s : styleOf(el), text, options.pseudo || null);
     const textStyle = styleData(el, s, text, options.pseudo || null);
     for (const field of ['font_size', 'font_weight', 'font_family', 'foreground', 'letter_spacing', 'line_height', 'text_align']) paintStyle[field] = textStyle[field];
+    if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
     if (kind === 'icon' && el.localName === 'svg' && el.firstElementChild) {
       const shapeStyle = styleOf(el.firstElementChild);
       paintStyle.foreground = color(shapeStyle.stroke !== 'none' ? shapeStyle.stroke : shapeStyle.fill, pathOf(el));
@@ -249,16 +279,18 @@
       paintStyle.shadow = 'none'; paintStyle.background_image = 'none';
     }
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
+    const accessibility = accessibilityOf(options.textNode || el, options.axBackend);
     const item = { id, parent, region, order: regionOrders.get(region) || 0, kind, text,
-      name: suffix ? '' : nameOf(el), bounds: options.unclippedBounds || rect(el.getBoundingClientRect()), visible_bounds: bounds, style: paintStyle,
-      state: stateOf(el), layout: { wrap: ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
-        truncation: s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: boxes.length ? lineCount(boxes) : text ? null : 0 },
+      name: accessibility.name, bounds: options.unclippedBounds || rect(el.getBoundingClientRect()), visible_bounds: bounds, style: paintStyle,
+      state: stateOf(el), layout: { wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
+        truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : boxes.length ? lineCount(boxes) : null },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
-        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, ...options.evidence } };
+        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, ...options.evidence } };
     regionOrders.set(region, item.order + 1);
     elements.push(item);
     if (text && !boxes.length) unmeasured.push({ element: id, property: 'layout.line_count', reason: 'No measured text-line rectangles were available.' });
+    if (!accessibility.measured && !options.pseudo && ['button', 'icon-button', 'input', 'toggle', 'checkbox', 'tab', 'menu-item', 'dropdown', 'link', 'text'].includes(kind)) unmeasured.push({ element: id, property: 'accessibility.name_role', reason: 'No actual AX node was linked to this visible semantic element; empty names are not guessed.' });
     if (!suffix) emittedIds.set(el, id);
     return id;
   };
@@ -308,6 +340,7 @@
     const raw = { id, parent: nodeIds.get(el.parentElement) || null, selector: pathOf(el), tag: el.localName,
       attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])), bounds: unclipped,
       visible_bounds: bounds, visible_fragments: fragments, display: s.display, visibility: s.visibility, opacity: s.opacity, emitted: [],
+      accessibility: accessibilityOf(el),
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue, owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
     if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
@@ -327,12 +360,13 @@
     for (let i = 0; i < childText.length; i++) {
       const n = childText[i], text = visibleText(n, s);
       if (!text.trim() || suppressedText.has(n)) continue;
+      if (!snapshotRenderedText.has(n)) unmeasured.push({ element: id + ':text-' + i, property: 'text.rendered_whitespace', reason: 'No CDP LayoutText string; raw text is preserved without whitespace substitutions.' });
       const range = document.createRange(); range.selectNodeContents(n);
       const textBounds = visibleRect(el, rect(range.getBoundingClientRect()));
       if (!textBounds) continue;
       const visible = fragmentsOf(el, textBounds);
       if (!visible.length) continue;
-      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { unclippedBounds: rect(range.getBoundingClientRect()), textBoxes: textRects([n]), evidence: { source_text: n.nodeValue, visible_fragments: visible } });
+      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { textNode: n, unclippedBounds: rect(range.getBoundingClientRect()), textBoxes: textRects([n]), evidence: { source_text: n.nodeValue, visible_fragments: visible } });
       raw.emitted.push(emitted);
     }
     for (const pseudo of ['::before', '::after', '::marker']) {
@@ -348,7 +382,7 @@
       const p = snapshotPseudoElement, vb = visibleRect(el, p.bounds);
       if (!vb || !fragmentsOf(el, vb).length) continue;
       const pkind = p.text ? pseudo === '::marker' ? 'icon' : 'text' : 'card';
-      const emitted = emit(el, pkind, p.text, vb, parent, pseudo, { style: ps, pseudo, textBoxes: p.text_boxes, unclippedBounds: p.bounds,
+      const emitted = emit(el, pkind, p.text, vb, parent, pseudo, { style: ps, pseudo, textBoxes: p.text_boxes, unclippedBounds: p.bounds, axBackend: p.backend_node_id,
         evidence: { source: 'CDP.DOMSnapshot', snapshot_node: p.index, snapshot_layout: p.layout_index, backend_node_id: p.backend_node_id, paint_order: p.paint_order } });
       if (pkind === 'icon') elements[elements.length - 1].icon = { source: 'text-glyph', glyph: p.text };
       raw.emitted.push(emitted);
@@ -360,6 +394,6 @@
     capture: { source: 'production-dom', coordinate_space: 'viewport-css-pixels', device_scale_factor: devicePixelRatio,
       text_policy: 'Uniform simple control labels are owned by the control; rich labels are independent text nodes.',
       visibility_policy: 'Viewport and ancestor clipping; subtract only proven opaque overlay interiors. Preserve raw nodes and partial fragments for audit.' },
-    elements, raw_nodes, extraction_errors, coverage: { raw_nodes: raw_nodes.length, emitted_elements: elements.length, unmeasured },
+    elements, raw_nodes, raw_ax_nodes, extraction_errors, coverage: { raw_nodes: raw_nodes.length, emitted_elements: elements.length, unmeasured },
     summary: { dom_nodes: raw_nodes.length, elements: elements.length, extraction_errors: extraction_errors.length } };
 }

@@ -29,7 +29,7 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - name: Test strict matcher thresholds and failure coverage
-        run: python -m unittest discover -s scripts/visual -p 'test_element_parity.py' -v
+        run: python -m unittest discover -s scripts/visual -p 'test_*.py' -v
   windows:
     runs-on: windows-2025
     timeout-minutes: 25
@@ -50,7 +50,9 @@ jobs:
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
       - run: dotnet publish native/windows/Relic.Capture/Relic.Capture.csproj -c Release -o native-build/capture
       - name: Set CI desktop size without a settings window
-        run: ./scripts/visual/windows-display.ps1
+        run: |
+          Set-TimeZone -Id UTC
+          ./scripts/visual/windows-display.ps1
       - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()

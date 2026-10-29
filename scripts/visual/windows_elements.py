@@ -22,8 +22,13 @@ CONTROL_KINDS = {
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
 }
 TEXT_TYPES = {"TextBlock", "RichTextBlock"}
-ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon"}
+ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
+UIA_KINDS = {"Button": {"button", "icon-button"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
+             "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
+             "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
+             "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
+             "Custom": {"region", "card"}, "Window": {"region"}}
 
 
 def positive(box):
@@ -38,6 +43,13 @@ def painted(color):
     return isinstance(color, list) and len(color) == 4 and color[3] > 0
 
 
+def uia_kind_matches(node, kind):
+    control_type = node.get("control_type", "").removeprefix("ControlType.")
+    if control_type == "Button" and kind == "toggle":
+        return node.get("class_name") in {"ToggleButton", "ToggleSwitch"} and any("Toggle" in p for p in node.get("supported_patterns", []))
+    return kind in UIA_KINDS.get(control_type, set())
+
+
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
@@ -46,7 +58,15 @@ def project(xaml_path, uia_path, png_path):
     unmeasured = []
     if xaml["viewport"]["scale"] != 1:
         errors.append("XAML rasterization scale differs from the required 1:1 screenshot")
+    if uia.get("case_id") != xaml.get("scene_id"):
+        errors.append("UIA and XAML scene identifiers differ")
+    if uia.get("viewport") != xaml.get("viewport"):
+        errors.append("UIA and XAML viewports differ")
+    if image.size != (xaml["viewport"]["width"], xaml["viewport"]["height"]):
+        errors.append("Screenshot size differs from measured viewport")
     raw = xaml["raw_nodes"]
+    if not raw or not uia.get("raw_nodes"):
+        errors.append("Independent UIA and XAML source trees must both be nonempty")
     by_id = {n["id"]: n for n in raw}
     children = defaultdict(list)
     for node in raw:
@@ -71,6 +91,14 @@ def project(xaml_path, uia_path, png_path):
     def visible(node):
         return not node.get("hidden_reason") and positive(node.get("visible_bounds"))
 
+    def user_content(node, control_id):
+        current = node
+        while current and current["id"] != control_id:
+            if current.get("declared_content_owner") == control_id:
+                return True
+            current = by_id.get(current.get("parent"))
+        return False
+
     # Own a simple label once, while composite rows retain individual labels.
     control_label = {}
     control_paint = defaultdict(list)
@@ -84,10 +112,10 @@ def project(xaml_path, uia_path, png_path):
                 continue
             if child["type"] in TEXT_TYPES and child.get("text") and not ancestor(child, {n["id"] for n in raw if n["type"] in ICON_TYPES}):
                 labels.append(child)
-            if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"}:
+            if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"} and not user_content(child, node["id"]):
                 control_paint[node["id"]].append(child)
                 owned[child["id"]] = (node["id"], "semantic control template paint")
-        if len(labels) == 1:
+        if len(labels) == 1 and CONTROL_KINDS[node["type"]] not in {"card", "list-row"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -156,6 +184,8 @@ def project(xaml_path, uia_path, png_path):
             if distance(paint["bounds"], node["bounds"]) > 4:
                 continue
             ps = paint.get("style", {})
+            if not painted(ps.get("background")) and not (painted(ps.get("border_color")) and ps.get("border_width", 0) > 0):
+                continue
             if painted(ps.get("background")):
                 style["background"] = ps["background"]
             if painted(ps.get("border_color")) and ps.get("border_width", 0) > 0:
@@ -163,7 +193,7 @@ def project(xaml_path, uia_path, png_path):
                     style[key] = ps.get(key)
             break
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
-        matching = [n for n in uia_nodes if n["id"] not in used_uia and distance(n["bounds"], node["bounds"]) <= 8]
+        matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind) and distance(n["bounds"], node["bounds"]) <= 8]
         matching.sort(key=lambda n: (n.get("name", "") not in (text, node.get("accessible_name", "")), distance(n["bounds"], node["bounds"])))
         witness = matching[0] if matching else None
         if witness:
@@ -178,6 +208,11 @@ def project(xaml_path, uia_path, png_path):
                     layout["line_count"] = len({round(b["y"], 1) for b in rectangles})
         if node["id"] in semantic and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
+        if not text:
+            layout = {"wrap": None, "truncation": None, "line_count": None}
+            style["font_size"] = style["font_weight"] = None
+            if kind not in {"icon", "chart-edge"}:
+                style["foreground"] = None
         bounds = node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
@@ -212,7 +247,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         # A UIA text child can already be represented by the owning control's
         # label. Preserve the measured ownership instead of silently losing it.
-        owner = next((e for e in elements if n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1), None)
+        owner = next((e for e in elements if n.get("control_type") == "ControlType.Text" and n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1), None)
         if owner:
             projection.append({"source": n["id"], "owner": owner["id"], "reason": "UIA label owned by corresponding rendered control"})
         elif n.get("is_control_element") or n.get("is_content_element"):

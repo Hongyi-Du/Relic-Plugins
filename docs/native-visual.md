@@ -1,5 +1,12 @@
 # Native visual acceptance
 
+Amendment 4 supersedes the earlier screenshot-only acceptance. The required
+gate is now [element-by-element parity](native-elements.md): all 504 cases,
+independent DOM/UIA/AX/render measurements, exact visible counterparts, fixed
+tolerances, no unapproved exceptions. Screenshots being complete or appearing
+close is not a pass. The sections below retain harness/history information;
+former native-control/date/menu/Markdown differences are failures to fix.
+
 PR #4 is back in draft after the person's Windows review rejected the interface.
 Route/key coverage is implementation coverage, not visual acceptance. No screen
 is visually accepted until its three-way comparison has been opened and reviewed.

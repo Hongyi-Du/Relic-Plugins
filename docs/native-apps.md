@@ -8,6 +8,24 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients: the macOS `61b2740` question about text-only properties
+on painted shapes is resolved in native-elements.md. No-visible-text elements
+use null font/layout properties; actual icon/edge foreground remains measured.
+DOM and Windows projectors follow this common applicability rule. Missing
+measurements on visible labels/placeholder text still fail.
+
+Changes for the clients (element-capture determinism): `capture.py` now passes
+`fixture.clock = "2026-10-29T11:02:00Z"` and `RELIC_VISUAL_NOW` to native capture.
+Reference Date uses that fixed instant with UTC; native display-date helpers
+must use it only when CI visual capture is enabled, retaining real time in
+normal operation. File/session fixture mtimes are fixed at 11:00 UTC. All
+existing scenes put the pointer outside the content before sampling (no hover
+scene is defined yet). This aligns inputs, not output normalization: the
+extractors still record actual visible strings and actual hover. macOS should
+adopt this timestamp and UTC, and version 1 schema from native-elements.md;
+its initial raw AX exporter used pre-contract field names and remains failed
+until it emits the agreed measurements. No engine API/payload changed.
+
 Changes for the clients (Amendment 4): [native-elements.md](native-elements.md)
 defines version 1 per-scene element JSON, visibility/counting rules, UIA/AX and
 render evidence, and the strict 504-case machine gate. The `native-macos`

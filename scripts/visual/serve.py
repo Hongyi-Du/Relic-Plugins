@@ -4,6 +4,7 @@ No provider, runner, browser or member session is launched. The database belongs
 to this process's output directory. UI clients all consume these same routes.
 """
 import argparse
+import datetime
 import json
 import os
 from pathlib import Path
@@ -85,7 +86,9 @@ def seed(folder, lang):
     # Keep activity states stable during the longer full screenshot matrix.
     from app import views
     from types import SimpleNamespace
-    fixture_now = time.time()
+    fixture_now = datetime.datetime(2026, 10, 29, 11, 2, tzinfo=datetime.timezone.utc).timestamp()
+    for path in (workspace / "README.md", workspace / "review.py", workspace / "layout.png", project / (lead + ".jsonl"), project / "visual-existing-session.jsonl"):
+        os.utime(path, (fixture_now - 120, fixture_now - 120))
     views.time = SimpleNamespace(time=lambda: fixture_now, strptime=time.strptime, strftime=time.strftime, gmtime=time.gmtime)
     store.work(lead, "doc_write", {"key": "review-plan", "body": (workspace / "README.md").read_text(encoding="utf-8")})
     store.file_request(design, "leader", {"org": oid, "member": "engineer"}, word("让工程师协调本轮集成。", "Let the engineer coordinate this integration."))

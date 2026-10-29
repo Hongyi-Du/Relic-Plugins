@@ -346,6 +346,35 @@ def valid_elements(data: dict) -> list[dict]:
             and isinstance(e.get("kind"), str) and e.get("kind") in KINDS] if isinstance(elements, list) else []
 
 
+def raw_element_count(data: dict) -> int:
+    elements = data.get("elements")
+    return len(elements) if isinstance(elements, list) else 0
+
+
+def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data: dict) -> list[dict]:
+    """Keep the actual trees beside their JSON's relative basename references."""
+    errors = []
+    destination = output / "elements" / client
+    destination.mkdir(parents=True, exist_ok=True)
+    suffixes = (".uia.json", ".xaml.json", ".dom.json", ".ax.json")
+    # Also keep a sidecar whose producer did not add raw_evidence metadata yet.
+    # Only this case's files are included in this case's copy operation.
+    copied = set()
+    for candidate in sorted(source.glob(scene + ".*.json")):
+        if candidate.name.endswith(suffixes):
+            shutil.copyfile(candidate, destination / candidate.name)
+            copied.add(candidate.name)
+    references = data.get("raw_evidence", {})
+    if not isinstance(references, dict):
+        return [{"client": client, "reason": "raw_evidence must map source kinds to local sidecar basenames"}]
+    for kind, filename in references.items():
+        if not isinstance(filename, str) or Path(filename).name != filename or not filename.startswith(scene + "."):
+            errors.append({"client": client, "reason": f"Invalid raw_evidence reference {kind}: {filename!r}"})
+        elif filename not in copied:
+            errors.append({"client": client, "reason": f"Raw evidence sidecar unavailable in report: {filename}"})
+    return errors
+
+
 def image_info(path: Path, client: str, viewport: dict) -> list[dict]:
     from PIL import Image
     try:
@@ -408,7 +437,8 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
         native_status = {p["native"]: p["status"] for p in result["pairs"]}
         ref_status.update({item["reference"]: "missing" for item in result["missing"]})
         native_status.update({item["native"]: "extra" for item in result["extra"]})
-        chunks += [f'<h2>{platform}</h2><p class="{"good" if result["passed"] else "bad"}">{"PASS" if result["passed"] else "FAIL"} · {result["matched_elements"]}/{result["reference_elements"]} elements match</p>', '<div class="screens">',
+        chunks += [f'<h2>{platform}</h2><p class="{"good" if result["passed"] else "bad"}">{"PASS" if result["passed"] else "FAIL"} · {result["matched_elements"]}/{result["reference_elements"]} elements match</p>',
+                   f'<p>Native extraction: {result["raw_native_elements"]} raw elements; {result["valid_native_elements"]} structurally comparable; {result["invalid_native_elements"]} unusable. Reference: {result["raw_reference_elements"]} raw; {result["valid_reference_elements"]} structurally comparable; {result["invalid_reference_elements"]} unusable. Structural comparability does not imply valid measurements or parity.</p>', '<div class="screens">',
                    outlines(ref_elements, ref_status, viewport, images.get("reference"), "Reference"),
                    outlines(native_elements, native_status, viewport, images.get(platform), platform), '</div>']
         for category in CATEGORIES:
@@ -432,6 +462,13 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
     output.mkdir(parents=True, exist_ok=True)
     report = {"schema_version": 1, "commit": os.environ.get("GITHUB_SHA"), "matrix": matrix, "expected_scenes_per_platform": len(cases),
               "tolerances": TOLERANCES, "exceptions": [], "approved_icon_mappings": [], "unexpected_captures": [], "scenes": [], "summary": {}, "passed": False}
+    report["element_count_definitions"] = {
+        "raw_reference_elements / raw_native_elements": "Number of entries in the extractor's original elements array, before structural filtering.",
+        "valid_reference_elements / valid_native_elements": "Structurally comparable entries accepted by the matcher; missing or invalid measurements can still fail extraction validation.",
+        "invalid_reference_elements / invalid_native_elements": "Original entries excluded from pairing because their structure is unreadable; retained in the copied source JSON and reported as extraction errors.",
+        "reference_elements / native_elements": "Compatibility aliases for valid_reference_elements / valid_native_elements.",
+        "matched_elements": "Paired elements with no mismatch or applicable extraction error."
+    }
     for client in CLIENTS:
         present = {p.name.removesuffix(".elements.json") for p in (source / client).glob("*.elements.json")}
         present |= {p.stem for p in (source / client).glob("*.png")}
@@ -440,6 +477,8 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
     for platform in PLATFORMS:
         report["summary"][platform] = {"scenes_expected": len(cases), "scenes_checked": 0, "scenes_passed": 0,
             "reference_elements": 0, "native_elements": 0, "paired_elements": 0, "matched_elements": 0,
+            "raw_reference_elements": 0, "valid_reference_elements": 0, "invalid_reference_elements": 0,
+            "raw_native_elements": 0, "valid_native_elements": 0, "invalid_native_elements": 0,
             "counts": {category: 0 for category in CATEGORIES}}
     index_rows = []
     for scene, viewport in sorted(cases.items()):
@@ -460,9 +499,16 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                 tree_copy = output / "elements" / client / capture_path.name
                 tree_copy.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(capture_path, tree_copy)
+            errors[client] += copy_raw_evidence(source / client, output, scene, client, captures[client])
         results = {}
         for platform in PLATFORMS:
             result = compare_elements(valid_elements(captures["reference"]), valid_elements(captures[platform]))
+            result["raw_reference_elements"] = raw_element_count(captures["reference"])
+            result["valid_reference_elements"] = result["reference_elements"]
+            result["invalid_reference_elements"] = result["raw_reference_elements"] - result["valid_reference_elements"]
+            result["raw_native_elements"] = raw_element_count(captures[platform])
+            result["valid_native_elements"] = result["native_elements"]
+            result["invalid_native_elements"] = result["raw_native_elements"] - result["valid_native_elements"]
             result["extraction_errors"] = errors["reference"] + errors[platform]
             bad_reference = {e.get("element") for e in errors["reference"]}
             bad_native = {e.get("element") for e in errors[platform]}
@@ -475,7 +521,9 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             result["counts"] = {category: len(result[category]) for category in CATEGORIES}
             result["passed"] = not any(result["counts"].values())
             if result["passed"]: report["summary"][platform]["scenes_passed"] += 1
-            for key in ("reference_elements", "native_elements", "paired_elements", "matched_elements"):
+            for key in ("reference_elements", "native_elements", "paired_elements", "matched_elements",
+                        "raw_reference_elements", "valid_reference_elements", "invalid_reference_elements",
+                        "raw_native_elements", "valid_native_elements", "invalid_native_elements"):
                 report["summary"][platform][key] += result[key]
             for category in CATEGORIES: report["summary"][platform]["counts"][category] += result["counts"][category]
             if "reference" in images and platform in images:
