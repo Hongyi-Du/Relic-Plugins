@@ -80,19 +80,23 @@ struct FilePreview: View {
         VStack(alignment: .leading, spacing: 10) {
             if m.file["path"].text.isEmpty { Text(m.t("file.empty")); Spacer() }
             else {
-                Text(m.file["name"].text).font(.headline)
-                Text(m.file["path"].text).font(.caption).textSelection(.enabled)
-                HStack {
-                    Button(m.t("file.copy_path")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
-                    Button(m.t("file.open_default")) { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
+                HStack(spacing: 6) {
+                    Image(systemName: "doc").foregroundStyle(RelicStyle.muted)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(m.file["name"].text).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(m.file["path"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    }.frame(maxWidth: .infinity, alignment: .leading).help(m.file["path"].text)
+                    IconButton(title: m.t("file.copy_path"), icon: "square.on.square") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
+                    IconButton(title: m.t("file.open_default"), icon: "arrow.up.forward.square") { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
                 }
-                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption)
+                Divider().overlay(RelicStyle.line)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption).foregroundStyle(RelicStyle.muted)
                 if m.file["truncated"].flag { Text(m.t("file.truncated")).foregroundStyle(.orange) }
                 if m.file["kind"].text == "image", let image = m.fileImage { ScrollView([.horizontal, .vertical]) { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 1200) } }
                 else if m.file["kind"].text == "binary" { Text(m.t("file.binary")); Spacer() }
                 else {
                     if m.file["kind"].text == "markdown" { Picker("", selection: $source) { Text(m.t("file.preview")).tag(false); Text(m.t("file.source")).tag(true) }.pickerStyle(.segmented) }
-                    if m.file["kind"].text == "markdown" && !source { ScrollView { RichText(m.file["text"].text) } }
+                    if m.file["kind"].text == "markdown" && !source { ScrollView { RichText(m.file["text"].text).padding(12).frame(maxWidth: .infinity, alignment: .leading) }.background(RelicStyle.background) }
                     else {
                         ScrollViewReader { proxy in
                             HStack { TextField("#", text: $jump).frame(width: 70).onSubmit { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } }; Button(m.t("common.open")) { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } } }
