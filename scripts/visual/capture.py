@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import traceback
 import urllib.request
 
 HERE = Path(__file__).resolve().parent
@@ -326,13 +327,40 @@ def pending_element_request(directory, completed):
     return None
 
 
-def native(manifest_path, manifest, exe):
+def stop_native_process(process):
+    """Reap this owned client, including a forced kill after a stuck shutdown."""
+    forced_kill = False
+    if process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            if process.poll() is None:
+                process.kill()
+                forced_kill = True
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            forced_kill = True
+            process.wait(timeout=10)
+    else:
+        process.wait(timeout=5)
+    return {"pid": process.pid, "returncode": process.returncode, "forced_kill": forced_kill}
+
+
+def native_process(manifest_path, manifest, exe):
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Native visual capture is CI-only; no local process is launched.")
     environment = dict(os.environ, RELIC_VISUAL_MANIFEST=str(manifest_path), RELIC_VISUAL_OUTPUT=manifest["output"], RELIC_ENGINE_ROOT=str(ROOT), RELIC_PYTHON=sys.executable, RELIC_HOME=manifest["fixture"]["home"], RELIC_VISUAL_NOW=manifest["fixture"]["clock"], TZ="UTC")
     if manifest["client"] == "windows":
+        if len(manifest["cases"]) != 1 or not manifest.get("state_directory"):
+            raise ValueError("Windows capture requires one case and its isolated native state directory")
+        environment["RELIC_VISUAL_STATE_DIR"] = manifest["state_directory"]
         (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
-        completed_requests = set()
+        completed_requests, capture_errors = set(), []
+        expected_ids = {case["id"] for case in manifest["cases"]}
         def capture_elements():
             if manifest["client"] != "windows":
                 return
@@ -341,13 +369,18 @@ def native(manifest_path, manifest, exe):
                 return
             request_path, request = pending
             last_request = request["case_id"]
+            if last_request not in expected_ids or request.get("pid") != process.pid:
+                raise RuntimeError(f"Element request is not bound to this case/process: {last_request}, request PID {request.get('pid')}, client PID {process.pid}")
             output = Path(manifest["output"])
             raw = output / (last_request + ".uia.json")
             try:
                 result = subprocess.run([manifest["uia_exe"], "--request", str(request_path), "--output", str(raw)], timeout=75, capture_output=True, text=True)
+                with (manifest_path.parent / "uia.log").open("a", encoding="utf-8") as observer_log:
+                    observer_log.write(f"case={last_request} pid={process.pid} returncode={result.returncode}\n{result.stdout}\n{result.stderr}\n")
                 if result.returncode:
                     raise RuntimeError(f"UIA extractor exited {result.returncode}: {result.stderr}")
             except Exception as error:
+                capture_errors.append("UIA capture failed: " + str(error))
                 partial = json.loads(raw.read_text(encoding="utf-8-sig")) if raw.exists() else {"raw_nodes": []}
                 partial.setdefault("extraction_errors", []).append(str(error))
                 raw.write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
@@ -355,6 +388,7 @@ def native(manifest_path, manifest, exe):
             try:
                 projected = project(output / (last_request + ".xaml.json"), raw, output / (last_request + ".png"))
             except Exception as error:
+                capture_errors.append("Projection failed: " + str(error))
                 projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
             (output / (last_request + ".elements.json")).write_text(json.dumps(projected, ensure_ascii=False), encoding="utf-8")
             receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
@@ -363,16 +397,75 @@ def native(manifest_path, manifest, exe):
             receipt.with_suffix(".tmp").replace(receipt)
             completed_requests.add(last_request)
         try:
-            receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=1200, on_tick=capture_elements)
+            if manifest["client"] == "windows":
+                (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,
+                    "case_ids": sorted(expected_ids), "state_directory": manifest["state_directory"],
+                    "fixture_home": manifest["fixture"]["home"]}), encoding="utf-8")
+            receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=240 if manifest["client"] == "windows" else 1200, on_tick=capture_elements)
             if receipt.get("errors"):
                 raise RuntimeError(str(receipt["errors"]))
             for case in manifest["cases"]:
                 if not (Path(manifest["output"]) / case["file"]).exists():
                     raise RuntimeError("Missing native screenshot: " + case["id"])
+            if manifest["client"] == "windows":
+                if receipt.get("count") != 1 or completed_requests != expected_ids:
+                    raise RuntimeError("Native completion did not include this case's actual UIA hand-off")
+                for case_id in expected_ids:
+                    for suffix in (".xaml.json", ".uia.json", ".elements.json"):
+                        if not (Path(manifest["output"]) / (case_id + suffix)).exists():
+                            raise RuntimeError("Missing native evidence: " + case_id + suffix)
+                if capture_errors:
+                    raise RuntimeError("; ".join(capture_errors))
+            return receipt
         finally:
-            if process.poll() is None:
+            if manifest["client"] == "windows":
+                cleanup = stop_native_process(process)
+                (manifest_path.parent / "process-exit.json").write_text(json.dumps(cleanup), encoding="utf-8")
+            elif process.poll() is None:
                 process.terminate()
                 process.wait(timeout=20)
+
+
+def native(manifest_path, manifest, exe):
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Native visual capture is CI-only; no local process is launched.")
+    if manifest["client"] != "windows":
+        return native_process(manifest_path, manifest, exe)
+    if not manifest["cases"]:
+        raise ValueError("Windows capture manifest has no cases")
+    results, errors = [], []
+    for case in manifest["cases"]:
+        work = manifest_path.parent / "cases" / case["id"]
+        result = {"case_id": case["id"], "directory": str(work), "status": "failed"}
+        created = False
+        try:
+            # Fresh on-disk state, IPC and logs belong to this one process.
+            # Refuse stale case directories rather than accepting old evidence.
+            work.mkdir(parents=True)
+            created = True
+            state = work / "state"
+            state.mkdir()
+            per_case = dict(manifest, cases=[case], state_directory=str(state))
+            case_path = work / "manifest.json"
+            case_path.write_text(json.dumps(per_case, ensure_ascii=False, indent=2), encoding="utf-8")
+            print("Windows isolated capture: " + case["id"], flush=True)
+            result["native_receipt"] = native_process(case_path, per_case, exe)
+            result["status"] = "captured"
+        except Exception as error:
+            result["error"] = str(error)
+            errors.append(case["id"] + ": " + str(error))
+            if created:
+                (work / "capture-exception.log").write_text(traceback.format_exc(), encoding="utf-8")
+                progress = work / "current-case.txt"
+                result["last_progress"] = progress.read_text(encoding="utf-8-sig") if progress.exists() else None
+            print("Windows isolated capture failed: " + case["id"] + ": " + str(error), flush=True)
+        results.append(result)
+        # Preserve progress even if the CI runner stops before the final case.
+        aggregate = {"count": sum(row["status"] == "captured" for row in results),
+                     "expected_count": len(manifest["cases"]), "attempted_count": len(results),
+                     "errors": errors, "cases": results}
+        (manifest_path.parent / "complete.json").write_text(json.dumps(aggregate, ensure_ascii=False, indent=2), encoding="utf-8")
+    return aggregate
 
 
 def main():
@@ -392,10 +485,11 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
+    capture_errors, captured_windows = [], 0
     for lang in languages:
         data = output / "data" / lang
         data.mkdir(parents=True, exist_ok=True)
@@ -425,14 +519,25 @@ def main():
                     else:
                         if not args.exe:
                             raise ValueError("Native capture needs --exe")
-                        native(path, manifest, args.exe.resolve())
+                        receipt = native(path, manifest, args.exe.resolve())
+                        if args.client == "windows":
+                            captured_windows += receipt["count"]
+                            capture_errors.extend(receipt["errors"])
             finally:
                 server.terminate()
                 server.wait(timeout=20)
     receipt_name = "capture-complete" + ("-" + args.lang + "-" + args.theme if args.lang and args.theme else "") + ".json"
-    (output / receipt_name).write_text(json.dumps({"client": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+    expected_count = len(scenes) * len(sizes) * len(languages) * len(themes)
+    receipt = {"client": args.client, "matrix": args.matrix, "count": captured_windows if args.client == "windows" else expected_count}
+    if args.client == "windows":
+        receipt.update(expected_count=expected_count, errors=capture_errors)
+    (output / receipt_name).write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
     if args.reference:
         (reference_output / receipt_name).write_text(json.dumps({"client": "reference", "platform": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+
+
+    if capture_errors:
+        raise RuntimeError(f"Windows capture failed for {len(capture_errors)} case(s); see {output / receipt_name}")
 
 
 if __name__ == "__main__":

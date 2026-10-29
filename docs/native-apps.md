@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (isolated Windows capture): every Windows case now uses
+a fresh native process and its own `RELIC_VISUAL_STATE_DIR` for view history,
+read state and drafts; the same fixture server remains shared. UIA requests are
+bound to that process and case. A crash preserves its logs and fails the run,
+but no longer prevents subsequent cases from being attempted. The full matrix
+remains 564 cases per platform. The separate diagnostic `smoke` run now includes
+all its previous seven scenes plus the file menu, source file, expanded live
+tool output and typing; its 11 cases are not acceptance evidence for the full
+matrix. Smoke and full captures have separate concurrency groups so diagnostics
+cannot replace a pending full run.
+
 Changes for the clients (live capture states, 2026-10-29): the original 44
 states remain; `live-busy`, `live-tool-output`, `live-typing` extend the matrix
 to 47 states / 564 size-language-theme cases. Before **every** case, POST

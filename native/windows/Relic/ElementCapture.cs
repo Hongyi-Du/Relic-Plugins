@@ -28,7 +28,7 @@ public sealed partial class MainWindow
         {
             if (ReferenceEquals(value, sidebarSurface)) return "sidebar";
             if (ReferenceEquals(value, inspectorSurface)) return "right-pane";
-            if (ReferenceEquals(value, composerSurface)) return "composer";
+            if (ReferenceEquals(value, composerRegion)) return "composer";
             if (ReferenceEquals(value, stream) || ReferenceEquals(value, chatHead) || ReferenceEquals(value, conversationBanner) || ReferenceEquals(value, emptyConversation)) return "conversation";
             if (ReferenceEquals(value, menu) || ReferenceEquals(value, toolbar) || ReferenceEquals(value, navigationButtons)) return "header";
             if (value is ContentDialog) return "dialog";

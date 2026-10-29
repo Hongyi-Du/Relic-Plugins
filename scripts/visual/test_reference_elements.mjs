@@ -173,7 +173,7 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
     offsetWidth: 340, offsetHeight: 816, scrollLeft: 0,
   });
   owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto' };
-  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'all') + ')', {
+  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'readingOrderIds') + ')', {
     styleOf: context.styleOf, rect: box => ({ ...box }),
     pseudoByOwner: new WeakMap(),
     getComputedStyle: (_owner, pseudo) => ({ display: 'inline', visibility: 'visible', opacity: '1',
@@ -430,7 +430,7 @@ test('inline child text retains an ancestor ellipsis coverage gap', () => {
 test('zero scrollbar gutter is not proof that overlay scrollbars are absent', () => {
   const owner = element({ x: 10, y: 20, width: 200, height: 300 }, { offsetWidth: 200, clientWidth: 200, offsetHeight: 300, clientHeight: 300, scrollHeight: 900 });
   owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto', direction: 'ltr', writingMode: 'horizontal-tb' };
-  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'all') + ')', {
+  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'readingOrderIds') + ')', {
     styleOf: context.styleOf, rect: box => ({ ...box }), pseudoByOwner: new WeakMap(),
     getComputedStyle: () => ({ display: 'inline', visibility: 'visible', opacity: '1', width: '10px', height: '10px' }),
   });

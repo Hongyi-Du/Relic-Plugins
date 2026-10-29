@@ -409,7 +409,7 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-live-busy", cases)
         self.assertIn("zh-CN-light-1440x900-live-tool-output", cases)
         self.assertIn("en-US-light-1280x800-live-typing", cases)
-        self.assertEqual(len(expected_cases(spec, "smoke")), 7)
+        self.assertEqual(len(expected_cases(spec, "smoke")), 11)
 
     def test_missing_native_capture_writes_failure_report_and_html(self):
         spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}

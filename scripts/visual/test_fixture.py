@@ -56,7 +56,7 @@ def live_fixture(language="en-US"):
         hub.LANG = [lambda: language]
         guards = []
         for target in ("subprocess.Popen", "subprocess.run", "app.hub.AcpAgent",
-                       "app.hub.harnesses.launch", "app.hub.Hub.start", "app.hub.Hub.prompt",
+                       "app.hub.harnesses.launch", "app.hub.Hub._start", "app.hub.Hub.prompt",
                        "app.hub.Hub._run", "app.hub.Hub.create_member", "app.hub.runner.write_state",
                        "app.hub.wake.dispatch", "relic_core.store.Store.gate"):
             guards.append(stack.enter_context(patch(target, side_effect=AssertionError("Fixture may not launch or execute: " + target))))

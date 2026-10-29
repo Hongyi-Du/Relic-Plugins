@@ -210,7 +210,7 @@ public sealed partial class MainWindow
     {
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
         conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed; conversationBanner.MaxWidth = double.PositiveInfinity;
-        composerSurface.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        composerRegion.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
