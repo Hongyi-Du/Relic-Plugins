@@ -1,5 +1,6 @@
 """CI-only fixture regressions: exercise stored inputs, without launching clients."""
 import datetime
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -27,10 +28,12 @@ class FixtureTests(unittest.TestCase):
                     store, _ = seed(folder, language)
                     with store.db() as database:
                         rows = database.execute("SELECT summary,at,paths FROM activity ORDER BY summary").fetchall()
-                    self.assertEqual([row["summary"] for row in rows], ["README.md", "layout.png"])
-                    self.assertTrue(all(row["at"] == instant for row in rows))
-                    self.assertTrue(all(str(folder / "workspace").replace("\\", "/") in row["paths"].replace("\\\\", "/") for row in rows),
-                                    "Relative display inputs must still resolve to the real fixture files")
+                    self.assertEqual([summary for summary, _, _ in rows], ["README.md", "layout.png"])
+                    self.assertTrue(all(at == instant for _, at, _ in rows))
+                    for summary, _, paths in rows:
+                        expected = folder / "workspace" / summary
+                        self.assertEqual(json.loads(paths), [{"path": str(expected), "resolved": str(expected.resolve())}],
+                                         "Relative display inputs must still resolve to the real fixture file")
 
 
 if __name__ == "__main__":

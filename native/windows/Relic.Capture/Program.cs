@@ -142,6 +142,7 @@ internal sealed class Capture
             ["case_id"] = request["case_id"]?.DeepClone(),
             ["client"] = "windows",
             ["pid"] = processId,
+            ["primary_hwnd"] = handle,
             ["origin"] = request["origin"]!.DeepClone(),
             ["viewport"] = new JsonObject
             {
@@ -235,6 +236,7 @@ internal sealed class Capture
             var toggle = value.Current.ToggleState;
             state["toggle"] = toggle.ToString();
             state["checked"] = toggle == ToggleState.Indeterminate ? null : JsonValue.Create(toggle == ToggleState.On);
+            state["indeterminate"] = toggle == ToggleState.Indeterminate;
         });
         ReadPattern<ExpandCollapsePattern>(element, ExpandCollapsePattern.Pattern, supported, nodeErrors, value =>
         {

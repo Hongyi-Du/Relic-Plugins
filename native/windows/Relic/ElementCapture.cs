@@ -111,12 +111,20 @@ public sealed partial class MainWindow
                     if (element is Border borderElement) node["background_sizing"] = borderElement.BackgroundSizing.ToString();
                     if (element is Rectangle rectangle) node["shape_corner_radius"] = new JsonObject { ["x"] = rectangle.RadiusX, ["y"] = rectangle.RadiusY };
                     node["text"] = CaptureText(element);
+                    node["interaction_evidence"] = new JsonObject
+                    {
+                        ["is_control"] = element is Control,
+                        ["is_tab_stop"] = element is Control keyboardControl ? keyboardControl.IsTabStop : null,
+                        ["is_hit_test_visible"] = element.IsHitTestVisible,
+                        ["source"] = "Actual XAML Control type, IsTabStop and IsHitTestVisible properties"
+                    };
                     node["state"] = new JsonObject
                     {
                         ["enabled"] = element is Control control ? control.IsEnabled : null,
                         ["focused"] = element is Control focus ? focus.FocusState != FocusState.Unfocused : null,
                         ["selected"] = element is SelectorBarItem tab ? tab.IsSelected : element is SelectorItem item ? item.IsSelected : null,
                         ["checked"] = element is ToggleButton toggle ? toggle.IsChecked : element is ToggleSwitch change ? change.IsOn : null,
+                        ["indeterminate"] = element is ToggleButton triState ? triState.IsChecked == null : element is ToggleSwitch ? false : null,
                         ["expanded"] = element is Expander expander ? expander.IsExpanded : null,
                         ["hovered"] = hovered.Contains(element), ["unread"] = null
                     };
@@ -331,25 +339,49 @@ public sealed partial class MainWindow
             var transform = element.TransformToVisual(captureRoot);
             foreach (var range in ranges)
             {
-                var runBoxes = new JsonArray(); var runIncomplete = false;
-                for (var offset = 0; offset < range.end.Offset - range.start.Offset; offset++)
+                var runBoxes = new JsonArray(); var runCarets = new JsonArray(); var runIncomplete = false;
+                var caretRectangles = new List<Rect>();
+                var length = range.end.Offset - range.start.Offset;
+                for (var offset = 0; offset <= length; offset++)
                 {
                     var pointer = range.start.GetPositionAtOffset(offset, LogicalDirection.Forward);
                     if (pointer == null) { incomplete = runIncomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
-                    var box = pointer.GetCharacterRect(LogicalDirection.Forward);
-                    localBoxes.Add(CaptureBox(box));
-                    if (!CaptureRectFinite(box))
+                    // WinUI reports insertion-caret rectangles (often width 0),
+                    // not glyph ink boxes. Measure both sides at interior text
+                    // boundaries so wrapped line endings retain their advance.
+                    var directions = offset == 0 ? new[] { LogicalDirection.Forward }
+                        : offset == length ? new[] { LogicalDirection.Backward }
+                        : new[] { LogicalDirection.Forward, LogicalDirection.Backward };
+                    foreach (var direction in directions)
+                    {
+                        var box = pointer.GetCharacterRect(direction);
+                        localBoxes.Add(CaptureBox(box));
+                        if (!CaptureRectFinite(box))
+                        {
+                            incomplete = runIncomplete = true;
+                            errors.Add(id + ": non-finite TextPointer caret rectangle at content offset " + pointer.Offset + " " + direction);
+                        }
+                        else if (box.Height > 0)
+                        {
+                            var actual = transform.TransformBounds(box);
+                            runCarets.Add(new JsonObject { ["offset"] = pointer.Offset, ["direction"] = direction.ToString(), ["bounds"] = CaptureBox(actual) });
+                            if (CaptureRectFinite(actual)) caretRectangles.Add(actual);
+                            else incomplete = runIncomplete = true;
+                        }
+                    }
+                }
+                foreach (var line in caretRectangles.GroupBy(rect => (Math.Round(rect.Y, 4), Math.Round(rect.Height, 4))))
+                {
+                    if (line.Zip(line.Skip(1), (previous, next) => next.X < previous.X - 1e-6).Any(backwards => backwards))
                     {
                         incomplete = runIncomplete = true;
-                        errors.Add(id + ": non-finite TextPointer rectangle at content offset " + pointer.Offset);
+                        errors.Add(id + ": nonmonotonic caret sequence requires disjoint text-range geometry; an advance envelope alone cannot prove coverage");
                     }
-                    else if (box.Height > 0)
-                    {
-                        var actual = transform.TransformBounds(box);
-                        boxes.Add(CaptureBox(actual)); runBoxes.Add(CaptureBox(actual));
-                        if (CaptureRectFinite(actual)) ys.Add(Math.Round(actual.Y, 2));
-                        else incomplete = runIncomplete = true;
-                    }
+                    var left = line.Min(rect => rect.X); var right = line.Max(rect => rect.Right);
+                    var top = line.Min(rect => rect.Y); var bottom = line.Max(rect => rect.Bottom);
+                    if (right <= left) continue;
+                    var actual = new Rect(left, top, right - left, bottom - top);
+                    boxes.Add(CaptureBox(actual)); runBoxes.Add(CaptureBox(actual)); ys.Add(Math.Round(actual.Y, 2));
                 }
                 if (range.leaf != null) runs.Add(new JsonObject
                 {
@@ -358,7 +390,9 @@ public sealed partial class MainWindow
                     ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
                     ["font_size"] = range.leaf.FontSize, ["font_weight"] = range.leaf.FontWeight.Weight,
                     ["foreground"] = CaptureColor(range.leaf.Foreground), ["font_family"] = range.leaf.FontFamily.Source,
-                    ["bounds"] = runBoxes, ["coordinate_space"] = "content-window", ["geometry_complete"] = !runIncomplete
+                    ["bounds"] = runBoxes, ["caret_evidence"] = runCarets,
+                    ["bounds_measurement"] = "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                    ["coordinate_space"] = "content-window", ["geometry_complete"] = !runIncomplete
                 });
             }
             lines = incomplete ? null : ys.Count;

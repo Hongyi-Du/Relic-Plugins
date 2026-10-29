@@ -8,6 +8,30 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (restart integration): `dffd7c4` full strict evidence is
+downloaded to `S:\Codex\Outputs\Relic-native-visual\parity-dffd7c4\`, including
+all per-scene JSON, HTML, raw trees and pixel heatmaps. Both platforms still have
+zero fully measured/passing scenes. Windows has 93,032 reference elements,
+84,268 valid native elements and 8,478 invalid native elements; macOS has 92,536
+reference elements, 57,705 valid native elements and 4,639 invalid native elements.
+The macOS capture stopped at actual 1058px content width for 1024px cases;
+`d4a4e44` responsive correction is merged in `1c3b037`. No exception is approved.
+
+Changes for the clients (projection semantics): preserve raw UIA properties but
+only apply enabled/focused to measured interactive or focus-capable elements.
+An offscreen node does not prove its subtree invisible: traversal and identity
+errors remain failures, even when that node's own non-finite measurements are
+nonvisible diagnostics. A primary HWND and its proven WinUI host bridge can own
+the same XAML root; actual popups and other visible controls are never removed
+merely because they are windows/panes.
+
+Changes for the clients (`0c93bac` requests): the new truncation/scrollbar
+coverage and requested-versus-resolved font-weight evidence requests are under
+investigation. Existing failures remain failures; there is no font-weight
+normalization, scrollbar exclusion or tolerance change. The separate Windows
+DrawConversation COM E_FAIL in macOS run 40938288684 is being investigated
+against the actual failing line and scene, without opening a local window.
+
 Changes for the clients (CI evidence): `dffd7c4` passes all 67 shared extractor/
 matcher regression tests in visual run 40935113052; Windows build/unit tests
 also pass in Native apps run 40935124389. Its macOS build succeeds, but

@@ -96,7 +96,7 @@ public sealed partial class MainWindow
         foreach (var key in new[] { "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed", "SelectorBarItemPillFill", "ListViewItemSelectionIndicatorBrush", "TextControlBorderBrushFocused", "TextControlBorderBrushPointerOver" }) root.Resources[key] = new SolidColorBrush(accent);
         foreach (var key in new[] { "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundStrokeChecked", "ToggleSwitchFillOn" })
             foreach (var state in new[] { "", "PointerOver", "Pressed" }) root.Resources[key + state] = new SolidColorBrush(accent);
-        stream.Spacing = preferences.Text("density") == "compact" ? 7 : 14;
+        stream.Spacing = 0; // Each message owns its density-dependent top margin; notices use their own 8px gap.
         side.Spacing = 2;
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
         ThemeSurfaces();
@@ -242,7 +242,7 @@ public sealed partial class MainWindow
             var (r, g, b) = hue switch { < 60 => (chroma, x, 0d), < 120 => (x, chroma, 0d), < 180 => (0d, chroma, x), < 240 => (0d, x, chroma), < 300 => (x, 0d, chroma), _ => (chroma, 0d, x) };
             return new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255)));
         }
-        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(Math.Max(6, size / 4)), Background = human ? Paint("1B1B1A", "ECEAE5") : label == "#" ? Paint("EFEEEA", "2F2E2B") : Hsl(Dark ? .18 : .4, Dark ? .24 : .9), Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = human ? Paint("FFFFFF", "1B1B1A") : Hsl(Dark ? .45 : .38, Dark ? .78 : .34), FontSize = Math.Clamp(size * .42, 11, 22), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size >= 60 ? 14 : size >= 36 ? 9 : size >= 28 ? 8 : 6), Background = human ? Paint("1B1B1A", "ECEAE5") : label == "#" ? Paint("EFEEEA", "2F2E2B") : Hsl(Dark ? .18 : .4, Dark ? .24 : .9), Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = human ? Paint("FFFFFF", "1F1F1E") : Hsl(Dark ? .45 : .38, Dark ? .78 : .34), FontSize = size >= 60 ? 24 : size >= 36 ? 14 : size >= 28 ? 12 : 10, FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     }
     private async Task ChangeAvatar(string? who = null)
     {

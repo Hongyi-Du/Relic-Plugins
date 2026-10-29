@@ -119,17 +119,38 @@ public sealed partial class MainWindow
     private void DrawPaneHeader()
     {
         paneHeader.Children.Clear(); paneHeader.ColumnDefinitions.Clear();
+        paneHeader.Height = 44; paneHeader.Padding = new Thickness(8, 0, 6, 0); paneHeader.ColumnSpacing = 6;
+        paneHeader.BorderThickness = new Thickness(0, 0, 0, 1); paneHeader.BorderBrush = Line;
         paneHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         paneHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var tabs = new SelectorBar { Margin = new Thickness(4, 0, 0, 0) };
-        var choices = new List<(string, string)> { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") };
-        if (pane == "thread") choices = [("overview", "panel.overview"), ("thread", "panel.thread")];
-        foreach (var (id, key) in choices)
-            tabs.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = pane == id, FontSize = 12, Padding = new Thickness(6, 8, 6, 8) });
-        tabs.SelectionChanged += async (_, _) => { var target = tabs.SelectedItem?.Tag?.ToString(); if (target != null && pane != target) await Run(() => SetPane(target)); };
-        paneHeader.Children.Add(tabs);
-        var close = IconButton("\uE711", pane == "thread" ? "panel.close_thread" : "panel.hide", () => pane == "thread" ? SetPane(previousPane) : TogglePanel(), T("panel.hide_title"));
-        Grid.SetColumn(close, 1); close.Margin = new Thickness(0, 5, 5, 5); paneHeader.Children.Add(close);
+        var tabs = new SelectorBar { Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        var destinations = new Dictionary<SelectorBarItem, string>();
+        var choices = new List<(string, string, string)> { ("overview", "panel.overview", "org"), ("workspace", "panel.workspace", "work"), ("files", "common.file", "file") };
+        if (threadId.Length > 0) choices.Add(("thread", "panel.thread", "thread"));
+        foreach (var (id, key, iconName) in choices)
+        {
+            var selected = pane == id;
+            var foreground = selected ? Ink : Paint("5A5853", "B8B5AE");
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
+            var glyph = (ReferenceVectorIcon)ReferenceIcon(iconName, 15); glyph.Foreground = foreground; row.Children.Add(glyph);
+            row.Children.Add(new TextBlock { Text = T(key), FontSize = 12.5, Foreground = foreground, FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal,
+                LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center });
+            if (id == "thread")
+            {
+                var dismiss = IconButton("\uE711", "panel.close_thread", async () => { threadId = ""; await SetPane(previousPane); });
+                dismiss.Content = ReferenceIcon("x", 12); dismiss.Width = dismiss.Height = 16; dismiss.MinHeight = 0;
+                dismiss.Padding = new Thickness(0); dismiss.Margin = new Thickness(1, 0, -3, 0); dismiss.CornerRadius = new CornerRadius(4);
+                row.Children.Add(dismiss);
+            }
+            var tab = new SelectorBarItem { Text = T(key), Tag = row, IsSelected = selected, Height = 28, Margin = new Thickness(0, 0, 2, 0),
+                Style = (Style)Application.Current.Resources["RelicPaneTabStyle"] };
+            destinations.Add(tab, id); tabs.Items.Add(tab);
+        }
+        tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem != null && destinations.TryGetValue(tabs.SelectedItem, out var target) && pane != target) await Run(() => SetPane(target)); };
+        paneHeader.Children.Add(new ScrollViewer { Content = tabs, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
+        var close = IconButton("\uE711", "panel.hide", TogglePanel, T("panel.hide_title"));
+        Grid.SetColumn(close, 1); close.VerticalAlignment = VerticalAlignment.Center; paneHeader.Children.Add(close);
     }
     private Grid TwoColumns(UIElement left, UIElement right)
     {

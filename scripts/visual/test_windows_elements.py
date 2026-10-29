@@ -7,7 +7,7 @@ import unittest
 
 from PIL import Image
 
-from windows_elements import project
+from windows_elements import host_container_ownership, project
 
 
 SCENE = "zh-CN-light-1024x700-group"
@@ -28,6 +28,9 @@ def xaml_node(eid, typ="TextBlock", text="", parent=None, bounds=None, **changes
                   "border_width": 0, "corner_radius": 0},
         "state": {"enabled": True, "selected": None, "checked": None,
                   "expanded": None, "focused": False, "hovered": False, "unread": None},
+        "interaction_evidence": {"is_control": typ in {"Button", "TextBox", "SelectorBarItem", "ToggleButton"},
+                                 "is_tab_stop": typ in {"Button", "TextBox", "SelectorBarItem", "ToggleButton"},
+                                 "is_hit_test_visible": True},
         "layout": {"wrap": "none", "truncation": "none", "line_count": 1},
         "icon": None, "font_family": "Fixture Sans",
     }
@@ -41,8 +44,9 @@ def uia_node(eid, control_type="Text", name="", parent=None, bounds=None, **chan
         "name": name, "bounds": bounds or box(), "class_name": control_type,
         "automation_id": "", "is_control_element": True, "is_content_element": True,
         "state": {"enabled": True, "focused": False, "offscreen": False,
+                  "focusable": control_type not in {"Text", "Image", "Separator", "Pane", "Group"},
                   "selected": None, "checked": None, "expanded": None},
-        "value": None, "text_pattern": None,
+        "value": None, "text_pattern": None, "supported_patterns": [],
     }
     node.update(changes)
     return node
@@ -422,6 +426,22 @@ class ProjectionTests(unittest.TestCase):
         self.assertFalse(any(issue.get("id") == "uia-rich" and issue.get("property") == "render correspondence"
                              for issue in result["coverage"]["unmeasured"]))
 
+    def test_stretched_uia_layout_slot_uses_its_measured_text_range_for_correspondence(self):
+        owner, witness = self.rich_fixture()
+        witness["bounds"] = box(10, 20, 400, 60)
+        witness["text_pattern"]["document"] = {"text": owner["text"], "bounds": [deepcopy(owner["bounds"])]}
+        result = self.capture(measured([owner]), [witness])
+        first = self.by_id(result)["rich:run:0"]
+        self.assertEqual(first["style"]["rendered_fonts"][0]["family_name"], "Segoe UI Variable")
+        self.assertEqual(first["evidence"]["uia_font_ranges"][0]["uia_id"], "uia-rich")
+
+    def test_wrong_text_in_matching_uia_range_cannot_supply_a_font(self):
+        owner, witness = self.rich_fixture()
+        witness["name"] = "unrelated"
+        witness["text_pattern"]["document"] = {"text": "unrelated", "bounds": [deepcopy(owner["bounds"])]}
+        result = self.capture(measured([owner]), [witness])
+        self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+
     def test_rich_owner_own_background_retained_without_duplicating_leaf_paint(self):
         owner, witness = self.rich_fixture()
         owner["style"]["background"] = [240, 240, 240, 255]
@@ -567,6 +587,110 @@ class ProjectionTests(unittest.TestCase):
         witness = uia_node("uia-listitem", "ListItem", "Overview", class_name="ListViewItem")
         result = self.capture(measured([tab]), [witness])
         self.assertIsNone(self.by_id(result)["tab"]["evidence"]["uia_id"])
+
+    def test_noninteractive_text_does_not_inherit_uia_default_enabled_or_focus_state(self):
+        result = self.capture(measured([xaml_node("text", text="内容")]), [uia_node("uia-text", name="内容")])
+        actual = self.by_id(result)["text"]
+        self.assertIsNone(actual["state"]["enabled"])
+        self.assertIsNone(actual["state"]["focused"])
+        self.assertFalse(actual["evidence"]["interaction_applicability"]["applicable"])
+        self.assertTrue(actual["evidence"]["interaction_applicability"]["uia_state"]["enabled"])
+
+    def test_interactive_native_button_retains_measured_disabled_and_focus_state(self):
+        witness = uia_node("uia-button", "Button", "发送")
+        witness["state"].update(enabled=False, focused=False, focusable=False)
+        result = self.capture(measured([xaml_node("button", "Button", "发送")]), [witness])
+        actual = self.by_id(result)["button"]
+        self.assertFalse(actual["state"]["enabled"])
+        self.assertFalse(actual["state"]["focused"])
+
+    def test_native_checkable_control_keeps_measured_indeterminate_state(self):
+        for indeterminate in (False, True):
+            with self.subTest(indeterminate=indeterminate):
+                control = xaml_node("check", "CheckBox", "选项")
+                witness = uia_node("uia-check", "CheckBox", "选项")
+                witness["state"].update(checked=None if indeterminate else False, indeterminate=indeterminate)
+                result = self.capture(measured([control]), [witness])
+                self.assertIs(self.by_id(result)["check"]["state"]["indeterminate"], indeterminate)
+
+    def test_text_with_actual_action_pattern_is_not_declared_noninteractive(self):
+        witness = uia_node("uia-text", name="行动")
+        witness["supported_patterns"] = ["InvokePatternIdentifiers.Pattern"]
+        witness["state"]["focused"] = True
+        result = self.capture(measured([xaml_node("text", text="行动")]), [witness])
+        actual = self.by_id(result)["text"]
+        self.assertTrue(actual["state"]["enabled"])
+        self.assertTrue(actual["state"]["focused"])
+
+    def test_unknown_text_focus_applicability_remains_a_coverage_gap(self):
+        witness = uia_node("uia-text", name="内容")
+        witness["state"]["focusable"] = None
+        result = self.capture(measured([xaml_node("text", text="内容")]), [witness])
+        self.assertTrue(any(item.get("property") == "state.interaction_applicability"
+                            for item in result["coverage"]["unmeasured"]))
+        self.assertIsNone(self.by_id(result)["text"]["evidence"]["interaction_applicability"]["applicable"])
+
+    def test_no_reported_accessible_name_is_empty_without_copying_visible_label(self):
+        witness = uia_node("uia-button", "Button", None)
+        witness["unsupported_properties"] = ["AutomationElementIdentifiers.NameProperty"]
+        result = self.capture(measured([xaml_node("button", "Button", "发送")]), [witness])
+        actual = self.by_id(result)["button"]
+        self.assertEqual(actual["text"], "发送")
+        self.assertEqual(actual["name"], "")
+        self.assertIsNone(actual["evidence"]["accessible_name_evidence"]["reported"])
+        self.assertEqual(actual["evidence"]["accessible_name_evidence"]["status"], "not-provided")
+
+    def test_native_status_token_owns_its_single_label_and_template_paint_once(self):
+        for native_type, kind in (("OverviewChipView", "chip"), ("OverviewBadgeView", "badge")):
+            with self.subTest(native_type=native_type):
+                token = xaml_node("token", native_type)
+                token["interaction_evidence"].update(is_control=True, is_tab_stop=False, is_hit_test_visible=False)
+                paint = xaml_node("paint", "ContentPresenter", parent="token")
+                paint["style"]["background"] = [240, 240, 240, 255]
+                label = xaml_node("label", text="批准", parent="paint", bounds=box(20, 25, 40, 18))
+                result = self.capture(measured([token, paint, label]), [uia_node("uia-label", name="批准", bounds=label["bounds"])])
+                actual = self.by_id(result)["token"]
+                self.assertEqual((actual["kind"], actual["text"]), (kind, "批准"))
+                self.assertEqual(actual["style"]["background"], [240, 240, 240, 255])
+                self.assertEqual(len(result["elements"]), 1)
+                self.assertFalse(any(item.get("id") == "token" and item.get("property") == "UIA correspondence"
+                                     for item in result["coverage"]["unmeasured"]))
+
+    @staticmethod
+    def host_fixture():
+        viewport = box(0, 0, 1024, 700)
+        root = xaml_node("root", "Grid", bounds=viewport, region="window")
+        primary = uia_node("primary", "Window", bounds=box(-8, -31, 1040, 739),
+                           class_name="WinUIDesktopWin32WindowClass", root_kind="primary-window", native_window_handle=12345)
+        bridge = uia_node("bridge", "Pane", parent="primary", bounds=viewport,
+                          class_name="Microsoft.UI.Content.DesktopChildSiteBridge")
+        site = uia_node("site", "Pane", parent="bridge", bounds=viewport, class_name="InputSiteWindowClass")
+        return {"primary_hwnd": 12345, "viewport": deepcopy(VIEWPORT), "raw_nodes": [primary, bridge, site]}, [root]
+
+    def test_exact_main_window_host_chain_owns_the_single_content_root(self):
+        uia, roots = self.host_fixture()
+        ownership = host_container_ownership(uia, roots)
+        self.assertEqual([entry["source"] for entry in ownership], ["primary", "bridge", "site"])
+        self.assertTrue(all(entry["owner"] == "root" for entry in ownership))
+        self.assertEqual(ownership[0]["host_evidence"]["bounds"]["x"], -8)
+
+    def test_unrelated_popup_or_wrong_host_geometry_is_not_implicitly_owned(self):
+        for change in ("popup", "wrong-hwnd", "wrong-bounds", "wrong-parent", "ambiguous"):
+            with self.subTest(change=change):
+                uia, roots = self.host_fixture()
+                if change == "popup":
+                    uia["raw_nodes"][0]["root_kind"] = "process-popup-or-window"
+                elif change == "wrong-hwnd":
+                    uia["primary_hwnd"] = 999
+                elif change == "wrong-bounds":
+                    uia["raw_nodes"][1]["bounds"]["width"] -= 1
+                elif change == "wrong-parent":
+                    uia["raw_nodes"][2]["parent"] = "primary"
+                else:
+                    duplicate = deepcopy(uia["raw_nodes"][1])
+                    duplicate["id"] = "second-bridge"
+                    uia["raw_nodes"].append(duplicate)
+                self.assertEqual(host_container_ownership(uia, roots), [])
 
 
 if __name__ == "__main__":

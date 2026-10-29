@@ -24,7 +24,7 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> folded = new();
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
-    private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 14, Padding = new Thickness(24, 16, 24, 16) }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
+    private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
     private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 26, MaxHeight = 260, BorderThickness = new Thickness(0), Padding = new Thickness(0, 2, 0, 2), FontSize = 14 };
     private readonly TextBox search = new();
     private readonly Grid searchSurface = new();
@@ -267,6 +267,7 @@ public sealed partial class MainWindow : Window
     private void DrawDetail()
     {
         detail.Children.Clear();
+        detail.Padding = new Thickness(16); detail.Spacing = 14;
         paneHeader.Visibility = org.Length == 0 && pane != "files" ? Visibility.Collapsed : Visibility.Visible;
         if (paneHeader.Visibility == Visibility.Collapsed) return;
         DrawPaneHeader();

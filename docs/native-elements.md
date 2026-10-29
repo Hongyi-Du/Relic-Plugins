@@ -78,6 +78,15 @@ Nonuniform transforms need their actual directional stroke geometry or an
 explicit coverage gap; do not assume every transform has one scalar scale.
 
 Actual text fonts are recorded in `style.rendered_fonts` as records with
+Windows TextPattern document/range bounds can prove a font witness even when
+the UIA control's outer layout slot is stretched. Match the actual text and
+measured range geometry unambiguously; do not replace a missing measurement
+with the configured font family. WinUI TextPointer character rectangles are
+caret positions, not glyph ink: preserve their raw positions and derive text
+advance bounds only from measured monotonic start/end positions. Nonmonotonic
+or unresolved ranges remain coverage failures requiring disjoint measurements.
+
+Actual text fonts are recorded in `style.rendered_fonts` as records with
 `family_name`, optional `postscript_name`, and provider evidence. A configured
 fallback list is not an actual rendered-font measurement. Compare measured
 family identity, font size and weight; compare PostScript identity when both

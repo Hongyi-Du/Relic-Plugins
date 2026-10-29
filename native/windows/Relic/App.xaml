@@ -55,6 +55,29 @@
           </Setter.Value>
         </Setter>
       </Style>
+      <Style x:Key="RelicPaneTabStyle" TargetType="SelectorBarItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="9,0" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template"><Setter.Value>
+          <ControlTemplate TargetType="SelectorBarItem">
+            <Grid x:Name="PART_ContainerRoot" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter Content="{TemplateBinding Tag}" VerticalAlignment="Center" />
+              <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CombinedStates">
+                  <VisualState x:Name="UnselectedNormal" />
+                  <VisualState x:Name="UnselectedPointerOver"><VisualState.Setters><Setter Target="PART_ContainerRoot.Background" Value="{ThemeResource RelicControlHover}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="UnselectedPressed"><VisualState.Setters><Setter Target="PART_ContainerRoot.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="SelectedNormal"><VisualState.Setters><Setter Target="PART_ContainerRoot.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="SelectedPointerOver"><VisualState.Setters><Setter Target="PART_ContainerRoot.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="SelectedPressed"><VisualState.Setters><Setter Target="PART_ContainerRoot.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+              </VisualStateManager.VisualStateGroups>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value></Setter>
+      </Style>
       <Style x:Key="RelicMenuItemStyle" TargetType="MenuFlyoutItem">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
         <Setter Property="FontSize" Value="13" />

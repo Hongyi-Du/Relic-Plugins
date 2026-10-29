@@ -49,7 +49,7 @@ public sealed partial class MainWindow
     }
     private UIElement Rich(string markdown)
     {
-        var content = new StackPanel { Spacing = 6 };
+        var content = new StackPanel { Spacing = 8 };
         var lines = markdown.Replace("\r\n", "\n").Split('\n');
         for (var i = 0; i < lines.Length; i++)
         {
@@ -58,8 +58,10 @@ public sealed partial class MainWindow
             {
                 var code = new List<string>(); var language = line.Trim()[3..];
                 while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                var source = string.Join("\n", code); var codeText = Text(source, 12); codeText.FontFamily = new FontFamily("Consolas");
-                var block = new Grid(); var codeScroll = Scroll(codeText); codeScroll.MaxHeight = 400; block.Children.Add(new Border { Child = codeScroll, Background = Paint("F7F6F3", "222220"), Padding = new Thickness(12), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) });
+                var source = string.Join("\n", code); var codeText = Text(source, 12.5); codeText.FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"); codeText.TextWrapping = TextWrapping.NoWrap;
+                codeText.LineHeight = 19.375; codeText.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+                var block = new Grid(); var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+                block.Children.Add(new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) });
                 var copy = IconButton("\uE8C8", "common.copy", () => { Copy(source); return Task.CompletedTask; }); copy.HorizontalAlignment = HorizontalAlignment.Right; copy.VerticalAlignment = VerticalAlignment.Top; copy.Opacity = 0; block.Children.Add(copy);
                 block.PointerEntered += (_, _) => copy.Opacity = 1; block.PointerExited += (_, _) => copy.Opacity = 0; block.GotFocus += (_, _) => copy.Opacity = 1;
                 content.Children.Add(block); continue;
@@ -74,27 +76,48 @@ public sealed partial class MainWindow
                     table.RowDefinitions.Add(new() { Height = GridLength.Auto });
                     for (var col = 0; col < rows[row].Length; col++)
                     {
-                        var cell = new Border { Padding = new Thickness(7), BorderThickness = new Thickness(.5), BorderBrush = new SolidColorBrush(Colors.Gray), Child = InlineText(rows[row][col].Trim(), row == 0 ? 15 : 14) };
+                        var label = InlineText(rows[row][col].Trim(), 13.02); label.FontWeight = row == 0 ? FontWeights.SemiBold : FontWeights.Normal;
+                        var shade = Ink.Color; shade.A = 10;
+                        var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(col == 0 ? 1 : 0, row == 0 ? 1 : 0, 1, 1), BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 ? new SolidColorBrush(shade) : new SolidColorBrush(Colors.Transparent) };
                         Grid.SetRow(cell, row); Grid.SetColumn(cell, col); table.Children.Add(cell);
                     }
                 }
                 content.Children.Add(table); continue;
             }
             var heading = Regex.Match(line, @"^(#{1,6})\s+(.+)");
-            if (heading.Success) { content.Children.Add(InlineText(heading.Groups[2].Value, Math.Max(14, 20 - heading.Groups[1].Length * 2))); continue; }
+            if (heading.Success) { var title = InlineText(heading.Groups[2].Value); title.FontWeight = FontWeights.Bold; title.Margin = new Thickness(0, 0, 0, -4); content.Children.Add(title); continue; }
             if (string.IsNullOrWhiteSpace(line)) continue;
-            if (Regex.IsMatch(line.Trim(), @"^(-{3,}|\*{3,}|_{3,})$")) { content.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.Gray) }); continue; }
             if (line.StartsWith(">"))
             {
-                content.Children.Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = new SolidColorBrush(Colors.Gray), Padding = new Thickness(10, 2, 2, 2), Child = InlineText(Regex.Replace(line.TrimStart('>', ' '), @"^([^:：]+)[:：]\s*", match => T("chat.quote_from", ("name", match.Groups[1].Value)))) }); continue;
+                content.Children.Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(10, 2, 0, 2), Child = InlineText(Regex.Replace(line.TrimStart('>', ' '), @"^([^:：]+)[:：]\s*", match => T("chat.quote_from", ("name", match.Groups[1].Value))), 12.88) }); continue;
             }
-            line = Regex.Replace(line, @"^\s*[-*+]\s+", "• "); content.Children.Add(InlineText(line));
+            var list = Regex.Match(line, @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$");
+            if (list.Success)
+            {
+                var items = new StackPanel { Spacing = 0, Margin = new Thickness(0, 2, 0, 0) };
+                do
+                {
+                    var marker = char.IsDigit(list.Groups[2].Value[0]) ? list.Groups[2].Value.TrimEnd(')') + (list.Groups[2].Value.EndsWith(')') ? "." : "") : "•";
+                    var row = new Grid { Margin = new Thickness(list.Groups[1].Value.Length >= 2 ? 18 : 0, 0, 0, 0) };
+                    row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                    var bullet = Text(marker); bullet.LineHeight = 23.1; bullet.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; row.Children.Add(bullet);
+                    var item = InlineText(list.Groups[3].Value); Grid.SetColumn(item, 1); row.Children.Add(item); items.Children.Add(row);
+                    if (i + 1 >= lines.Length) break;
+                    list = Regex.Match(lines[i + 1], @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"); if (!list.Success) break; i++;
+                } while (true);
+                content.Children.Add(items); continue;
+            }
+            var paragraphLines = new List<string> { line };
+            while (i + 1 < lines.Length && !string.IsNullOrWhiteSpace(lines[i + 1]) && !Regex.IsMatch(lines[i + 1], @"^\s*(?:```|>|#{1,6}\s|[-*•+]\s|\d+[.)]\s|\|)")) paragraphLines.Add(lines[++i]);
+            content.Children.Add(InlineText(string.Join("\n", paragraphLines)));
         }
         return content;
     }
     private RichTextBlock InlineText(string value, double size = 14)
     {
-        var text = new RichTextBlock { IsTextSelectionEnabled = true, FontSize = size * (preferences.Text("font") == "large" ? 1.18 : preferences.Text("font") == "small" ? .86 : 1), TextWrapping = TextWrapping.Wrap };
+        var fontSize = size * (preferences.Text("font") == "large" ? 15.5 / 14 : preferences.Text("font") == "small" ? 13d / 14 : 1);
+        var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
+            LineHeight = fontSize * 1.65, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
         var paragraph = new Paragraph();
         foreach (var part in InlineParts.Parse(value))
         {
@@ -108,7 +131,11 @@ public sealed partial class MainWindow
                         if (Uri.TryCreate(part.Target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
                         else { var target = InlineParts.PathTarget(part.Target); await OpenFile(target.Path, target.Line); }
                     }); paragraph.Inlines.Add(link); break;
-                case "code": paragraph.Inlines.Add(new Run { Text = part.Text, FontFamily = new FontFamily("Consolas") }); break;
+                case "code":
+                    var shade = Ink.Color; shade.A = 18;
+                    var code = new TextBlock { Text = part.Text, FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"), Foreground = Ink,
+                        LineHeight = fontSize * 1.65, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
+                    paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = code, Padding = new Thickness(5, 1, 5, 1), Background = new SolidColorBrush(shade), CornerRadius = new CornerRadius(5) } }); break;
                 case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
                 case "italic": var italic = new Italic(); italic.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(italic); break;
                 default: paragraph.Inlines.Add(new Run { Text = part.Text }); break;

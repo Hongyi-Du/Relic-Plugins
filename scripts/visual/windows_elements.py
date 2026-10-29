@@ -23,14 +23,18 @@ CONTROL_KINDS = {
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
 }
+PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge"}
 TEXT_TYPES = {"TextBlock", "RichTextBlock", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
-STATE_KEYS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
+STATE_KEYS = ("enabled", "selected", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
 UIA_KINDS = {"Button": {"button", "icon-button"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
              "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
              "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
              "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
              "Custom": {"region", "card"}, "Window": {"region"}}
+INTERACTIVE_KINDS = {"button", "icon-button", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
+ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
+PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
 
 
 def positive(box):
@@ -313,7 +317,7 @@ def project_text_leaves(raw, unmeasured, pointer):
             if not boxes:
                 unmeasured.append({"id": rid, "property": "rich_text_runs", "reason": "The recorded visible Run has no finite measured glyph rectangles",
                                    "source_owner": node["id"], "run_index": index})
-            if run.get("geometry_complete") is False:
+            if run.get("geometry_complete") is not True:
                 unmeasured.append({"id": rid, "property": "rich_text_runs", "reason": "The actual Run reports incomplete glyph geometry",
                                    "source_owner": node["id"], "run_index": index})
             if run.get("coordinate_space", node.get("layout", {}).get("character_boxes_coordinate_space")) != "content-window":
@@ -355,17 +359,22 @@ def project_text_leaves(raw, unmeasured, pointer):
 def run_font_witnesses(uia_nodes, owner, glyph_boxes):
     """Match actual UIA format ranges to the measured leaf's glyph positions."""
     candidates = []
+    original_text = owner.get("text_before_run_projection", owner.get("text", ""))
     for candidate in uia_nodes:
         if candidate.get("control_type") not in {"ControlType.Text", "ControlType.Document"} or not positive(owner.get("bounds")):
             continue
-        if distance(candidate["bounds"], owner["bounds"]) > 8:
+        document = (candidate.get("text_pattern") or {}).get("document", {})
+        if not original_text or original_text not in (candidate.get("name"), document.get("text")):
             continue
-        candidates.append(candidate)
-    original_text = owner.get("text_before_run_projection", owner.get("text", ""))
-    named = [candidate for candidate in candidates if original_text and
-             (candidate.get("name") == original_text or
-              (candidate.get("text_pattern") or {}).get("document", {}).get("text") == original_text)]
-    providers = named or candidates
+        # UIA BoundingRectangle can be the stretched layout slot. Its measured
+        # TextPattern ranges describe the actual rendered text inside that slot.
+        text_boxes = measured_text_boxes(document.get("bounds", []))
+        text_envelope = union_boxes(text_boxes)
+        outer_matches = distance(candidate["bounds"], owner["bounds"]) <= 8
+        text_matches = positive(text_envelope) and distance(text_envelope, owner["bounds"]) <= 8
+        if outer_matches or text_matches:
+            candidates.append(candidate)
+    providers = candidates
     if len(providers) != 1:
         # Same-position unrelated provider data is not a font fallback. Preserve
         # the candidates as raw evidence, but require unambiguous correspondence.
@@ -409,6 +418,66 @@ def visible_uia_errors(uia):
     return errors, nonvisible
 
 
+def interaction_applicability(node, kind, witness):
+    """Distinguish nonapplicable UIA defaults from actual interactive state."""
+    if kind in INTERACTIVE_KINDS:
+        return True, "Native semantic interactive control"
+    if node["type"] == "Run":
+        return False, "A TextElement Run is glyph content, not an independent control"
+    if witness:
+        patterns = witness.get("supported_patterns")
+        if isinstance(patterns, list) and any(any(action in pattern for action in ACTION_PATTERNS)
+                                               for pattern in patterns if isinstance(pattern, str)):
+            return True, "Actual UIA action pattern"
+        focusable = witness.get("state", {}).get("focusable")
+        if focusable is True:
+            return True, "UIA measured IsKeyboardFocusable=true"
+        if node["type"] in PAINT_ONLY_TYPES and focusable is False and isinstance(patterns, list):
+            return False, "Paint-only XAML element; UIA reports no action pattern and IsKeyboardFocusable=false"
+        return None, "UIA interaction applicability is not completely measured"
+    interaction = node.get("interaction_evidence", {})
+    if interaction.get("is_control") is False and node["type"] in PAINT_ONLY_TYPES:
+        return False, "Actual XAML non-Control paint element with no independent UIA interactive witness"
+    if interaction.get("is_hit_test_visible") is False and interaction.get("is_tab_stop") is False:
+        return False, "Actual XAML element is neither hit-testable nor a tab stop"
+    if kind == "divider":
+        return False, "Native divider has no independent interactive control"
+    return None, "Actual native interaction applicability is unavailable"
+
+
+def host_container_ownership(uia, raw):
+    """Own only the measured main HWND / WinUI content-host chain once."""
+    roots = [node for node in raw if node.get("parent") is None and node.get("region") == "window"
+             and node.get("bounds") == {"x": 0, "y": 0, "width": uia["viewport"]["width"], "height": uia["viewport"]["height"]}]
+    if len(roots) != 1 or not isinstance(uia.get("primary_hwnd"), int) or uia["primary_hwnd"] <= 0:
+        return []
+    viewport = roots[0]["bounds"]
+    by_id = {node["id"]: node for node in uia.get("raw_nodes", [])}
+    primaries = [node for node in by_id.values() if node.get("parent") is None
+                 and node.get("root_kind") == "primary-window" and node.get("control_type") == "ControlType.Window"
+                 and node.get("class_name") == "WinUIDesktopWin32WindowClass"
+                 and node.get("native_window_handle") == uia["primary_hwnd"]
+                 and intersection(node.get("bounds"), viewport) == viewport]
+    if len(primaries) != 1:
+        return []
+    primary = primaries[0]
+    bridges = [node for node in by_id.values() if node.get("parent") == primary["id"]
+               and node.get("class_name") == "Microsoft.UI.Content.DesktopChildSiteBridge"
+               and node.get("control_type") == "ControlType.Pane" and node.get("bounds") == viewport]
+    if len(bridges) != 1:
+        return []
+    bridge = bridges[0]
+    sites = [node for node in by_id.values() if node.get("parent") == bridge["id"]
+             and node.get("class_name") == "InputSiteWindowClass" and node.get("control_type") == "ControlType.Pane"
+             and node.get("bounds") == viewport]
+    if len(sites) != 1:
+        return []
+    return [{"source": node["id"], "owner": roots[0]["id"], "reason": "Measured main HWND and WinUI content-host chain own the XAML content root",
+             "host_evidence": {"primary_hwnd": uia["primary_hwnd"], "primary": primary["id"], "bridge": bridge["id"],
+                               "input_site": sites[0]["id"], "bounds": copy.deepcopy(node["bounds"]), "content_bounds": copy.deepcopy(viewport)}}
+            for node in (primary, bridge, sites[0])]
+
+
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
@@ -437,7 +506,7 @@ def project(xaml_path, uia_path, png_path):
     projection = []
     elements = []
     owned = {}
-    semantic = {n["id"] for n in raw if n["type"] in CONTROL_KINDS}
+    semantic = {n["id"] for n in raw if n["type"] in CONTROL_KINDS or n["type"] in PAINT_CONTROL_KINDS}
     def ancestor(node, choices):
         parent = by_id.get(node.get("parent"))
         while parent:
@@ -478,7 +547,7 @@ def project(xaml_path, uia_path, png_path):
             if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"} and not user_content(child, node["id"]):
                 control_paint[node["id"]].append(child)
                 owned[child["id"]] = (node["id"], "semantic control template paint")
-        if len(labels) == 1 and CONTROL_KINDS[node["type"]] not in {"card", "list-row"}:
+        if len(labels) == 1 and (CONTROL_KINDS.get(node["type"]) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -487,7 +556,9 @@ def project(xaml_path, uia_path, png_path):
         if owner:
             owned[node["id"]] = (owner["id"], "icon implementation glyph")
 
-    used_uia = set()
+    host_ownership = host_container_ownership(uia, raw)
+    projection.extend(host_ownership)
+    used_uia = {record["source"] for record in host_ownership}
     uia_nodes = [n for n in uia.get("raw_nodes", []) if positive(n.get("bounds")) and not n.get("state", {}).get("offscreen")]
     for node in uia.get("raw_nodes", []):
         for error in node.get("measurement_errors", []):
@@ -510,7 +581,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         typ = node["type"]
         style = copy.deepcopy(node.get("style", {}))
-        kind = CONTROL_KINDS.get(typ)
+        kind = CONTROL_KINDS.get(typ) or PAINT_CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
             if node.get("text_container_projection"):
@@ -574,9 +645,12 @@ def project(xaml_path, uia_path, png_path):
         matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind) and distance(n["bounds"], node["bounds"]) <= 8]
         matching.sort(key=lambda n: (n.get("name", "") not in (text, node.get("accessible_name", "")), distance(n["bounds"], node["bounds"])))
         witness = matching[0] if matching else None
+        interactive, interaction_reason = interaction_applicability(node, kind, witness)
         if witness:
             used_uia.add(witness["id"])
             for key in STATE_KEYS:
+                if key in {"enabled", "focused"} and interactive is not True:
+                    continue
                 if key in witness.get("state", {}) and witness["state"][key] is not None:
                     state[key] = witness["state"][key]
             if layout.get("line_count") is None:
@@ -584,7 +658,11 @@ def project(xaml_path, uia_path, png_path):
                 rectangles = [b for r in ranges for b in r.get("bounds", []) if positive(b)]
                 if rectangles:
                     layout["line_count"] = len({round(b["y"], 1) for b in rectangles})
-        if node["id"] in semantic and not witness:
+        if interactive is False:
+            state["enabled"] = state["focused"] = None
+        elif interactive is None:
+            unmeasured.append({"id": node["id"], "property": "state.interaction_applicability", "reason": interaction_reason})
+        if typ in CONTROL_KINDS and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
         actual_text_boxes = [copy.deepcopy(b) for b in layout.get("character_boxes", [])
                              if isinstance(b, dict) and all(finite(b.get(k)) for k in ("x", "y", "width", "height"))
@@ -656,8 +734,9 @@ def project(xaml_path, uia_path, png_path):
             if style.get(key) is None:
                 unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})
         region = node["region"]
+        reported_name = witness.get("name") if witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
-                   "text": text, "name": witness.get("name", "") if witness else node.get("accessible_name", ""),
+                   "text": text, "name": reported_name if isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count")}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
@@ -667,6 +746,13 @@ def project(xaml_path, uia_path, png_path):
                                 "text_bounds": actual_text_boxes, "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
+                                "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,
+                                                              "xaml": copy.deepcopy(node.get("interaction_evidence")),
+                                                              "uia_state": copy.deepcopy(witness.get("state")) if witness else None,
+                                                              "uia_patterns": copy.deepcopy(witness.get("supported_patterns")) if witness else None},
+                                "accessible_name_evidence": {"reported": reported_name, "source": "UIA.NameProperty" if witness else "XAML.AutomationProperties.Name",
+                                                             "status": "reported" if isinstance(reported_name, str) else "not-provided",
+                                                             "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
