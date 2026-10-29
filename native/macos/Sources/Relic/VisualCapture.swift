@@ -124,7 +124,7 @@ import RelicAX
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let content = NSHostingView(rootView: Button {} label: {
-            HStack { Text("Visible title"); Text("Visible subtitle").font(.caption) }.accessibilityElement(children: .contain)
+            HStack { ReferenceLabel("Visible title"); ReferenceLabel("Visible subtitle", size: 12) }.accessibilityElement(children: .contain)
         }.buttonStyle(.plain))
         window.contentView = content; window.orderFront(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
@@ -142,6 +142,7 @@ import RelicAX
             let attributes = RelicAXRead(object)
             for key in ["label", "title", "value"] { if let text = attributes[key] as? String { labels.append(text) } }
             for child in RelicAXChildren(object) { walk(child as AnyObject) }
+            if let view = object as? NSView { for child in view.subviews { walk(child) } }
         }
         walk(content)
         guard labels.contains("Visible title"), labels.contains("Visible subtitle") else {

@@ -54,9 +54,9 @@ struct ReferenceButtonStyle: ButtonStyle {
     var small = false
     var danger = false
     func makeBody(configuration: Configuration) -> some View {
-        Body(configuration: configuration, primary: primary, small: small, danger: danger)
+        StyledButton(configuration: configuration, primary: primary, small: small, danger: danger)
     }
-    private struct Body: View {
+    private struct StyledButton: View {
         let configuration: Configuration
         let primary: Bool, small: Bool, danger: Bool
         @Environment(\.isEnabled) private var enabled

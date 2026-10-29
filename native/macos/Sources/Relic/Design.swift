@@ -32,13 +32,16 @@ enum RelicStyle {
     static let redSoft = color(0xFBEAE6, 0x3D2622)
     static let red = color(0xC2412D, 0xEE8A78)
     static func font(_ size: CGFloat, weight: Int) -> Font {
+        Font(nativeFont(size, weight: weight))
+    }
+    static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
         var value = CGFloat.zero
         for index in 1..<points.count where weight >= points[index - 1].0 && weight <= points[index].0 {
             let a = points[index - 1], b = points[index]
             value = a.1 + CGFloat(weight - a.0) / CGFloat(b.0 - a.0) * (b.1 - a.1); break
         }
-        return Font(NSFont.systemFont(ofSize: size, weight: NSFont.Weight(rawValue: value)))
+        return NSFont.systemFont(ofSize: size, weight: NSFont.Weight(rawValue: value))
     }
     static func avatar(_ id: String, background: Bool, dark: Bool) -> Color {
         // app.js hue() hashes Unicode code points with unsigned 32-bit overflow.

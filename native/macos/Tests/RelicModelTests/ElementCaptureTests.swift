@@ -18,6 +18,13 @@ import ApplicationServices
         XCTAssertEqual(ElementCapture.cssWeight(.systemFont(ofSize: 14, weight: .semibold)), 600)
         XCTAssertEqual(ElementCapture.cssWeight(.systemFont(ofSize: 14, weight: .bold)), 700)
     }
+    func testAXSystemFontNamesNeverFallBackToAnotherFamily() throws {
+        let font = try XCTUnwrap(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Bold", "AXFontSize": 12.5]))
+        XCTAssertEqual(font.pointSize, 12.5)
+        XCTAssertEqual(ElementCapture.cssWeight(font), 700)
+        XCTAssertFalse(font.fontName.contains("Times"))
+        XCTAssertNil(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Unknown", "AXFontSize": 12]))
+    }
 
     func testInformalAccessibilityNodesDoNotRequireProtocolConformance() {
         let child = InformalAccessibilityNode(label: "Actual child", children: [])

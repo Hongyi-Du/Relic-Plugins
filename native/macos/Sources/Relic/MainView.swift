@@ -11,6 +11,7 @@ struct Rows<Content: View>: View {
 struct MainView: View {
     @EnvironmentObject var m: Model
     var body: some View {
+        GeometryReader { geometry in
         VStack(spacing: 0) {
             AppToolbar().measuredRegion("header").zIndex(50)
             if !m.error.isEmpty { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
@@ -21,8 +22,8 @@ struct MainView: View {
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
                 if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 340, maxWidth: 740).measuredRegion("right-pane") }
             }.frame(maxHeight: .infinity)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
-        .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
+        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
+        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop() }
@@ -32,6 +33,7 @@ struct MainView: View {
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
         .accessibilityIdentifier("relic-root")
+        }
     }
 }
 
