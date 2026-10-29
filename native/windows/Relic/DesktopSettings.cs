@@ -59,7 +59,7 @@ public sealed partial class MainWindow
     }
     private void PreferenceToggle(StackPanel target, string title, string hint, string field)
     {
-        var toggle = new ToggleSwitch { Header = T(title), IsOn = preferences.Flag(field) };
+        var toggle = new ToggleSwitch { Header = T(title), IsOn = preferences.Flag(field), OnContent = "", OffContent = "" };
         target.Children.Add(toggle); if (hint.Length > 0) target.Children.Add(Text(T(hint), 12));
         toggle.Toggled += async (_, _) => await Run(() => SavePreferences(new JsonObject { [field] = toggle.IsOn }));
     }
@@ -80,11 +80,12 @@ public sealed partial class MainWindow
         var accent = colors.GetValueOrDefault(preferences.Text("accent"), colors["clay"]);
         root.Resources["SystemAccentColor"] = accent;
         root.Resources["AccentFillColorDefaultBrush"] = new SolidColorBrush(accent);
+        foreach (var key in new[] { "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed", "SelectorBarItemPillFill", "ListViewItemSelectionIndicatorBrush", "TextControlBorderBrushFocused", "TextControlBorderBrushPointerOver" }) root.Resources[key] = new SolidColorBrush(accent);
         stream.Spacing = preferences.Text("density") == "compact" ? 7 : 14;
         side.Spacing = 2;
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
         ThemeSurfaces();
-        foreach (var mic in microphoneButtons) { Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); }
+        foreach (var weak in microphoneButtons.ToArray()) { if (!weak.TryGetTarget(out var mic)) { microphoneButtons.Remove(weak); continue; } Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); }
     }
     private async Task SettingsScreen(string section = "profile")
     {
@@ -118,7 +119,7 @@ public sealed partial class MainWindow
                     content.Children.Add(Text(T("settings.language.title"), 20));
                     var language = Choice(content, "settings.language.label", [("zh-CN", "简体中文"), ("en-US", "English")]); SetChoice(language, words.Language);
                     content.Children.Add(Text(T("settings.language.hint"), 12));
-                    content.Children.Add(Button(T("settings.language.system"), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
+                    content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
                     language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await Draw(key); });
                     PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names");
                     break;
@@ -211,10 +212,9 @@ public sealed partial class MainWindow
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(picture, label); return picture;
         }
         uint hash = 0; foreach (var character in label) hash = unchecked(hash * 31 + character);
-        var hue = hash % 360 / 60.0; double chroma = .43, x = chroma * (1 - Math.Abs(hue % 2 - 1));
-        var color = hue switch { < 1 => (chroma, x, 0d), < 2 => (x, chroma, 0d), < 3 => (0d, chroma, x), < 4 => (0d, x, chroma), < 5 => (x, 0d, chroma), _ => (chroma, 0d, x) };
-        var brush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)((color.Item1 + .25) * 255), (byte)((color.Item2 + .25) * 255), (byte)((color.Item3 + .25) * 255)));
-        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = brush, Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        var palette = new[] { ("DCECEF", "326C7B", "263B40"), ("EEE8F6", "7058B8", "352E43"), ("F2E4EA", "99465E", "432D37"), ("E7EDDF", "607D43", "303C29"), ("F4E7D9", "98703E", "44382A"), ("E3E8F4", "4D6198", "2C3345") };
+        var (light, ink, dark) = palette[hash % palette.Length]; var human = label == Display("human");
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(Math.Max(6, size / 4)), Background = human ? Paint("1B1B1A", "ECEAE5") : label == "#" ? Paint("EFEEEA", "2F2E2B") : Paint(light, dark), Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = human ? Paint("FFFFFF", "1B1B1A") : Paint(ink, light), FontSize = Math.Clamp(size * .42, 11, 22), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     }
     private async Task ChangeAvatar(string? who = null)
     {
@@ -229,12 +229,12 @@ public sealed partial class MainWindow
         if (who != null) { payload["org"] = org; payload["member"] = who; }
         await api!.Post("/api/avatar", payload); await LoadPreferences(); await Refresh(); Note(T("card.avatar_changed"));
     }
-    private readonly List<Button> microphoneButtons = new();
+    private readonly List<WeakReference<Button>> microphoneButtons = new();
     private Button Microphone(TextBox target)
     {
         Button? button = null;
         button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
-        microphoneButtons.Add(button); return button;
+        microphoneButtons.Add(new(button)); return button;
     }
     private Task StopVoice()
     {

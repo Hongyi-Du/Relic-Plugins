@@ -18,10 +18,11 @@ public sealed partial class MainWindow
     {
         JsonNode data;
         try { data = await api!.Get("/api/orgchart"); } catch (Exception ex) { Note(T("chart.load_failed", ("error", ex.Message))); return; }
-        var content = new StackPanel { Spacing = 10 }; var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; content.Children.Add(bar);
+        var content = new StackPanel { Spacing = 10 }; var bar = new ActionRow { Spacing = 6 }; content.Children.Add(bar);
         var closed = new CheckBox { Content = T("chart.show_closed"), IsChecked = chartClosed }; var links = new CheckBox { Content = T("chart.show_links"), IsChecked = chartLinks };
-        var scroll = new ScrollViewer { ZoomMode = ZoomMode.Enabled, MinZoomFactor = .15f, MaxZoomFactor = 2, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = Math.Min(600, root.ActualHeight - 220), Width = Math.Min(1000, root.ActualWidth - 120), IsTabStop = true };
+        var scroll = new ScrollViewer { ZoomMode = ZoomMode.Enabled, MinZoomFactor = .15f, MaxZoomFactor = 2, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = Math.Min(600, root.ActualHeight - 220), Width = Math.Min(860, root.ActualWidth - 180), IsTabStop = true };
         var canvas = new Canvas { Background = new SolidColorBrush(Colors.Transparent), ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY }; scroll.Content = canvas;
+        content.Width = scroll.Width;
         var positions = new Dictionary<string, (double X, double Y)>();
         void Fit(bool all)
         {

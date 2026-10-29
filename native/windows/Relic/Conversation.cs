@@ -129,6 +129,7 @@ public sealed partial class MainWindow
     private void DrawConversation()
     {
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
+        composerSurface.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         if (org.Length == 0)
         {
             stream.Children.Add(Text(T("chat.no_orgs"), 24)); stream.Children.Add(Text(T("chat.no_orgs_hint")));
@@ -228,8 +229,8 @@ public sealed partial class MainWindow
         actions.Children.Add(IconButton("\uE8C8", "common.copy", () => { Copy(body); return Task.CompletedTask; }));
         if (!inThread && item["thread"] != null) box.Children.Add(Button(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))));
         var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = mine ? Paint("EEDDD2", "594033") : Line, BorderThickness = new Thickness(1), MaxWidth = inThread ? 600 : 600, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-        var message = new StackPanel { Spacing = 2, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
-        message.Children.Add(bubble); actions.HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left; actions.Opacity = 0; message.Children.Add(actions);
+        var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
+        message.Children.Add(bubble); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
         message.PointerEntered += (_, _) => actions.Opacity = 1; message.PointerExited += (_, _) => actions.Opacity = 0;
         message.GotFocus += (_, _) => actions.Opacity = 1;
         var outer = new Grid { ColumnSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -322,14 +323,15 @@ public sealed partial class MainWindow
     }
     private void DrawThread()
     {
-        detail.Children.Add(Button(T("common.close"), () => { threadId = ""; pane = previousPane; LayoutColumns(); DrawDetail(); SaveViewState(); return Task.CompletedTask; }));
         if (threadData["root"] == null) { detail.Children.Add(Text(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"))); return; }
         detail.Children.Add(Message(threadData["root"]!, true));
         detail.Children.Add(Text(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies")));
         foreach (var reply in threadData.Rows("replies")) detail.Children.Add(Message(reply!, true));
         if (quoteText.Length > 0) { detail.Children.Add(Text(T("composer.quoting", ("who", quoteWho)) + quoteText)); detail.Children.Add(Button(T("composer.cancel_quote"), () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; })); }
-        threadEditor.PlaceholderText = T("thread.reply_placeholder"); detail.Children.Add(threadEditor); detail.Children.Add(Microphone(threadEditor));
-        detail.Children.Add(Button(T("common.send"), SendThread));
+        threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0);
+        if (threadEditor.Parent is Panel previousReply) previousReply.Children.Remove(threadEditor);
+        var replyComposer = Stack(threadEditor); var actions = new ActionRow { HorizontalAlignment = HorizontalAlignment.Right }; actions.Children.Add(Microphone(threadEditor));
+        var send = IconButton("\uE74A", "common.send", SendThread); send.Background = Accent; send.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White); actions.Children.Add(send); replyComposer.Children.Add(actions); detail.Children.Add(Card(replyComposer));
     }
     private async Task SendThread()
     {

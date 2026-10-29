@@ -27,7 +27,7 @@ public sealed partial class MainWindow
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
                     sideWidth = 276; panelWidth = 320; fileWidth = 460; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
-                    pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote();
+                    pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     await Select(fixture.Text("org")); LayoutColumns();
                     var scene = shot.Text("scene"); Task? dialog = null;
                     if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene[9..]);
@@ -69,7 +69,9 @@ public sealed partial class MainWindow
                         case "quick-start": org = ""; orgs.Clear(); snap = new JsonObject(); DrawSidebar(); DrawConversation(); DrawDetail(); break;
                         default: throw new InvalidOperationException("Unimplemented visual scene: " + scene);
                     }
+                    if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene == "copy-rules" && visibleDialog != null) ExpandCaptureRules(visibleDialog);
                     root.UpdateLayout(); await Task.Delay(250);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
@@ -81,6 +83,12 @@ public sealed partial class MainWindow
         }
         catch (Exception ex) { failures.Add(ex.ToString()); }
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "complete.json"), System.Text.Json.JsonSerializer.Serialize(new { errors = failures, count }));
+    }
+
+    private static void ExpandCaptureRules(DependencyObject parent)
+    {
+        if (parent is Expander expander) expander.IsExpanded = true;
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++) ExpandCaptureRules(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index));
     }
 
     private async Task CaptureClient(string path, int width, int height)

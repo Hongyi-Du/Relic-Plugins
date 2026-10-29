@@ -111,7 +111,7 @@ public sealed partial class MainWindow
     private async Task Details(string tab = "trace", string? who = null, string? taskId = null)
     {
         if (org.Length == 0) return;
-        var box = new StackPanel { Spacing = 12, MinWidth = 620 }; var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; var content = new StackPanel { Spacing = 12 };
+        var box = new StackPanel { Spacing = 16 }; var tabs = new SelectorBar(); var content = new StackPanel { Spacing = 12 };
         box.Children.Add(tabs); box.Children.Add(content);
         async Task Draw(string key)
         {
@@ -143,7 +143,8 @@ public sealed partial class MainWindow
                     content.Children.Add(document); break;
             }
         }
-        foreach (var (key, label) in new[] { ("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs") }) tabs.Children.Add(Button(T(label), () => Draw(key)));
+        foreach (var (key, label) in new[] { ("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs") }) tabs.Items.Add(new SelectorBarItem { Text = T(label), Tag = key, IsSelected = tab == key, FontSize = 13 });
+        tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem?.Tag is string key) await Run(() => Draw(key)); };
         await Draw(tab); await Show(T("details.dialog") + " · " + snap["org"].Text("name"), box);
     }
     private void DrawTasks(StackPanel box, string? focus)
@@ -162,8 +163,8 @@ public sealed partial class MainWindow
                 detail.Children.Add(Text(T("details.label_evidence")));
                 if (task.Rows("evidence").Count == 0) detail.Children.Add(Text(T("details.no_evidence"))); else foreach (var ev in task.Rows("evidence")) detail.Children.Add(Rich(ev.Text()));
                 if (task.Text("owner").Length > 0) detail.Children.Add(Button(T("details.ask", ("name", Display(task.Text("owner")))), async () => { visibleDialog?.Hide(); await Select(org, task.Text("owner")); }));
-                list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Header = task.Text("id") + " " + task.Text("title") + "\n" + (task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("task." + task.Text("status")) + "\n" + T("details.updated", ("when", When(task.Text("at")))) + (task.Text("report").Length > 0 ? " · " + T("details.has_report") : ""), Content = detail });
+                var header = Stack(Heading(task.Text("id") + " " + task.Text("title")), Quiet((task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("task." + task.Text("status"))), Quiet(T("details.updated", ("when", When(task.Text("at")))) + (task.Text("report").Length > 0 ? " · " + T("details.has_report") : ""), 11)); header.Spacing = 4; header.MaxWidth = Math.Min(600, root.ActualWidth - 280);
+                list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Header = header, Content = detail });
             }
         }
         filters.SelectionChanged += (_, _) => Draw(); Draw();
@@ -189,7 +190,7 @@ public sealed partial class MainWindow
             box.Children.Add(Text(rules.ToJsonString(new() { WriteIndented = true }), 12));
             if (p.Rows("rules").Any(r => r.Text("effect") == "check")) box.Children.Add(CheckRules(p.Rows("rules")));
         }
-        box.Children.Add(Text(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 12)); return box;
+        box.Children.Add(Quiet(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 12)); return Card(box);
     }
     private UIElement CheckRules(JsonArray rules)
     {

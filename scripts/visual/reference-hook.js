@@ -25,7 +25,7 @@ window.__relicVisual = async (scene, fixture) => {
     case 'member-app': await memberDialog({ mode: 'app' }); break;
     case 'member-host': await memberDialog({ mode: 'host' }); break;
     case 'member-existing': await memberDialog({ mode: 'existing' }); break;
-    case 'member-card': await openCard(fixture.member, document.querySelector('#head') || document.querySelector('#chat')); break;
+    case 'member-card': await openCard(fixture.member, document.querySelector('#chat-head')); break;
     case 'member-edit': await memberDialog({ edit: fixture.member, mode: 'host' }); break;
     case 'forward': await forwardDialog('advisor'); break;
     case 'secretary': openSecretarySetup(); break;
@@ -37,7 +37,7 @@ window.__relicVisual = async (scene, fixture) => {
     case 'shortcuts': shortcutsDialog(); break;
     case 'recipients': document.querySelector('#composer .to-picker, #composer .to-btn, #composer .bar button').click(); break;
     case 'quote': setQuote(dname(fixture.member), fixture.quote); break;
-    case 'mention': { const ta = document.querySelector('#composer textarea'); ta.value = '@'; ta.focus(); ta.dispatchEvent(new Event('input', { bubbles: true })); break; }
+    case 'mention': { const ta = document.querySelector('#composer textarea'); ta.value = '@'; ta.focus(); ta.setSelectionRange(1, 1); ta.dispatchEvent(new Event('input', { bubbles: true })); break; }
     case 'digest': S.digest = fixture.digest; S.digestOpen = true; renderBanner(); break;
     case 'plain': S.plainMode = true; for (const item of S.chat.items) if (typeof item.id === 'number') S.plain[item.id] = fixture.plain; renderAll(true); break;
     case 'quick-start': S.orgId = null; S.orgs = []; S.snap = null; S.chat = null; renderAll(true); break;

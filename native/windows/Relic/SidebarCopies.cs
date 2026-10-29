@@ -8,6 +8,7 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 40 };
+    private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 4, 2, 4) };
     private StackPanel? copiesBody;
     private HashSet<string>? knownCopies;
     private void DrawToolbar()
@@ -19,9 +20,9 @@ public sealed partial class MainWindow
             var b = new AppBarButton { Icon = Glyph(glyph), Label = label, IsEnabled = enabled, Width = 38, Height = 36, IsCompact = true };
             ToolTipService.SetToolTip(b, tip); b.Click += async (_, _) => await Run(action); toolbar.PrimaryCommands.Add(b);
         }
-        Action("\uE700", T("appmenu.sidebar"), T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), ToggleSide);
-        Action("\uE72B", T("appbar.back"), T("appbar.back"), () => Navigate(-1), historyIndex > 0);
-        Action("\uE72A", T("appbar.forward"), T("appbar.forward"), () => Navigate(1), historyIndex + 1 < history.Count);
+        navigationButtons.Children.Clear(); navigationButtons.Children.Add(IconButton("\uE700", "appmenu.sidebar", ToggleSide, T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar")));
+        var back = IconButton("\uE72B", "appbar.back", () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
+        var forward = IconButton("\uE72A", "appbar.forward", () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
         var title = Ellipsis(snap["org"].Text("name"), 13); title.Margin = new Thickness(16, 8, 16, 0); title.Foreground = Muted; toolbar.Content = title;
         var count = snap.Rows("decisions").Count;
         Action("\uE7BA", T("decision.title"), T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"));
@@ -35,7 +36,10 @@ public sealed partial class MainWindow
     {
         side.Children.Clear(); sidebarFooter.Children.Clear();
         var create = QuietButton(T("common.new_org"), CreateOrg); create.HorizontalAlignment = HorizontalAlignment.Stretch;
-        side.Children.Add(create); search.Margin = new Thickness(2, 6, 2, 12); search.MinHeight = 30; search.FontSize = 12; side.Children.Add(search);
+        side.Children.Add(create); search.Margin = new Thickness(0); search.MinHeight = 32; search.FontSize = 12; search.Padding = new Thickness(28, 5, 30, 5); search.BorderThickness = new Thickness(0); search.CornerRadius = new CornerRadius(8); search.Background = Paint("EFEEEA", "262624");
+        if (search.Parent is Panel oldSearch) oldSearch.Children.Remove(search);
+        var searchRow = new Grid { Margin = new Thickness(2, 6, 2, 12) }; searchRow.Children.Add(search); var searchIcon = Glyph("\uE721", 13); searchIcon.HorizontalAlignment = HorizontalAlignment.Left; searchIcon.Margin = new Thickness(9, 0, 0, 0); searchIcon.IsHitTestVisible = false; searchRow.Children.Add(searchIcon);
+        var searchMic = Microphone(search); searchMic.HorizontalAlignment = HorizontalAlignment.Right; searchRow.Children.Add(searchMic); side.Children.Add(searchRow);
         var caption = Quiet(T("page.tree"), 11); caption.Margin = new Thickness(8, 6, 8, 8); side.Children.Add(caption);
         var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0) };
         list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); };
@@ -90,6 +94,7 @@ public sealed partial class MainWindow
         foreach (var item in orgs) if (!visited.Contains(item.Text("id")) && !orgs.Any(o => folded.Contains(o.Text("id")))) Node(item, 0);
         if (orgs.Count == 0) side.Children.Add(Quiet(T("side.no_orgs")));
         var profile = QuietButton(Display("human"), Settings); ToolTipService.SetToolTip(profile, T("side.profile")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, T("page.me"));
+        var identity = new Grid { ColumnSpacing = 8 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); identity.Children.Add(SmallAvatar(preferences.Text("avatar"), Display("human"), size: 30)); var labels = new StackPanel { Spacing = 2 }; labels.Children.Add(Heading(Display("human"), 13)); labels.Children.Add(Quiet(T("side.profile"), 11)); Grid.SetColumn(labels, 1); identity.Children.Add(labels); profile.Content = identity;
         sidebarFooter.Children.Add(TwoColumns(profile, IconButton("\uE713", "common.settings", Settings)));
         sidebarFooter.Children.Add(QuietButton(T("chart.title"), Chart));
     }

@@ -66,7 +66,8 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var top = new StackPanel(); top.Children.Add(menu); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        var top = new Grid { Height = 40 }; top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 2); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
         root.Resources["ContentDialogMaxWidth"] = 1100d;
 
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
@@ -259,16 +260,18 @@ public sealed partial class MainWindow : Window
             default: DrawOverview(); break;
         }
     }
-    private async Task Show(string title, UIElement content)
+    private async Task Show(string title, UIElement content, double width = 720)
     {
         var dialog = new ContentDialog { XamlRoot = root.XamlRoot };
-        var layout = new Grid { RowSpacing = 20 }; layout.RowDefinitions.Add(new() { Height = GridLength.Auto }); layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        var requested = content is FrameworkElement element && !double.IsNaN(element.Width) ? element.Width : width;
+        var layout = new Grid { RowSpacing = 20, Width = Math.Min(requested, Math.Max(400, root.ActualWidth - 160)) }; layout.RowDefinitions.Add(new() { Height = GridLength.Auto }); layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         layout.Children.Add(TwoColumns(Heading(title, 18), IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; })));
         var scroll = Scroll(content); scroll.MaxHeight = Math.Max(320, root.ActualHeight - 180); Grid.SetRow(scroll, 1); layout.Children.Add(scroll); dialog.Content = layout;
         await Dialog(dialog);
     }
     private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null)
     {
+        form.Width = Math.Min(572, Math.Max(400, root.ActualWidth - 160));
         var message = Text(""); form.Children.Add(message);
         var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel") };
         dialog.PrimaryButtonClick += async (_, e) =>
@@ -282,13 +285,15 @@ public sealed partial class MainWindow : Window
     }
     private TextBox Field(StackPanel form, string key, bool multiline = false)
     {
-        var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap };
-        form.Children.Add(field); if (preferences.Text("voice") != "off") form.Children.Add(Microphone(field)); return field;
+        var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap, FontSize = 13, MinHeight = multiline ? 100 : 32, MaxHeight = multiline ? 220 : double.PositiveInfinity };
+        var row = new Grid { ColumnSpacing = 4 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.Children.Add(field);
+        if (preferences.Text("voice") != "off") { var mic = Microphone(field); mic.VerticalAlignment = VerticalAlignment.Bottom; Grid.SetColumn(mic, 1); row.Children.Add(mic); }
+        form.Children.Add(row); return field;
     }
     private ComboBox Choice(StackPanel form, string label, IEnumerable<(string, string)> options)
     {
-        var box = new ComboBox { Header = T(label), HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var (id, title) in options) box.Items.Add(new ComboBoxItem { Content = title, Tag = id });
+        var box = new ComboBox { Header = T(label), HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, MinHeight = 32 };
+        foreach (var (id, title) in options) { var option = new ComboBoxItem { Content = Ellipsis(title), Tag = id }; ToolTipService.SetToolTip(option, title); box.Items.Add(option); }
         box.SelectedIndex = box.Items.Count > 0 ? 0 : -1; form.Children.Add(box); return box;
     }
     private static string Value(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";

@@ -42,5 +42,13 @@ The shared compose step places images reference | Windows | macOS and writes a
 clickable HTML index. Final downloaded evidence belongs in
 `S:\Codex\Outputs\Relic-native-visual`.
 
+The reference and WinUI captures run sequentially against the same isolated
+server on the Windows runner. Chromium is headless. The runner's desktop is set
+to 1920x1080 without a settings window so the largest native client area fits;
+WinUI rejects a root layout whose actual dimensions differ from the manifest.
+Composition checks receipt counts, matching matrices and exact PNG dimensions
+before producing comparisons. A successful workflow means complete evidence,
+not visual acceptance: its `coverage.json` explicitly requires human review.
+
 The local machine is off limits for installing, launching, restarting, UI capture,
 or tests. The Python entry points fail outside GitHub Actions by default.

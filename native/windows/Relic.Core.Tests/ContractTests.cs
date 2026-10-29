@@ -6,6 +6,14 @@ using Xunit;
 
 public class ContractTests
 {
+    [Fact] public void TranslationLoadingNeverExposesAnInternalKey()
+    {
+        var words = new Words();
+        Assert.Equal("", words.T("composer.voice_title"));
+        words.Load(JsonNode.Parse("{\"lang\":\"en-US\",\"strings\":{\"composer.voice_title\":\"Voice input\"}}")!);
+        Assert.Equal("Voice input", words.T("composer.voice_title"));
+        Assert.Equal("", words.T("missing.key"));
+    }
     [Fact] public void HistoryPaginationRetainsOlderNoticesAndRefreshesExistingMessages()
     {
         var older = JsonNode.Parse("[{\"id\":\"e1\",\"type\":\"notice\",\"at\":\"2026-01-01\"},{\"id\":1,\"type\":\"message\",\"at\":\"2026-01-01\",\"body\":\"old\"}]")!.AsArray();

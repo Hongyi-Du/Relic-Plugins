@@ -38,6 +38,7 @@ def reference(manifest):
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
         for case in manifest["cases"]:
+            print("Reference capture: " + case["id"], flush=True)
             page = browser.new_page(viewport={"width": case["width"], "height": case["height"]}, device_scale_factor=1, locale=manifest["lang"], color_scheme=manifest["theme"])
             page.route("**/app.js", lambda route: route.fulfill(body=source, content_type="application/javascript"))
             errors = []
@@ -77,6 +78,7 @@ def main():
     parser.add_argument("--client", choices=["reference", "windows", "macos"], required=True)
     parser.add_argument("--matrix", choices=["smoke", "full"], default="full")
     parser.add_argument("--exe", type=Path)
+    parser.add_argument("--reference", action="store_true", help="Capture reference against this exact native fixture/server on the Windows runner")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     spec = json.loads((HERE / "scenes.json").read_text(encoding="utf-8"))
@@ -103,6 +105,10 @@ def main():
                     manifest = {"version": 1, "client": args.client, "lang": lang, "theme": theme, "fixture": fixture, "output": str(output), "cases": cases}
                     path = work / "manifest.json"
                     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+                    if args.reference:
+                        reference_output = output.parent / "reference"
+                        reference_output.mkdir(exist_ok=True)
+                        reference(dict(manifest, client="reference", output=str(reference_output)))
                     if args.client == "reference":
                         reference(manifest)
                     else:
@@ -113,6 +119,8 @@ def main():
                 server.terminate()
                 server.wait(timeout=20)
     (output / "capture-complete.json").write_text(json.dumps({"client": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+    if args.reference:
+        (output.parent / "reference/capture-complete.json").write_text(json.dumps({"client": "reference", "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
 
 
 if __name__ == "__main__":
