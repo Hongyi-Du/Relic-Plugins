@@ -136,15 +136,25 @@ struct ChatView: View {
     }
 }
 
+private struct StreamMetrics: Equatable {
+    var bottom: CGFloat = 0
+    var height: CGFloat = 0
+}
 private struct StreamBottom: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+    static var defaultValue = StreamMetrics()
+    static func reduce(value: inout StreamMetrics, nextValue: () -> StreamMetrics) {
+        let next = nextValue()
+        if next.bottom != 0 { value.bottom = next.bottom }
+        if next.height != 0 { value.height = next.height }
+    }
 }
 
 struct ConversationStream: View {
     @EnvironmentObject var m: Model
     @State private var followsBottom = true
     @State private var initialLoad = true
+    @State private var lastHeight: CGFloat = 0
+    @State private var lastViewport: CGSize = .zero
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -155,10 +165,18 @@ struct ConversationStream: View {
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             Rows(m.displayMessages) { MessageView(item: $0) }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
-                            Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: end.frame(in: .named("conversation")).maxY) })
+                            Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
+                            .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
                     }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
-                        .onPreferenceChange(StreamBottom.self) { followsBottom = $0 <= viewport.size.height + 90 }
+                        .onPreferenceChange(StreamBottom.self) { metrics in
+                            // A digest, inspector resize, or late text measurement
+                            // changes geometry without the person scrolling away.
+                            let resized = abs(metrics.height - lastHeight) > 1 || viewport.size != lastViewport
+                            if resized && followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                            else if !resized { followsBottom = metrics.bottom <= viewport.size.height + 90 }
+                            lastHeight = metrics.height; lastViewport = viewport.size
+                        }
                 }
                 ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
             }.onChange(of: m.selection) { initialLoad = true; followsBottom = true }
@@ -287,15 +305,28 @@ struct StepView: View {
     let step: Node
     let member: String
     @State private var full: Node?
+    @State private var expanded = false
+    private var title: String {
+        if step["role"].text == "tool_call" { return ToolActivity.toolName(step["tool"].text) }
+        return m.t(["user": "trace.user", "assistant": "common.reply", "thinking": "trace.thinking", "context": "trace.injected"][step["role"].text] ?? "common.result")
+    }
+    private var summary: String { ToolActivity.pair([step]).first?.argument ?? step["text"].text }
     var body: some View {
-        if ["assistant", "user"].contains(step["role"].text) {
-            VStack(alignment: .leading) { Text(step["role"].text == "user" ? m.t("trace.user") : m.name(member)).font(.caption).foregroundStyle(.secondary); RichText(step["text"].text) }
-        } else {
-            DisclosureGroup(step["tool"].text.isEmpty ? m.t(step["role"].text == "thinking" ? "trace.thinking" : step["role"].text == "context" ? "trace.injected" : "common.result") : step["tool"].text) {
-                Text((full ?? step)["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                if !step["i"].isNull && full == nil { Button(m.t("org.click_expand")) { m.run { full = try await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) } } }
-            }.foregroundStyle(step["error"].flag ? .red : .secondary)
-        }
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 7) {
+                if ["assistant", "user"].contains(step["role"].text) { RichText(step["text"].text) }
+                else { Text((full ?? step)["text"].text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if !step["i"].isNull && full == nil && !["assistant", "user"].contains(step["role"].text) { Button(m.t("org.click_expand")) { m.run { full = try await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) } }.buttonStyle(.link) }
+            }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line)).padding(.top, 5)
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.muted).frame(width: 6, height: 6)
+                Text(title).font(.system(size: 12, weight: .semibold)).fixedSize()
+                Text(summary).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(step["text"].text)
+                Spacer(minLength: 4)
+                Text(m.clock(step["at"])).font(.system(size: 10.5)).foregroundStyle(RelicStyle.muted).fixedSize().help(step["at"].text)
+            }
+        }.padding(.vertical, 3).onAppear { expanded = ["assistant", "user"].contains(step["role"].text) }
     }
 }
 

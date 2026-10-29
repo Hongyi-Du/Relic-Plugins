@@ -165,13 +165,13 @@ struct TaskCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(m.t("details.label_title") + task["title"].text)
                 if !task["created_by"].text.isEmpty { Text(m.t("details.label_created_by") + m.name(task["created_by"].text)) }
-                if !task["report"].text.isEmpty { Text(m.t("report.title")).bold(); RichText(task["report"].text); Text(task["done_at"].text).font(.caption) }
+                if !task["report"].text.isEmpty { Text(m.t("report.title")).bold(); RichText(task["report"].text); Text(m.day(task["done_at"]) + " " + m.clock(task["done_at"])).font(.caption).foregroundStyle(RelicStyle.muted) }
                 if !task["at"].text.isEmpty { Text(m.t("details.updated", ["when": m.day(task["at"]) + " " + m.clock(task["at"])])) }
                 Text(m.t("details.label_evidence")).bold()
                 if task["evidence"].rows.isEmpty { Text(m.t("details.no_evidence")) }
                 Rows(task["evidence"].rows) { RichText($0.text) }
                 if !task["owner"].text.isEmpty { Button(m.t("details.ask", ["name": m.name(task["owner"].text)])) { m.sheet = nil; m.run { try await m.select(m.organization, task["owner"].text) } } }
-            }.padding(8)
+            }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             VStack(alignment: .leading) {
                 HStack(alignment: .top) { Text(task["id"].text + " " + task["title"].text).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 4); SmallBadge(text: m.taskLabel(task["status"].text), color: task["status"].text == "blocked" ? RelicStyle.amber : task["status"].text == "done" ? RelicStyle.green : RelicStyle.violet) }
@@ -220,7 +220,7 @@ struct ProtocolCard: View {
                 if p["status"].text == "proposed" { Text(m.t("org.protocol_voting", ["n": p["votes"].text])) }
                 if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
                 Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
-            }.padding(6)
+            }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
@@ -252,7 +252,7 @@ struct RulesView: View {
                         }
                     }
                     Text(pretty(rule)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.onAppear { expanded = m.expandRules }
     }

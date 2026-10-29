@@ -42,7 +42,20 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
-### Shared localized platform diagnostic request (visual evidence)
+### Fix merged in `e4bb502`, awaiting capture: Windows automation peer crash (`40873502291`)
+
+All four Windows shards at `fdee097` exit `3221225477` without `complete.json`.
+Reference captures complete all 126 files per shard. Downloaded Windows
+`data/en-US/light/client.log` reports `System.AccessViolationException` at
+`IExpandCollapseProviderMethods.Collapse`,
+`MenuBarItemAutomationPeer.Collapse`, `MainWindow.CaptureVisuals`.
+Please avoid collapsing a closed/unrealized native MenuBar automation peer and
+repair the actual menu capture path. macOS shards are still running independently.
+The shared owner replaced direct automation peer calls with CI desktop input in
+`e4bb502`, now merged. The full comparison is being rerun against that fix.
+Local diagnostic: `S:/Codex/Outputs/Relic-native-visual/iteration-09/visual-windows-en-US-light`.
+
+### Resolved in `6391291`: shared localized platform diagnostic
 
 The Chinese `settings-harness` capture shows the English built-in diagnostic
 `No private host-supplied desktop socket; open a chat with the Relic plugin loaded`.
@@ -53,7 +66,7 @@ the current response shape; macOS calls `/api/platform` and reads
 `platform["desktop_transport"]["reason"]`. Do the same for other fixed diagnostic
 reasons in that response. Provider IDs and user-supplied paths remain data.
 
-### Shared Windows capture regression `40868069780`
+### Resolved in `441e6a7`: shared Windows capture regression `40868069780`
 
 With shared `536d5d9`, reference capture now completes the first 126 zh-CN/light
 cases. The Windows client then reports `COMException (0x800F1000): No installed
@@ -62,7 +75,7 @@ components were detected` at `UIElementCollection.Add`, `DrawSidebar()` in
 capturing independently. Please repair the Windows capture failure before the
 full comparison rerun; the reference anchor issue itself is resolved.
 
-### Reference `plain` scene state correction
+### Resolved in `6391291`: reference `plain` scene state correction
 
 Visual review of `40868069780` reference `zh-CN-light-1024x700-plain.png` shows
 the on-state toolbar label but original messages, with no fixture translation.
@@ -72,6 +85,12 @@ The hook currently sets only `S.plainMode = true`. Please call
 assignment and `renderAll(true)` (and reset that preference for other scenes).
 This uses the production renderer and avoids invoking a provider. macOS already
 renders the injected translation plus the expandable original in this scene.
+
+`6391291` is merged. The shared owner supplied localized GET/POST platform
+reasons, real-format transcript/session fixtures, the plain preference fix, and
+four language/theme shards per platform. The manifest remains unchanged.
+macOS has confirmed actual mention-popup visibility in `c82262b` captures and
+now fails that capture if the native NSPopover is absent. No new API is needed.
 
 Original shared owner requests (superseded by `docs/native-visual.md`):
 

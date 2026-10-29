@@ -88,7 +88,8 @@ struct MemberForm: View {
         Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary)
         HStack {
             TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name)
-            Menu(m.t("member.which_seat")) { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } }
+            Menu { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } } label: { Image(systemName: "chevron.down") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("member.which_seat")).accessibilityLabel(m.t("member.which_seat"))
         }
         TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role)
     }
@@ -104,7 +105,7 @@ struct MemberForm: View {
     }
 
     @ViewBuilder private var hostFields: some View {
-        Picker(m.t("member.where_run"), selection: $hostHarness) { Text("Claude Code").tag("claude-code"); Text("Codex").tag("codex") }
+        Picker(m.t("common.harness"), selection: $hostHarness) { Text("Claude Code").tag("claude-code"); Text("Codex").tag("codex") }
             .onChange(of: hostHarness) { permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" }
         Picker(m.t("member.where_run"), selection: $surface) {
             Text(m.t("member.harness_cli", ["harness": hostHarness == "codex" ? "Codex" : "Claude Code"])).tag("cli")
@@ -112,7 +113,10 @@ struct MemberForm: View {
         }
         HStack {
             TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
-            if hostHarness == "claude-code" { Menu(m.t("common.model")) { Rows(options["claude_models"].rows) { option in Button(option.text.isEmpty ? m.t("common.default_model") : option.text) { model = option.text } } } }
+            if hostHarness == "claude-code" {
+                Menu { Rows(options["claude_models"].rows) { option in Button(option.text.isEmpty ? m.t("common.default_model") : option.text) { model = option.text } } } label: { Image(systemName: "chevron.down") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("common.model")).accessibilityLabel(m.t("common.model"))
+            }
         }
         Picker(m.t("member.effort"), selection: $effort) { Rows(options["efforts"].rows) { Text($0.text.isEmpty ? m.t("common.default_effort") : $0.text).tag($0.text) } }
         TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder)
