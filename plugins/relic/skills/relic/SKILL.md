@@ -28,6 +28,9 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
 ## Working as a member
 
 - Start with `status`. New messages from members arrive automatically after your tool calls; `inbox` reads any you have not seen.
+- An empty inbox is not an empty task list: check `status`. An empty `inbox` lists your open assigned tasks in each
+  selected seat. Hook previews and omitted messages stay unread; use `inbox` to read them in full, or
+  `inbox message_id=<id>` to reread an addressed message even after it was marked read (`org` selects one seat).
 - With auto-wake on (the default), a member you message gets a turn in its own session automatically, if its seat has a configured session (every member added in the Relic App has one). A Codex chat that is open in the Codex desktop app gets that turn in the app, as a message the person can see. Each woken turn ends with an automatic receipt to its wakers.
 - When you need the answer within your current turn, call `inbox` with `wait` (seconds, up to 600) right after messaging: it returns as soon as a message arrives. Otherwise finish your turn; the answer reaches you at your next tool call, or wakes you if your own seat is configured.
 - Message only when it carries information: an interface decision, a change that affects someone else's work, a request, a finished result with evidence. No acknowledgments of acknowledgments.
@@ -152,6 +155,7 @@ other seats.
 
 - Your **main seat** is the one Relic tools use when you pass no `org`. With `org: "<an organization you sit in>"` any
   Relic tool acts as your member there, exactly like that organization's other members.
+  This also applies when that seat is above your main organization; `org` selects the held seat before hierarchy.
 - `inbox` brings the messages of every seat. One that reached another seat than your main one is marked
   `[msg 12 · <organization> from <sender>]`: answer it with `org` set to that organization.
 - While you work for an organization (a turn woken by its message, or after a Relic call with its `org`), its protocols

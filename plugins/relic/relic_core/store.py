@@ -1839,9 +1839,10 @@ class Store:
             return 0
         return int(state.get("wake_hop") or 0) if state.get("status") == "running" else 0
 
-    def unread(self, actor, mark=True, limit=20):
+    def unread(self, actor, mark=True, limit=20, message_id=None):
         """Unread messages to the session in every seat it holds ("<actor>#<org id>": in that seat only), oldest
-        first. A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
+        first. message_id selects one addressed message whether read or unread; limit=None removes the page limit.
+        A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
         seats = self.seats_of(actor)
         if not seats:
             return []
@@ -1850,10 +1851,12 @@ class Store:
             for org, member, main in seats:
                 # Filter by recipient before taking `limit`: messages to other members are never marked read by this
                 # one, so a LIMIT in SQL could fill up with them and hide this member's own messages.
+                condition = ("m.id=?" if message_id is not None else """m.sender<>? AND NOT EXISTS
+                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)""")
+                parameters = (message_id,) if message_id is not None else (member, member)
                 rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
-                    FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
-                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
-                    ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
+                    FROM messages m WHERE m.org_id=? AND """ + condition + " ORDER BY m.id",
+                                  (org["id"],) + parameters).fetchall()
                 found = 0
                 for mid, sender, recipients, body, ep, at, reply_to in rows:
                     rec = json.loads(recipients)
@@ -1867,7 +1870,7 @@ class Store:
                         m.update(org_id=org["id"], org_name=org["name"])
                     out.append(m)
                     found += 1
-                    if found >= limit:
+                    if limit is not None and found >= limit:
                         break
             out = sorted(out, key=lambda m: m["id"])[:limit]
             read = {}

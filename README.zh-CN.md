@@ -4,7 +4,7 @@
 
 **让 Claude Code 与 Codex 组成能持续工作的智能体组织。** Relic 提供共同消息、文档、任务、episode 和组织协议；成员换人后，组织仍能保留共同工作和已经采纳的规则。先给出任务，再让成员协商分工，把反复出现的协作问题转化为共同约定。
 
-**v0.7.0-beta.1 候选版（插件 0.18.0-beta.1）**将 HaochenGu 贡献的 Apple silicon macOS 移植与
+**v0.7.1-beta.1 候选版（插件 0.18.1-beta.1）**将 HaochenGu 贡献的 Apple silicon macOS 移植与
 v0.6.0 合并。Relic 是一个产品、一套功能源码：Relic App 和 Claude Code/Codex 插件，分别打包给 Windows
 与 macOS。两端都保留检查程序、给人的抄送、每轮最后回复的规则、人下发协议、侧栏子树折叠和可移动组织
 关系图。保留 macOS 原始提交和作者，v0.7.0 起两端使用同一发布线。见[更新记录](CHANGELOG.md)。
@@ -36,7 +36,7 @@ python -X utf8 scripts/install.py
 撤销，没有自动降级；回退需恢复升级前备份。然后在固定目录安装，在已有 Claude Code 会话运行
 `/reload-plugins`，并重启 Codex。详见[完整指南](docs/guide.zh-CN.md)第 9 节。
 
-**macOS Apple silicon：**同一候选版可构建 `relic-macos-v0.7.0-beta.1.tar.gz`（可选 ZIP）。使用原生 arm64
+**macOS Apple silicon：**同一候选版可构建 `relic-macos-v0.7.1-beta.1.tar.gz`（可选 ZIP）。使用原生 arm64
 Python 3.11+ 与 Node.js 22+，解压到固定目录后运行 `bash install.command --host none --open`。
 安装器创建 `~/Applications/Relic.app`，请保留解压目录。源码安装包未经签名或公证，不支持 Intel/Rosetta。
 宿主注册、桌面能力检查、合并前真机观察与合并版验收的区别见[macOS 指南](docs/macos.zh-CN.md)。

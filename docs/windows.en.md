@@ -1,6 +1,6 @@
 # Windows installation
 
-This guide also applies to the unified v0.7.0-beta.1 candidate (plugin 0.18.0-beta.1). Build it with
+This guide also applies to the unified v0.7.1-beta.1 candidate (plugin 0.18.1-beta.1). Build it with
 `python -X utf8 scripts/package.py --platform windows --output dist`. Before upgrading, back up the data:
 opening the old store adds `activity.paths` irreversibly; there is no automatic downgrade. Restore the
 pre-upgrade backup to roll back. No v0.7.0 GitHub Release has been published.

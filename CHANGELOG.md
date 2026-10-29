@@ -1,5 +1,25 @@
 # Changelog / 更新记录
 
+## v0.7.1-beta.1 — 2026-10-29
+
+Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.
+
+- Hook delivery fits organization context and whole messages into 9500 characters before marking messages read.
+  A preview or omitted message stays unread, with its id and an inbox recovery notice.
+- `inbox message_id=<id>` rereads any message addressed to the session's selected seats, including read messages.
+  An empty inbox lists open assigned tasks across those seats and points to `status`.
+- Auto-wake prompts name the context/inbox and status task list. Wake turns cannot take the manual `--open` path.
+- Windows subprocess creation uses one no-console flag helper, including App-owned jobs and probes. Explicit
+  manual CLI opening uses Windows Terminal without a separate launcher console. Tests mock that UI action and
+  hide the checker fixture's child process. Release-layout App tests skip when `scripts/open_app.py` is absent.
+- Regression coverage includes replying from a seat above the main organization: an explicit held seat takes
+  precedence over upward reporting, regardless of hierarchy.
+
+基于合并后的 Windows/macOS v0.7.0 源码，插件版本为 **0.18.1-beta.1**。
+修复 hook 截断后误标已读；新增按消息 ID 重读和空收件箱任务提示；统一 Windows 子进程隐藏标志，
+阻止自动唤醒进入人工开窗路径，修正会实际打开终端的测试夹具，并覆盖上级席位回复场景。
+本次不发布、不安装、不部署；真实桌面验收另行进行。
+
 ## v0.7.0-beta.1 — 2026-10-28
 
 One Relic version for Windows and macOS on Apple silicon, plugin **0.18.0-beta.1**. The macOS port contributed by

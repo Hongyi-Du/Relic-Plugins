@@ -78,7 +78,7 @@ def cli(name):
 def run(command, check=True):
     print('> ' + subprocess.list2cmdline(command), flush=True)
     env = platform_support.runtime_env(executables=[platform_support.find_executable('node'), command[0]])
-    return subprocess.run(command, check=check, env=env).returncode
+    return subprocess.run(command, check=check, env=env, creationflags=platform_support.creation_flags()).returncode
 
 
 def shortcut(python):
@@ -95,7 +95,7 @@ def shortcut(python):
     env = dict(os.environ, RELIC_LINK_TARGET=str(target), RELIC_LINK_ARGS='-X utf8 "%s"' % script,
                RELIC_LINK_DIR=str(ROOT / 'plugins' / 'relic'))
     subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps], check=True, env=env,
-                   stdout=subprocess.DEVNULL)
+                   stdout=subprocess.DEVNULL, creationflags=platform_support.creation_flags())
 
 
 def main(argv=None):
@@ -169,7 +169,8 @@ def main(argv=None):
                   'Check Settings > Harness connections or scripts/doctor.py --probe-desktop. '
                   'CLI, App-managed members and manual inbox work independently.')
         if args.open:
-            subprocess.Popen([sys.executable, '-X', 'utf8', str(ROOT / 'scripts' / 'open_app.py')])
+            subprocess.Popen([sys.executable, '-X', 'utf8', str(ROOT / 'scripts' / 'open_app.py')],
+                             creationflags=platform_support.creation_flags())
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f'Installation stopped: {error}', file=sys.stderr)

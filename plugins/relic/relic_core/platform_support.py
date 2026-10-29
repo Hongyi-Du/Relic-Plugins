@@ -15,6 +15,8 @@ import sys
 import tempfile
 import webbrowser
 
+from .process import creation_flags
+
 
 OVERRIDES = {"codex": "CODEX_CLI_PATH", "claude": "CLAUDE_CODE_EXECUTABLE",
              "node": "RELIC_NODE_PATH", "npm": "RELIC_NPM_PATH"}
@@ -76,7 +78,7 @@ def preferred_language():
     if sys.platform != "darwin":
         return None
     try:
-        result = subprocess.run(["/usr/bin/defaults", "read", "-g", "AppleLanguages"],
+        result = subprocess.run(["/usr/bin/defaults", "read", "-g", "AppleLanguages"], creationflags=creation_flags(),
                                 capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
             match = re.search(r'(?<![A-Za-z])[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*(?![A-Za-z])', result.stdout)
@@ -172,7 +174,7 @@ def node_runtime(executable=None):
     try:
         proc = subprocess.run([exe, "-p", "JSON.stringify({version:process.versions.node,arch:process.arch})"],
                               capture_output=True, text=True, timeout=5,
-                              creationflags=0x08000000 if os.name == "nt" else 0)
+                              creationflags=creation_flags())
         data = json.loads(proc.stdout) if proc.returncode == 0 else {}
         if not isinstance(data, dict):
             data = {}
@@ -216,7 +218,8 @@ def open_external(target):
         return
     else:
         command = ["xdg-open", target]
-    proc = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15)
+    proc = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15,
+                          creationflags=creation_flags())
     if proc.returncode:
         raise RuntimeError(proc.stderr.strip() or "The system could not open the requested item.")
 
@@ -238,7 +241,8 @@ def open_terminal(argv, cwd, env, directory):
             handle.write("cd -- %s || exit 1\n" % shlex.quote(str(cwd)))
             assignments = ["%s=%s" % (k, v) for k, v in env.items()]
             handle.write("exec /usr/bin/env -i -- %s\n" % shlex.join(assignments + list(argv)))
-        proc = subprocess.run(["/usr/bin/open", "-a", "Terminal", name], capture_output=True, text=True, timeout=15)
+        proc = subprocess.run(["/usr/bin/open", "-a", "Terminal", name], capture_output=True, text=True, timeout=15,
+                              creationflags=creation_flags())
         if proc.returncode:
             raise RuntimeError(proc.stderr.strip() or "Terminal could not open the session.")
     except BaseException:

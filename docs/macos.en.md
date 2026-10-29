@@ -1,6 +1,6 @@
-# macOS Apple silicon guide — v0.7.0-beta.1
+# macOS Apple silicon guide — v0.7.1-beta.1
 
-**v0.7.0-beta.1 (plugin 0.18.0-beta.1) merges HaochenGu's macOS port with v0.6.0.** Windows and macOS share one
+**v0.7.1-beta.1 (plugin 0.18.1-beta.1) merges HaochenGu's macOS port with v0.6.0.** Windows and macOS share one
 feature source and release version. This unsigned source candidate includes the Relic App and Claude Code/Codex
 plugin; Python, Node.js and signed-in hosts are external prerequisites. HaochenGu's real-Mac observations were made
 before this merge on the v0.4.1-based port. Merged automated results and remaining live acceptance are tracked in
@@ -28,7 +28,7 @@ adapter directory; it does not overwrite the old pair in place.
 
 ## Installation and lifecycle
 
-Extract `relic-macos-v0.7.0-beta.1.zip` (or the equivalent `.tar.gz`) into a permanent folder. From that folder:
+Extract `relic-macos-v0.7.1-beta.1.zip` (or the equivalent `.tar.gz`) into a permanent folder. From that folder:
 
 ```sh
 bash install.command --host none --open

@@ -6,16 +6,19 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'plugins/relic'))
+from relic_core.process import creation_flags
 SHARED = ('LICENSE','CHANGELOG.md','CONTRIBUTING.md','release.json')
 SCRIPTS = ('install.py','doctor.py','open_app.py')
 SKIP = {'__pycache__','.git','.DS_Store','.native-fixtures','.pytest_cache','.native-tmp'}
 README = '''# Relic · Public Beta
 
-Relic v0.7.0-beta.1 (plugin 0.18.0-beta.1): one source and feature set for Windows and macOS Apple silicon.
+Relic v0.7.1-beta.1 (plugin 0.18.1-beta.1): one source and feature set for Windows and macOS Apple silicon.
 Includes check/Reply rules, Copies, person-issued protocols, sidebar folding and the organization chart.
 
 [English user guide](docs/guide.en.md) · [中文完整指南](docs/guide.zh-CN.md)
@@ -170,8 +173,8 @@ def main():
     # LF on every platform: `sha256sum -c` reads a CR as part of the file name
     (args.output/'SHA256SUMS.txt').write_text(''.join(f'{a["sha256"]}  {a["name"]}\n' for a in assets),encoding='utf-8',
                                               newline='\n')
-    result=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
-    dirty=subprocess.run(['git','status','--porcelain'],cwd=ROOT,capture_output=True,text=True)
+    result=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True,creationflags=creation_flags())
+    dirty=subprocess.run(['git','status','--porcelain'],cwd=ROOT,capture_output=True,text=True,creationflags=creation_flags())
     manifest={'release':version,'source_commit':result.stdout.strip() if result.returncode==0 else None,
               'source_dirty':bool(dirty.stdout.strip()) if dirty.returncode==0 else None,
               'base_release':release.get('base_release'), 'plugin_version':release['plugin']['version'],
