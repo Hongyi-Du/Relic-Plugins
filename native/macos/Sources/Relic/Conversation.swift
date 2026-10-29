@@ -43,9 +43,9 @@ struct RichText: View {
     var pointSize: CGFloat? = nil
     init(_ text: String, pointSize: CGFloat? = nil) { self.text = text; self.pointSize = pointSize }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
-                blockView(block)
+        IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in blockView(block) }
             }
         }.environment(\.openURL, OpenURLAction { url in
             if url.scheme == "relic-file", let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let path = parts.queryItems?.first(where: { $0.name == "path" })?.value {
@@ -57,6 +57,19 @@ struct RichText: View {
             }
             return .systemAction
         })
+    }
+    private var preferredWidth: CGFloat {
+        let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
+        return NativeMarkdown.blocks(text).map { block -> CGFloat in
+            switch block.kind {
+            case "code": return NativeTextStyle.preferredWidth(NativeTextStyle.render(AttributedString(block.text), size: 11.25, monospaced: true)) + 24
+            case "head": return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), size: size, weight: .bold))
+            case "quote": return NativeTextStyle.preferredWidth(NativeTextStyle.render(quoteText(block), size: size * 0.92)) + 13
+            case "list": return NativeMarkdown.list(block).map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0.text), size: size)) + ($0.indented ? 42 : 22) }.max() ?? 0
+            case "table": return NativeMarkdown.table(block).map { row in row.map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0), size: size * 0.93)) + 17 }.reduce(0,+) }.max() ?? 0
+            default: return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text), size: size))
+            }
+        }.max() ?? 0
     }
     private func inline(_ value: String) -> some View {
         SelectableText(value: NativeMarkdown.attributed(value), pointSize: pointSize).help(m.t("chat.path_preview"))
@@ -96,6 +109,17 @@ struct RichText: View {
             title.append(AttributedString(String(value[range.upperBound...]))); return title
         }
         return AttributedString(value)
+    }
+}
+
+struct IntrinsicMarkdownLayout: Layout {
+    let preferredWidth: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = min(proposal.width ?? preferredWidth, preferredWidth)
+        return subviews.first?.sizeThatFits(ProposedViewSize(width: max(1, width), height: nil)) ?? .zero
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 
@@ -407,21 +431,55 @@ struct PermissionCard: View {
 struct ComposerView: View {
     @EnvironmentObject var m: Model
     let send: () -> Void
+    @State private var focused = false
+    @State private var recipientIdentity = "relic-text-button/" + UUID().uuidString
+    private var placeholder: String { m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]) }
+    private var recipientLabel: String { m.t("composer.send_to", ["to": ReferenceText.clip(m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) }), to: 24)]) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(RelicStyle.font(12, weight: 400)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
-            MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
-                .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
-            HStack {
-            if m.member.isEmpty {
-                Button { m.recipientPicker.toggle() } label: {
-                    HStack(spacing: 4) { Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).lineLimit(1); Image(systemName: "chevron.down").font(RelicStyle.font(9, weight: 400)) }
-                }.buttonStyle(.plain).font(RelicStyle.font(12, weight: 400)).padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
-                    .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
+            if !m.quote.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    ReferenceLabel(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression), size: 12.5, color: RelicStyle.secondary, lines: 3).frame(maxWidth: .infinity, alignment: .leading).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote]))
+                    IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" }
+                }.padding(.leading, 13).padding(.trailing, 8).padding(.vertical, 6)
+                    .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "region"))
             }
-                Spacer(minLength: 4); VoiceButton(text: $m.draft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(RelicStyle.font(12, weight: 600)) }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
-        }.padding(12).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(RelicStyle.border, lineWidth: 1)).padding(.horizontal, 20).padding(.bottom, 16).onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
+            MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
+                .accessibilityLabel(placeholder)
+            HStack(spacing: 6) {
+                if m.member.isEmpty {
+                    Button { m.recipientPicker.toggle() } label: {
+                        HStack(spacing: 6) {
+                            ReferenceLabel(recipientLabel, size: 12.5, color: RelicStyle.secondary, owner: recipientIdentity)
+                            ReferenceIcon(name: "down", size: 14, color: RelicStyle.secondary, owner: recipientIdentity)
+                        }.padding(.horizontal, 10).frame(height: 28)
+                            .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 9, owner: recipientIdentity))
+                    }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
+                        .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
+                }
+                Spacer(minLength: 0)
+                VoiceButton(text: $m.draft, size: 32)
+                ComposerSendButton(action: send).keyboardShortcut(.return, modifiers: .command)
+                    .disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty)
+            }
+        }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
+            .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "region", shadows: SurfaceShadow.small))
+            .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)
+            .onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
+    }
+}
+
+struct ComposerSendButton: View {
+    @EnvironmentObject var m: Model
+    @Environment(\.isEnabled) private var enabled
+    @State private var identity = "relic-icon-button/" + UUID().uuidString
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            ReferenceIcon(name: "up", size: 17, color: RelicStyle.background, owner: identity).frame(width: 32, height: 32)
+                .modifier(RecordedSurface(background: RelicStyle.ink, radius: 16, owner: identity))
+                .recordedOpacity(enabled ? 1 : 0.35)
+        }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(m.t("common.send")).help(m.t("composer.send_title"))
     }
 }
 
@@ -437,8 +495,7 @@ struct ThreadView: View {
             } }
             VStack(alignment: .leading, spacing: 6) {
                 if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(RelicStyle.font(12, weight: 400)) }
-                MentionEditor(text: $m.threadDraft, contextID: "thread", members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
-                    .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
+                MentionEditor(text: $m.threadDraft, contextID: "thread", placeholder: m.t("thread.reply_placeholder"), members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
                 HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
             }.padding(10).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(RelicStyle.border))
         }.padding(14).onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }

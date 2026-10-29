@@ -37,25 +37,9 @@ struct SelectableText: NSViewRepresentable {
             selectable.quoteTitle = m.t("common.quote")
             selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
         }
-        let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
-        let range = NSRange(location: 0, length: rendered.length)
-        let paragraph = NSMutableParagraphStyle()
         let baseSize: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
-        paragraph.minimumLineHeight = lineHeight ?? baseSize * 1.65; paragraph.maximumLineHeight = paragraph.minimumLineHeight
-        let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
-        rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
+        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
-        // Preserve inline Markdown emphasis/code traits after applying the base font.
-        for run in value.runs {
-            guard let intent = run.inlinePresentationIntent else { continue }
-            let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
-            let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
-            var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
-            if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9) }
-            if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
-            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
-            rendered.addAttribute(.font, value: font, range: nsRange)
-        }
         if view.attributedString() != rendered {
             let selected = view.selectedRange(); view.textStorage?.setAttributedString(rendered)
             if selected.location + selected.length <= rendered.length { view.setSelectedRange(selected) }
@@ -111,4 +95,36 @@ final class QuoteTextView: NSTextView {
         return menu
     }
     @objc private func quoteSelection() { guard selectedRange().length > 0 else { return }; quote?((string as NSString).substring(with: selectedRange())); setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
+}
+
+// One attributed-text builder is used for native drawing and intrinsic sizing.
+// Width comes from TextKit, so a horizontal code scroller cannot expand a short
+// message's bubble to the whole available conversation column.
+enum NativeTextStyle {
+    static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false) -> NSAttributedString {
+        let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
+        let range = NSRange(location: 0, length: rendered.length)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight ?? baseSize * 1.65; paragraph.maximumLineHeight = paragraph.minimumLineHeight
+        let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
+        rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
+        // Preserve inline Markdown emphasis/code traits after applying the base font.
+        for run in value.runs {
+            guard let intent = run.inlinePresentationIntent else { continue }
+            let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
+            let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
+            var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
+            if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9) }
+            if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            rendered.addAttribute(.font, value: font, range: nsRange)
+        }
+        return rendered
+    }
+    static func preferredWidth(_ value: NSAttributedString) -> CGFloat {
+        let storage = NSTextStorage(attributedString: value), layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
+        return ceil(layout.usedRect(for: container).width)
+    }
 }
