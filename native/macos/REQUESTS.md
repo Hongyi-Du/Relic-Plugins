@@ -62,6 +62,17 @@ components were detected` at `UIElementCollection.Add`, `DrawSidebar()` in
 capturing independently. Please repair the Windows capture failure before the
 full comparison rerun; the reference anchor issue itself is resolved.
 
+### Reference `plain` scene state correction
+
+Visual review of `40868069780` reference `zh-CN-light-1024x700-plain.png` shows
+the on-state toolbar label but original messages, with no fixture translation.
+`renderStream()` (`app.js:827`) overwrites `S.plainMode` using `plainOn()`.
+The hook currently sets only `S.plainMode = true`. Please call
+`save('relic.plain.' + S.orgId, true)` before the existing fixture `S.plain`
+assignment and `renderAll(true)` (and reset that preference for other scenes).
+This uses the production renderer and avoids invoking a provider. macOS already
+renders the injected translation plus the expandable original in this scene.
+
 Original shared owner requests (superseded by `docs/native-visual.md`):
 
 1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
