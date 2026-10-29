@@ -262,6 +262,26 @@ class ElementComparisonTests(unittest.TestCase):
         b["style"]["rendered_fonts"][0].update(family_name="Fixture Sans", postscript_name="FixtureSans-OtherFace")
         self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
 
+    def test_actual_postscript_face_is_independent_of_localized_family_spelling(self):
+        a, b = element(), element("n")
+        a["style"]["rendered_fonts"] = [{"family_name": "蘋方-簡", "postscript_name": "PingFangSC-Semibold"}]
+        b["style"]["rendered_fonts"] = [{"family_name": "PingFang SC", "postscript_name": "PingFangSC-Semibold"}]
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        # This is face identity, not a weight substitution or a family alias.
+        b["style"]["font_weight"] = 600
+        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]}, {"font_weight"})
+        b["style"]["font_weight"] = 400
+        b["style"]["rendered_fonts"][0]["postscript_name"] = "PingFangSC-Regular"
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_actual_font_fallback_faces_cannot_disappear_from_identity(self):
+        a, b = element(), element("n")
+        b["style"]["rendered_fonts"].append({"family_name": "Fallback", "postscript_name": "Fallback-Regular"})
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        # An unknown face cannot be paired through a different localized family.
+        b["style"]["rendered_fonts"] = [{"family_name": "Localized Fixture", "postscript_name": None}]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
 
 class ExtractionContractTests(unittest.TestCase):
     def validate(self, data):

@@ -107,7 +107,7 @@ public sealed partial class MainWindow : Window
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
-        root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; LayoutColumns(); };
+        root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; emptyConversation.Height = root.ActualHeight * .7; LayoutColumns(); };
         root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; UpdateSendState(); SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
@@ -269,9 +269,9 @@ public sealed partial class MainWindow : Window
     {
         detail.Children.Clear();
         detail.Padding = new Thickness(16); detail.Spacing = 14;
-        paneHeader.Visibility = org.Length == 0 && pane != "files" ? Visibility.Collapsed : Visibility.Visible;
-        if (paneHeader.Visibility == Visibility.Collapsed) return;
+        paneHeader.Visibility = Visibility.Visible;
         DrawPaneHeader();
+        if (org.Length == 0 && pane != "files") return;
         switch (pane)
         {
             case "thread": DrawThread(); break;

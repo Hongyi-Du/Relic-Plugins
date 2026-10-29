@@ -60,6 +60,7 @@
   const snapshotElements = new Map(), snapshotPseudo = new Map(), pseudoByOwner = new WeakMap();
   const snapshotInputBoxes = new WeakMap(), snapshotInputFontOwners = new WeakMap(), snapshotBackend = new WeakMap(), snapshotRenderedText = new WeakMap(), snapshotPaintOrder = new WeakMap();
   const axByBackend = new Map(), raw_ax_nodes = meta.ax_tree?.nodes || [];
+  const axById = new Map(raw_ax_nodes.map(node => [node.nodeId, node]));
   for (const ax of raw_ax_nodes) {
     if (ax.backendDOMNodeId === undefined) continue;
     const group = axByBackend.get(ax.backendDOMNodeId) || [];
@@ -187,12 +188,18 @@
     const ownBounds = intersect(original, ownClip);
     const boxes = ranges.map(box => visibleRect(owner, box, true)).filter(Boolean);
     const ellipsis = s.textOverflow === 'ellipsis' && owner.scrollWidth > owner.clientWidth || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 && owner.scrollHeight > owner.clientHeight;
+    const inlineTextBoxes = (axByBackend.get(snapshotBackend.get(node)) || []).flatMap(ax => (ax.childIds || []).map(id => axById.get(id)))
+      .filter(ax => ax?.role?.value === 'InlineTextBox')
+      .map(ax => ({ node_id: ax.nodeId, parent_id: ax.parentId, ignored: ax.ignored, name: ax.name?.value ?? null,
+        properties: ax.properties || [], source: 'CDP.Accessibility.getFullAXTree', bounds: null }));
     const data = { bounds: ownBounds, visible_bounds: visibleRect(owner, original, true), boxes,
       evidence: { source: 'DOMRange + actual owner content/ancestor overflow clips', backend_node_id: snapshotBackend.get(node) ?? null,
         source_text: node.nodeValue, raw_bounds: original, raw_rectangles: ranges, owner_content_clip: ownClip,
         owner_selector: pathOf(owner), overflow_x: s.overflowX, overflow_y: s.overflowY, text_overflow: s.textOverflow,
         scroll_width: owner.scrollWidth, client_width: owner.clientWidth, scroll_height: owner.scrollHeight, client_height: owner.clientHeight,
-        css_ellipsis_active: ellipsis, geometry_kind: ellipsis ? 'clipped-range-envelope-with-unresolved-ellipsis-ink' : 'clipped-dom-range' } };
+        css_ellipsis_active: ellipsis, ax_inline_text_boxes: inlineTextBoxes,
+        inline_text_geometry_note: inlineTextBoxes.length ? 'AX exposes text fragments, including generated ellipses, but no bounds. It can also retain the unclipped original fragment; none is promoted to painted geometry.' : null,
+        geometry_kind: ellipsis ? 'clipped-range-envelope-with-unresolved-ellipsis-ink' : 'clipped-dom-range' } };
     measuredText.set(node, data); return data;
   };
   const textNodes = el => {
@@ -239,6 +246,21 @@
       measured: !!primary, ignored: primary?.ignored ?? null, name: typeof primary?.name?.value === 'string' ? primary.name.value : '',
       role: primary?.role?.value ?? null, name_sources: primary?.name?.sources || [], properties: primary?.properties || [] };
   };
+  const platformFontIdentity = font => ({
+    // These are two provider measurements, not aliases to normalize. The
+    // PostScript face identifies the same installed face even when a platform
+    // exposes a localized family spelling; preserve both exact strings.
+    family_name: font.familyName, postscript_name: font.postScriptName,
+    is_custom_font: typeof font.isCustomFont === 'boolean' ? font.isCustomFont : null,
+    identity_source: 'CDP.CSS.getPlatformFontsForNode.postScriptName',
+    family_name_source: 'CDP.CSS.getPlatformFontsForNode.familyName', glyph_count: 0,
+  });
+  const fontRequestEvidence = s => ({
+    source: 'getComputedStyle', weight: s.fontWeight === 'normal' ? 400 : s.fontWeight === 'bold' ? 700 : number(s.fontWeight),
+    weight_css: s.fontWeight, weight_unit: 'CSS numeric font-weight request',
+    variation_settings: s.fontVariationSettings, style: s.fontStyle, stretch: s.fontStretch,
+    quantity: 'computed render request, not resolved OpenType face weight or actual variation axes',
+  });
   const platformFonts = (el, text, id, options) => {
     if (!text) return { fonts: [], evidence: null };
     const measured = meta.reference_environment?.fonts;
@@ -274,14 +296,14 @@
     const evidence = { source: measured?.source || null, owners: records, attribution, glyph_count_scope: 'actual-font-hosts', ambiguous_font_hosts: ambiguous };
     if (measured?.source !== 'CDP.CSS.getPlatformFontsForNode' || !owners.length || owners.some(x => !Number.isInteger(x)) || ambiguous.length ||
         records.some(record => record.errors.length || !Array.isArray(record.fonts) || !record.fonts.length || record.fonts.some(font =>
-          typeof font.familyName !== 'string' || typeof font.postScriptName !== 'string' || !Number.isFinite(font.glyphCount) || font.glyphCount <= 0))) {
+          typeof font.familyName !== 'string' || !font.familyName.trim() || typeof font.postScriptName !== 'string' || !font.postScriptName.trim() || !Number.isFinite(font.glyphCount) || font.glyphCount <= 0))) {
       unmeasured.push({ element: id, property: 'style.rendered_fonts', reason: 'No unambiguous actual platform-font measurement for every visible text host.', evidence });
       return { fonts: null, evidence };
     }
     const combined = new Map();
     for (const record of records) for (const font of record.fonts) {
       const key = JSON.stringify([font.familyName, font.postScriptName]);
-      const item = combined.get(key) || { family_name: font.familyName, postscript_name: font.postScriptName, glyph_count: 0 };
+      const item = combined.get(key) || platformFontIdentity(font);
       item.glyph_count += font.glyphCount; combined.set(key, item);
     }
     return { fonts: Array.from(combined.values()).sort((a, b) => a.family_name.localeCompare(b.family_name) || a.postscript_name.localeCompare(b.postscript_name)), evidence };
@@ -502,6 +524,7 @@
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
+        font_request: text ? fontRequestEvidence(s) : null,
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
           source: 'getComputedStyle request + CSS.getPlatformFontsForNode resolved identity',

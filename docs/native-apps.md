@@ -8,6 +8,26 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (`34d56cd` font-identity request): the strict matcher
+compares complete measured PostScript face sets when both APIs expose them,
+retaining exact localized family spellings and every fallback face in the raw
+evidence. Incomplete PostScript evidence still requires exact family identity.
+Two regression fixtures cover localized family spelling, different/additional
+faces and missing identities; numeric font-weight differences remain failures.
+Reference extraction records the CSS request/variation properties separately
+from actual faces, and preserves AX ellipsis fragments without inventing bounds.
+No tolerance, exception or scene exclusion is added.
+
+Changes for the clients (latest CI): `1e3b7c5` Native apps run 40955530985 and
+package validation run 40955531002 pass. Its visual run 40955522655 passes the
+shared extractor/matcher unit-test job and is capturing the complete matrix.
+The preceding `1c3b037` run 40952420862 captured all 504 scenes on both systems
+and failed the strict element gate; that report is being downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-1c3b037\`. Captures/builds are not
+element acceptance. The Windows empty organization state now follows the
+reference stream inset, 70vh placeholder, 18px title and 14px explanation;
+pane tabs remain present and idle resize handles have no painted gray strip.
+
 Changes for the clients (verified CI): `ca175df` Native apps run 40954033551
 passes Windows Release build and 19 core tests, macOS Release build and 73
 XCTest cases, both unsigned native package assemblies, and the static route /

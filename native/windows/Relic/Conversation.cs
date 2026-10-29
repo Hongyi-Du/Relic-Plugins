@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<TextBox> composing = new();
-    private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(32) };
+    private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(30), Margin = new Thickness(20, 8, 20, 0), VerticalAlignment = VerticalAlignment.Top };
     private readonly Border conversationBanner = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 0, 20, 10) };
     private void UpdateSendState()
     {
@@ -154,10 +154,19 @@ public sealed partial class MainWindow
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
-            chatHead.Children.Add(Heading(Title, 17));
-            var title = Heading(T("chat.no_orgs"), 20); title.TextAlignment = TextAlignment.Center;
-            var hint = Quiet(T("chat.no_orgs_hint"), 13); hint.TextAlignment = TextAlignment.Center;
-            var empty = Stack(title, hint); empty.Spacing = 18; empty.MaxWidth = 620; empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center; emptyConversation.Children.Add(empty); return;
+            chatHead.ColumnDefinitions.Clear();
+            var header = Heading(Title, 15); header.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
+            header.LineHeight = 19.5; header.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; header.VerticalAlignment = VerticalAlignment.Center;
+            chatHead.Children.Add(header);
+            var title = Heading(T("chat.no_orgs"), 18); title.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; title.TextAlignment = TextAlignment.Center;
+            title.LineHeight = 28.8; title.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            var hint = Quiet(T("chat.no_orgs_hint"), 14); hint.TextAlignment = TextAlignment.Center;
+            hint.LineHeight = hint.FontSize * 1.6; hint.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            // The reference keeps its ordinary stream inset and a 70vh
+            // placeholder, including the paragraph's real block margins.
+            var empty = Stack(title, hint); empty.Spacing = 14; empty.Margin = new Thickness(0, 0, 0, 14);
+            empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center;
+            emptyConversation.Height = root.ActualHeight * .7; emptyConversation.Children.Add(empty); return;
         }
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
         chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });

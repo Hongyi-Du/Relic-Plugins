@@ -145,7 +145,9 @@ def text_lines(element: dict) -> list[dict] | None:
 def rendered_fonts(element: dict) -> dict[str, set[str] | None] | None:
     """Actual render-run families; declared fallback lists are not evidence.
 
-    PostScript names supplement family identity when both APIs provide them.
+    PostScript names identify actual faces independently of localized family
+    spellings when both APIs provide every face. Incomplete face evidence
+    still requires exact measured family identity, never an alias table.
     Glyph counters and custom-font loading flags describe provider accounting,
     not a visible style property, so remain in the copied raw capture only.
     """
@@ -527,6 +529,16 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
             fonts_a, fonts_b = rendered_fonts(a), rendered_fonts(b)
             if fonts_a is None or fonts_b is None:
                 mismatch("style_out_of_tolerance", "rendered_fonts", a.get("style", {}).get("rendered_fonts"), b.get("style", {}).get("rendered_fonts"), reason="Actual render-run font family is unmeasured")
+            elif all(faces is not None for faces in (*fonts_a.values(), *fonts_b.values())):
+                # CDP can expose a localized family (for example 蘋方-簡)
+                # while CoreText names the same measured face PingFang SC.
+                # Compare the complete actual PostScript identities, retaining
+                # original family spellings in each capture. A different or
+                # additional fallback face still fails exactly.
+                faces_a = set().union(*fonts_a.values())
+                faces_b = set().union(*fonts_b.values())
+                if faces_a != faces_b:
+                    mismatch("style_out_of_tolerance", "rendered_fonts.postscript_name", sorted(faces_a), sorted(faces_b))
             elif fonts_a.keys() != fonts_b.keys():
                 mismatch("style_out_of_tolerance", "rendered_fonts.family_name", sorted(fonts_a), sorted(fonts_b))
             else:

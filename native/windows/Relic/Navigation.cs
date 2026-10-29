@@ -105,7 +105,8 @@ public sealed partial class MainWindow
     {
         for (int i = 0; i < 2; i++)
         {
-            var left = i == 0; var thumb = new Thumb { Width = 6, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left, Opacity = .3 };
+            var left = i == 0; var thumb = new Thumb { Width = 5, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                Style = (Style)Application.Current.Resources["RelicResizeThumbStyle"] };
             if (!left) panelResize = thumb;
             thumb.Loaded += (_, _) => ToolTipService.SetToolTip(thumb, T("panel.resize"));
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
