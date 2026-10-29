@@ -8,6 +8,23 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Visual acceptance was rejected by the person on Windows at `ce34cde`. PR #4
+is back in draft. The existing `done` columns describe function implementation
+only; they do not certify presentation. The additional required visual gate is
+documented in [native-visual.md](native-visual.md).
+
+Changes for the clients (2026-10-29): `scripts/visual/scenes.json` and
+`docs/native-visual.md` define the shared CI fixture/capture protocol. Both native
+clients consume `RELIC_VISUAL_MANIFEST` only in CI and must capture every real
+screen/dialog. Reverse native-key coverage now rejects keys missing from either
+shared locale. `composer.voice_title` exists in both lists: the Windows bug was
+constructing its label before `/api/i18n` loaded and retaining the raw fallback.
+Microphone controls now use an icon with localized accessibility/tooltip text.
+Mac amendment-3 requests 1/2 are addressed by the new shared manifest and visual
+workflow (dispatchable on either branch); request 3 is addressed by reverse-key
+tests and the existing shared voice title. Exact manifest fields are documented
+in `docs/native-visual.md`; macOS should adopt that format.
+
 All reference functionality is required on both systems. The draft PR cannot
 leave draft until the per-function inventory is done on both, the route and
 vocabulary checks pass, and both platform builds and all test suites are green.

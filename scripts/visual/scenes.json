@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "languages": ["zh-CN", "en-US"],
+  "themes": ["light", "dark"],
+  "sizes": [[1440, 900], [1280, 800], [1024, 700]],
+  "scenes": [
+    "group", "private", "thread", "overview", "workspace", "file-markdown", "file-code", "file-image",
+    "copies", "copy-rules", "chart", "new-org", "member-app", "member-host", "member-existing",
+    "member-card", "member-edit", "forward", "secretary", "tasks", "task-report", "protocols", "documents", "trajectory",
+    "settings-profile", "settings-appearance", "settings-language", "settings-voice", "settings-notify", "settings-harness", "settings-about",
+    "shortcuts", "recipients", "quote", "mention", "digest", "plain", "quick-start", "menu-file", "menu-edit", "menu-view", "menu-help"
+  ]
+}

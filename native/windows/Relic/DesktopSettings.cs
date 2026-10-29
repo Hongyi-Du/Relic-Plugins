@@ -225,14 +225,14 @@ public sealed partial class MainWindow
     private Button Microphone(TextBox target)
     {
         Button? button = null;
-        button = Button(T("composer.voice_title"), () => Voice(target, button!));
+        button = Button(T("common.voice_input"), () => Voice(target, button!));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input")); return button;
     }
     private Task StopVoice()
     {
         var current = speech; speech = null;
         if (current != null) { try { current.RecognizeAsyncCancel(); } catch (InvalidOperationException) { } current.Dispose(); }
-        if (speechButton != null) speechButton.Content = T("composer.voice_title"); speechButton = null;
+        if (speechButton != null) speechButton.Content = T("common.voice_input"); speechButton = null;
         return Task.CompletedTask;
     }
     private async Task Voice(TextBox target, Button button)

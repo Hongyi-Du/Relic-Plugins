@@ -56,7 +56,12 @@ def native_keys():
     for path in native.rglob("*"):
         if path.suffix not in (".cs", ".swift", ".xaml") or any(part in ("bin", "obj", ".build", "Tests") for part in path.parts):
             continue
-        keys.update(re.findall(r'"(native\.[a-z_]+)"', path.read_text(encoding="utf-8-sig")))
+        source = path.read_text(encoding="utf-8-sig")
+        # Reverse coverage matters: web -> native parity cannot detect a typo
+        # used only by a native control (composer.voice_title was one).
+        namespaces = {key.split(".", 1)[0] for key in word_list("en-US") if "." in key}
+        keys.update(key for key in re.findall(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"', source)
+                    if key.split(".", 1)[0] in namespaces)
     packaging = ROOT.parents[1] / "scripts/native_package.py"
     if packaging.exists():
         keys.update(re.findall(r'"(native\.[a-z_]+)"', packaging.read_text(encoding="utf-8")))
@@ -64,6 +69,12 @@ def native_keys():
 
 
 class WordLists(unittest.TestCase):
+    def test_every_key_used_by_either_native_app_exists_in_both_word_lists(self):
+        keys = native_keys()
+        self.assertGreater(len(keys), 400)
+        for code in SHIPPED:
+            self.assertEqual(sorted(keys - set(word_list(code))), [], code)
+
     def test_the_app_ships_simplified_chinese_and_english(self):
         self.assertEqual(i18n.codes(), SHIPPED)
         self.assertEqual(i18n.languages(), [{"code": "en-US", "name": "English"}, {"code": "zh-CN", "name": "简体中文"}])
