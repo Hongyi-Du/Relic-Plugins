@@ -112,8 +112,14 @@ extension Model {
     }
     func lastLine(_ member: String = "") -> String {
         let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
-        if last["body"].text.isEmpty { return member.isEmpty ? t("side.group_sub") : "" }
-        return t(last["type"].text == "receipt" ? "side.last_receipt" : "side.last_line", ["name": name(last["from"].text), "text": String(last["body"].text.prefix(70))])
+        if last["body"].text.isEmpty { return "" }
+        let body = last["body"].text
+            .replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^>.*\n+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview = body.count > 70 ? String(body.prefix(69)) + "…" : body
+        return t(last["type"].text == "receipt" ? "side.last_receipt" : "side.last_line", ["name": name(last["from"].text), "text": preview])
     }
     func decisionTitle(_ decision: Node) -> String {
         let id = decision["id"].text, who = name(decision["member"].text)

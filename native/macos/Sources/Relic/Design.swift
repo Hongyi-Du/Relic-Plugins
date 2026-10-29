@@ -30,6 +30,15 @@ enum RelicStyle {
     static let violetSoft = color(0xEFEBF8, 0x2E2A3D)
     static let green = color(0x3E9B5E, 0x6CC287)
     static let red = color(0xC2412D, 0xEE8A78)
+    static func font(_ size: CGFloat, weight: Int) -> Font {
+        let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
+        var value = CGFloat.zero
+        for index in 1..<points.count where weight >= points[index - 1].0 && weight <= points[index].0 {
+            let a = points[index - 1], b = points[index]
+            value = a.1 + CGFloat(weight - a.0) / CGFloat(b.0 - a.0) * (b.1 - a.1); break
+        }
+        return Font(NSFont.systemFont(ofSize: size, weight: NSFont.Weight(rawValue: value)))
+    }
     static func avatar(_ id: String, background: Bool, dark: Bool) -> Color {
         // app.js hue() hashes Unicode code points with unsigned 32-bit overflow.
         let hash = id.unicodeScalars.reduce(UInt32(7)) { ($0 &* 31) &+ $1.value }
@@ -41,7 +50,7 @@ enum RelicStyle {
         return Color(hue: hue, saturation: value == 0 ? 0 : 2 * (1 - lightness / value), brightness: value)
     }
     static func state(_ value: String) -> Color {
-        switch value { case "working", "running", "active": return green; case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
+        switch value { case "working", "running": return green; case "active": return color(0x75A783, 0x669572); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
     }
 }
 
@@ -57,7 +66,7 @@ struct QuietButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: 7))
-                .background(selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: 7, hovered: hovering))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }
@@ -76,8 +85,8 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: 30, height: height) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
-            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 10, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
             .help(title).accessibilityLabel(title).accessibilityIdentifier(identity)
+            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 10, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
     }
 }
 
@@ -119,8 +128,8 @@ struct SmallBadge: View {
 
 extension View {
     func relicCard(_ color: Color = RelicStyle.card) -> some View {
-        padding(12).frame(maxWidth: .infinity, alignment: .leading).background(color, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.line, lineWidth: 1))
+        padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: color, border: RelicStyle.line, borderWidth: 1, radius: 12, kind: "card"))
     }
 }
 
