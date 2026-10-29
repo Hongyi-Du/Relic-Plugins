@@ -31,8 +31,8 @@ struct ChartView: View {
                 Label(m.t("org.kind_subgroup"), systemImage: "rectangle.dashed")
                 Label(m.t("org.cabinet_chip"), systemImage: "star.fill").foregroundStyle(.tint)
                 Text(m.t("chart.legend_ended")).foregroundStyle(.secondary)
-            }.font(.caption)
-            Text(m.t("chart.pan_hint")).font(.caption).foregroundStyle(.secondary)
+            }.font(RelicStyle.font(12, weight: 400))
+            Text(m.t("chart.pan_hint")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary)
             let graph = layout
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(Rectangle())
@@ -91,9 +91,9 @@ struct ChartView: View {
             guard Date() > draggedUntil else { return }; m.run { try await m.select(node["id"].text); m.sheet = nil }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                HStack { Text(node["name"].text).font(.system(size: 12.5, weight: .semibold)).lineLimit(1); if node["cabinet"].flag { Image(systemName: "star.fill").help(m.t("org.cabinet_chip")) } }
-                Text(node["leader_display"].text.isEmpty ? m.t("chart.no_leader") : node["leader_display"].text).font(.caption).lineLimit(1)
-                HStack(spacing: 5) { Text(m.t("common.members", ["n": node["members"].text])).font(.system(size: 10.5)); SmallBadge(text: m.t("chart.decisions", ["n": node["decisions"].text]), color: node["decisions"].integer > 0 ? RelicStyle.amber : RelicStyle.secondary); if sharedCount(node) > 0 { SmallBadge(text: m.t("chart.shared", ["n": String(sharedCount(node))]), color: RelicStyle.violet).help(sharedTip(node)) } }
+                HStack { Text(node["name"].text).font(RelicStyle.font(12.5, weight: 600)).lineLimit(1); if node["cabinet"].flag { Image(systemName: "star.fill").help(m.t("org.cabinet_chip")) } }
+                Text(node["leader_display"].text.isEmpty ? m.t("chart.no_leader") : node["leader_display"].text).font(RelicStyle.font(12, weight: 400)).lineLimit(1)
+                HStack(spacing: 5) { Text(m.t("common.members", ["n": node["members"].text])).font(RelicStyle.font(10.5, weight: 400)); SmallBadge(text: m.t("chart.decisions", ["n": node["decisions"].text]), color: node["decisions"].integer > 0 ? RelicStyle.amber : RelicStyle.secondary); if sharedCount(node) > 0 { SmallBadge(text: m.t("chart.shared", ["n": String(sharedCount(node))]), color: RelicStyle.violet).help(sharedTip(node)) } }
             }.padding(10).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
                 .background(node["cabinet"].flag ? accent(m.preferences["accent"].text).opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(node["cabinet"].flag || node["id"].text == m.organization ? accent(m.preferences["accent"].text) : RelicStyle.border, style: StrokeStyle(lineWidth: node["id"].text == m.organization ? 2 : 1, dash: node["kind"].text == "subgroup" ? [5, 4] : [])))

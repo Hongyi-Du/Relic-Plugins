@@ -29,7 +29,7 @@ struct MainView: View {
         .onChange(of: m.sheet) { m.activeSpeech?.stop() }
         .sheet(item: $m.sheet) { sheet in SheetContent(sheet: sheet).environmentObject(m) }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
-        .font(.system(size: m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14))
+        .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
         .accessibilityIdentifier("relic-root")
@@ -50,7 +50,7 @@ struct AppToolbar: View {
                 IconButton(title: m.t("appbar.forward"), icon: "fwd", size: 16, height: 28) { m.navigate(1) }.disabled(!m.history.canForward)
                 HStack(spacing: 0) {
                     ForEach(menus, id: \.0) { key, label in
-                        Button { m.appMenu = m.appMenu == key ? nil : key } label: { Text(m.t(label)).font(.system(size: 13)).padding(.horizontal, 9).frame(height: 28) }
+                        TextButton(m.t(label), size: 13, weight: 400, height: 28, padding: 9) { m.appMenu = m.appMenu == key ? nil : key }
                             .buttonStyle(QuietButtonStyle(selected: m.appMenu == key))
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
                             .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }
@@ -67,7 +67,7 @@ struct AppToolbar: View {
                 }
             }
             let title = m.organization.isEmpty ? "Relic" : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
-            Text(title).font(.system(size: 12.5)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
+            Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
         }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
             .coordinateSpace(name: "appbar").onPreferenceChange(MenuAnchors.self) { anchors = $0 }

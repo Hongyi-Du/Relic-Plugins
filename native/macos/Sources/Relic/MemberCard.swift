@@ -26,7 +26,7 @@ struct MemberCard: View {
             }
             Divider()
             actions
-        }.font(.system(size: 13)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.font(RelicStyle.font(13, weight: 400)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
@@ -38,7 +38,7 @@ struct MemberCard: View {
             Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 52) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    Text(card.display).font(.system(size: 17, weight: .semibold)).lineLimit(2).help(card.display)
+                    Text(card.display).font(RelicStyle.font(17, weight: 600)).lineLimit(2).help(card.display)
                     IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName) { editingName.toggle() }
                 }
                 Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(who)
@@ -75,7 +75,7 @@ struct MemberCard: View {
             }
         }
         if editingModel && card["model_editable"].flag { modelEditor }
-        else if !card["model_editable"].flag && !card["model_note"].text.isEmpty { Text(card["model_note"].text).font(.caption).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
+        else if !card["model_editable"].flag && !card["model_note"].text.isEmpty { Text(card["model_note"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
         row("common.status") {
             HStack(spacing: 6) {
                 SmallBadge(text: m.stateLabel(card["state"].text), color: RelicStyle.state(card["state"].text))
@@ -94,7 +94,7 @@ struct MemberCard: View {
         if card["carriers"].integer > 1 { Text(m.t("card.session_nth", ["n": card["carriers"].text])) }
         row("card.folder") { Text(card["cwd"].text).font(.system(size: 12, design: .monospaced)).lineLimit(2).truncationMode(.middle).help(card["cwd"].text).textSelection(.enabled) }
         row("card.joined") { Text(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"])).help(card["joined_at"].text) }
-        if !card["recent"].rows.isEmpty { DisclosureGroup(m.t("card.recent")) { Rows(card["recent"].rows) { Text($0["at"].text + " · " + $0["tool"].text + " · " + $0["summary"].text).font(.caption) } } }
+        if !card["recent"].rows.isEmpty { DisclosureGroup(m.t("card.recent")) { Rows(card["recent"].rows) { Text($0["at"].text + " · " + $0["tool"].text + " · " + $0["summary"].text).font(RelicStyle.font(12, weight: 400)) } } }
     }
     private var modelEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -108,7 +108,7 @@ struct MemberCard: View {
                 if !effort.isEmpty && !card["efforts"].rows.contains(where: { $0.text == effort }) { Text(effort).tag(effort) }
                 Rows(card["efforts"].rows.filter { !$0.text.isEmpty }) { Text($0.text).tag($0.text) }
             }
-            Text(card["model_note"].text).font(.caption).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
+            Text(card["model_note"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
             Button(m.t("card.save_model")) { m.run { let result = try await m.post(m.path("/model"), ["member": who, "model": model, "effort": effort]); status = m.t(result["applied"].text == "now" ? "card.model_switched" : "card.model_next_turn"); editingModel = false; try await m.refresh(); try await load() } }.buttonStyle(.borderedProminent)
         }.padding(10).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8))
     }
@@ -118,7 +118,7 @@ struct MemberCard: View {
                 Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { Text(m.t("card.message")).frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
                 Button { m.openDetails("trace", member: who) } label: { Text(m.t("common.context_trace")).frame(maxWidth: .infinity) }
             }.controlSize(.large)
-            ViewThatFits(in: .horizontal) { HStack(spacing: 10) { seatActions }; VStack(alignment: .leading, spacing: 8) { seatActions } }.font(.system(size: 11.5))
+            ViewThatFits(in: .horizontal) { HStack(spacing: 10) { seatActions }; VStack(alignment: .leading, spacing: 8) { seatActions } }.font(RelicStyle.font(11.5, weight: 400))
         }
     }
     @ViewBuilder private var seatActions: some View {
@@ -146,10 +146,10 @@ struct SecretarySetup: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(m.t("secretary.setup_title")).font(.system(size: 17, weight: .semibold)); Text(m.t("secretary.setup_intro")).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(m.t("secretary.setup_title")).font(RelicStyle.font(17, weight: 600)); Text(m.t("secretary.setup_intro")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
             ScrollView { VStack(spacing: 8) { Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
                 Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } } label: {
-                    HStack(spacing: 10) { Avatar(member: who["name"].text, size: 30); VStack(alignment: .leading, spacing: 3) { Text(m.t("secretary.make", ["name": who.display])).font(.system(size: 13, weight: .semibold)); Text([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(RelicStyle.muted) }; Spacer(minLength: 0) }.relicCard()
+                    HStack(spacing: 10) { Avatar(member: who["name"].text, size: 30); VStack(alignment: .leading, spacing: 3) { Text(m.t("secretary.make", ["name": who.display])).font(RelicStyle.font(13, weight: 600)); Text([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }; Spacer(minLength: 0) }.relicCard()
                 }.buttonStyle(QuietButtonStyle())
             } } }
             HStack { Spacer(); Button(m.t("common.cancel")) { m.sheet = nil }; Button(m.t("secretary.new_embedded")) { m.openMemberForm(secretary: true) }.buttonStyle(.borderedProminent) }
@@ -165,14 +165,14 @@ struct ForwardForm: View {
     @State private var acknowledged = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(.system(size: 17, weight: .semibold))
-            Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""])).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
-            Text(m.t("forward.to")).font(.system(size: 12))
+            Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(RelicStyle.font(17, weight: 600))
+            Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""])).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(m.t("forward.to")).font(RelicStyle.font(12, weight: 400))
             HStack { TextField(m.t("forward.to_placeholder"), text: $recipients).textFieldStyle(.plain); VoiceButton(text: $recipients).labelStyle(.iconOnly) }.padding(9).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border))
-            Text(m.t("common.reply")).font(.system(size: 12))
+            Text(m.t("common.reply")).font(RelicStyle.font(12, weight: 400))
             ZStack(alignment: .topLeading) {
-                if reply.isEmpty { Text(m.t("forward.body_placeholder")).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(9).allowsHitTesting(false) }
-                TextEditor(text: $reply).font(.system(size: 14)).scrollContentBackground(.hidden).padding(5).accessibilityLabel(m.t("common.reply"))
+                if reply.isEmpty { Text(m.t("forward.body_placeholder")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(9).allowsHitTesting(false) }
+                TextEditor(text: $reply).font(RelicStyle.font(14, weight: 400)).scrollContentBackground(.hidden).padding(5).accessibilityLabel(m.t("common.reply"))
             }.frame(minHeight: 160, maxHeight: .infinity).overlay(RoundedRectangle(cornerRadius: 10).stroke(RelicStyle.border)).overlay(alignment: .bottomTrailing) { VoiceButton(text: $reply).labelStyle(.iconOnly).padding(10) }
             SaveButton(labelKey: "common.send") {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)

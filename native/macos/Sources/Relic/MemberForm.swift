@@ -69,7 +69,7 @@ struct MemberForm: View {
         Picker(m.t("member.where_run"), selection: $mode) {
             Text(m.t("member.run_app")).tag("app"); Text(m.t(Capabilities.hostKinds(m.platform).contains(where: { $0.hasSuffix("/gui") }) ? "member.run_host" : "member.run_host_mac")).tag("host"); Text(m.t("member.run_existing")).tag("existing")
         }.pickerStyle(.segmented).labelsHidden().disabled(!m.editMember.isEmpty || m.newSecretary)
-        Text(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app")).font(.caption)
+        Text(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app")).font(RelicStyle.font(12, weight: 400))
     }
 
     @ViewBuilder private var existingFields: some View {
@@ -78,7 +78,7 @@ struct MemberForm: View {
         if !loading && sessions.isEmpty { Text(m.t("member.no_sessions")) }
         if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined().localizedCaseInsensitiveContains(search) }) { Text(m.t("member.no_match")) }
         VStack(alignment: .leading, spacing: 7) {
-            Text(m.t("common.session")).font(.system(size: 12, weight: .medium))
+            Text(m.t("common.session")).font(RelicStyle.font(12, weight: 500))
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(Array(sessions.enumerated()), id: \.offset) { index, session in
@@ -87,8 +87,8 @@ struct MemberForm: View {
                                 HStack(alignment: .top, spacing: 8) {
                                     Image(systemName: "terminal").foregroundStyle(RelicStyle.muted)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(session["title"].text.isEmpty ? session["id"].text : session["title"].text).font(.system(size: 13, weight: .medium)).lineLimit(2)
-                                        Text(session["harness"].text + " · " + session["cwd"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle)
+                                        Text(session["title"].text.isEmpty ? session["id"].text : session["title"].text).font(RelicStyle.font(13, weight: 500)).lineLimit(2)
+                                        Text(session["harness"].text + " · " + session["cwd"].text).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle)
                                     }; Spacer(minLength: 0)
                                     if sessionIndex == String(index) { Image(systemName: "checkmark.circle.fill").foregroundStyle(RelicStyle.accent) }
                                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -109,8 +109,8 @@ struct MemberForm: View {
 
     @ViewBuilder private var appFields: some View {
         Picker(m.t("common.harness"), selection: $harness) { if harness.isEmpty { Text(m.t("member.need_harness")).tag("") }; Rows(harnesses.filter { !$0["later"].flag }) { Text($0["title"].text + ($0["available"].flag ? "" : " · " + $0["problem"].text)).tag($0["id"].text).disabled(!$0["available"].flag) } }
-        Rows(harnesses.filter { !$0["available"].flag && !$0["later"].flag }) { Text($0["title"].text + " · " + $0["problem"].text).font(.caption).foregroundStyle(.secondary) }
-        if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(.caption) }
+        Rows(harnesses.filter { !$0["available"].flag && !$0["later"].flag }) { Text($0["title"].text + " · " + $0["problem"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary) }
+        if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(RelicStyle.font(12, weight: 400)) }
         DisclosureGroup(m.t("member.later_acp")) { Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text) } }
         TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
         TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.folder_placeholder") : folder)

@@ -42,7 +42,7 @@ struct OverviewChip: View {
         switch tone { case "ok": return RelicStyle.green.opacity(0.14); case "warn": return RelicStyle.amberSoft; case "bad": return RelicStyle.redSoft; case "sec": return RelicStyle.violetSoft; case "accent": return RelicStyle.accent.opacity(0.13); default: return RelicStyle.hover }
     }
     var body: some View {
-        Text(text).font(.system(size: 11.5)).foregroundStyle(foreground).lineLimit(1).fixedSize()
+        Text(text).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(foreground).lineLimit(1).fixedSize()
             .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
             .modifier(RecordedSurface(background: background, radius: 10, kind: "chip"))
             .accessibilityIdentifier("relic-chip/" + text)
@@ -62,7 +62,7 @@ struct ReferenceButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
-            configuration.label.font(.system(size: small ? 12 : 13, weight: .semibold))
+            configuration.label.font(RelicStyle.font(small ? 12 : 13, weight: 600))
                 .foregroundStyle(primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink)
                 .padding(.horizontal, small ? 9 : 13).frame(height: small ? 26 : 32)
                 .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : RelicStyle.card,
@@ -81,7 +81,7 @@ struct OverviewLink: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: RelicStyle.muted) }
-                Text(text).font(.system(size: 12))
+                Text(text).font(RelicStyle.font(12, weight: 400))
                 if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: RelicStyle.muted) }
             }.foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2)
         }.buttonStyle(.plain)
@@ -96,7 +96,7 @@ struct OverviewToggleStyle: ToggleStyle {
                     .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
                     .frame(width: 28, alignment: configuration.isOn ? .trailing : .leading).padding(2)
                     .modifier(RecordedSurface(background: configuration.isOn ? RelicStyle.accent : RelicStyle.border, radius: 9))
-                configuration.label.font(.system(size: 12.5)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+                configuration.label.font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.buttonStyle(.plain).accessibilityRepresentation {
             Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
@@ -108,16 +108,27 @@ struct OverviewPicker: View {
     let title: String
     @Binding var selection: String
     let options: [(String, String)]
+    @State private var expanded = false
     var body: some View {
         HStack(spacing: 10) {
-            Text(title).font(.system(size: 12.5)).foregroundStyle(RelicStyle.secondary).fixedSize()
-            Menu {
-                ForEach(options, id: \.0) { value, label in Button(label) { selection = value } }
-            } label: {
+            Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize()
+            Button { expanded.toggle() } label: {
                 HStack { Text(options.first { $0.0 == selection }?.1 ?? "").lineLimit(1); Spacer(minLength: 4); ReferenceIcon(name: "chev", size: 12).rotationEffect(.degrees(90)) }
-                    .font(.system(size: 13)).padding(.horizontal, 10).frame(height: 34)
+                    .font(RelicStyle.font(13, weight: 400)).padding(.horizontal, 10).frame(height: 34)
                     .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8))
-            }.menuStyle(.borderlessButton).menuIndicator(.hidden).accessibilityLabel(title).accessibilityIdentifier("relic-dropdown/" + title)
+            }.buttonStyle(.plain).accessibilityIdentifier("relic-dropdown/" + title)
+                .accessibilityRepresentation {
+                    Picker(title, selection: $selection) { ForEach(options, id: \.0) { value, label in Text(label).tag(value) } }
+                }
+                .popover(isPresented: $expanded, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(options, id: \.0) { value, label in
+                            Button { selection = value; expanded = false } label: {
+                                HStack { Text(label); Spacer(); if selection == value { ReferenceIcon(name: "check", size: 14) } }.padding(.horizontal, 10).padding(.vertical, 5)
+                            }.buttonStyle(QuietButtonStyle(selected: selection == value))
+                        }
+                    }.padding(4).frame(minWidth: 180).font(RelicStyle.font(13, weight: 400)).measuredRegion("menu")
+                }
         }
     }
 }
@@ -131,8 +142,8 @@ struct OverviewRow<Leading: View, Trailing: View>: View {
         HStack(spacing: 9) {
             leading
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(.system(size: 13, weight: .semibold)).strikethrough(struck).lineLimit(1).frame(minHeight: 20.8)
-                Text(subtitle).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
+                Text(title).font(RelicStyle.font(13, weight: 600)).strikethrough(struck).lineLimit(1).frame(minHeight: 20.8)
+                Text(subtitle).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
             }.frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }.padding(.horizontal, 8).padding(.vertical, 6).padding(.horizontal, -8)

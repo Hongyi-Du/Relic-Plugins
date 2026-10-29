@@ -37,14 +37,14 @@ struct SelectableText: NSViewRepresentable {
         let paragraph = NSMutableParagraphStyle()
         let baseSize: CGFloat = (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
         paragraph.minimumLineHeight = baseSize * 1.6; paragraph.maximumLineHeight = baseSize * 1.6
-        rendered.addAttributes([.font: NSFont.systemFont(ofSize: baseSize, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
+        rendered.addAttributes([.font: RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400), .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         for run in value.runs {
             guard let intent = run.inlinePresentationIntent else { continue }
             let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
             let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
-            var font = NSFont.systemFont(ofSize: baseSize, weight: weight)
+            var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
             if intent.contains(.code) { font = .monospacedSystemFont(ofSize: baseSize * 0.9, weight: .regular) }
             if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }

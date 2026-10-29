@@ -21,7 +21,7 @@ struct Sidebar: View {
                     HStack {
                         Text(m.t("page.tree")); Spacer()
                         if !m.organizations.isEmpty { Text(String(m.organizations.count)) }
-                    }.font(.system(size: 12)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
+                    }.font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
                     Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
                     if m.organizations.isEmpty { Text(m.t("side.no_orgs")).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
@@ -33,7 +33,7 @@ struct Sidebar: View {
                         Avatar(member: "human", size: 28)
                         VStack(alignment: .leading, spacing: 0) {
                             Text(m.name("human")).font(RelicStyle.font(13.3, weight: 600)).lineLimit(1)
-                            Text(m.t("side.profile")).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted).lineLimit(1)
+                            Text(m.t("side.profile")).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }.padding(.vertical, 6).padding(.horizontal, 8)
@@ -71,7 +71,7 @@ struct OrgTree: View {
                             .rotationEffect(.degrees((active || !children.isEmpty) && !folded ? 90 : 0))
                             .highPriorityGesture(TapGesture().onEnded { if active || !children.isEmpty { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         Text(String(node["name"].text.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
-                            .font(.system(size: 11, weight: .bold)).frame(width: 22, height: 22)
+                            .font(RelicStyle.font(11, weight: 700)).frame(width: 22, height: 22)
                             .foregroundStyle(RelicStyle.avatar(id, background: false, dark: false))
                             .background(RelicStyle.avatar(id, background: true, dark: false), in: RoundedRectangle(cornerRadius: 6))
                             .overlay { if node["kind"].text == "subgroup" { RoundedRectangle(cornerRadius: 6).strokeBorder(RelicStyle.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2])) } }
@@ -93,7 +93,7 @@ struct OrgTree: View {
                         }
                         Rows(memberHits.filter { !$0["secretary"].flag }) { MemberRow(who: $0) }
                         Button { m.openMemberForm() } label: {
-                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted); Text(m.t("common.add_member")).font(.system(size: 12.5)); Spacer(minLength: 0) }.foregroundStyle(RelicStyle.muted).padding(.horizontal, 8).padding(.vertical, 6)
+                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted); Text(m.t("common.add_member")).font(RelicStyle.font(12.5, weight: 400)); Spacer(minLength: 0) }.foregroundStyle(RelicStyle.muted).padding(.horizontal, 8).padding(.vertical, 6)
                         }.buttonStyle(QuietButtonStyle())
                     }.padding(.leading, 14).padding(.top, 2).padding(.bottom, 8)
                         .overlay(alignment: .leading) { RelicStyle.border.frame(width: 1) }.padding(.leading, 10)
@@ -138,7 +138,7 @@ struct SidebarChatRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
                         ReferenceLabel(title, size: 13.3, weight: 550, lineHeight: 17.955, owner: owner)
-                        if secretary, let who { Text(who["role"].text.isEmpty ? m.t("common.secretary") : who["role"].text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
+                        if secretary, let who { Text(who["role"].text.isEmpty ? m.t("common.secretary") : who["role"].text).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
                         else if who?["leader"].flag == true { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
                     }.frame(height: 18, alignment: .leading)
                     if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }
@@ -146,7 +146,7 @@ struct SidebarChatRow: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     let date = head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"]
                     if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, owner: owner) }
-                    if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(.system(size: 11, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
+                    if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(RelicStyle.font(11, weight: 700)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
@@ -156,11 +156,11 @@ struct SidebarChatRow: View {
     private var avatar: some View {
         Group {
             if group { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) }
-            else if secretary { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(width: 28, height: 28).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 8)) }
+            else if secretary { Avatar(member: name, size: 28, secretaryStyle: true) }
             else { Avatar(member: name, size: 28) }
         }.overlay(alignment: .bottomTrailing) {
             if let state = who?["state"].text, !state.isEmpty && state != "idle" {
-                Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10).overlay(Circle().strokeBorder(RelicStyle.sidebar, lineWidth: 2)).offset(x: 2, y: 2)
+                StateDot(state: state, border: RelicStyle.sidebar).offset(x: 2, y: 2)
             }
         }
     }

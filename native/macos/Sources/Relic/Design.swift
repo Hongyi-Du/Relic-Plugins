@@ -35,6 +35,10 @@ enum RelicStyle {
         Font(nativeFont(size, weight: weight))
     }
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
+        // app.css reaches PingFang SC on macOS after the Windows-only faces.
+        // Select its real installed face, including the CSS 500/550 boundary.
+        let face = weight >= 550 ? "Semibold" : weight >= 500 ? "Medium" : weight >= 400 ? "Regular" : weight >= 300 ? "Light" : weight >= 200 ? "Ultralight" : "Thin"
+        if let font = NSFont(name: "PingFangSC-" + face, size: size) { return font }
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
         var value = CGFloat.zero
         for index in 1..<points.count where weight >= points[index - 1].0 && weight <= points[index].0 {
@@ -90,7 +94,7 @@ struct IconButton: View {
         Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: 30, height: height) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
             .help(title).accessibilityLabel(title).accessibilityIdentifier(identity)
-            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 10, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
+            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(RelicStyle.font(10, weight: 700)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
     }
 }
 
@@ -115,10 +119,10 @@ struct ChipButton: View {
     private var color: Color { selected ? RelicStyle.violet : hovered ? RelicStyle.ink : RelicStyle.secondary }
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) { ReferenceIcon(name: icon, size: 15, color: color, owner: identity); Text(title).font(.system(size: 12.5)).lineLimit(1) }
+            HStack(spacing: 5) { ReferenceIcon(name: icon, size: 15, color: color, owner: identity); ReferenceLabel(title, size: 12.5, color: color, owner: identity) }
                 .foregroundStyle(color).padding(.horizontal, 11).frame(height: 28)
-                .background(selected ? RelicStyle.violetSoft : hovered ? RelicStyle.hover : RelicStyle.card, in: Capsule())
-                .overlay(Capsule().strokeBorder(selected ? RelicStyle.violet.opacity(0.45) : RelicStyle.border, lineWidth: 1))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.violetSoft : hovered ? RelicStyle.hover : RelicStyle.card,
+                    border: selected ? RelicStyle.violet.opacity(0.45) : RelicStyle.border, borderWidth: 1, radius: 14, owner: identity, hovered: hovered))
         }.buttonStyle(.plain).help(help).onHover { hovered = $0 }
             .accessibilityIdentifier(identity).accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -127,7 +131,17 @@ struct ChipButton: View {
 struct SmallBadge: View {
     let text: String
     var color: Color = RelicStyle.secondary
-    var body: some View { Text(text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2).foregroundStyle(color).background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5)).help(text) }
+    var body: some View { Text(text).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2).foregroundStyle(color).background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5)).help(text) }
+}
+
+struct StateDot: View {
+    let state: String
+    let border: Color
+    var body: some View {
+        Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10)
+            .overlay { if state == "vacant" { Circle().strokeBorder(RelicStyle.faint, lineWidth: 1.5).padding(2) } }
+            .overlay(Circle().strokeBorder(border, lineWidth: 2))
+    }
 }
 
 extension View {

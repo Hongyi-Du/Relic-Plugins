@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import RelicCore
 import RelicAX
+import CoreText
 
 // Measurements come from the live production accessibility/view tree and PNG.
 // This exporter never reads the reference's element data or substitutes its values.
@@ -14,7 +15,7 @@ import RelicAX
     }
     static func kind(_ role: String) -> String {
         switch role {
-        case "AXButton": return "button"
+        case "AXButton", "AXDisclosureTriangle": return "button"
         case "AXStaticText": return "text"
         case "AXTextField", "AXTextArea", "AXSearchField": return "input"
         case "AXCheckBox": return "checkbox"
@@ -23,7 +24,7 @@ import RelicAX
         case "AXLink": return "link"
         case "AXImage": return "image"
         case "AXMenuItem": return "menu-item"
-        case "AXMenu", "AXTabGroup": return "region"
+        case "AXMenu", "AXTabGroup", "AXRadioGroup", "AXOpaqueProviderGroup": return "region"
         case "AXRow": return "list-row"
         case "AXList", "AXOutline", "AXTable": return "region"
         case "AXSplitter", "AXSplitGroup": return "divider"
@@ -65,6 +66,16 @@ import RelicAX
         guard NSFontManager.shared.availableFonts.contains(name) else { return nil }
         return NSFont(name: name, size: CGFloat(size.doubleValue))
     }
+    static func renderedFonts(_ value: NSAttributedString) -> [[String: Any]] {
+        let line = CTLineCreateWithAttributedString(value)
+        return (CTLineGetGlyphRuns(line) as! [CTRun]).compactMap { run in
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let rawFont = attributes[kCTFontAttributeName] else { return nil }
+            let font = rawFont as! CTFont
+            return ["family_name": CTFontCopyFamilyName(font) as String, "postscript_name": CTFontCopyPostScriptName(font) as String,
+                    "glyph_count": CTRunGetGlyphCount(run), "provider": "CoreText shaping of the native attributed text"]
+        }
+    }
     private static func style(_ object: AnyObject, text: String) -> [String: Any] {
         var result: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(), "borderWidth": NSNull(), "borderRadius": NSNull()]
         var font: NSFont?, foreground: NSColor?, background: NSColor?
@@ -89,7 +100,10 @@ import RelicAX
             // attributes not yet understood by the common normalizer.
             result["rawTextAttributes"] = Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })
         }
-        if let font { result["fontSize"] = Double(font.pointSize); result["fontWeight"] = cssWeight(font); result["fontFamily"] = font.familyName ?? font.fontName }
+        if let font {
+            result["fontSize"] = Double(font.pointSize); result["fontWeight"] = cssWeight(font); result["fontFamily"] = font.familyName ?? font.fontName
+            result["rendered_fonts"] = renderedFonts(NSAttributedString(string: text, attributes: [.font: font]))
+        }
         result["color"] = rgba(foreground); result["backgroundColor"] = rgba(background)
         return result
     }
@@ -114,7 +128,8 @@ import RelicAX
             let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
             var lines: [[String: Double]] = []
             manager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineRange, _ in
-                if NSIntersectionRange(glyphs, lineRange).length > 0 { lines.append(box(used.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
+                let intersection = NSIntersectionRange(glyphs, lineRange)
+                if intersection.length > 0 { lines.append(box(manager.boundingRect(forGlyphRange: intersection, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
             }
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
             let mode = container.maximumNumberOfLines > 0 ? container.lineBreakMode : paragraph?.lineBreakMode ?? container.lineBreakMode
@@ -128,6 +143,7 @@ import RelicAX
                 "style": ["fontSize": font.map { Double($0.pointSize) } as Any? ?? NSNull(),
                           "fontWeight": font.map { cssWeight($0) } as Any? ?? NSNull(),
                           "fontFamily": font?.familyName as Any? ?? NSNull(),
+                          "rendered_fonts": renderedFonts(storage.attributedSubstring(from: range)),
                           "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
                           "backgroundColor": rgba(attributes[.backgroundColor] as? NSColor ?? .clear),
                           "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
@@ -186,6 +202,10 @@ import RelicAX
                         "pixelSamples": samples(visible, bitmap: bitmap)]
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
+                    projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
+                        let local = NSRect(x: line["x"]!, y: line["y"]!, width: line["width"]!, height: line["height"]!)
+                        return box(topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen))
+                    }
                     if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
                     raw.append(projected)
                     if projected["visible"] as? Bool == true { elements.append(projected) }
@@ -212,8 +232,21 @@ import RelicAX
         elements.removeAll { $0["production_owner"] is String }
         for var label in ownedLabels.reversed() {
             if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
-                label["parent"] = elements[owner]["id"]!
-                elements.insert(label, at: owner + 1)
+                let identifier = label["production_owner"] as! String
+                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/")
+                if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
+                    var style = elements[owner]["style"] as! [String: Any]
+                    let textStyle = label["style"] as! [String: Any]
+                    for key in ["fontSize", "fontWeight", "fontFamily", "rendered_fonts", "color"] { style[key] = textStyle[key] ?? NSNull() }
+                    elements[owner]["style"] = style; elements[owner]["text"] = label["text"]!
+                    elements[owner]["layout"] = label["layout"]!
+                    elements[owner]["text_bounds"] = label["text_bounds"]!
+                    elements[owner]["owned_text_id"] = label["id"]!
+                    elements[owner]["projection_reason"] = "A native button's single simple label is owned by its control; raw TextKit node retained"
+                } else {
+                    label["parent"] = elements[owner]["id"]!
+                    elements.insert(label, at: owner + 1)
+                }
             } else { elements.append(label) }
         }
         var surfaceGaps: [String] = []
@@ -303,6 +336,8 @@ import RelicAX
                 actualStyle[key] = applicable ? value : NSNull()
                 if applicable && value is NSNull { unmeasured.append(id + ":style." + key) }
             }
+            actualStyle["rendered_fonts"] = text.isEmpty ? NSNull() : sourceStyle["rendered_fonts"] ?? NSNull()
+            if !text.isEmpty && sourceStyle["rendered_fonts"] == nil { unmeasured.append(id + ":style.rendered_fonts") }
             if ["icon", "chart-edge"].contains(kind) {
                 actualStyle["stroke_width"] = sourceStyle["stroke_width"] ?? NSNull()
                 if sourceStyle["stroke_width"] == nil { unmeasured.append(id + ":style.stroke_width") }

@@ -15,15 +15,15 @@ struct WorkspaceView: View {
                 else if workspace["folder"].text.isEmpty { Text(m.t("work.no_folder", ["name": m.name(who)])) }
                 else {
                     Text(workspace["folder"].text).font(.system(size: 12, design: .monospaced)).foregroundStyle(RelicStyle.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    Button { m.run { try await m.post("/api/fs/open", ["path": workspace["folder"].text]) } } label: { Label(m.t("work.open_in_finder"), systemImage: "arrow.up.forward.square") }.buttonStyle(.link).font(.system(size: 12))
+                    Button { m.run { try await m.post("/api/fs/open", ["path": workspace["folder"].text]) } } label: { Label(m.t("work.open_in_finder"), systemImage: "arrow.up.forward.square") }.buttonStyle(.link).font(RelicStyle.font(12, weight: 400))
                     if !workspace["exists"].flag { Text(m.t("work.folder_missing")) }
                     else {
                         Text(m.t("work.git_changes") + " · " + workspace["git"]["branch"].text).font(.headline)
-                        Text(m.t("work.file_count", ["n": String(workspace["git"]["changes"].rows.count)])).font(.caption)
+                        Text(m.t("work.file_count", ["n": String(workspace["git"]["changes"].rows.count)])).font(RelicStyle.font(12, weight: 400))
                         if workspace["git"]["changes"].rows.isEmpty { Text(m.t("work.no_changes")) }
                         Rows(workspace["git"]["changes"].rows) { file in Button { m.run { try await m.openFile(file["path"].text) } } label: { HStack(spacing: 8) { SmallBadge(text: file["status"].text, color: RelicStyle.amber); Text(file["path"].text).lineLimit(1).truncationMode(.middle); Spacer(minLength: 0) }.padding(5) }.buttonStyle(QuietButtonStyle()).help(file["path"].text).disabled(file["status"].text.contains("D")) }
                         Text(m.t("work.recent_files")).font(.headline)
-                        Rows(workspace["recent"].rows) { file in Button { m.run { try await m.openFile(file["path"].text) } } label: { VStack(alignment: .leading, spacing: 3) { Text(file["path"].text).lineLimit(1).truncationMode(.middle); Text(m.ago(file["at"])).font(.caption).foregroundStyle(RelicStyle.muted) }.padding(5).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle()).help(file["path"].text) }
+                        Rows(workspace["recent"].rows) { file in Button { m.run { try await m.openFile(file["path"].text) } } label: { VStack(alignment: .leading, spacing: 3) { Text(file["path"].text).lineLimit(1).truncationMode(.middle); Text(m.ago(file["at"])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }.padding(5).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle()).help(file["path"].text) }
                         Text(m.t("work.files")).font(.headline)
                         FileTree(path: workspace["folder"].text, ancestors: [])
                     }
@@ -83,14 +83,14 @@ struct FilePreview: View {
                 HStack(spacing: 6) {
                     Image(systemName: "doc").foregroundStyle(RelicStyle.muted)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(m.file["name"].text).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(m.file["name"].text).font(RelicStyle.font(13, weight: 600)).lineLimit(1).truncationMode(.middle)
                         Text(m.file["path"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     }.frame(maxWidth: .infinity, alignment: .leading).help(m.file["path"].text)
                     IconButton(title: m.t("file.copy_path"), icon: "copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
                     IconButton(title: m.t("file.open_default"), icon: "open") { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
                 }
                 Divider().overlay(RelicStyle.line)
-                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption).foregroundStyle(RelicStyle.muted)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted)
                 if m.file["truncated"].flag { Text(m.t("file.truncated")).foregroundStyle(.orange) }
                 if m.file["kind"].text == "image", let image = m.fileImage { ScrollView { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity) } }
                 else if m.file["kind"].text == "binary" { Text(m.t("file.binary")); Spacer() }
@@ -110,7 +110,7 @@ struct FilePreview: View {
                                 }.padding(8).frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
                               }.defaultScrollAnchor(.topLeading).background(RelicStyle.background).onAppear { proxy.scrollTo(max(1, m.fileLine), anchor: .top) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .top) }
                             }
-                            if lines.count > 6000 { Text(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)])).font(.caption) }
+                            if lines.count > 6000 { Text(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)])).font(RelicStyle.font(12, weight: 400)) }
                         }
                     }
                 }
