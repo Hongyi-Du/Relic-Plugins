@@ -1,0 +1,162 @@
+import SwiftUI
+import RelicCore
+
+struct Sidebar: View {
+    @EnvironmentObject var m: Model
+    @FocusState private var focused: Bool
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 2) {
+                Button { m.sheet = .create } label: {
+                    HStack(spacing: 10) { ReferenceIcon(name: "neworg"); Text(m.t("common.new_org")); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
+                }.buttonStyle(QuietButtonStyle())
+                HStack(spacing: 8) {
+                    ReferenceIcon(name: "search", size: 16, color: RelicStyle.muted)
+                    TextField(m.t("page.search"), text: $m.search).textFieldStyle(.plain).focused($focused)
+                    VoiceButton(text: $m.search).labelStyle(.iconOnly)
+                }.padding(.horizontal, 10).frame(height: 34).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8))
+            }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
+            ScrollView {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(m.t("page.tree")); Spacer()
+                        if !m.organizations.isEmpty { Text(String(m.organizations.count)) }
+                    }.font(.system(size: 12)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
+                    Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
+                    if m.organizations.isEmpty { Text(m.t("side.no_orgs")).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
+                }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
+            }.frame(maxHeight: .infinity)
+            RelicStyle.line.frame(height: 1)
+            HStack(spacing: 4) {
+                Button { m.sheet = .settings } label: {
+                    HStack(spacing: 10) {
+                        Avatar(member: "human", size: 28)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(m.name("human")).font(RelicStyle.font(13.3, weight: 600)).lineLimit(1)
+                            Text(m.t("side.profile")).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }.padding(.vertical, 6).padding(.horizontal, 8)
+                }.buttonStyle(QuietButtonStyle()).help(m.t("page.me"))
+                IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
+            }.padding(8)
+        }.background(RelicStyle.sidebar).accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
+            .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
+    }
+}
+
+struct OrgTree: View {
+    @EnvironmentObject var m: Model
+    @Environment(\.colorScheme) private var scheme
+    let node: Node
+    let ancestors: Set<String>
+    var depth = 0
+    private var id: String { node["id"].text }
+    private var active: Bool { m.organization == id }
+    private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
+    private var children: [Node] { m.organizations.filter { $0["parent"].text == id && !ancestors.union([id]).contains($0["id"].text) } }
+    private var query: String { m.search.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var orgHit: Bool { query.isEmpty || [node["name"].text, node["purpose"].text].contains { $0.localizedCaseInsensitiveContains(query) } }
+    private var memberHits: [Node] { active ? m.members.filter { query.isEmpty || [$0.display, $0["name"].text, $0["role"].text].contains { $0.localizedCaseInsensitiveContains(query) } } : [] }
+    var body: some View {
+        VStack(spacing: 0) {
+            if orgHit || !memberHits.isEmpty {
+                Button {
+                    if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
+                } label: {
+                    HStack(spacing: 8) {
+                        ReferenceIcon(name: "chev", size: 14, color: RelicStyle.muted)
+                            .rotationEffect(.degrees((active || !children.isEmpty) && !folded ? 90 : 0))
+                            .highPriorityGesture(TapGesture().onEnded { if active || !children.isEmpty { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
+                        Text(String(node["name"].text.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+                            .font(.system(size: 11, weight: .bold)).frame(width: 22, height: 22)
+                            .foregroundStyle(RelicStyle.avatar(id, background: false, dark: false))
+                            .background(RelicStyle.avatar(id, background: true, dark: false), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay { if node["kind"].text == "subgroup" { RoundedRectangle(cornerRadius: 6).strokeBorder(RelicStyle.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2])) } }
+                        Text(node["name"].text).font(RelicStyle.font(13.44, weight: 600)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                        if !active { Text(m.shortWhen(node["last_at"])).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted) }
+                    }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
+                }.buttonStyle(QuietButtonStyle(selected: active)).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
+                    .opacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
+                    .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
+                if active && !folded {
+                    VStack(spacing: 1) {
+                        if query.isEmpty || orgHit || m.t("common.group_chat").localizedCaseInsensitiveContains(query) {
+                            SidebarChatRow(who: nil, group: true)
+                        }
+                        let secretary = m.members.first { $0["secretary"].flag }
+                        if query.isEmpty || m.t("common.secretary").localizedCaseInsensitiveContains(query) || secretary.map({ member in memberHits.contains { $0["name"].text == member["name"].text } }) == true {
+                            SidebarChatRow(who: secretary, group: false)
+                        }
+                        Rows(memberHits.filter { !$0["secretary"].flag }) { MemberRow(who: $0) }
+                        Button { m.openMemberForm() } label: {
+                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted); Text(m.t("common.add_member")).font(.system(size: 12.5)); Spacer(minLength: 0) }.foregroundStyle(RelicStyle.muted).padding(.horizontal, 8).padding(.vertical, 6)
+                        }.buttonStyle(QuietButtonStyle())
+                    }.padding(.leading, 14).padding(.top, 2).padding(.bottom, 8)
+                        .overlay(alignment: .leading) { RelicStyle.border.frame(width: 1) }.padding(.leading, 10)
+                }
+            }
+            if !folded { Rows(children) { child in AnyView(OrgTree(node: child, ancestors: ancestors.union([id]), depth: depth + 1)) } }
+        }
+    }
+}
+
+struct MemberRow: View {
+    let who: Node
+    var body: some View { SidebarChatRow(who: who, group: false) }
+}
+
+struct SidebarChatRow: View {
+    @EnvironmentObject var m: Model
+    let who: Node?
+    let group: Bool
+    private var secretary: Bool { !group && (who == nil || who?["secretary"].flag == true) }
+    private var name: String { who?["name"].text ?? "" }
+    private var selected: Bool { group ? m.member.isEmpty : !name.isEmpty && m.member == name }
+    private var head: Node { m.snapshot["chats"][group ? "group" : "member:" + name]["last"] }
+    private var title: String { group ? m.t("common.group_chat") : secretary ? m.t(name.isEmpty ? "side.set_secretary" : "common.secretary") : who?.display ?? "" }
+    private var subtitle: String {
+        if group { return m.lastLine().isEmpty ? m.t("side.group_sub") : m.lastLine() }
+        if name.isEmpty { return m.t("side.secretary_hint") }
+        if !secretary, let doing = who?["doing"].text, !doing.isEmpty { return m.t("side.doing", ["doing": doing]) }
+        if !m.lastLine(name).isEmpty { return m.lastLine(name) }
+        if secretary { return [who?["doing"].text ?? "", who?["detail"].text ?? ""].first { !$0.isEmpty } ?? "" }
+        return (who?["role"].text).flatMap { $0.isEmpty ? nil : $0 } ?? m.stateLabel(who?["state"].text ?? "")
+    }
+    private var unread: Int { selected ? 0 : m.unread(group ? "" : name) }
+    var body: some View {
+        Button {
+            if secretary && name.isEmpty { m.sheet = .secretary }
+            else { m.run { try await m.select(m.organization, group ? "" : name) } }
+        } label: {
+            HStack(spacing: 9) {
+                avatar.frame(width: 30)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 6) {
+                        Text(title).font(RelicStyle.font(13.3, weight: 550)).lineLimit(1)
+                        if secretary, let who { Text(who["role"].text.isEmpty ? m.t("common.secretary") : who["role"].text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).padding(.horizontal, 6).frame(height: 18).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 5)) }
+                        else if who?["leader"].flag == true { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
+                    }.frame(height: 18, alignment: .leading)
+                    if !subtitle.isEmpty { Text(subtitle).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(height: 16.2, alignment: .leading) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 3) {
+                    let date = head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"]
+                    if !date.isNull { Text(m.shortWhen(date)).font(.system(size: 11)).foregroundStyle(RelicStyle.muted) }
+                    if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(.system(size: 11, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
+                }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
+            }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
+        }.buttonStyle(QuietButtonStyle(selected: selected)).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+            .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
+    }
+    private var avatar: some View {
+        Group {
+            if group { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) }
+            else if secretary { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(width: 28, height: 28).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 8)) }
+            else { Avatar(member: name, size: 28) }
+        }.overlay(alignment: .bottomTrailing) {
+            if let state = who?["state"].text, !state.isEmpty && state != "idle" {
+                Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10).overlay(Circle().strokeBorder(RelicStyle.sidebar, lineWidth: 2)).offset(x: 2, y: 2)
+            }
+        }
+    }
+}

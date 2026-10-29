@@ -30,6 +30,15 @@ enum RelicStyle {
     static let violetSoft = color(0xEFEBF8, 0x2E2A3D)
     static let green = color(0x3E9B5E, 0x6CC287)
     static let red = color(0xC2412D, 0xEE8A78)
+    static func font(_ size: CGFloat, weight: Int) -> Font {
+        let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
+        var value = CGFloat.zero
+        for index in 1..<points.count where weight >= points[index - 1].0 && weight <= points[index].0 {
+            let a = points[index - 1], b = points[index]
+            value = a.1 + CGFloat(weight - a.0) / CGFloat(b.0 - a.0) * (b.1 - a.1); break
+        }
+        return Font(NSFont.systemFont(ofSize: size, weight: NSFont.Weight(rawValue: value)))
+    }
     static func avatar(_ id: String, background: Bool, dark: Bool) -> Color {
         // app.js hue() hashes Unicode code points with unsigned 32-bit overflow.
         let hash = id.unicodeScalars.reduce(UInt32(7)) { ($0 &* 31) &+ $1.value }
@@ -41,7 +50,7 @@ enum RelicStyle {
         return Color(hue: hue, saturation: value == 0 ? 0 : 2 * (1 - lightness / value), brightness: value)
     }
     static func state(_ value: String) -> Color {
-        switch value { case "working", "running", "active": return green; case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
+        switch value { case "working", "running": return green; case "active": return color(0x75A783, 0x669572); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
     }
 }
 
@@ -76,8 +85,8 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: 30, height: height) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
-            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 10, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
             .help(title).accessibilityLabel(title).accessibilityIdentifier(identity)
+            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 10, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
     }
 }
 

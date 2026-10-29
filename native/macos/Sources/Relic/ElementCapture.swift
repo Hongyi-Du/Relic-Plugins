@@ -71,7 +71,7 @@ import RelicAX
             }
             if let value = attributes[NSAttributedString.Key("AXForegroundColor")] {
                 if let color = value as? NSColor { foreground = color }
-                else if CFGetTypeID(value as CFTypeRef) == CGColorGetTypeID() { foreground = NSColor(cgColor: value as! CGColor) }
+                else if CFGetTypeID(value as CFTypeRef) == CGColor.typeID { foreground = NSColor(cgColor: value as! CGColor) }
             }
             // Preserve all platform attributes separately for audit, including
             // attributes not yet understood by the common normalizer.
@@ -141,7 +141,7 @@ import RelicAX
             let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
-            let isIcon = ax["identifier"].text.hasPrefix("relic-icon-button/")
+            let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
             let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
             if isIcon || ["region", "image", "divider"].contains(elementKind) { text = "" }

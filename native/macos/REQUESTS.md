@@ -35,6 +35,15 @@ in the report and clarify the comparison input for macOS menu/shortcut labels.
 The macOS app currently implements the reference's Mac keyLabel behavior.
 No substitution or exception is requested or treated as passing.
 
+The b7e6962 reference PNG also includes the browser-only Install button, while
+the native client is already an application. Please record the chosen reference
+launch mode/URL in capture evidence so this input difference is reviewable.
+Fixture member doing_at values still show the real shard time (for example
+18:26) instead of fixture.clock, and doing text contains runner-specific
+absolute workspace paths (/Users/runner versus D:/a/...). Please make the
+fixture's displayed activity data identical across clients, without modifying
+exported text after rendering. Exact text mismatches remain failures.
+
 The macOS client is implementing real in-process AppKit/SwiftUI accessibility
 tree extraction beside every existing PNG, including sheets/popovers. Please
 publish the canonical element JSON shape and reference sample early. Proposed

@@ -107,6 +107,7 @@ struct ChatView: View {
                 ConversationStream()
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background)
+            .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
     }
     private var header: some View {
         HStack(spacing: 12) {
