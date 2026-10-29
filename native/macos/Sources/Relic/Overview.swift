@@ -174,11 +174,11 @@ struct TaskCard: View {
             }.padding(8)
         } label: {
             VStack(alignment: .leading) {
-                Text(task["id"].text + " " + task["title"].text)
+                HStack(alignment: .top) { Text(task["id"].text + " " + task["title"].text).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 4); SmallBadge(text: m.taskLabel(task["status"].text), color: task["status"].text == "blocked" ? RelicStyle.amber : task["status"].text == "done" ? RelicStyle.green : RelicStyle.violet) }
                 Text((task["owner"].text.isEmpty ? m.t(m.sheet == .details ? "details.no_owner" : "org.no_owner") : m.name(task["owner"].text)) + " · " + m.taskLabel(task["status"].text)).font(.caption).foregroundStyle(.secondary)
                 if !task["report"].text.isEmpty { Text(m.t("details.has_report")).font(.caption).help(m.t("org.report")) }
             }
-        }
+        }.relicCard()
     }
 }
 

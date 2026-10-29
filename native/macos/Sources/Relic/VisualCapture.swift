@@ -57,7 +57,7 @@ import RelicCore
                     case "group": break
                     case "private": try await model.select(fixture["org"].text, fixture["member"].text)
                     case "overview": model.setPane("overview")
-                    case "workspace": try await model.select(fixture["org"].text, fixture["member"].text); model.setPane("workspace")
+                    case "workspace": model.setPane("workspace")
                     case "thread": try await model.openThread(fixture["thread"].text)
                     case "copies", "copy-rules": model.expandRules = scene == "copy-rules"; model.sheet = .copies
                     case "chart": model.sheet = .chart

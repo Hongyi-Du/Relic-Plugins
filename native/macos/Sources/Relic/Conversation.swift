@@ -314,17 +314,20 @@ struct ComposerView: View {
 struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])); Spacer(); Button(m.t("panel.close_thread")) { m.closeThread() } }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(.system(size: 13, weight: .semibold)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "xmark") { m.closeThread() } }
             ScrollView { LazyVStack(alignment: .leading, spacing: 16) {
                 if !m.threadData["root"].isNull { MessageView(item: m.threadData["root"], inThread: true) }
                 Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
                 if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
             } }
-            MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 100).accessibilityLabel(m.t("thread.reply_placeholder"))
-            if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.font(.caption) }
-            HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send"), action: send).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
-        }.onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
+            VStack(alignment: .leading, spacing: 6) {
+                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.font(.caption) }
+                MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
+                    .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
+                HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
+            }.padding(10).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(RelicStyle.border))
+        }.padding(14).onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }
     private func send() { m.run { try await m.sendThread() } }
 }

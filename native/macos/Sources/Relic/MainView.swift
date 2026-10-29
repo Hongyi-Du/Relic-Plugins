@@ -63,8 +63,8 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
-    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .forward ? 720 : sheet == .create ? 520 : 620, max(480, m.windowSize.width - 40)) }
-    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 440 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
+    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .copies ? 760 : sheet == .forward ? 720 : sheet == .create ? 520 : 620, max(480, m.windowSize.width - 40)) }
+    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 400 : sheet == .copies ? (m.expandRules ? 640 : 460) : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
         VStack(spacing: 12) {
             switch sheet {
@@ -82,7 +82,7 @@ struct SheetContent: View {
             }
         }.padding(20).frame(width: width, height: height).overlay(alignment: .topTrailing) { IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction).padding(10) }
             .background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).background(SheetSurface()).buttonStyle(.bordered).controlSize(.regular)
-            .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : .light).environment(\.locale, Locale(identifier: m.words.language))
+            .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil).environment(\.locale, Locale(identifier: m.words.language))
     }
 }
 
@@ -198,7 +198,7 @@ struct RightPane: View {
             Divider().overlay(RelicStyle.line)
             switch m.pane {
             case "workspace": WorkspaceView()
-            case "files": FilePreview()
+            case "files": FilePreview().padding(14)
             case "thread": ThreadView()
             default: ScrollView { Overview().padding(16) }
             }
