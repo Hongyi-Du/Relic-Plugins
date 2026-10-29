@@ -67,17 +67,24 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     }
     func showMentionSuggestions() {
         let range = rangeForUserCompletion
-        guard range.location != NSNotFound, let window else { closeMentions(); return }
+        guard range.location != NSNotFound, window != nil else { closeMentions(); return }
         suggestions = mentionCandidates()
         guard !suggestions.isEmpty else { closeMentions(); return }
         completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
         if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
         renderMentions()
         if mentionPopover?.isShown != true {
-            let caret = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
-            let rect = convert(window.convertFromScreen(caret), from: nil)
-            mentionPopover?.show(relativeTo: rect, of: self, preferredEdge: .minY)
+            mentionPopover?.show(relativeTo: mentionAnchorRect(), of: self, preferredEdge: .minY)
         }
+    }
+    func mentionAnchorRect() -> NSRect {
+        let range = rangeForUserCompletion
+        guard range.location != NSNotFound, let manager = layoutManager, let container = textContainer else { return NSRect(origin: textContainerOrigin, size: NSSize(width: 1, height: 18)) }
+        // Keep the anchor in this text view's coordinates. Screen-coordinate
+        // input-method rectangles can lag a moved/resized SwiftUI hosting window.
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
+        return manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
     func mentionCandidates() -> [Node] {
         let range = rangeForUserCompletion
@@ -86,7 +93,10 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         return Array(members.filter { query.isEmpty || $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
     }
     private func renderMentions() {
-        mentionPopover?.contentViewController = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
+        let controller = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
+        controller.view.layoutSubtreeIfNeeded()
+        mentionPopover?.contentViewController = controller
+        mentionPopover?.contentSize = controller.view.fittingSize
     }
     private func chooseMention(_ index: Int) {
         guard suggestions.indices.contains(index) else { closeMentions(); return }
