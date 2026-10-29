@@ -23,13 +23,13 @@ struct MainView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                Button { m.sidebarOpen.toggle() } label: { Image(systemName: "sidebar.left") }.help(m.t("appmenu.sidebar"))
-                Button { m.navigate(-1) } label: { Image(systemName: "chevron.left") }.disabled(!m.history.canBack).help(m.t("page.back"))
-                Button { m.navigate(1) } label: { Image(systemName: "chevron.right") }.disabled(!m.history.canForward).help(m.t("page.forward"))
+                Button { m.sidebarOpen.toggle() } label: { Image(systemName: "sidebar.left") }.help(m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"))
+                Button { m.navigate(-1) } label: { Image(systemName: "chevron.left") }.disabled(!m.history.canBack).help(m.t("appbar.back"))
+                Button { m.navigate(1) } label: { Image(systemName: "chevron.right") }.disabled(!m.history.canForward).help(m.t("appbar.forward"))
             }
             ToolbarItemGroup {
                 Button(m.t("chart.title")) { m.sheet = .chart }
-                Button(m.t("cc.title") + (m.copies.contains { !$0["read"].flag } ? " •" : "")) { m.sheet = .copies }
+                Button(m.t("cc.title") + (m.copies.contains { !$0["read"].flag } ? " •" : "")) { m.sheet = .copies }.help(m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]))
                 Button { m.panelOpen.toggle() } label: { Image(systemName: "sidebar.right") }.help(m.t("page.panel"))
             }
         }
@@ -89,7 +89,7 @@ struct Sidebar: View {
                             Button(who.display) { m.run { try await m.select(m.organization, who["name"].text) } }
                         }
                     }
-                    Divider(); Text(m.t("side.recent")).font(.caption).foregroundStyle(.secondary)
+                    Divider(); Text(m.t("page.chat")).font(.caption).foregroundStyle(.secondary)
                     ForEach(m.recent, id: \.self) { recent in
                         if let org = m.organizations.first(where: { $0["id"].text == recent.org }) {
                             Button(org["name"].text + " · " + (recent.member.isEmpty ? m.t("common.group_chat") : recent.member)) { m.run { try await m.select(recent.org, recent.member) } }.lineLimit(1)
@@ -127,7 +127,7 @@ struct OrgTree: View {
                                             Text(who.display).fontWeight(m.member == who["name"].text ? .semibold : .regular)
                                             if who["secretary"].flag { Text(m.t("common.secretary")).font(.caption) }
                                             if who["leader"].flag { Text(m.t("common.leader")).font(.caption) }
-                                            Text(m.t("state." + who["state"].text) + " · " + who["role"].text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(m.stateLabel(who["state"].text) + " · " + who["role"].text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                             if !who["doing"].text.isEmpty { Text(who["doing"].text).font(.caption).lineLimit(1) }
                                         }
                                         if who["unread"].integer > 0 { Text(who["unread"].text).font(.caption).padding(4).background(.tint.opacity(0.15), in: Capsule()) }

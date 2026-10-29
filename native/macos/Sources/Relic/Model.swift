@@ -64,6 +64,7 @@ import RelicCore
     private let host = ServerHost()
     private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
     private var refreshing = false, pending = false, starting = false
+    private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
     enum Sheet: String, Identifiable {
@@ -112,7 +113,8 @@ import RelicCore
     }
     func receive(_ event: Node) async {
         let type = event["type"].text
-        if type == "shutdown" { ready = false; error = t("common.offline"); eventTask?.cancel(); return }
+        if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
+        if type == "reconnect" { plainPending = []; if digestOpen { run { try await self.loadDigest(false) } } }
         if type == "prefs" {
             do { preferences = try await get("/api/prefs"); words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
             catch { self.error = error.localizedDescription }
@@ -167,7 +169,7 @@ import RelicCore
         snapshot = snap; messages = Timeline.merge(messages, chat["items"].rows); moreChat = chat["more"].flag
         liveItems = live["items"].rows; liveStatus = live["status"]; conversation = convo; revision += 1
         let ids = Set(snap["decisions"].rows.map { $0["kind"].text + ":" + $0["id"].text + ":" + $0["member"].text })
-        if let previous = previousDecisions[organization], !ids.subtracting(previous).isEmpty { backgroundNotify(t("appbar.decisions", ["n": String(ids.count)])) }
+        if let previous = previousDecisions[organization], !ids.subtracting(previous).isEmpty { backgroundNotify(t("notify.decisions", ["n": String(ids.count), "org": snap["org"]["name"].text])) }
         previousDecisions[organization] = ids
         for (chatKey, raw) in snap["chats"].object {
             let last = Node(raw)["last"], key = organization + "/" + chatKey
@@ -205,14 +207,15 @@ import RelicCore
         guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sending = true; defer { sending = false }
         let selected = selection, body = draft, quoted = quote, to = recipients
-        _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: to, members: members, quote: quoted))
+        do { _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: to, members: members, quote: quoted)) }
+        catch { throw RelicError.message(t("composer.send_failed", ["error": error.localizedDescription])) }
         if selected == selection {
             if draft == body { draft = "" }; if quote == quoted { quote = "" }; recipients = ["all"]; persistDraft()
         } else if drafts[selected.key]?.text == body { drafts[selected.key] = ChatDraft() }
         try await refresh()
     }
     func savePreferences(_ changes: [String: Any]) async throws {
-        preferences = try await post("/api/prefs", changes)
+        do { preferences = try await post("/api/prefs", changes) } catch { throw RelicError.message(t("prefs.save_failed", ["error": error.localizedDescription])) }
         if changes["lang"] != nil { words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
     }
     func saveSettings(language: String, notify: Bool) async throws {
@@ -245,15 +248,18 @@ import RelicCore
     func sendThread() async throws {
         let selected = selection, id = threadID, body = threadDraft
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: [], members: [], replyTo: id))
+        let quoted = quote
+        _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: [], members: [], quote: quoted, replyTo: id))
         defaults.removeObject(forKey: "thread." + selected.org + "/" + id)
-        if selected == selection, id == threadID, threadDraft == body { threadDraft = "" }
+        if selected == selection, id == threadID, threadDraft == body { threadDraft = ""; if quote == quoted { quote = "" } }
         try await loadThread(); schedule()
     }
     func openFile(_ path: String, line: Int = 0) async throws {
-        let selected = selection; let result = try await get("/api/fs/read?path=" + Client.segment(path))
+        let selected = selection, request = UUID(); fileRequest = request
+        let result: Node
+        do { result = try await get("/api/fs/read?path=" + Client.segment(path)) } catch { throw RelicError.message(t("file.open_failed", ["error": error.localizedDescription])) }
         var image: NSImage?; if result["kind"].text == "image" { image = NSImage(data: try await bytes("/api/fs/raw?path=" + Client.segment(path))) }
-        guard selection == selected else { return }; file = result; fileImage = image; fileLine = line; setPane("files")
+        guard selection == selected, fileRequest == request else { return }; file = result; fileImage = image; fileLine = line; setPane("files")
     }
     func acceptPlain(_ items: Node, ids: [String]) {
         for (id, value) in items.object { plain[id] = Node(value) }
@@ -265,10 +271,10 @@ import RelicCore
         do { let result = try await post(selected.path("/plain"), ["ids": ids.compactMap(Int.init)]); guard selected == selection else { return }; acceptPlain(result["items"], ids: Array(result["items"].object.keys)) }
         catch { if selected == selection { plainPending.subtract(ids); plainFailed.formUnion(ids) }; throw error }
     }
-    func togglePlain() { plainMode.toggle(); defaults.set(plainMode, forKey: "plain." + organization) }
+    func togglePlain() { plainMode.toggle(); defaults.set(plainMode, forKey: "plain." + organization); if plainMode { notice = t("plain.on_hint") } }
     func loadDigest(_ refresh: Bool) async throws {
         let selected = selection; digestPending = true
-        do { let result = try await post(selected.path("/digest"), ["refresh": refresh]); guard selection == selected else { return }; if !result["digest"].isNull { digest = result["digest"] }; digestPending = result["pending"].flag }
+        do { let result = try await post(selected.path("/digest"), ["refresh": refresh]); guard selection == selected else { return }; if !result["digest"].isNull { digest = result["digest"] }; digestPending = result["pending"].flag; if refresh && !digestPending { notice = t("digest.up_to_date") } }
         catch { if selection == selected { digestPending = false }; throw error }
     }
     func toggleDigest() { digestOpen.toggle(); defaults.set(digestOpen, forKey: "digest." + organization); if digestOpen { run { try await self.loadDigest(false) } } }

@@ -74,6 +74,39 @@ public enum Tree {
 }
 
 public enum Timeline {
+    public static func date(_ node: Node) -> Date? {
+        if let numeric = node.raw as? NSNumber { return Date(timeIntervalSince1970: numeric.doubleValue) }
+        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: node.text) { return date }
+        iso.formatOptions = [.withInternetDateTime]; return iso.date(from: node.text)
+    }
+    public static func conversation(steps: [Node], chat: [Node], member: Node, live: [Node], words: Words) -> [Node] {
+        let name = member["name"].text, start = live.first.flatMap { date($0["at"]) }
+        var items: [Node] = [], actions: [Node] = []
+        func flush() { if !actions.isEmpty { items.append(Node(["type": "acts", "steps": actions.map(\.raw), "member": name, "at": actions[0]["at"].raw])); actions = [] } }
+        for step in steps {
+            if let start, let at = date(step["at"]), at >= start { continue }
+            let role = step["role"].text
+            if ["tool_call", "tool_result"].contains(role) { actions.append(step); continue }
+            flush(); var text = step["text"].text
+            var from = role == "user" ? "human" : name, label = ""
+            guard ["user", "assistant"].contains(role) else { continue }
+            if role == "user" {
+                let prefix = "[Relic App] The person (human) writes to you directly:"
+                if text.hasPrefix(prefix) { text = String(text.dropFirst(prefix.count)); text = text.components(separatedBy: "\n\nReply in this conversation;")[0].trimmingCharacters(in: .whitespacesAndNewlines) }
+                else if text.hasPrefix("[Relic auto-wake]") { items.append(Node(["type": "notice", "at": step["at"].raw, "text": words.t("msg.auto_woken")])); continue }
+                else if text.hasPrefix("You now hold the seat") { items.append(Node(["type": "notice", "at": step["at"].raw, "text": words.t("msg.seat_briefing")])); continue }
+                else if !member["agent"].text.isEmpty { from = member["parent"].text.isEmpty ? name : member["parent"].text; label = words.t("msg.task_from", ["name": member["parent"].text.isEmpty ? words.t("msg.parent_session") : member["parent"].text]) }
+            }
+            items.append(Node(["type": "message", "from": from, "fromLabel": label, "to": [role == "user" ? name : "human"], "body": text, "at": step["at"].raw]))
+        }
+        flush()
+        if !member["embedded"].flag || steps.isEmpty { items += chat }
+        return items.enumerated().sorted { a, b in
+            let first = date(a.element["at"]) ?? .distantPast, second = date(b.element["at"]) ?? .distantPast
+            return first == second ? a.offset < b.offset : first < second
+        }.map(\.element)
+    }
     public static func merge(_ current: [Node], _ incoming: [Node]) -> [Node] {
         var result = current
         for item in incoming {

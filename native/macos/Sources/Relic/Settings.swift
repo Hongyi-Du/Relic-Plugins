@@ -36,11 +36,11 @@ struct SettingsView: View {
     }
     private var appearance: some View {
         Section(m.t("settings.appearance")) {
-            Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(["system", "light", "dark"], id: \.self) { Text(m.t("common.theme_" + $0)).tag($0) } }
+            Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(Choices.themes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
             HStack { Text(m.t("settings.accent")); ForEach(["clay", "ink", "indigo", "blue", "rose", "amber"], id: \.self) { color in Button { m.run { try await m.savePreferences(["accent": color]) } } label: { Circle().fill(accent(color)).frame(width: 24, height: 24).overlay { if m.preferences["accent"].text == color { Image(systemName: "checkmark").foregroundStyle(.white) } } }.buttonStyle(.plain).accessibilityLabel(color) } }
             Text(m.t("settings.accent_hint")).font(.caption)
-            Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(["small", "medium", "large"], id: \.self) { Text(m.t("common.size_" + $0)).tag($0) } }
-            Picker(m.t("settings.density"), selection: preference("density")) { ForEach(["comfortable", "compact"], id: \.self) { Text(m.t("settings.density_" + $0)).tag($0) } }
+            Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(Choices.fonts, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
+            Picker(m.t("settings.density"), selection: preference("density")) { ForEach(Choices.densities, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
         }
     }
     private var language: some View {

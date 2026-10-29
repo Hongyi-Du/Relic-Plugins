@@ -31,6 +31,7 @@ final class ModelTransport: URLProtocol {
     }
     func testFailedSendKeepsDraftAndQuote() async throws {
         let model = try model(); model.setSelection(ChatSelection("a")); model.draft = "unsent"; model.quote = "> quote"
+        model.words.load(Node(["lang": "en-US", "strings": ["composer.send_failed": "{error}"]]))
         ModelTransport.handler = { _ in (200, #"{"status":"failed","error":"delivery failed"}"#) }
         do { try await model.send(); XCTFail("Expected error") } catch { XCTAssertEqual(error.localizedDescription, "delivery failed") }
         XCTAssertEqual(model.draft, "unsent"); XCTAssertEqual(model.quote, "> quote"); XCTAssertFalse(model.sending)

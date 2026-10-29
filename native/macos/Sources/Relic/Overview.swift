@@ -6,7 +6,7 @@ struct Overview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(m.snapshot["org"]["purpose"].text.isEmpty ? m.t("org.no_purpose") : m.snapshot["org"]["purpose"].text).font(.headline)
-            Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(["liaison", "transparent", "direct"], id: \.self) { Text(m.t("org.mode_" + $0)).tag($0) } }
+            Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(Choices.modes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
                 .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization) }
             Text(m.t("decision.title")).font(.headline)
             if m.snapshot["decisions"].rows.isEmpty { Text(m.t("decision.none")).foregroundStyle(.secondary) }
@@ -18,7 +18,7 @@ struct Overview: View {
                 Rows(m.members) { member in
                     Button { m.openCard(member["name"].text) } label: {
                         HStack { Avatar(member: member["name"].text); VStack(alignment: .leading) {
-                            Text(member.display + " · " + m.t("state." + member["state"].text))
+                            Text(member.display + " · " + m.stateLabel(member["state"].text))
                             Text(member["role"].text).font(.caption); Text(member["doing"].text).font(.caption).foregroundStyle(.secondary)
                         }; Spacer() }
                     }.buttonStyle(.plain)
@@ -33,7 +33,7 @@ struct Overview: View {
                     if m.snapshot["episodes"].rows.isEmpty { Text(m.t("org.no_episodes")) }
                     Rows(Array(m.snapshot["episodes"].rows.reversed())) { episode in
                         DisclosureGroup(episode["id"].text + " · " + episode["title"].text) {
-                            Text(episode["status"].text == "open" ? m.t("task.working") : m.t(episode["outcome"].text == "failure" ? "common.failed" : "org.episode_" + episode["outcome"].text))
+                            Text(m.episodeLabel(episode))
                             Text(m.t("org.episode_reflections", ["reflections": episode["reflections"].text, "participants": episode["participants"].text]))
                             RichText(episode["summary"].text); Text(pretty(episode)).font(.caption).textSelection(.enabled)
                         }
@@ -133,7 +133,7 @@ struct TaskCard: View {
                 if !task["owner"].text.isEmpty { Button(m.t("details.ask", ["name": m.name(task["owner"].text)])) { m.sheet = nil; m.run { try await m.select(m.organization, task["owner"].text) } } }
             }.padding(8)
         } label: {
-            VStack(alignment: .leading) { Text(task["id"].text + " " + task["title"].text); Text(m.name(task["owner"].text) + " · " + m.t("task." + task["status"].text)).font(.caption).foregroundStyle(.secondary) }
+            VStack(alignment: .leading) { Text(task["id"].text + " " + task["title"].text); Text(m.name(task["owner"].text) + " · " + m.taskLabel(task["status"].text)).font(.caption).foregroundStyle(.secondary) }
         }
     }
 }
@@ -146,7 +146,7 @@ struct ProtocolList: View {
                 if !m.snapshot[key].rows.isEmpty {
                     if key != "protocols" { Text(m.t(key == "inherited_protocols" ? "details.inherited_title" : "details.replaced_title")).bold() }
                     Rows(m.snapshot[key].rows) { p in
-                        DisclosureGroup(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.t("details.status_" + (p["status"].text.isEmpty ? "active" : p["status"].text))])) {
+                        DisclosureGroup(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])) {
                             VStack(alignment: .leading, spacing: 6) {
                                 if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])) }
                                 if !p["issued_by"].isNull { Text(m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text])) }
@@ -174,12 +174,15 @@ struct RulesView: View {
         Rows(rules) { rule in
             DisclosureGroup(m.t(rule["effect"].text == "check" ? "cc.code" : "org.protocols")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(m.t("cc.scope", ["what": pretty(rule["match"])]))
+                    Text(m.t("cc.scope", ["what": m.ruleScope(rule)]))
                     if rule["effect"].text == "check" {
                         Text(m.t(rule["on_error"].text == "allow" ? "cc.on_error_allow" : "cc.on_error_deny"))
                         Text(rule["code"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                         Text(m.t("cc.examples")).bold()
-                        Rows(rule["examples"].rows) { example in Text(pretty(example)).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+                        Rows(rule["examples"].rows) { example in
+                            Text(m.t(example["expect"].text == "allow" ? "cc.decision_allow" : example["expect"].text == "deny" ? "cc.decision_deny" : "cc.decision_review")).bold()
+                            Text(pretty(example)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        }
                     }
                     Text(pretty(rule)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }

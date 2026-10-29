@@ -24,8 +24,8 @@ struct MemberCard: View {
                 }
                 HStack { TextField(m.t("card.new_name"), text: $name); Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; try await m.refresh(); try await load() } } }
                 LabeledContent(m.t("common.role"), value: card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text)
-                LabeledContent(m.t("card.identity"), value: card["harness_label"].text + " · " + card["surface_label"].text)
-                LabeledContent(m.t("common.status"), value: m.t("state." + card["state"].text) + " · " + card["detail"].text)
+                LabeledContent(m.t("card.identity"), value: m.identity(card))
+                LabeledContent(m.t("common.status"), value: m.stateLabel(card["state"].text) + " · " + card["detail"].text)
                 if !card["doing"].text.isEmpty { LabeledContent(m.t("card.doing"), value: card["doing"].text) }
                 if !card["ex_officio"]["org"].text.isEmpty { Button(m.t("card.ex_officio", ["org": card["ex_officio"]["org_name"].text])) { let org = card["ex_officio"]["org"].text; m.sheet = nil; m.run { try await m.select(org) } } }
                 if !card["also_in"].rows.isEmpty {

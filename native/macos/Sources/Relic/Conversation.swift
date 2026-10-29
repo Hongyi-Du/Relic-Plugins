@@ -71,6 +71,7 @@ struct ChatView: View {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty {
+                    Text(m.banner(m.selectedMember)).font(.caption).padding(8).background(.quaternary.opacity(0.4))
                     Rows(m.snapshot["decisions"].rows.filter { $0["member"].text == m.member }) { DecisionView(decision: $0) }
                     if !m.selectedMember["detail"].text.isEmpty { Text(m.selectedMember["detail"].text).font(.caption).foregroundStyle(.secondary) }
                 }
@@ -82,8 +83,7 @@ struct ChatView: View {
                         LazyVStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 8 : 16) {
                             if m.moreChat { Button(m.t("trace.load_older")) { m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
-                            if !m.member.isEmpty { Rows(m.conversation["steps"].rows) { StepView(step: $0, member: m.member) } }
-                            Rows(m.messages) { MessageView(item: $0) }
+                            Rows(m.displayMessages) { MessageView(item: $0) }
                             Rows(m.liveItems) { LiveItem(item: $0) }
                             if ["running", "working"].contains(m.liveStatus["state"].text) { Label(m.t("live.replying"), systemImage: "ellipsis") }
                             Color.clear.frame(height: 1).id("end")
@@ -97,7 +97,7 @@ struct ChatView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.name(m.member))).font(.title3)
+                Text(m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member))).font(.title3)
                 Spacer()
                 if m.member.isEmpty {
                     Button(m.t("common.tasks")) { m.openDetails("tasks") }
@@ -115,7 +115,7 @@ struct ChatView: View {
                     Button(m.t("chat.digest")) { m.toggleDigest() }.help(m.t("chat.digest_title"))
                     if m.secretary.isEmpty { Button(m.t("secretary.setup_title")) { m.sheet = .secretary } }
                 }
-            } else { Text(m.t("state." + m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text).font(.caption) }
+            } else { Text(m.stateLabel(m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text).font(.caption) }
         }
     }
 }
@@ -128,11 +128,14 @@ struct MessageView: View {
     private var wantsPlain: Bool { (m.plainMode && m.member.isEmpty || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
     var body: some View {
         if item["type"].text == "notice" { Text(item["text"].text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-        else {
+        else if item["type"].text == "acts" {
+            DisclosureGroup(m.t("step.actions", ["n": String(item["steps"].rows.count)])) { Rows(item["steps"].rows) { StepView(step: $0, member: item["member"].text) } }
+        } else {
             HStack(alignment: .top, spacing: 10) {
                 Button { if item["from"].text != "human" { m.openCard(item["from"].text) } } label: { Avatar(member: item["from"].text) }.buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text(m.name(item["from"].text)).bold(); Text(item["at"].text).foregroundStyle(.secondary) }.font(.caption)
+                    HStack { Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold(); Text(m.day(item["at"]) + " " + m.clock(item["at"])).foregroundStyle(.secondary) }.font(.caption)
+                    if !item["to"].rows.isEmpty { Text(m.t("msg.to", ["names": item["to"].rows.map { m.name($0.text) }.joined(separator: ", ")])).font(.caption).foregroundStyle(.secondary) }
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": item["to"].rows.map { m.name($0.text) }.joined(separator: ", ")])) { RichText(bodyText) } }
                     else if wantsPlain, let plain = m.plain[item["id"].text] { RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
                     else { RichText(bodyText) }
@@ -141,7 +144,7 @@ struct MessageView: View {
                         else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(.caption) }
                     }
                     if item["from"].text == "human" && !item["read_by"].isNull {
-                        DisclosureGroup(m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
+                        DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
                             Text(item["read_by"].rows.map { m.name($0.text) }.joined(separator: ", ")).font(.caption)
                         }.font(.caption)
                     }
@@ -150,7 +153,7 @@ struct MessageView: View {
                         if item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } } }
                         Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["from"].text) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
-                        Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(bodyText, forType: .string) }
+                        Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
@@ -197,11 +200,11 @@ struct ComposerView: View {
                     Rows(m.members) { who in Toggle(who.display, isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft() })) }
                 }.fixedSize()
             }
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3); Spacer(); Button(m.t("common.cancel")) { m.quote = "" } }.padding(8).background(.quaternary) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting")); Spacer(); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.padding(8).background(.quaternary) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(minHeight: 70, maxHeight: 140).overlay(RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.3)))
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
-            HStack { VoiceButton(text: $m.draft); Spacer(); Button(m.t("common.send"), action: send).keyboardShortcut(.return, modifiers: .command).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { VoiceButton(text: $m.draft); Spacer(); Button(m.t("common.send"), action: send).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
@@ -218,6 +221,7 @@ struct ThreadView: View {
                 if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
             } }
             TextEditor(text: $m.threadDraft).frame(height: 100).accessibilityLabel(m.t("thread.reply_placeholder"))
+            if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.font(.caption) }
             HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send")) { sending = true; m.run { defer { sending = false }; try await m.sendThread() } }.disabled(sending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }

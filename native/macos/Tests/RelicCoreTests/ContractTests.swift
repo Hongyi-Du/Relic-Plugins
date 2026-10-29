@@ -118,7 +118,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(words.languages.map { $0["code"].text }, ["zh-CN", "en-US"]); XCTAssertEqual(words.t("count", ["n": "1"]), "1 项")
     }
     func testSnapshotPreservesRulesEvidenceAndSessionObject() throws {
-        let payload = #"{"org":{"id":"o","parent":{"id":"p","name":"Parent"},"secretary":"ana"},"members":[{"name":"ana","display":"分析员","config":{"surface":"cli","env":{"FLAG":"value"}},"also_in":[{"org":"p","member":"lead"}]}],"tasks":[{"id":"T1","status":"done","evidence":["/tmp/result.json:12"],"report":"## Result"}],"protocols":[{"id":"P1","rules":[{"effect":"check","tools":["Bash"],"code":"def check(call): pass","examples":[{"call":{"tool":"Bash"},"expect":"allow"}]}]}],"documents":[{"key":"handoff","revision":2}],"decisions":[{"kind":"permission","id":"perm","options":[{"id":"allow_once","name":"Allow once"}]}]}"#
+        let payload = ###"{"org":{"id":"o","parent":{"id":"p","name":"Parent"},"secretary":"ana"},"members":[{"name":"ana","display":"分析员","config":{"surface":"cli","env":{"FLAG":"value"}},"also_in":[{"org":"p","member":"lead"}]}],"tasks":[{"id":"T1","status":"done","evidence":["/tmp/result.json:12"],"report":"## Result"}],"protocols":[{"id":"P1","rules":[{"effect":"check","tools":["Bash"],"code":"def check(call): pass","examples":[{"call":{"tool":"Bash"},"expect":"allow"}]}]}],"documents":[{"key":"handoff","revision":2}],"decisions":[{"kind":"permission","id":"perm","options":[{"id":"allow_once","name":"Allow once"}]}]}"###
         let node = Node(try JSONSerialization.jsonObject(with: Data(payload.utf8)))
         XCTAssertEqual(node["org"]["parent"]["id"].text, "p")
         XCTAssertEqual(node["members"].rows[0]["config"]["env"]["FLAG"].text, "value")
