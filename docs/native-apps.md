@@ -8,6 +8,20 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients: machine-baseline audit found untested paint fields.
+The canonical `native-elements.md` now requires individually measured TRBL border
+widths/colors, TL/TR/BR/BL radii, effective opacity, structured shadows and actual
+background image/gradient descriptors. No tolerance changed. Missing paint on
+both sides is not a match. Raw nonfinite provider geometry must be null with its
+exact raw value/path in diagnostics, never fabricated zero or a string number.
+The `4db4aa6` matrix failed all Windows shards on nonfinite TextPointer JSON;
+the Windows extraction fix retains those gaps and lets the matrix report them.
+Its macOS zh-CN/dark shard also failed with `Mention scene did not present the
+native member picker` (run 40929014959, job 123642155437); macOS must verify this
+capture state in the next run. Other three macOS shards completed, not passed
+element parity. UIA providers may omit ControlType: retain that missing evidence
+without aborting the complete scene projection.
+
 Changes for the clients: full element runs now finish and retain their failed
 reports when a newer commit is pushed; newer visual runs queue. Each report
 still names its actual commit, and only final-commit evidence can satisfy the

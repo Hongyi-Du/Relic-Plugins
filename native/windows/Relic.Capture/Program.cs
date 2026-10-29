@@ -48,6 +48,7 @@ internal static class Program
                 ["extraction_errors"] = new JsonArray("UIA initialization failed: " + error)
             };
         }
+        NumericEvidence.Sanitize(result, result["extraction_errors"]!.AsArray());
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
@@ -79,6 +80,8 @@ internal sealed class Capture
         if (processId <= 0) throw new ArgumentException("A positive native process ID is required.");
         originX = request["origin"]!["x"]!.GetValue<double>();
         originY = request["origin"]!["y"]!.GetValue<double>();
+        if (!double.IsFinite(originX) || !double.IsFinite(originY))
+            throw new ArgumentException("Client origin must contain finite measured coordinates.");
     }
 
     public JsonObject Run()
@@ -247,7 +250,8 @@ internal sealed class Capture
                 else
                 {
                     attributes[name] = name is "foreground" or "background" ? ColorRef(value) : Json(value);
-                    status[name] = "measured";
+                    status[name] = value is double number && !double.IsFinite(number) ||
+                        value is float single && !float.IsFinite(single) ? "nonfinite" : "measured";
                 }
             }
             catch (Exception error) { attributes[name] = null; status[name] = "error"; errors.Add(attribute.ProgrammaticName + ": " + error.Message); }
@@ -288,7 +292,14 @@ internal sealed class Capture
         try
         {
             var bounds = element.Current.BoundingRectangle;
-            return bounds.IsEmpty ? null : Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+            if (bounds.IsEmpty)
+            {
+                errors.Add("BoundingRectangle is empty; raw x=" + bounds.X.ToString("R", CultureInfo.InvariantCulture) +
+                    ", y=" + bounds.Y.ToString("R", CultureInfo.InvariantCulture) + ", width=" + bounds.Width.ToString("R", CultureInfo.InvariantCulture) +
+                    ", height=" + bounds.Height.ToString("R", CultureInfo.InvariantCulture));
+                return null;
+            }
+            return Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         }
         catch (Exception error) { errors.Add("BoundingRectangle: " + error.Message); return null; }
     }
@@ -312,7 +323,9 @@ internal sealed class Capture
     private static JsonNode? Json(object? value) => value switch
     {
         null => null, string text => JsonValue.Create(text), bool flag => JsonValue.Create(flag),
-        int number => JsonValue.Create(number), double number when double.IsFinite(number) => JsonValue.Create(number),
+        int number => JsonValue.Create(number), double number => JsonValue.Create(number), float number => JsonValue.Create(number),
+        long number => JsonValue.Create(number), uint number => JsonValue.Create(number), short number => JsonValue.Create(number),
+        byte number => JsonValue.Create(number), decimal number => JsonValue.Create(number),
         ControlType type => JsonValue.Create(type.ProgrammaticName),
         Enum item => JsonValue.Create(item.ToString()),
         _ => JsonValue.Create(Convert.ToString(value, CultureInfo.InvariantCulture))

@@ -26,7 +26,11 @@ write `<case-id>.elements.json`. Preserve the raw source tree separately or in
     "style": {
       "font_size": 12, "font_weight": 400,
       "foreground": [27,27,26,255], "background": [0,0,0,0],
-      "border_color": [0,0,0,0], "border_width": 0, "corner_radius": 0
+      "border_color": [0,0,0,0], "border_width": 0, "corner_radius": 0,
+      "border_widths": [0,0,0,0],
+      "border_colors": [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
+      "corner_radii": [0,0,0,0], "opacity": 1,
+      "background_image": "none", "shadow": []
     },
     "state": {
       "enabled": null, "selected": null, "checked": null,
@@ -49,6 +53,23 @@ Measure actual rendered template text, not the owning control's unused defaults.
 `null` means not applicable, never an undocumented substitute for an unknown
 measurement. Unknown measurements go in `extraction_errors` and/or
 `coverage.unmeasured`, which fail the gate.
+
+Paint audit additions (no changed tolerances): `border_widths` and
+`border_colors` use top/right/bottom/left; `corner_radii` uses
+top-left/top-right/bottom-right/bottom-left. Compare the individual edges and
+corners, not only a maximum scalar. `opacity` is actual effective paint opacity.
+`shadow` is `[]` for measured absence or a list of
+`{inset, offset_x, offset_y, blur_radius, spread_radius, color}`. Preserve original
+platform descriptions in evidence; an unparsed description is not a successful
+measurement. `background_image` is `"none"` for measured absence, or an actual
+image/gradient description: `kind` identifies image/linear-gradient/radial-gradient/
+conic-gradient, images include actual asset `content_sha256`, gradients include
+`stops: [{position, color}]` and measured direction/center/size/repeat as applicable.
+Unmeasured paint remains a coverage error, even when both clients omit it.
+Stroke widths remain measured for painted vectors and edges. Fully transparent
+RGBA has no visible RGB; compare its alpha exactly, and compare every nonzero
+alpha color using the unchanged DeltaE bound. A zero-width border has no visible
+border color; positive-width edges still require their actual color.
 
 Regions: `window`, `header`, `sidebar`, `conversation`, `composer`, `right-pane`,
 `dialog`, `menu`. Reading `order` starts at zero within each region. Kinds:

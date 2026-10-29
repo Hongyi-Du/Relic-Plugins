@@ -34,11 +34,14 @@ public sealed partial class MainWindow
             if (value is MenuFlyoutPresenter || value is MenuFlyoutItem || value is MenuFlyoutSubItem) return "menu";
             return current;
         }
-        void Walk(DependencyObject value, string? parent, string region, Rect clip, double ancestorOpacity, string? hidden)
+        void Walk(DependencyObject value, string? parent, string region, Rect clip, double ancestorOpacity, string? hidden, int siblingOrder = 0)
         {
             if (!visited.Add(value)) return;
             var id = "xaml-" + nodes.Count; var type = value.GetType().Name; region = Region(value, region);
             var node = new JsonObject { ["id"] = id, ["parent"] = parent, ["type"] = type, ["region"] = region, ["order"] = nodes.Count };
+            if (value is UIElement ordered) node["canvas_z_index"] = Canvas.GetZIndex(ordered);
+            node["render_sibling_order"] = siblingOrder;
+            node["paint_order"] = nodes.Count;
             if (declaredContent.TryGetValue(value, out var contentOwner)) node["declared_content_owner"] = contentOwner;
             if (value is ContentControl contentControl && contentControl.Content is DependencyObject controlContent) declaredContent[controlContent] = id;
             if (value is Expander contentExpander && contentExpander.Content is DependencyObject expanderContent) declaredContent[expanderContent] = id;
@@ -53,21 +56,49 @@ public sealed partial class MainWindow
                 if (ui.Clip is RectangleGeometry rectangular)
                 {
                     var transformed = ui.TransformToVisual(root).TransformBounds(rectangular.Rect);
-                    clip = IntersectCapture(clip, transformed);
+                    node["clip"] = new JsonObject { ["kind"] = "rectangle", ["local_bounds"] = CaptureBox(rectangular.Rect), ["bounds"] = CaptureBox(transformed) };
+                    if (CaptureRectFinite(transformed)) clip = IntersectCapture(clip, transformed);
+                    else errors.Add(id + ": non-finite transformed clip; ancestor clip measurement incomplete");
                 }
-                else if (ui.Clip != null) errors.Add(id + ": nonrectangular clip requires coverage instrumentation");
+                else if (ui.Clip != null)
+                {
+                    node["clip"] = new JsonObject { ["kind"] = ui.Clip.GetType().Name, ["supported"] = false };
+                    errors.Add(id + ": nonrectangular clip requires coverage instrumentation");
+                }
+                else node["clip"] = null;
             }
             if (value is FrameworkElement element)
             {
                 try
                 {
                     var box = element.TransformToVisual(root).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
-                    var visible = IntersectCapture(clip, box);
+                    var finiteBox = CaptureRectFinite(box);
+                    var visible = finiteBox ? IntersectCapture(clip, box) : box;
                     node["bounds"] = CaptureBox(box); node["visible_bounds"] = CaptureBox(visible);
+                    if (!finiteBox) errors.Add(id + ": rendered box is non-finite; visible box is unmeasured");
+                    node["ancestor_clip"] = CaptureBox(clip);
+                    var transform = element.TransformToVisual(root);
+                    node["local_bounds"] = CaptureBox(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+                    var zero = transform.TransformPoint(new Point(0, 0));
+                    var unitX = transform.TransformPoint(new Point(1, 0));
+                    var unitY = transform.TransformPoint(new Point(0, 1));
+                    var m11 = unitX.X - zero.X; var m12 = unitX.Y - zero.Y;
+                    var m21 = unitY.X - zero.X; var m22 = unitY.Y - zero.Y;
+                    node["transform"] = new JsonObject { ["m11"] = m11, ["m12"] = m12, ["m21"] = m21, ["m22"] = m22, ["offset_x"] = zero.X, ["offset_y"] = zero.Y };
+                    var finiteTransform = double.IsFinite(m11) && double.IsFinite(m12) && double.IsFinite(m21) && double.IsFinite(m22) && double.IsFinite(zero.X) && double.IsFinite(zero.Y);
+                    node["axis_aligned_transform"] = finiteTransform ? Math.Abs(m12) < 1e-8 && Math.Abs(m21) < 1e-8 : null;
+                    var corners = new JsonArray();
+                    foreach (var local in new[] { new Point(0, 0), new Point(element.ActualWidth, 0), new Point(element.ActualWidth, element.ActualHeight), new Point(0, element.ActualHeight) })
+                    {
+                        var point = transform.TransformPoint(local);
+                        corners.Add(new JsonObject { ["x"] = point.X, ["y"] = point.Y });
+                    }
+                    node["transformed_corners"] = corners;
+                    node["transformed_corners_order"] = "top-left,top-right,bottom-right,bottom-left";
                     node["name"] = element.Name; node["accessible_name"] = AutomationProperties.GetName(element);
                     if (box.Width <= 0 || box.Height <= 0 || visible.Width <= 0 || visible.Height <= 0) hidden ??= "zero area or ancestor clip";
                     node["hidden_reason"] = hidden;
-                    if (element is ScrollViewer || type == "ScrollContentPresenter") clip = IntersectCapture(clip, box);
+                    if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
                     node["style"] = CaptureStyle(element);
                     node["text"] = CaptureText(element);
                     node["state"] = new JsonObject
@@ -79,11 +110,11 @@ public sealed partial class MainWindow
                         ["expanded"] = element is Expander expander ? expander.IsExpanded : null,
                         ["hovered"] = hovered.Contains(element), ["unread"] = null
                     };
-                    node["layout"] = CaptureTextLayout(element);
+                    node["layout"] = CaptureTextLayout(element, id, errors);
                     if (element is FontIcon fontIcon) node["icon"] = new JsonObject { ["source"] = fontIcon.FontFamily.Source, ["glyph"] = fontIcon.Glyph };
                     else if (element is ReferenceVectorIcon vectorIcon)
                     {
-                        var shape = new JsonObject { ["tag"] = "svg", ["attributes"] = new JsonObject { ["height"] = vectorIcon.Height.ToString(System.Globalization.CultureInfo.InvariantCulture), ["viewBox"] = "0 0 24 24", ["width"] = vectorIcon.Width.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                        var shape = new JsonObject { ["tag"] = "svg", ["attributes"] = new JsonObject { ["height"] = CaptureFiniteAttribute(vectorIcon.Height, id + ".icon.height", errors), ["viewBox"] = "0 0 24 24", ["width"] = CaptureFiniteAttribute(vectorIcon.Width, id + ".icon.width", errors) },
                             ["children"] = new JsonArray(new JsonObject { ["tag"] = "path", ["attributes"] = new JsonObject { ["d"] = vectorIcon.PathData }, ["children"] = new JsonArray() }) };
                         node["icon"] = new JsonObject { ["source"] = "svg", ["glyph"] = shape.ToJsonString() };
                         node["vector_path"] = vectorIcon.PathData; node["vector_stroke_width"] = vectorIcon.VectorPath.StrokeThickness;
@@ -96,7 +127,10 @@ public sealed partial class MainWindow
                 catch (Exception ex) { node["measurement_error"] = ex.Message; errors.Add(id + ": " + ex.Message); }
             }
             else node["hidden_reason"] = "non-rendering dependency object";
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(value); i++) Walk(VisualTreeHelper.GetChild(value, i), id, region, clip, opacity, hidden);
+            var renderedChildren = Enumerable.Range(0, VisualTreeHelper.GetChildrenCount(value))
+                .Select(index => (child: VisualTreeHelper.GetChild(value, index), index))
+                .OrderBy(item => item.child is UIElement child ? Canvas.GetZIndex(child) : 0).ThenBy(item => item.index);
+            foreach (var child in renderedChildren) Walk(child.child, id, region, clip, opacity, hidden, child.index);
         }
         Walk(root, null, "window", viewport, 1, null);
         foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
@@ -107,6 +141,7 @@ public sealed partial class MainWindow
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors
         };
+        CaptureFiniteMeasurements(result, errors);
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"), result.ToJsonString());
         var manifestDirectory = System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!;
         var request = System.IO.Path.Combine(manifestDirectory, "elements-request.json");
@@ -132,8 +167,53 @@ public sealed partial class MainWindow
         var x = Math.Max(a.X, b.X); var y = Math.Max(a.Y, b.Y);
         return new Rect(x, y, Math.Max(0, Math.Min(a.Right, b.Right) - x), Math.Max(0, Math.Min(a.Bottom, b.Bottom) - y));
     }
+    private static bool CaptureRectFinite(Rect box) => double.IsFinite(box.X) && double.IsFinite(box.Y) && double.IsFinite(box.Width) && double.IsFinite(box.Height);
     private static JsonObject CaptureBox(Rect box) => new() { ["x"] = box.X, ["y"] = box.Y, ["width"] = box.Width, ["height"] = box.Height };
-    private static JsonArray? CaptureColor(Brush? brush) => brush is SolidColorBrush solid ? new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, (byte)Math.Round(solid.Color.A * solid.Opacity)) : brush == null ? new JsonArray(0, 0, 0, 0) : null;
+    // Keep JSON numeric types strict. Invalid provider/layout values are missing
+    // measurements with exact raw reasons, never named floats or invented zeroes.
+    private static void CaptureFiniteMeasurements(JsonObject result, JsonArray errors)
+    {
+        var invalid = new JsonArray();
+        void Missing(JsonNode parent, string key, JsonValue value, string path)
+        {
+            var raw = value.TryGetValue<double>(out var number) ? number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : value.TryGetValue<float>(out var single) ? single.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "non-finite number";
+            if (parent is JsonObject obj) obj[key] = null; else ((JsonArray)parent)[int.Parse(key, System.Globalization.CultureInfo.InvariantCulture)] = null;
+            invalid.Add(new JsonObject { ["path"] = path, ["raw_value"] = raw, ["reason"] = "Actual measurement is not a finite JSON number" });
+            errors.Add(path + ": non-finite actual measurement " + raw);
+        }
+        bool Invalid(JsonNode? value) => value is JsonValue scalar &&
+            (scalar.TryGetValue<double>(out var number) && !double.IsFinite(number) ||
+             scalar.TryGetValue<float>(out var single) && !float.IsFinite(single));
+        void Walk(JsonNode? value, string path)
+        {
+            if (value is JsonObject obj)
+            {
+                foreach (var field in obj.ToArray())
+                {
+                    var next = path + "/" + field.Key.Replace("~", "~0").Replace("/", "~1");
+                    if (Invalid(field.Value)) Missing(obj, field.Key, (JsonValue)field.Value!, next); else Walk(field.Value, next);
+                }
+            }
+            else if (value is JsonArray array)
+            {
+                for (var index = 0; index < array.Count; index++)
+                {
+                    var key = index.ToString(System.Globalization.CultureInfo.InvariantCulture); var next = path + "/" + key;
+                    if (Invalid(array[index])) Missing(array, key, (JsonValue)array[index]!, next); else Walk(array[index], next);
+                }
+            }
+        }
+        Walk(result, "");
+        result["nonfinite_measurements"] = invalid;
+    }
+    private static string? CaptureFiniteAttribute(double value, string path, JsonArray errors)
+    {
+        if (double.IsFinite(value)) return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        errors.Add(path + ": non-finite actual SVG dimension " + value.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        return null;
+    }
+    private static JsonArray? CaptureColor(Brush? brush) => brush is SolidColorBrush solid ? new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, Math.Round(solid.Color.A * solid.Opacity)) : brush == null ? new JsonArray(0, 0, 0, 0) : null;
     private static string CaptureText(FrameworkElement element) => element switch
     {
         TextBlock text => text.Text,
@@ -153,6 +233,7 @@ public sealed partial class MainWindow
         Brush? foreground = null, background = null, border = null; double? size = null, weight = null; var thickness = new Thickness(); var radius = new CornerRadius();
         switch (element)
         {
+            case ReferenceVectorIcon v: foreground = v.VectorPath.Stroke; break;
             case Control c: foreground = c.Foreground; background = c.Background; border = c.BorderBrush; size = c.FontSize; weight = c.FontWeight.Weight; thickness = c.BorderThickness; radius = c.CornerRadius; break;
             case TextBlock t: foreground = t.Foreground; size = t.FontSize; weight = t.FontWeight.Weight; break;
             case RichTextBlock t: foreground = t.Foreground; size = t.FontSize; weight = t.FontWeight.Weight; break;
@@ -168,11 +249,13 @@ public sealed partial class MainWindow
             ["background"] = CaptureColor(background), ["border_color"] = CaptureColor(border),
             ["border_width"] = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom)),
             ["corner_radius"] = radius.TopLeft,
-            ["border_widths"] = new JsonArray(thickness.Left, thickness.Top, thickness.Right, thickness.Bottom),
+            ["border_widths"] = new JsonArray(thickness.Top, thickness.Right, thickness.Bottom, thickness.Left),
+            ["border_widths_order"] = "top,right,bottom,left",
+            ["border_colors"] = new JsonArray(CaptureColor(border), CaptureColor(border), CaptureColor(border), CaptureColor(border)),
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
     }
-    private static JsonObject CaptureTextLayout(FrameworkElement element)
+    private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors)
     {
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
@@ -181,15 +264,23 @@ public sealed partial class MainWindow
         TextPointer? end = element switch { TextBlock t => t.ContentEnd, RichTextBlock t => t.ContentEnd, _ => null };
         if (start != null && end != null)
         {
-            var ys = new HashSet<double>();
+            var ys = new HashSet<double>(); var incomplete = false;
             for (var offset = 0; offset < end.Offset - start.Offset; offset++)
             {
                 var pointer = start.GetPositionAtOffset(offset, LogicalDirection.Forward);
-                if (pointer == null) continue;
+                if (pointer == null) { incomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
                 var box = pointer.GetCharacterRect(LogicalDirection.Forward);
-                if (box.Height > 0) { ys.Add(Math.Round(box.Y, 2)); boxes.Add(CaptureBox(box)); }
+                if (!double.IsFinite(box.X) || !double.IsFinite(box.Y) || !double.IsFinite(box.Width) || !double.IsFinite(box.Height))
+                {
+                    incomplete = true;
+                    // Retain the raw rectangle. The final numeric audit writes
+                    // null and the exact nonfinite value for each invalid field.
+                    boxes.Add(CaptureBox(box));
+                    errors.Add(id + ": non-finite TextPointer rectangle at offset " + offset);
+                }
+                else if (box.Height > 0) { ys.Add(Math.Round(box.Y, 2)); boxes.Add(CaptureBox(box)); }
             }
-            lines = ys.Count;
+            lines = incomplete ? null : ys.Count;
         }
         return new JsonObject
         {
