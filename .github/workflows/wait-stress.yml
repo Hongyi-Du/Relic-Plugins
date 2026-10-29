@@ -1,32 +1,58 @@
-name: Diagnose stdio wait cancellation
+name: Stress stdio wait cancellation
 on:
   push:
     branches: [fix/wait-cancel]
 permissions:
   contents: read
 jobs:
-  baseline:
-    runs-on: windows-2025
+  stress:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            python: '3.11'
+          - os: windows-2025
+            python: '3.13'
+          - os: macos-15
+            python: '3.11'
+          - os: macos-26
+            python: '3.13'
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - name: Diagnose the original server over 30 isolated runs
-        shell: pwsh
+          python-version: ${{ matrix.python }}
+      - name: Run the transport tests 30 times in fresh processes
+        shell: python
         run: |
-          New-Item -ItemType Directory -Force test-results | Out-Null
-          $failures = 0
-          for ($i = 1; $i -le 30; $i++) {
-            python -B -X utf8 -m unittest discover -s plugins/relic/tests -p test_server.py -v *> "test-results/baseline-$i.log"
-            if ($LASTEXITCODE -ne 0) { $failures++; Get-Content "test-results/baseline-$i.log" }
-            Write-Output "baseline iteration $i / 30; cumulative failures: $failures"
-          }
-          Write-Output "baseline failed iterations: $failures / 30"
-          if ($failures) { exit 1 }
+          import json, os, pathlib, subprocess, sys, time
+          sys.path.insert(0, 'plugins/relic')
+          from relic_core.process import creation_flags
+          output = pathlib.Path('test-results')
+          output.mkdir(exist_ok=True)
+          results = []
+          for iteration in range(1, 31):
+              start = time.monotonic()
+              path = output / ('stress-%02d.log' % iteration)
+              with path.open('w', encoding='utf-8') as log:
+                  try:
+                      result = subprocess.run([sys.executable, '-B', '-X', 'utf8', '-m', 'unittest',
+                          'discover', '-s', 'plugins/relic/tests', '-p', 'test_server.py', '-v'],
+                          stdout=log, stderr=subprocess.STDOUT, timeout=180, creationflags=creation_flags())
+                      code = result.returncode
+                  except subprocess.TimeoutExpired:
+                      code = 124
+              results.append(dict(iteration=iteration, exit_code=code, seconds=round(time.monotonic()-start, 3)))
+              print(json.dumps(results[-1]), flush=True)
+              if code:
+                  print(path.read_text(encoding='utf-8'), flush=True)
+              (output / 'stress.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+          raise SystemExit(any(row['exit_code'] for row in results))
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: baseline-wait-diagnostics
+          name: wait-stress-${{ matrix.os }}-python-${{ matrix.python }}
           path: test-results
