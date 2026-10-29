@@ -10,6 +10,8 @@ struct MentionEditor: NSViewRepresentable {
     var contextID = "main"
     var placeholder = ""
     var focusChanged: (Bool) -> Void = { _ in }
+    var pointSize: CGFloat? = nil
+    var sendsOnReturn = true
     let members: [Node]
     let onMention: (String) -> Void
     let send: () -> Void
@@ -26,6 +28,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.members = members; editor.onMention = onMention
         editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
+        editor.sendsOnReturn = sendsOnReturn
         scroll.documentView = editor; return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -35,7 +38,8 @@ struct MentionEditor: NSViewRepresentable {
         editor.members = members; editor.onMention = onMention; editor.send = send
         editor.composerID = contextID
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
-        let size: CGFloat = m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14
+        editor.sendsOnReturn = sendsOnReturn
+        let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
         editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
         editor.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: (editor.string as NSString).length))
@@ -59,6 +63,7 @@ struct MentionEditor: NSViewRepresentable {
 
 final class ComposerTextView: NSTextView, NSPopoverDelegate {
     var composerID = "main"
+    var sendsOnReturn = true
     var placeholder = ""
     var focusChanged: (Bool) -> Void = { _ in }
     override func accessibilityPlaceholderValue() -> String? { placeholder }
@@ -95,7 +100,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
             }
             if event.keyCode == 36 || event.keyCode == 48 { chooseMention(suggestionIndex); return }
         }
-        if event.keyCode == 36 && Composer.sendsReturn(shift: event.modifierFlags.contains(.shift), composing: hasMarkedText(), completing: completing) { send?(); return }
+        if sendsOnReturn && event.keyCode == 36 && Composer.sendsReturn(shift: event.modifierFlags.contains(.shift), composing: hasMarkedText(), completing: completing) { send?(); return }
         super.keyDown(with: event)
         if rangeForUserCompletion.location == NSNotFound || hasMarkedText() { closeMentions() }
         else if !members.isEmpty { showMentionSuggestions() }

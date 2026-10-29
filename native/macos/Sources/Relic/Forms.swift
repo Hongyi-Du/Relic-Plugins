@@ -6,10 +6,12 @@ struct SaveButton: View {
     @State private var saving = false
     @State private var error = ""
     var labelKey = "common.save"
+    var reserveErrorSpace = false
     let action: () async throws -> Void
     var body: some View {
-        VStack(alignment: .leading) {
-            if !error.isEmpty { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+        VStack(alignment: .leading, spacing: 14) {
+            if !error.isEmpty { ReferenceLabel(error, size: 12.5, color: RelicStyle.red, lines: 0) }
+            else if reserveErrorSpace { Color.clear.frame(height: 0).accessibilityHidden(true) }
             HStack(spacing: 8) { Spacer(); TextButton(m.t("common.cancel"), size: 13) { m.sheet = nil }.buttonStyle(ReferenceButtonStyle()); TextButton(m.t(labelKey), size: 13, color: RelicStyle.background) {
                 saving = true
                 let sheet = m.sheet
@@ -25,24 +27,20 @@ struct CreateOrgView: View {
     @State private var purpose = ""
     @State private var governance = "leader"
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(m.t("common.new_org")).font(RelicStyle.font(17, weight: 600))
-            VStack(alignment: .leading, spacing: 6) {
-                Text(m.t("common.name")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary)
-                HStack { TextField(m.t("neworg.name_placeholder"), text: $name).textFieldStyle(.plain); VoiceButton(text: $name).labelStyle(.iconOnly) }.padding(9).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border))
+        VStack(alignment: .leading, spacing: 14) {
+            ReferenceLabel(m.t("common.new_org"), size: 17, weight: 650)
+            VStack(alignment: .leading, spacing: 12) {
+                NativeFormField(title: m.t("common.name")) {
+                    ReferenceInput(placeholder: m.t("neworg.name_placeholder"), text: $name, height: 36, pointSize: 12.5)
+                }
+                NativeFormField(title: m.t("neworg.purpose")) {
+                    NativeTextArea(placeholder: m.t("neworg.purpose_placeholder"), text: $purpose, rows: 3)
+                }
+                NativeFormField(title: m.t("neworg.governance")) {
+                    ReferenceSelectField(title: m.t("neworg.governance"), selection: $governance, options: [("leader", m.t("neworg.gov_leader")), ("peer", m.t("neworg.gov_peer"))], pointSize: 12.5)
+                }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(m.t("neworg.purpose")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary)
-                ZStack(alignment: .topLeading) {
-                    if purpose.isEmpty { Text(m.t("neworg.purpose_placeholder")).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) }
-                    TextEditor(text: $purpose).font(RelicStyle.font(13, weight: 400)).scrollContentBackground(.hidden).padding(3).accessibilityLabel(m.t("neworg.purpose"))
-                }.frame(height: 80).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border)).overlay(alignment: .bottomTrailing) { VoiceButton(text: $purpose).labelStyle(.iconOnly).padding(8) }
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(m.t("neworg.governance")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary)
-                Picker(m.t("neworg.governance"), selection: $governance) { Text(m.t("neworg.gov_leader")).tag("leader"); Text(m.t("neworg.gov_peer")).tag("peer") }.labelsHidden().frame(maxWidth: .infinity)
-            }
-            SaveButton(labelKey: "neworg.create") {
+            SaveButton(labelKey: "neworg.create", reserveErrorSpace: true) {
                 guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { throw RelicError.message(m.t("neworg.need_name")) }
                 let result = try await m.post("/api/orgs", ["name": name.trimmingCharacters(in: .whitespacesAndNewlines), "purpose": purpose.trimmingCharacters(in: .whitespacesAndNewlines), "governance": governance])
                 try await m.select(result["org_id"].text)
@@ -52,6 +50,33 @@ struct CreateOrgView: View {
     }
 }
 
+
+struct NativeFormField<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0)
+            content()
+        }
+    }
+}
+
+struct NativeTextArea: View {
+    let placeholder: String
+    @Binding var text: String
+    var rows = 3
+    var pointSize: CGFloat = 12.5
+    var voice = true
+    @State private var identity = "form-" + UUID().uuidString
+    @State private var focused = false
+    var body: some View {
+        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, members: [], onMention: { _ in }, send: {})
+            .frame(height: CGFloat(rows) * pointSize * 1.6).padding(.horizontal, 11).padding(.vertical, 8)
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-composer/" + identity))
+            .overlay(alignment: .trailing) { if voice { VoiceButton(text: $text).padding(.trailing, 4) } }
+    }
+}
 
 struct ProtocolForm: View {
     @EnvironmentObject var m: Model
