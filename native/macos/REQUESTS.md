@@ -1,5 +1,9 @@
 ## 2026-10-29: literal Harness label in the reference member form
 
+Resolved by `5ff6706`: macOS now consumes `member.harness_label` and handles
+both additional suggestion scenes through actual input/keyboard events. The
+original request below is retained for audit; popup parity is still unverified.
+
 `memberDialog()` renders the literal `Harness` above its app-run radio choices
 in both languages. `common.harness` is `Harness connections` / its longer
 Chinese settings label and does not match. Please add `member.harness_label`:
