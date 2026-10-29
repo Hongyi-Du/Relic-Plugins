@@ -54,7 +54,7 @@ struct MemberCard: View {
                 if !card["session"].text.isEmpty { Button(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.help(m.t("card.leave_seat_hint")) }
                 if !status.isEmpty { Text(status) }
             }.padding(8)
-        }.frame(width: 600, height: 650).accessibilityLabel(m.t("card.aria", ["name": card.display]))
+        }.frame(minWidth: 560, idealWidth: 600, maxWidth: 760, minHeight: 380, idealHeight: 520, maxHeight: 550).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
             Button(m.t(confirmation == "fresh" ? "card.new_session" : "card.leave_seat"), role: .destructive) { let action = confirmation; m.run { try await seatAction(action) } }

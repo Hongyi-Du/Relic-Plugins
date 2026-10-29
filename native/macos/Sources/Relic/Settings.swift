@@ -9,7 +9,9 @@ struct SettingsView: View {
     private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about")]
     var body: some View {
         HSplitView {
-            VStack(alignment: .leading, spacing: 16) { ForEach(sections, id: \.0) { key, title in Button(m.t(title)) { m.settingsSection = key }.buttonStyle(.plain).fontWeight(m.settingsSection == key ? .bold : .regular) }; Spacer() }.padding(12).frame(width: 180)
+            List(sections, id: \.0) { key, title in
+                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(.system(size: 13)).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).listRowSeparator(.hidden)
+            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 170).background(RelicStyle.sidebar)
             Form {
                 switch m.settingsSection {
                 case "profile": profile
@@ -20,9 +22,10 @@ struct SettingsView: View {
                 case "harness": HarnessSettings()
                 default: about
                 }
-            }.formStyle(.grouped).frame(minWidth: 540)
-        }.frame(width: 820, height: 620).onAppear { name = m.preferences["name"].text }
+            }.formStyle(.grouped).frame(minWidth: 390)
+        }.frame(minWidth: 580, idealWidth: 760, maxWidth: 900, minHeight: 400, idealHeight: 530, maxHeight: 550).onAppear { name = m.preferences["name"].text }
     }
+    private func sectionIcon(_ key: String) -> String { ["profile": "person.crop.circle", "appearance": "paintpalette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "puzzlepiece.extension", "about": "info.circle"][key] ?? "gearshape" }
     func preference(_ key: String) -> Binding<String> { Binding(get: { m.preferences[key].text }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     func toggle(_ key: String) -> Binding<Bool> { Binding(get: { m.preferences[key].flag }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     private var profile: some View {

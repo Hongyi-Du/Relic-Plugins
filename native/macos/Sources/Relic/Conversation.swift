@@ -78,7 +78,7 @@ struct RichText: View {
 struct ChatView: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
                 ContentUnavailableView(m.t("chat.no_orgs"), systemImage: "person.3", description: Text(m.t("chat.no_orgs_hint")))
                 Button(m.t("common.new_org")) { m.sheet = .create }
@@ -92,34 +92,30 @@ struct ChatView: View {
                 }
                 if m.snapshot["org"]["status"].text == "closed" { Text(m.t("org.ended_closed")) }
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
-                Divider()
                 ConversationStream()
             }
-        }.padding(16)
+        }.background(RelicStyle.background)
     }
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member))).font(.title3)
-                Spacer()
-                if m.member.isEmpty {
-                    Button(m.t("common.tasks")) { m.openDetails("tasks") }
-                } else {
-                    Button(m.t("chat.card")) { m.openCard(m.member) }
-                    Button(m.t("common.context_trace")) { m.openDetails("trace") }
-                    Button(m.t("chat.workspace")) { m.setPane("workspace") }
-                    if m.selectedMember["embedded"].flag { Button(m.t("chat.stop_turn")) { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
-                }
-            }
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                let title = m.member.isEmpty ? m.snapshot["org"]["name"].text : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member)
+                Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1).help(title)
+                let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : m.stateLabel(m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text
+                Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta)
+            }.frame(maxWidth: .infinity, alignment: .leading)
             if m.member.isEmpty {
-                Text(m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text])).font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button(m.t(m.plainMode ? "chat.plain_on" : "common.plain_words")) { m.togglePlain() }.help(m.t("chat.plain_title"))
-                    Button(m.t("chat.digest")) { m.toggleDigest() }.help(m.t("chat.digest_title"))
-                    if m.secretary.isEmpty { Button(m.t("secretary.setup_title")) { m.sheet = .secretary } }
-                }
-            } else { Text(m.stateLabel(m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text).font(.caption) }
-        }
+                IconButton(title: m.t(m.plainMode ? "chat.plain_on" : "common.plain_words") + " · " + m.t("chat.plain_title"), icon: "character.bubble", selected: m.plainMode) { m.togglePlain() }
+                IconButton(title: m.t("chat.digest") + " · " + m.t("chat.digest_title"), icon: "text.alignleft", selected: m.digestOpen) { m.toggleDigest() }
+                IconButton(title: m.t("common.tasks"), icon: "checklist") { m.openDetails("tasks") }
+                if m.secretary.isEmpty { IconButton(title: m.t("secretary.setup_title"), icon: "person.badge.plus") { m.sheet = .secretary } }
+            } else {
+                IconButton(title: m.t("chat.card"), icon: "person.crop.square") { m.openCard(m.member) }
+                IconButton(title: m.t("common.context_trace"), icon: "list.bullet.rectangle") { m.openDetails("trace") }
+                IconButton(title: m.t("chat.workspace"), icon: "folder") { m.setPane("workspace") }
+                if m.selectedMember["embedded"].flag { IconButton(title: m.t("chat.stop_turn"), icon: "stop.circle") { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
+            }
+        }.padding(.horizontal, 18).padding(.vertical, 12).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
     }
 }
 
@@ -134,7 +130,7 @@ struct ConversationStream: View {
     @State private var initialLoad = true
     var body: some View {
         ScrollViewReader { proxy in
-            VStack(spacing: 8) {
+            VStack(spacing: 0) {
                 GeometryReader { viewport in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 8 : 16) {
@@ -143,7 +139,7 @@ struct ConversationStream: View {
                             Rows(m.displayMessages) { MessageView(item: $0) }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: end.frame(in: .named("conversation")).maxY) })
-                        }.padding(.vertical, 8)
+                        }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
                     }.coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { followsBottom = $0 <= viewport.size.height + 90 }
                 }
@@ -161,11 +157,13 @@ struct MessageView: View {
     @EnvironmentObject var m: Model
     let item: Node
     var inThread = false
+    @State private var hovering = false
+    private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
     private var groupPlain: Bool { m.plainMode && m.member.isEmpty && !inThread }
     private var wantsPlain: Bool { (groupPlain || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
     var body: some View {
-        if item["type"].text == "notice" { Text(item["text"].text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+        if item["type"].text == "notice" { Text(item["text"].text).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 4).background(RelicStyle.sidebar, in: Capsule()).frame(maxWidth: .infinity).padding(.vertical, 6) }
         else if item["type"].text == "acts" {
             let actions = ToolActivity.pair(item["steps"].rows)
             DisclosureGroup {
@@ -180,10 +178,12 @@ struct MessageView: View {
             }
         } else {
             HStack(alignment: .top, spacing: 10) {
-                Button { if item["from"].text != "human" { m.openCard(item["from"].text) } } label: { Avatar(member: item["from"].text) }.buttonStyle(.plain)
-                VStack(alignment: .leading, spacing: 6) {
+                if !mine { Button { m.openCard(item["from"].text) } label: { Avatar(member: item["from"].text, size: 36) }.buttonStyle(.plain) }
+                else { Spacer(minLength: 16) }
+                VStack(alignment: mine ? .trailing : .leading, spacing: 5) {
                     HStack { Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold(); Text(m.day(item["at"]) + " " + m.clock(item["at"])).foregroundStyle(.secondary) }.font(.caption)
                     if !item["to"].rows.isEmpty { Text(m.t("msg.to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])).font(.caption).foregroundStyle(.secondary) }
+                    VStack(alignment: .leading, spacing: 6) {
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
                     else if wantsPlain, let plain = m.plain[item["id"].text] { RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
                     else { RichText(bodyText) }
@@ -191,6 +191,7 @@ struct MessageView: View {
                         if m.plainFailed.contains(item["id"].text) { Button(m.t("plain.retry")) { m.run { try await m.requestPlain([item["id"].text]) } } }
                         else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(.caption) }
                     }
+                    }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
                     if item["from"].text == "human" && !item["read_by"].isNull {
                         DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
                             Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(.caption)
@@ -202,9 +203,11 @@ struct MessageView: View {
                         Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
-                    }.buttonStyle(.link).font(.caption)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
+                    }.buttonStyle(.link).font(.system(size: 11)).opacity(hovering ? 1 : 0).accessibilityHidden(!hovering)
+                }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
+                if mine { Avatar(member: "human", size: 36) }
+                else { Spacer(minLength: 16) }
+            }.onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
     }
 }
@@ -290,14 +293,14 @@ struct ComposerView: View {
                 Menu(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])) {
                     Button(m.t("composer.all_members")) { m.recipients = ["all"] }
                     Rows(m.members) { who in Toggle(who.display, isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft() })) }
-                }.fixedSize()
+                }.menuStyle(.borderlessButton).font(.system(size: 12)).fixedSize().padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
             }
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.padding(8).background(.quaternary) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(.quaternary) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .frame(minHeight: 70, maxHeight: 140).overlay(RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.3)))
+                .frame(height: 72).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
-            HStack { VoiceButton(text: $m.draft); Spacer(); Button(m.t("common.send"), action: send).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
-        }.onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
+            HStack { VoiceButton(text: $m.draft).labelStyle(.iconOnly); Spacer(); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(.system(size: 12, weight: .semibold)) }.buttonStyle(.borderedProminent).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
+        }.padding(12).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(RelicStyle.border, lineWidth: 1)).padding(.horizontal, 20).padding(.bottom, 16).onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
 

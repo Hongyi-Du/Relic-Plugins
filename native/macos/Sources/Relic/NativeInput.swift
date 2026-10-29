@@ -13,6 +13,7 @@ struct MentionEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true
         let editor = ComposerTextView()
+        editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor.labelColor; editor.insertionPointColor = NSColor.labelColor
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false; editor.isVerticallyResizable = true
         editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
@@ -123,7 +124,7 @@ struct VoiceButton: View {
         if m.preferences["voice"].text != "off" {
             Button(action: toggle) {
                 Label(m.t("common.voice_input"), systemImage: voice.recording ? "stop.circle.fill" : "mic")
-            }.disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
+            }.buttonStyle(.borderless).controlSize(.small).disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         } else {
             Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
         }

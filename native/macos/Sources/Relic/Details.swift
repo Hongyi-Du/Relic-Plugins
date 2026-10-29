@@ -20,7 +20,7 @@ struct DetailsView: View {
             case "docs": DocumentsView()
             default: TraceView()
             }
-        }.frame(width: 900, height: 640)
+        }.frame(minWidth: 600, idealWidth: 840, maxWidth: 900, minHeight: 380, idealHeight: 520, maxHeight: 550)
     }
 }
 

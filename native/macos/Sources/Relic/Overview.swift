@@ -7,7 +7,7 @@ struct Overview: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(m.t("org.heading")).font(.caption)
             Text(m.snapshot["org"]["name"].text).font(.title3)
-            Text(m.snapshot["org"]["purpose"].text.isEmpty ? m.t("org.no_purpose") : m.snapshot["org"]["purpose"].text).font(.headline)
+            Text(m.snapshot["org"]["purpose"].text.isEmpty ? m.t("org.no_purpose") : m.snapshot["org"]["purpose"].text).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
             Text(m.t(m.snapshot["org"]["kind"].text == "subgroup" ? "org.kind_subgroup" : "org.kind_formal") + " · " + m.t(m.snapshot["org"]["governance"].text == "peer" ? "org.gov_peer" : "org.gov_leader")).font(.caption)
             if !m.snapshot["org"]["leader"].text.isEmpty { Text(m.t(m.snapshot["org"]["cabinet"].flag ? "org.secretary_general_chip" : "org.leader_chip", ["name": m.name(m.snapshot["org"]["leader"].text)])).font(.caption) }
             Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(Choices.modes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
@@ -48,7 +48,7 @@ struct Overview: View {
                 else { Button(m.t("secretary.setup_title")) { m.sheet = .secretary } }
             }
             Button(m.t("org.details")) { m.openDetails("trace") }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).buttonStyle(.borderless).controlSize(.small)
     }
     private var currentWork: some View {
         let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
@@ -128,7 +128,7 @@ struct DecisionView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(m.decisionTitle(decision)).bold().textSelection(.enabled)
+            Label(m.decisionTitle(decision), systemImage: "exclamationmark.circle.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(RelicStyle.amber).fixedSize(horizontal: false, vertical: true)
             Text(["reason", "error", "detail"].map { decision[$0].text }.filter { !$0.isEmpty }.joined(separator: "\n")).textSelection(.enabled)
             if decision["kind"].text == "approval" { Text(m.approvalNote(decision)).font(.caption) }
             if decision["kind"].text == "permission" {
@@ -141,7 +141,7 @@ struct DecisionView: View {
             }
             if decision["kind"].text == "task" { Text(m.t("decision.task_owner", ["name": m.name(decision["member"].text)])); Button(m.t("decision.view_task")) { m.openDetails("tasks", task: decision["id"].text) } }
             if !decision["member"].text.isEmpty { Button(m.t(decision["kind"].text == "task" ? "decision.ask" : "decision.open_chat", ["name": m.name(decision["member"].text)])) { m.run { try await m.select(m.organization, decision["member"].text) } } }
-        }.padding(10).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8)).disabled(sending)
+        }.relicCard(RelicStyle.amberSoft).controlSize(.small).disabled(sending)
     }
 }
 

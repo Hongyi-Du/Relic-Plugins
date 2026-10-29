@@ -14,7 +14,7 @@ struct ChartView: View {
     @State private var hovered = ""
     @State private var autoFit = true
     @State private var draggedUntil = Date.distantPast
-    private let viewport = CGSize(width: 820, height: 500)
+    @State private var viewport = CGSize(width: 760, height: 360)
     private var layout: OrganizationLayout { OrganizationLayout(chart["orgs"].rows.filter { showEnded || $0["status"].text == "active" }) }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -61,7 +61,7 @@ struct ChartView: View {
                     }
                 }.frame(width: graph.size.width, height: graph.size.height).scaleEffect(zoom, anchor: .topLeading).offset(offset)
                 if graph.nodes.isEmpty { Text(m.t("chart.empty")).padding(30) }
-            }.frame(width: viewport.width, height: viewport.height).clipped()
+            }.frame(maxWidth: .infinity, minHeight: 260, maxHeight: .infinity).clipped().background(GeometryReader { proxy in Color.clear.onAppear { viewport = proxy.size; if autoFit { fit() } }.onChange(of: proxy.size) { viewport = proxy.size; if autoFit { fit() } } })
                 .background(WheelZoomCapture { delta, point in zoomAt(zoom * exp(-delta * 0.006), at: point) })
                 .focusable().onMoveCommand { direction in
                     switch direction { case .left: offset.width += 60; case .right: offset.width -= 60; case .up: offset.height += 60; case .down: offset.height -= 60; default: break }
