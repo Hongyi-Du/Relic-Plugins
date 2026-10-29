@@ -10,14 +10,14 @@ adds task avatars/status badges/report surfaces, compact trace and document
 columns, protocol hierarchy, paired member fields and the selected accent on
 dialog actions. Final evidence must use the later final commit's full run.
 
-Review finding for the macOS owner (outside Windows ownership): a check rule
-without `on_error` is displayed as blocked in `Overview.swift:251`, whereas the
-reference, Windows and engine default to allow. The shared fixture intentionally
-exposes this omitted-field case. Current engine-created protocols normally write
-the explicit value, but the native fallback is still inconsistent and needs a
-macOS correction. Do not hide this difference by changing screenshots or claiming
-that capture completion certifies all semantics. PR #4 remains draft pending
-resolution/review; no local app or test execution is authorized.
+Review found that a check rule without `on_error` was displayed as blocked by
+macOS while the engine defaults to allow. The shared API now returns the engine's
+effective `on_error` explicitly in copies and owned/inherited protocol snapshots.
+The omitted-field fixture is retained; tests compare the returned value with
+`Store._check_outcome` and verify that stored records are not changed. All clients
+therefore consume the same effective value. This is a response projection fix,
+not a change to enforcement or a screenshot-only workaround. PR #4 remains draft
+for final visual review; no local app or test execution is authorized.
 
 `scripts/visual/scenes.json` is the shared capture matrix: 42 screens and dialog
 states, both languages, both themes, 1440x900 / 1280x800 / 1024x700. The full run

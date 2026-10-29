@@ -5,6 +5,7 @@ protocols, events and tool activity, plus each session's own transcript for its 
 writes to the store.
 """
 import calendar
+import copy
 import json
 import os
 import time
@@ -446,12 +447,26 @@ def approval_item(store, org, r, lang=None):
             "error": r.get("error")}
 
 
+def protocol_rules(rules):
+    """Expose the engine's effective check fallback, including legacy records.
+
+    Clients must display the same outcome as Store._check_outcome rather than
+    each interpreting an absent on_error field. This never rewrites the store.
+    """
+    result = copy.deepcopy(rules or [])
+    for rule in result:
+        if rule.get("effect") == "check":
+            rule["on_error"] = "deny" if rule.get("on_error") == "deny" else "allow"
+    return result
+
+
 def copies(store, lang=None):
     """What was copied to the person (GET /api/cc): protocols with a check program, each with its note for the person,
     who proposed it (author_display, by display name) and how it stands now; unread counts every unread copy."""
-    items = store.copies()
+    items = copy.deepcopy(store.copies())
     orgs = {o["id"]: o for o in store.list_orgs()}
     for c in items:
+        c["rules"] = protocol_rules(c.get("rules"))
         seats = (orgs.get(c.get("org")) or {}).get("members") or {}
         shown = lambda m, seats=seats: naming.display(seats[m], m, lang) if m in seats else m  # noqa: E731
         issued = c.get("issued_by") or {}
@@ -475,7 +490,7 @@ def snapshot(store, org_id, hub=None, lang=None):
     tasks = sorted((org.get("tasks") or {}).values(), key=lambda t: int(t["id"][1:]) if t["id"][1:].isdigit() else 0)
     protocols = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
                   "version": p.get("version"), "author": p.get("author"), "votes": len(p.get("votes") or {}),
-                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target"),
                   "issued_by": p.get("issued_by"), "downward": bool(p.get("downward")), "inherit": inherits(p),
                   "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or ""),
@@ -502,7 +517,7 @@ def snapshot(store, org_id, hub=None, lang=None):
                          "working": sum(1 for t in child_tasks if t.get("status") in ("open", "working"))})
     lineage = store.inheritance(org)
     inherited = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
-                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
                   "from_id": a["id"], "issued_by": p.get("issued_by"), "check": has_check(p),
                   "summary_for_person": p.get("summary_for_person", "")} for a, p in lineage["inherited"]]

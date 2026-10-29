@@ -8,6 +8,12 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients: copies and owned/inherited snapshot protocols now always
+include the effective `on_error` for check rules (`allow` when omitted, matching
+the engine; explicit `deny` preserved). This removes different client defaults
+without changing enforcement or stored records. The omitted-field visual fixture
+is retained and pure mocked regressions cover both response paths.
+
 Changes for the clients (latest integration): macOS `952ba3a` is merged, including
 its compact Settings rows, exact reference avatar palette, task/copy counts and
 mention-popup positioning. Both remaining shared requests are implemented:
