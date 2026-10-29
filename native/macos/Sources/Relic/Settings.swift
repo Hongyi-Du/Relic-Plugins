@@ -10,8 +10,8 @@ struct SettingsView: View {
     var body: some View {
         HSplitView {
             List(sections, id: \.0) { key, title in
-                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(.system(size: 13)).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).listRowSeparator(.hidden)
-            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 170).background(RelicStyle.sidebar)
+                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(.system(size: 13)).lineLimit(2).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).help(m.t(title)).listRowSeparator(.hidden)
+            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 210).background(RelicStyle.sidebar)
             Form {
                 switch m.settingsSection {
                 case "profile": profile

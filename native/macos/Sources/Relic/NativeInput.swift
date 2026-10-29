@@ -44,6 +44,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     private var mentionPopover: NSPopover?
     private var suggestions: [Node] = []
     private var suggestionIndex = 0
+    var mentionSuggestionsVisible: Bool { mentionPopover?.isShown == true }
     override var rangeForUserCompletion: NSRange {
         let cursor = selectedRange().location
         guard cursor != NSNotFound, cursor <= (string as NSString).length else { return NSRange(location: NSNotFound, length: 0) }
@@ -67,8 +68,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     func showMentionSuggestions() {
         let range = rangeForUserCompletion
         guard range.location != NSNotFound, let window else { closeMentions(); return }
-        let query = String((string as NSString).substring(with: range).dropFirst()).lowercased()
-        suggestions = Array(members.filter { $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
+        suggestions = mentionCandidates()
         guard !suggestions.isEmpty else { closeMentions(); return }
         completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
         if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
@@ -77,8 +77,13 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
             let caret = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
             let rect = convert(window.convertFromScreen(caret), from: nil)
             mentionPopover?.show(relativeTo: rect, of: self, preferredEdge: .minY)
-            window.makeFirstResponder(self)
         }
+    }
+    func mentionCandidates() -> [Node] {
+        let range = rangeForUserCompletion
+        guard range.location != NSNotFound else { return [] }
+        let query = String((string as NSString).substring(with: range).dropFirst()).lowercased()
+        return Array(members.filter { query.isEmpty || $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
     }
     private func renderMentions() {
         mentionPopover?.contentViewController = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })

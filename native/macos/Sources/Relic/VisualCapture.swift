@@ -86,6 +86,7 @@ import RelicCore
                 if scene == "mention", let editor = textEditors(window.contentView).first {
                     window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
                     try await Task.sleep(for: .milliseconds(350))
+                    guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker") }
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)

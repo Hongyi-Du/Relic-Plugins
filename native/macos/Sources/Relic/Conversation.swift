@@ -151,7 +151,7 @@ struct ConversationStream: View {
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: end.frame(in: .named("conversation")).maxY) })
                         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
-                    }.coordinateSpace(name: "conversation")
+                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { followsBottom = $0 <= viewport.size.height + 90 }
                 }
                 ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
