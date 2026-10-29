@@ -104,12 +104,11 @@ struct SettingsView: View {
         }
     }
     private var about: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Relic · " + m.preferences["version"].text).font(RelicStyle.font(20, weight: 600)).padding(.vertical, 10)
-            SettingsRow(title: m.t("settings.data_folder"), hint: m.preferences["data"].text) { Button(m.t("common.open")) { m.run { try await m.post("/api/open", ["what": "data"]) } } }
-            SettingsRow(title: m.t("settings.logs"), hint: m.t("settings.logs_hint")) { Button(m.t("common.open")) { m.run { try await m.post("/api/open", ["what": "logs"]) } } }
-            SettingsRow(title: m.t("settings.local_server"), hint: m.t("settings.local_server_hint", ["port": m.preferences["port"].text])) { SmallBadge(text: m.t("settings.connected"), color: RelicStyle.green) }
-            Text(m.t("settings.install_app_done")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).padding(.top, 14)
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsRow(title: m.t("settings.data_folder"), hint: m.preferences["data"].text.isEmpty ? "~/.relic" : m.preferences["data"].text) { TextButton(m.t("common.open")) { m.run { try await m.post("/api/open", ["what": "data"]) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
+            SettingsRow(title: m.t("settings.logs"), hint: m.t("settings.logs_hint")) { TextButton(m.t("common.open")) { m.run { try await m.post("/api/open", ["what": "logs"]) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
+            SettingsRow(title: m.t("settings.local_server"), hint: m.t("settings.local_server_hint", ["port": m.preferences["port"].text])) { OverviewChip(text: "v" + m.preferences["version"].text) }
+            SettingsRow(title: m.t("settings.install_app"), hint: m.t("settings.install_app_done"), last: true) { OverviewChip(text: m.t("settings.installed"), tone: "ok") }
         }
     }
 }
@@ -137,46 +136,62 @@ struct HarnessSettings: View {
     @State private var harnesses: [Node] = []
     @State private var paths: [String: String] = [:]
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(m.t("settings.harness_intro")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
+        VStack(alignment: .leading, spacing: 6) {
+            ReferenceLabel(m.t("settings.harness_intro"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.bottom, 12)
             ForEach(["node", "npm"], id: \.self) { id in
-                SettingsRow(title: id == "node" ? "Node.js" : "npm", hint: m.t("settings.runtime_path_hint")) { pathRow(id, title: id == "node" ? "Node.js" : "npm") }
+                SettingsRow(title: id == "node" ? "Node.js" : "npm", hint: m.t("settings.runtime_path_hint")) { pathRow(id, placeholder: m.t("settings.auto_find")).frame(width: 280) }
             }
-            Text(m.t("settings.desktop_connections")).font(RelicStyle.font(15, weight: 600)).padding(.top, 22)
-            SettingsRow(title: "Codex / ChatGPT", hint: m.platform["desktop_transport"]["reason"].text) { SmallBadge(text: m.t(m.platform["desktop_transport"]["available"].flag ? "settings.connected" : "settings.not_connected"), color: m.platform["desktop_transport"]["available"].flag ? RelicStyle.green : RelicStyle.muted) }
-            SettingsRow(title: "Claude Desktop", hint: m.t("settings.claude_desktop_hint")) {
+            ReferenceLabel(m.t("settings.desktop_connections"), size: 18, weight: 650).padding(.bottom, 8)
+            SettingsRow(title: "Codex / ChatGPT", hint: m.platform["desktop_transport"]["reason"].text.isEmpty ? m.t("settings.desktop_probe_hint") : m.platform["desktop_transport"]["reason"].text) { OverviewChip(text: m.t(m.platform["desktop_transport"]["available"].flag ? "settings.connected" : "settings.not_connected"), tone: m.platform["desktop_transport"]["available"].flag ? "ok" : "") }
+            SettingsRow(title: "Claude Desktop", hint: m.platform["claude_desktop"]["reason"].text.isEmpty ? m.t("settings.claude_desktop_hint") : m.platform["claude_desktop"]["reason"].text) {
                 Toggle("Claude Desktop", isOn: Binding(get: { m.platform["claude_desktop"]["enabled"].flag }, set: { value in m.run { m.platform = try await m.post("/api/platform", ["claude_desktop_enabled": value, "probe": true]) } })).toggleStyle(SettingsToggleStyle()).labelsHidden()
             }
-            SettingsRow(title: m.t("settings.desktop_probe"), hint: m.t("settings.desktop_probe_hint")) { Button(m.t("settings.desktop_probe")) { m.run { m.platform = try await m.post("/api/platform", ["probe": true]) } } }
-            VStack(spacing: 10) { Rows(harnesses.filter { !$0["later"].flag }) { harness in
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text(harness["available"].flag ? m.t("settings.connected") : harness["problem"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary)
-                        SettingsRow(title: m.t("settings.program")) { pathRow(harness["id"].text, title: m.t("settings.program")) }
-                        Text(m.t(harness["adapter_installed"].flag ? "settings.adapter_version" : "settings.adapter_missing", ["adapter": harness["adapter"].text, "version": harness["adapter_version"].text])).accessibilityLabel(m.t("settings.adapter"))
-                        Text("Node.js · " + (harness["node"].text.isEmpty ? m.t("settings.not_found") : harness["node"].text))
-                        Text(m.t("settings.default_mode") + " · " + (harness["mode"].text.isEmpty ? m.t(harness["note"].text.isEmpty ? "settings.adapter_default" : "settings.adapter_default_note", ["note": harness["note"].text]) : harness["mode"].text))
-                        Text(m.t("settings.models") + " · " + harness["models"].rows.map(\.text).joined(separator: m.t("settings.models_sep")))
-                        Button(m.t(harness["adapter_installed"].flag ? "settings.reinstall_adapter" : "settings.install_adapter")) { m.run { m.installLogs[harness["id"].text] = [harness["install"].text]; try await m.post("/api/harnesses/" + Client.segment(harness["id"].text) + "/install", [:]) } }
-                        if let lines = m.installLogs[harness["id"].text] { Text(lines.joined(separator: "\n")).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-                    }.font(RelicStyle.font(12, weight: 400)).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
-                } label: {
-                    HStack { Text(harness["title"].text).font(RelicStyle.font(13, weight: 600)); Text(harness["vendor"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); Spacer() }
-                }.relicCard()
-            } }.padding(.vertical, 16)
-            DisclosureGroup(m.t("settings.later")) {
+            ReferenceLabel(m.t("settings.claude_desktop_hint"), size: 14, color: RelicStyle.muted, lines: 0)
+            SettingsRow(title: m.t("settings.desktop_probe"), hint: m.t("settings.desktop_probe_hint")) { TextButton(m.t("settings.desktop_probe")) { m.run { m.platform = try await m.post("/api/platform", ["probe": true]) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
+            Rows(harnesses.filter { !$0["later"].flag }) { harness in
                 VStack(alignment: .leading, spacing: 10) {
-                    Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text + " · " + $0["launch"].text) }
-                    Text(m.t("settings.later_hint")).foregroundStyle(RelicStyle.muted)
-                }.font(RelicStyle.font(12, weight: 400)).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                    HStack(spacing: 10) {
+                        ReferenceLabel(harness["title"].text, size: 14, weight: 700)
+                        ReferenceLabel(harness["vendor"].text, size: 14, color: RelicStyle.muted)
+                        Spacer(minLength: 0)
+                        TextButton(m.t(harness["adapter_installed"].flag ? "settings.reinstall_adapter" : "settings.install_adapter")) { m.run { m.installLogs[harness["id"].text] = ["$ " + harness["install"].text]; try await m.post("/api/harnesses/" + Client.segment(harness["id"].text) + "/install", [:]) } }.buttonStyle(ReferenceButtonStyle(small: true))
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        row(m.t("common.status")) { OverviewChip(text: harness["available"].flag ? m.t("settings.connected") : harness["problem"].text.isEmpty ? m.t("settings.not_connected") : harness["problem"].text, tone: harness["available"].flag ? "ok" : "bad") }
+                        row(m.t("settings.program")) { pathRow(harness["id"].text, placeholder: harness["program"].text.isEmpty ? m.t("settings.auto_find") : harness["program"].text, small: true) }
+                        row(m.t("settings.adapter")) { text(m.t(harness["adapter_installed"].flag ? "settings.adapter_version" : "settings.adapter_missing", ["adapter": harness["adapter"].text, "version": harness["adapter_version"].text])) }
+                        row("Node.js") { text(harness["node"].text.isEmpty ? m.t("settings.not_found") : harness["node"].text) }
+                        row(m.t("settings.default_mode")) { text(harness["mode"].text.isEmpty ? m.t(harness["note"].text.isEmpty ? "settings.adapter_default" : "settings.adapter_default_note", ["note": harness["note"].text]) : harness["mode"].text) }
+                        if !harness["models"].rows.isEmpty { row(m.t("settings.models")) { text(harness["models"].rows.map(\.text).joined(separator: m.t("settings.models_sep"))) } }
+                    }.padding(.vertical, 12.5)
+                    if let lines = m.installLogs[harness["id"].text] {
+                        FittingScroll(maxHeight: 144) { SelectableText(value: AttributedString(lines.joined(separator: "\n")), pointSize: 11.5, lineHeight: 17.25, monospaced: true).frame(maxWidth: .infinity, alignment: .leading) }
+                            .padding(8).modifier(RecordedSurface(background: RelicStyle.code, radius: 8, kind: "code"))
+                    }
+                }.padding(14).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, borderWidth: 1, radius: 12, kind: "card")).padding(.bottom, 10)
             }
+            ReferenceLabel(m.t("settings.later"), size: 15, weight: 650).padding(.top, 12).padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 6) {
+                Rows(harnesses.filter { $0["later"].flag }) { harness in
+                    HStack(alignment: .top, spacing: 10) {
+                        (Text(harness["title"].text).font(RelicStyle.font(12.5, weight: 700)) + Text(" " + harness["vendor"].text).font(RelicStyle.font(12.5, weight: 400)).foregroundColor(RelicStyle.muted)).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        ReferenceLabel(harness["launch"].text, size: 12.5, color: RelicStyle.muted, lines: 0, monospaced: true)
+                    }.padding(.horizontal, 10).padding(.vertical, 8).modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "row", borderDash: [3, 3]))
+                }
+            }
+            ReferenceLabel(m.t("settings.later_hint"), size: 12, color: RelicStyle.muted, lines: 0).padding(.top, 8)
         }.task { paths = m.preferences["paths"].object.mapValues { Node($0).text }; m.run { harnesses = try await m.get("/api/harnesses").rows } }
         .onChange(of: m.installLogs.mapValues { $0.count }) { if m.installLogs.values.contains(where: { $0.last == m.t("settings.install_done") }) { m.run { harnesses = try await m.get("/api/harnesses").rows } } }
     }
-    func pathRow(_ id: String, title: String) -> some View {
-        HStack(spacing: 6) {
-            TextField(title, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), prompt: Text(m.t("settings.auto_find"))).labelsHidden().textFieldStyle(.roundedBorder).help(title)
-            Button(m.t("common.save")) { m.run { var saved = m.preferences["paths"].object; saved[id] = paths[id] ?? ""; try await m.savePreferences(["paths": saved]); m.notice = m.t("settings.path_saved") } }
+    private func text(_ value: String) -> some View { ReferenceLabel(value, size: 12.5, lines: 0) }
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) { ReferenceLabel(label, size: 12.5, color: RelicStyle.muted, lines: 0).frame(width: 76, alignment: .leading); content().frame(maxWidth: .infinity, alignment: .leading) }
+    }
+    private func pathRow(_ id: String, placeholder: String, small: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            ReferenceInput(placeholder: placeholder, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), height: small ? 35.2 : 38.4, pointSize: small ? 12 : 14, monospaced: true, voice: false)
+            TextButton(m.t("common.save")) { m.run { var saved = m.preferences["paths"].object; saved[id] = (paths[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines); try await m.savePreferences(["paths": saved]); m.notice = m.t("settings.path_saved"); harnesses = try await m.get("/api/harnesses").rows } }.buttonStyle(ReferenceButtonStyle(small: true))
         }
     }
 }

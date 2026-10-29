@@ -45,7 +45,13 @@ struct RecordedSurface: ViewModifier {
 struct SurfaceShadow {
     let color: Color
     let radius: CGFloat, x: CGFloat, y: CGFloat
-    static let dialog = [SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.14), radius: 16, x: 0, y: 10), SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.06), radius: 3, x: 0, y: 2)]
+    static let small = [SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.06), radius: 1, x: 0, y: 1)]
+    private static func color(_ lightAlpha: CGFloat, _ darkAlpha: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: darkAlpha) : NSColor(srgbRed: 20/255, green: 18/255, blue: 15/255, alpha: lightAlpha)
+        })
+    }
+    static let dialog = [SurfaceShadow(color: color(0.14, 0.5), radius: 16, x: 0, y: 10), SurfaceShadow(color: color(0.06, 0.3), radius: 3, x: 0, y: 2)]
 }
 private struct SurfaceShadows: ViewModifier {
     let values: [SurfaceShadow]
@@ -70,6 +76,7 @@ extension View {
 }
 
 struct SurfacePaintProbe: NSViewRepresentable {
+    @Environment(\.captureRegion) private var region
     let background: Color
     let border: Color
     let borderWidth: CGFloat
@@ -97,6 +104,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.insetLeadingWidth = insetLeadingWidth; view.insetLeadingColor = NSColor(insetLeadingColor)
         view.borderDash = borderDash
         view.selected = selected; view.expanded = expanded
+        view.region = region
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
@@ -111,7 +119,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             var opacity = view.opacity
             var ancestor: NSView? = view
             while let current = ancestor { opacity *= Double(current.alphaValue); ancestor = current.superview }
-            return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect),
+            return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "region": view.region,
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(),
                     "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.cornerRadii.max() ?? view.radius),
@@ -134,6 +142,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var insetLeadingColor = NSColor.clear
         var borderDash: [CGFloat] = []
         var selected: Bool?, expanded: Bool?
+        var region = "window"
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
     }

@@ -117,7 +117,7 @@ struct TraceView: View {
                     ReferenceLabel(sessionLabel, size: 12.5, color: RelicStyle.muted, lines: 0).padding(.bottom, 12)
                     HStack(spacing: 8) {
                         SettingsSegments(options: [("all", m.t("common.all")), ("talk", m.t("trace.filter_talk")), ("tools", m.t("trace.filter_actions"))], selection: $filter)
-                        ReferenceInput(placeholder: m.t("trace.search"), text: $query, height: 30).frame(width: 220)
+                        ReferenceInput(placeholder: m.t("trace.search"), text: $query, height: 30, voice: false).frame(width: 220)
                     }.padding(.bottom, 12)
                     if data["start"].integer > 0 { HStack { Spacer(); TextButton(m.t("trace.load_older"), size: 12, weight: 400) { m.run { try await load(older: true) } }.buttonStyle(ReferenceButtonStyle(small: true)).disabled(loading); Spacer() }.padding(.vertical, 8) }
                     if data["missing"].flag { ReferenceLabel(m.t("trace.no_session"), size: 13, color: RelicStyle.muted).padding(22) }

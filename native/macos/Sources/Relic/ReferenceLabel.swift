@@ -14,6 +14,7 @@ struct ReferenceLabel: NSViewRepresentable {
     var owner: String? = nil
     var monospaced = false
     @Environment(\.captureOpacity) private var opacity
+    @Environment(\.captureRegion) private var region
     init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
@@ -37,6 +38,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner
+        view.productionRegion = region
         if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
         view.setAccessibilityLabel(text)
     }
@@ -55,6 +57,7 @@ struct ReferenceLabel: NSViewRepresentable {
 final class ReferenceLabelView: NSTextView {
     var measuredOpacity: Double = 1
     var productionOwner: String?
+    var productionRegion = "window"
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
 }

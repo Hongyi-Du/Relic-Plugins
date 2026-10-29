@@ -13,6 +13,11 @@ import CoreText
     static func box(_ rect: NSRect) -> [String: Double] {
         ["x": Double(rect.minX), "y": Double(rect.minY), "width": Double(rect.width), "height": Double(rect.height)]
     }
+    static func assignedRegion(identifier: String, textRegion: String?, inherited: String, geometric: String) -> String {
+        if identifier.hasPrefix("relic-region/") { return String(identifier.dropFirst("relic-region/".count)) }
+        if let textRegion { return textRegion }
+        return inherited == "window" ? geometric : inherited
+    }
     static func kind(_ role: String) -> String {
         switch role {
         case "AXButton", "AXDisclosureTriangle": return "button"
@@ -190,7 +195,9 @@ import CoreText
             if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
-            let assignedRegion = path == "window" ? "window" : inheritedRegion == "dialog" || inheritedRegion == "menu" ? inheritedRegion : region(rect, fallback: inheritedRegion)
+            let identifier = ax["identifier"].text
+            let textRegion = (object as? ReferenceLabelView)?.productionRegion ?? (object as? QuoteTextView)?.productionRegion
+            let assignedRegion = path == "window" ? "window" : Self.assignedRegion(identifier: identifier, textRegion: textRegion, inherited: inheritedRegion, geometric: region(rect, fallback: inheritedRegion))
             let visible = !ax["hidden"].flag && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
             var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
             node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
@@ -282,6 +289,11 @@ import CoreText
             if candidates.count == 1, let index = candidates.first {
                 var existing = elements[index]["style"] as! [String: Any]
                 existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing
+                if owner != nil, ["input", "dropdown"].contains(elements[index]["kind"] as? String ?? "") {
+                    elements[index]["ax_content_rect"] = elements[index]["rect"]
+                    elements[index]["rect"] = box(rect); elements[index]["visibleRect"] = box(visible)
+                }
+                if let measuredRegion = surface["region"] as? String { elements[index]["region"] = measuredRegion }
                 elements[index]["surface_evidence"] = surface["evidence"]!
                 if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
@@ -291,7 +303,7 @@ import CoreText
                 var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
                 let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
-                    "text": "", "name": "", "region": region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
+                    "text": "", "name": "", "region": surface["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                     "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!,
                     "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                     "pixelSamples": samples(visible, bitmap: bitmap)]
@@ -309,7 +321,7 @@ import CoreText
             var evidence = sample["evidence"] as! [String: Any]
             evidence["owner_accessibility_identifier"] = sample["owner"]!
             let node: [String: Any] = ["id": sample["id"]!, "parent": parent, "kind": "icon", "text": "", "name": "",
-                "region": region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
+                "region": sample["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                 "visible": true, "source": "live-NSView-shape-probe", "projection": evidence,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
                           "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
@@ -332,7 +344,7 @@ import CoreText
             let sx = evidence["scale_x"] as! Double, sy = evidence["scale_y"] as! Double
             if abs(sx - sy) > 0.0001 { surfaceGaps.append("Nonuniform chart edge transform needs directional stroke geometry: " + (sample["id"] as! String)) }
             let clipped = rect.intersection(viewport)
-            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
+            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
                 "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any],
@@ -418,6 +430,13 @@ struct ElementRegionProbe: NSViewRepresentable {
     }
 }
 
+private struct CaptureRegionKey: EnvironmentKey { static let defaultValue = "window" }
+extension EnvironmentValues {
+    var captureRegion: String { get { self[CaptureRegionKey.self] } set { self[CaptureRegionKey.self] = newValue } }
+}
 extension View {
-    func measuredRegion(_ name: String) -> some View { background(ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity)) }
+    func measuredRegion(_ name: String) -> some View {
+        background(ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity))
+            .environment(\.captureRegion, name).accessibilityElement(children: .contain).accessibilityIdentifier("relic-region/" + name)
+    }
 }
