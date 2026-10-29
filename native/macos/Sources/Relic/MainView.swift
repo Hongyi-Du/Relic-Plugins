@@ -39,6 +39,7 @@ struct AppToolbar: View {
     @EnvironmentObject var m: Model
     var body: some View {
         HStack(spacing: 3) {
+            Image(systemName: "r.square.fill").font(.system(size: 18)).foregroundStyle(RelicStyle.ink).padding(.horizontal, 6).accessibilityLabel("Relic")
             IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar.left") { m.sidebarOpen.toggle() }
             IconButton(title: m.t("appbar.back"), icon: "chevron.left") { m.navigate(-1) }.disabled(!m.history.canBack)
             IconButton(title: m.t("appbar.forward"), icon: "chevron.right") { m.navigate(1) }.disabled(!m.history.canForward)
@@ -50,7 +51,7 @@ struct AppToolbar: View {
             IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count) { m.setPane("overview") }
             IconButton(title: m.t("chart.title"), icon: "point.3.connected.trianglepath.dotted") { m.sheet = .chart }
             IconButton(title: m.t("cc.title") + " · " + m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "doc.on.doc", badge: m.copies.filter { !$0["read"].flag }.count) { m.sheet = .copies }
-            IconButton(title: m.t(m.panelOpen ? "panel.hide_title" : "page.panel"), icon: "sidebar.right", selected: m.panelOpen) { m.panelOpen.toggle() }
+            IconButton(title: m.t(m.panelOpen ? "panel.hide_title" : "page.panel"), icon: "sidebar.right", selected: m.panelOpen) { m.panelOpen.toggle() }.accessibilityLabel(m.t(m.panelOpen ? "panel.hide" : "page.panel"))
         }.padding(.horizontal, 8).frame(height: 40).background(RelicStyle.sidebar).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
     }
 }
@@ -90,11 +91,6 @@ struct Sidebar: View {
     @FocusState private var focused: Bool
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: "r.square.fill").font(.system(size: 25)).foregroundStyle(RelicStyle.accent)
-                Text("Relic").font(.system(size: 16, weight: .semibold)); Spacer()
-                IconButton(title: m.t("common.new_org"), icon: "square.and.pencil") { m.sheet = .create }
-            }.padding(.horizontal, 14).frame(height: 50)
             VStack(spacing: 5) {
                 Button { m.sheet = .create } label: { Label(m.t("common.new_org"), systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 34) }.buttonStyle(QuietButtonStyle())
                 HStack(spacing: 7) {
@@ -206,7 +202,7 @@ struct RightPane: View {
             case "thread": ThreadView()
             default: ScrollView { Overview().padding(16) }
             }
-        }.frame(maxHeight: .infinity, alignment: .top).background(RelicStyle.background).help(m.t("panel.resize"))
+        }.frame(maxHeight: .infinity, alignment: .top).background(RelicStyle.sidebar).help(m.t("panel.resize"))
     }
 }
 

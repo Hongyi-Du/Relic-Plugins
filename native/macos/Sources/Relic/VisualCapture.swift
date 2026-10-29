@@ -89,7 +89,7 @@ import RelicCore
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
-                print("Relic visual capture: " + item["file"].text)
+                print("Relic visual capture: " + item["file"].text); fflush(stdout)
             }
             try receipt([], count: results.count, beside: manifestURL)
             model.stop(); NSApp.terminate(nil)

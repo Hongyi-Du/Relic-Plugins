@@ -34,10 +34,14 @@ struct SplitPersistence: NSViewRepresentable {
                 NotificationCenter.default.addObserver(self, selector: #selector(resized), name: NSSplitView.didResizeSubviewsNotification, object: found)
             }
             let key = model.pane == "files" ? "width.files" : "width.panel"
-            let next = "\(model.sidebarOpen)/\(model.panelOpen)/" + key
+            let next = "\(model.sidebarOpen)/\(model.panelOpen)/\(Int(found.bounds.width))/" + key
             guard signature != next, found.bounds.width > 0 else { return }
             signature = next; panelKey = key; hasSidebar = model.sidebarOpen; hasPanel = model.panelOpen
             restoring = true; defer { restoring = false }
+            for index in found.subviews.indices {
+                let flexible = index == (hasSidebar ? 1 : 0)
+                found.setHoldingPriority(NSLayoutConstraint.Priority(flexible ? 250 : 750), forSubviewAt: index)
+            }
             if hasSidebar, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: "width.sidebar")
                 found.setPosition(min(320, max(208, saved > 0 ? saved : 276)), ofDividerAt: 0)

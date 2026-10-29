@@ -103,8 +103,9 @@ struct ChatView: View {
     }
     private var header: some View {
         HStack(spacing: 8) {
+            if m.member.isEmpty { Image(systemName: "number").font(.system(size: 14)).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28) }
             VStack(alignment: .leading, spacing: 4) {
-                let title = m.member.isEmpty ? m.snapshot["org"]["name"].text : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member)
+                let title = m.member.isEmpty ? m.t("common.group_chat") + "  " + m.t("common.members", ["n": String(m.members.count)]) : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member)
                 Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1).help(title)
                 let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : m.stateLabel(m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text
                 Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta)
@@ -202,7 +203,7 @@ struct MessageView: View {
                             Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(.caption)
                         }.font(.caption)
                     }
-                    if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": item["thread"]["last_at"].text])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
+                    if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": m.clock(item["thread"]["last_at"])])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
                     HStack {
                         if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
                         Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
@@ -294,17 +295,18 @@ struct ComposerView: View {
     let send: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(.quaternary) }
+            MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
+                .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
+                .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
+            HStack {
             if m.member.isEmpty {
                 Button { m.recipientPicker.toggle() } label: {
                     HStack(spacing: 4) { Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).lineLimit(1); Image(systemName: "chevron.down").font(.system(size: 9)) }
                 }.buttonStyle(.plain).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
                     .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
             }
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(.quaternary) }
-            MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .frame(height: 72).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
-                .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
-            HStack { VoiceButton(text: $m.draft).labelStyle(.iconOnly); Spacer(); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(.system(size: 12, weight: .semibold)) }.buttonStyle(.borderedProminent).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
+                Spacer(minLength: 4); VoiceButton(text: $m.draft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(.system(size: 12, weight: .semibold)) }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
         }.padding(12).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(RelicStyle.border, lineWidth: 1)).padding(.horizontal, 20).padding(.bottom, 16).onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
