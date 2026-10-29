@@ -183,8 +183,8 @@ struct MessageView: View {
                 Button { if item["from"].text != "human" { m.openCard(item["from"].text) } } label: { Avatar(member: item["from"].text) }.buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack { Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold(); Text(m.day(item["at"]) + " " + m.clock(item["at"])).foregroundStyle(.secondary) }.font(.caption)
-                    if !item["to"].rows.isEmpty { Text(m.t("msg.to", ["names": item["to"].rows.map { m.name($0.text) }.joined(separator: ", ")])).font(.caption).foregroundStyle(.secondary) }
-                    if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": item["to"].rows.map { m.name($0.text) }.joined(separator: ", ")])) { RichText(bodyText) } }
+                    if !item["to"].rows.isEmpty { Text(m.t("msg.to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])).font(.caption).foregroundStyle(.secondary) }
+                    if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
                     else if wantsPlain, let plain = m.plain[item["id"].text] { RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
                     else { RichText(bodyText) }
                     if wantsPlain && m.plain[item["id"].text] == nil {
@@ -193,7 +193,7 @@ struct MessageView: View {
                     }
                     if item["from"].text == "human" && !item["read_by"].isNull {
                         DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
-                            Text(item["read_by"].rows.map { m.name($0.text) }.joined(separator: ", ")).font(.caption)
+                            Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(.caption)
                         }.font(.caption)
                     }
                     if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": item["thread"]["last_at"].text])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
@@ -287,7 +287,7 @@ struct ComposerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if m.member.isEmpty {
-                Menu(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.recipients.map { m.name($0) }.joined(separator: ", ")])) {
+                Menu(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])) {
                     Button(m.t("composer.all_members")) { m.recipients = ["all"] }
                     Rows(m.members) { who in Toggle(who.display, isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft() })) }
                 }.fixedSize()

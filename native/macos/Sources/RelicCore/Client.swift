@@ -134,6 +134,11 @@ public struct Words {
         for (key, value) in args { result = result.replacingOccurrences(of: "{" + key + "}", with: value) }
         return result
     }
+    public func list(_ values: [String]) -> String {
+        guard let first = values.first else { return "" }; if values.count == 1 { return first }
+        if values.count == 2 { return t("list.pair", ["a": first, "b": values[1]]) }
+        return values.dropFirst().enumerated().reduce(first) { result, next in t(next.offset == values.count - 2 ? "list.end" : "list.middle", ["a": result, "b": next.element]) }
+    }
 }
 
 public enum Composer {

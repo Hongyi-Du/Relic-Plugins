@@ -17,7 +17,7 @@ struct MainView: View {
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HSplitView {
                 if m.sidebarOpen { Sidebar().frame(minWidth: 220, idealWidth: 260, maxWidth: 340) }
-                ChatView().frame(minWidth: 350, maxWidth: .infinity)
+                ChatView().frame(minWidth: 350, maxWidth: .infinity).background(SplitPersistence())
                 if m.panelOpen { RightPane().frame(minWidth: 320, idealWidth: 380, maxWidth: 740) }
             }
         }
