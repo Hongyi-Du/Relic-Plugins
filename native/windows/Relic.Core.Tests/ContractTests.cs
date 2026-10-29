@@ -6,6 +6,14 @@ using Xunit;
 
 public class ContractTests
 {
+    [Fact] public void HistoryPaginationRetainsOlderNoticesAndRefreshesExistingMessages()
+    {
+        var older = JsonNode.Parse("[{\"id\":\"e1\",\"type\":\"notice\",\"at\":\"2026-01-01\"},{\"id\":1,\"type\":\"message\",\"at\":\"2026-01-01\",\"body\":\"old\"}]")!.AsArray();
+        var latest = JsonNode.Parse("[{\"id\":1,\"type\":\"message\",\"at\":\"2026-01-01\",\"body\":\"new\"},{\"id\":2,\"at\":\"2026-01-02\"}]")!.AsArray();
+        var merged = Transcript.MergeMessages(older, latest);
+        Assert.Equal(3, merged.Count); Assert.Equal("e1", merged[0].Text("id")); Assert.Equal("new", merged[1].Text("body"));
+        Assert.Equal("old", older[1].Text("body"));
+    }
     [Fact] public void ListsUseTheSharedLanguageTemplates()
     {
         var words = new Words();

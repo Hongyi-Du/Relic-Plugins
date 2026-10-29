@@ -68,6 +68,12 @@ def key_present(key, text):
     return any(key.startswith(prefix) for prefix in prefixes)
 
 
+def browser_ui_uses(text):
+    # Toolkit dependencies are not UI. Reject browser controls or JS/HTML render
+    # calls in client implementation, including a future accidental shell port.
+    return sorted(set(re.findall(r"\b(?:WebView2|WKWebView|WebBrowser|BlazorWebView|ExecuteScriptAsync|NavigateToString|evaluateJavaScript|loadHTMLString)\b", text)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "test-results/native-parity.json")
@@ -91,7 +97,8 @@ def main():
         for name, windows, macos in re.findall(r"^\| ([^|]+) \| [^|]+ \| (done|pending) \| (done|pending) \|", docs, re.M):
             if (windows, macos)[column] != "done" and "@" not in name:
                 missing_flows.append(name.strip())
-        result[platform] = {"missing_keys": missing_keys, "missing_routes": missing_routes, "incomplete_flows": missing_flows}
+        result[platform] = {"missing_keys": missing_keys, "missing_routes": missing_routes,
+                            "incomplete_flows": missing_flows, "browser_ui_uses": browser_ui_uses(source)}
     for section in ("keys", "routes"):
         if any(not isinstance(reason, str) or len(reason.strip()) < 20 for reason in allow[section].values()):
             raise ValueError("Every parity exemption requires a specific native rationale")

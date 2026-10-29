@@ -163,7 +163,9 @@ public sealed partial class MainWindow : Window
                 var snapshot = await api.Get(PathFor());
                 var chat = await api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-                snap = snapshot; messages = chat.Rows("items"); chatMore = chat.Flag("more");
+                snap = snapshot;
+                messages = olderHistory ? Transcript.MergeMessages(messages, chat.Rows("items")) : chat.Rows("items");
+                if (!olderHistory) chatMore = chat.Flag("more");
                 if (member.Length > 0)
                 {
                     var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
@@ -195,7 +197,7 @@ public sealed partial class MainWindow : Window
     {
         await StopVoice();
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
-        chatLimit = 1000;
+        olderHistory = false;
         if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
         RestoreChat(); if (!fromHistory) PushHistory();
         var reveal = id; var ancestors = new HashSet<string>();

@@ -5,6 +5,14 @@ namespace Relic.Core;
 
 public static class Transcript
 {
+    public static JsonArray MergeMessages(IEnumerable<JsonNode?> older, IEnumerable<JsonNode?> newer)
+    {
+        var rows = new Dictionary<string, JsonNode?>();
+        foreach (var row in older.Concat(newer)) rows[row.Text("id")] = row;
+        return new JsonArray(rows.Values.OrderBy(r => r.Text("at"), StringComparer.Ordinal)
+            .ThenBy(r => r.Text("type") == "notice" ? 0 : 1).ThenBy(r => long.TryParse(r.Text("id"), out var id) ? id : 0)
+            .Select(r => r?.DeepClone()).ToArray());
+    }
     public const string PersonPrefix = "[Relic App] The person (human) writes to you directly:";
     public static string PersonText(string text) => text.StartsWith(PersonPrefix)
         ? Regex.Replace(text[PersonPrefix.Length..], @"\n\nReply in this conversation;[\s\S]*$", "").Trim() : text;

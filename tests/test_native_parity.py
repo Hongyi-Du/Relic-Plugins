@@ -8,6 +8,11 @@ import check_native_parity as parity
 
 
 class ReferenceCoverage(unittest.TestCase):
+    def test_browser_controls_cannot_satisfy_native_parity(self):
+        self.assertEqual(parity.browser_ui_uses('new WebView2(); view.NavigateToString(html);'), ['NavigateToString', 'WebView2'])
+        self.assertEqual(parity.browser_ui_uses('WKWebView().loadHTMLString(source)'), ['WKWebView', 'loadHTMLString'])
+        self.assertEqual(parity.browser_ui_uses('new TextBox(); Text(value).textSelection(.enabled)'), [])
+
     def test_conditional_and_data_driven_vocabulary_is_required(self):
         source = "t(flag ? 'common.save' : 'common.cancel'); const sections = ['settings.profile'];"
         keys, _, _ = parity.reference_contract(source)

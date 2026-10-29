@@ -19,8 +19,8 @@ public sealed partial class MainWindow
     private readonly TextBox threadEditor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
     private readonly TextBlock quoteLabel = new() { TextWrapping = TextWrapping.Wrap };
     private Button? recipientButton;
-    private int chatLimit = 1000;
-    private bool chatMore;
+    private const int chatLimit = 1000;
+    private bool chatMore, olderHistory;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<TextBox> composing = new();
@@ -153,7 +153,7 @@ public sealed partial class MainWindow
             stream.Children.Add(Text(banner, 12));
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
-        if (chatMore || conversation.Flag("more")) stream.Children.Add(Button(T("trace.load_older"), async () => { chatLimit += 1000; await Refresh(); }));
+        if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));
         var items = ConversationItems().ToArray();
         if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
         string day = ""; JsonNode? previous = null;
@@ -166,6 +166,17 @@ public sealed partial class MainWindow
         if (atBottom) DispatcherQueue.TryEnqueue(() => chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null));
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
+    }
+    private async Task LoadOlderMessages()
+    {
+        var selectedOrg = org; var selectedMember = member;
+        var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
+        if (before.Length == 0) { chatMore = false; return; }
+        var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=1000&before=" + Client.Segment(before)));
+        if (org != selectedOrg || member != selectedMember) return;
+        var height = chatScroll.ScrollableHeight; var offset = chatScroll.VerticalOffset;
+        olderHistory = true; messages = Transcript.MergeMessages(page.Rows("items"), messages); chatMore = page.Flag("more"); DrawConversation();
+        DispatcherQueue.TryEnqueue(() => { stream.UpdateLayout(); chatScroll.ChangeView(null, offset + chatScroll.ScrollableHeight - height, null); });
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {

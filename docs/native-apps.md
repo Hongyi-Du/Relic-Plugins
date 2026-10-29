@@ -45,7 +45,7 @@ of actions and server payloads below. Every row is required; there are no deferr
 | `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations and current members; unread/recent chat previews; selected group and member rows | done | done |
 | `openOrg`, `go`, `renderHead`, `renderBanner` | Shared selection state; native conversation title, member state and permission/waiting banner | done | done |
 | `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read-by disclosure, history pagination, tool/activity disclosure and live session items | done | done |
-| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | done | pending |
+| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | done | done |
 | `permissionCard`, `decisionCard` | Native action cards; use exact permission option IDs; approve/deny structural requests; open blocked member/task | done | done |
 | `renderOrgPane`, `hierarchyBlock` | Native Overview: goal, status, members, tasks/reports, protocol origins and inherited/replaced rules; parent/leader/secretariat/auto-wake and subgroup controls | done | done |
 | `drawCopies`, `copyCard`, `checkRulesView`, `ackCopy`, `retireCopy` | Copies sheet, summary/author/status/statistics, expandable code/examples; Got it and confirmed Retire | done | done |
@@ -84,11 +84,11 @@ framework event callbacks replace the browser event wiring.
 | Voice.supported / Voice.toggle / Voice.stop | OS speech availability, explicit start/stop, preference and permission handling | done | done |
 | Voice.onresult / onerror / onend | Dictation at selection, interim/final text, microphone/network/no-speech errors, focus restoration | done | done |
 | Enter / Shift-Enter / IME / mention completion | Native editor intercepts Return only outside composition/completion; Shift-Return newline | done | done |
-| EventSource reopen / token rotation | Read app.json and verify the replacement lifecycle, reconnect SSE; retry an unauthenticated write only after token rejection | done | pending |
+| EventSource reopen / token rotation | Read app.json and verify the replacement lifecycle, reconnect SSE; retry an unauthenticated write only after token rejection | done | done |
 | Resize pointer capture / remembered pane widths | Native split controls, separate File width, persisted visibility and dimensions | done | done |
 | Hash navigation / back-forward history | Native `(org, member)` navigation stack; reveal selected organization's ancestors | done | done |
 | Native install replaces PWA install / service worker | Per-user Windows installer and SwiftUI Mach-O bundle; retired browser installer returns 410 | done | done |
-| Person issues protocol / inherited check rules | `/protocols` accepts weak guidance or strong JSON rules, rationale, trigger, inheritance and summary | done | pending |
+| Person issues protocol / inherited check rules | `/protocols` accepts weak guidance or strong JSON rules, rationale, trigger, inheritance and summary | done | done |
 | Lifecycle close / beforeunload | Client-owned stdin lease and authenticated shutdown; borrowed server survives; no visible console | done | done |
 | Native notification click | System notification activates Relic; copy and decision notifications retain the reference preference | done | done |
 
@@ -281,8 +281,8 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `save@278` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
 | `get@281` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
 | `loadPlatform@287` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
-| `freshToken@291` | Authenticated HTTP, errors, preferences, and shared language formatting | done | pending |
-| `post@297` | Authenticated HTTP, errors, preferences, and shared language formatting | done | pending |
+| `freshToken@291` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `post@297` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
 | `toast@305` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
 | `lang@313` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
 | `applyPrefs@314` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
@@ -310,7 +310,7 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `scheduleRefresh@554` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `notifyChanges@562` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `liveSlot@576` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
-| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | pending |
+| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `lastLine@623` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `chatRow@629` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
 | `orgTree@636` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
@@ -358,7 +358,7 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `micButton@1236` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `field@1242` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `composerBox@1249` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
-| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | done | pending |
+| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `renderComposer@1290` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `toPicker@1312` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `mentionCheck@1331` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
@@ -470,6 +470,10 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | done | done |
 
 ## Changes for the clients
+
+- 2026-10-29: Merged and reviewed native-macos 467fa95: verified credential renewal, quote-only sends, thread-send lock, speech stop and protocol payload/labels now match; their pending implementation rows are done. REQUESTS.md contains no new shared changes. Shared list templates still require macOS implementation and remain enforced by vocabulary CI.
+- 2026-10-29: CI also rejects browser controls and HTML/JavaScript rendering calls in native implementation sources. Windows history uses the existing before cursor and merges pages without losing older notices or updated read receipts; expanding the initial limit alone would stop at the server's bounded history window.
+
 
 - 2026-10-29: Shared panel/open_app entry points now use the same native launcher and propagate a missing native installation as an error. Updated English/Chinese README, Windows/macOS guides and source-package README to distinguish native binary installation from shared plugin installation. The WinUI SDK carries its standard optional WebView2 SDK assemblies; Relic never creates that control or starts its browser runtime. All App rendering remains native.
 
