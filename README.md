@@ -86,11 +86,11 @@ v0.2.0-beta.1 had three editions: Relic Claude 0.1.0-beta.1, Relic Codex / GPT 0
 The runtime uses Python's standard library. `python scripts/check.py` runs the two isolated fixture suites, `relic` (the plugin and the App) and `packaging` (the installer and the archives); `--suite relic` or `--suite packaging` runs one. `python scripts/package.py --output dist` builds one archive per platform (`relic-windows-v<version>.zip`, `relic-macos-v<version>.tar.gz`) plus `SHA256SUMS.txt` and `release-manifest.json`; these candidate archives are not published automatically. Add `--macos-format both` for a macOS ZIP too. Windows/macOS CI uses Python 3.11 and 3.13. These checks do not invoke a real model or certify every desktop-host integration.
 
 Source is under [MIT](LICENSE), matching the current public [Relic research repository](https://github.com/Hongyi-Du/Relic). This plugin release is separate from the paper's experiment code and from [Relic-Agent](https://github.com/Hongyi-Du/Relic-Agent). Please report reproducible issues at [GitHub Issues](https://github.com/Hongyi-Du/Relic-Plugins/issues) after removing private data.
-# Native app candidate
+
+## Native app candidate
 
 The `native-apps` review branch adds actual SwiftUI (macOS 14+, Apple silicon) and
 WinUI 3 (.NET 8, Windows x64) clients, sharing the existing Python engine. Native
 installers and `.app` bundles are produced by the **Native apps** workflow; they
 are unsigned review candidates, separate from the existing released packages.
 See [native installation](docs/native-install.md) and the [screen/API contract](docs/native-apps.md).
-

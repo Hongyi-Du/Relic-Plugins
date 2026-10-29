@@ -1,4 +1,8 @@
 {
+ "native.protocol_title": "标题",
+ "native.protocol_rationale": "为什么需要这条协议",
+ "native.protocol_trigger": "何时适用",
+ "native.protocol_guidance": "指引",
  "@name": "简体中文",
  "api.acp_one_seat": "这个会话在 Relic App 里作为「{org}」的 {member} 运行；这类会话暂时只能坐一个席位。",
  "api.cc_missing": "没有这条抄送。",

@@ -32,6 +32,7 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer chatScroll;
     private readonly StackPanel chatHead = new() { Orientation = Orientation.Horizontal, Spacing = 10 };
     private readonly MenuBar menu = new();
+    private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool refreshing, pending, closing, ready;
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
@@ -77,7 +78,7 @@ public sealed class MainWindow : Window
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
         var compose = new StackPanel { Spacing = 6 };
         compose.Children.Add(recipients); compose.Children.Add(editor);
-        var send = Button("↵", Send); compose.Children.Add(send);
+        sendButton = Button("↵", Send); compose.Children.Add(sendButton);
         Grid.SetRow(compose, 2); chat.Children.Add(compose);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         var right = Scroll(detail); Grid.SetColumn(right, 2); columns.Children.Add(right);
@@ -106,11 +107,19 @@ public sealed class MainWindow : Window
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
-                ready = true; send.Content = T("common.send"); search.PlaceholderText = T("page.search");
+                ready = true;
                 AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
                 AppNotificationManager.Default.Register();
                 DrawMenu(); await Refresh();
-                _ = api.Events(_ => { DispatcherQueue.TryEnqueue(Schedule); return Task.CompletedTask; }, lifetime.Token);
+                _ = api.Events(ev =>
+                {
+                    DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        if (ev.Text("type") == "prefs") await Run(LoadPreferences);
+                        Schedule();
+                    });
+                    return Task.CompletedTask;
+                }, lifetime.Token);
             });
         };
     }
@@ -166,11 +175,19 @@ public sealed class MainWindow : Window
     }
     private void DrawMenu()
     {
+        if (sendButton != null) sendButton.Content = T("common.send");
+        search.PlaceholderText = T("page.search");
         menu.Items.Clear();
         var file = new MenuBarItem { Title = T("common.file") };
         foreach (var (key, action) in new (string, Func<Task>)[] { ("common.new_org", CreateOrg), ("common.add_member", AddMember), ("cc.title", Copies), ("chart.title", Chart), ("common.settings", Settings) })
         { var item = new MenuFlyoutItem { Text = T(key) }; item.Click += async (_, _) => await Run(action); file.Items.Add(item); }
         menu.Items.Add(file);
+    }
+    private async Task LoadPreferences()
+    {
+        preferences = await api!.Get("/api/prefs");
+        var language = Words.Normalize(preferences.Text("lang"));
+        words.Load(await api.Get("/api/i18n?lang=" + language)); DrawMenu();
     }
     private void DrawSide()
     {
@@ -391,8 +408,11 @@ public sealed class MainWindow : Window
     }
     private async Task IssueProtocol()
     {
-        var form = new StackPanel { Spacing = 10 }; var title = Field(form, "common.name"); var guidance = Field(form, "org.protocols", true);
-        await Form(T("org.protocols"), form, () => Post("/protocols", new { title = title.Text, guidance = guidance.Text, strength = "weak" }));
+        var form = new StackPanel { Spacing = 10 };
+        var title = Field(form, "native.protocol_title"); var rationale = Field(form, "native.protocol_rationale", true);
+        var trigger = Field(form, "native.protocol_trigger"); var guidance = Field(form, "native.protocol_guidance", true);
+        var inherit = new CheckBox { Content = T("org.protocol_inherits") }; form.Children.Add(inherit);
+        await Form(T("org.protocols"), form, () => Post("/protocols", new { title = title.Text, rationale = rationale.Text, trigger = trigger.Text, guidance = guidance.Text, strength = "weak", inherit = inherit.IsChecked == true }));
     }
     private async Task Copies()
     {

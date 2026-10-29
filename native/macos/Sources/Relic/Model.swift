@@ -45,7 +45,16 @@ import RelicCore
             try await refresh()
             eventTask = Task { [weak self] in
                 guard let client = self?.client else { return }
-                await client.events { [weak self] _ in await self?.schedule() }
+                await client.events { [weak self] event in
+                    guard let self else { return }
+                    if event["type"].text == "prefs" {
+                        do {
+                            self.preferences = try await self.get("/api/prefs")
+                            self.words.load(try await self.get("/api/i18n?lang=" + Words.normalize(self.preferences["lang"].text)))
+                        } catch { self.error = error.localizedDescription }
+                    }
+                    self.schedule()
+                }
             }
         } catch { self.error = error.localizedDescription }
     }

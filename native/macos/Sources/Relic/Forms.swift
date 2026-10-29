@@ -132,12 +132,18 @@ struct ProtocolForm: View {
     @EnvironmentObject var m: Model
     @State private var title = ""
     @State private var guidance = ""
+    @State private var rationale = ""
+    @State private var trigger = ""
+    @State private var inherit = false
     var body: some View {
         Form {
             Text(m.t("org.protocols")).font(.title2)
-            TextField(m.t("common.name"), text: $title)
-            TextField(m.t("org.protocols"), text: $guidance, axis: .vertical)
-            SaveButton { try await m.post(m.path("/protocols"), ["title": title, "guidance": guidance, "strength": "weak"]); try await m.refresh() }
+            TextField(m.t("native.protocol_title"), text: $title)
+            TextField(m.t("native.protocol_rationale"), text: $rationale, axis: .vertical)
+            TextField(m.t("native.protocol_trigger"), text: $trigger)
+            TextField(m.t("native.protocol_guidance"), text: $guidance, axis: .vertical)
+            Toggle(m.t("org.protocol_inherits"), isOn: $inherit)
+            SaveButton { try await m.post(m.path("/protocols"), ["title": title, "rationale": rationale, "trigger": trigger, "guidance": guidance, "strength": "weak", "inherit": inherit]); try await m.refresh() }
         }.formStyle(.grouped)
     }
 }

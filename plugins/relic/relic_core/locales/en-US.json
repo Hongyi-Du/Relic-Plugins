@@ -1,4 +1,8 @@
 {
+ "native.protocol_title": "Title",
+ "native.protocol_rationale": "Why this protocol is needed",
+ "native.protocol_trigger": "When it applies",
+ "native.protocol_guidance": "Guidance",
  "@name": "English",
  "api.acp_one_seat": "This session runs inside the Relic App as {member} of “{org}”; such a session holds one seat only for now.",
  "api.cc_missing": "There is no such copy.",
