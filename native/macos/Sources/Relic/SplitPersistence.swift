@@ -30,7 +30,9 @@ struct SplitPersistence: NSViewRepresentable {
             guard let found = ancestor as? NSSplitView else { return }
             if found !== split {
                 detach(); split = found
-                found.autosaveName = "Relic.MainColumns"
+                // Widths are stored separately for the inspector and file pane.
+                // A second NSSplitView autosave record can restore stale geometry.
+                found.autosaveName = nil
                 NotificationCenter.default.addObserver(self, selector: #selector(resized), name: NSSplitView.didResizeSubviewsNotification, object: found)
             }
             let key = model.pane == "files" ? "width.files" : "width.panel"
@@ -56,6 +58,9 @@ struct SplitPersistence: NSViewRepresentable {
         }
         @objc private func resized() {
             guard !restoring, !signature.isEmpty, let model, let split, split.subviews.count >= 2 else { return }
+            // SwiftUI also posts this notification while changing panes/window size.
+            // Only a real divider drag should replace the person's saved widths.
+            guard NSEvent.pressedMouseButtons & 1 != 0 else { schedule(); return }
             if hasSidebar, model.sidebarOpen, let first = split.subviews.first, first.frame.width >= 200 { model.defaults.set(first.frame.width, forKey: "width.sidebar") }
             if hasPanel, model.panelOpen, let last = split.subviews.last, last.frame.width >= 270 { model.defaults.set(last.frame.width, forKey: panelKey) }
         }

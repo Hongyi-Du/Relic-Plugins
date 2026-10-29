@@ -57,7 +57,7 @@ struct SettingsView: View {
     private var voice: some View {
         Section(m.t("common.voice_input")) {
             Picker(m.t("common.voice_input"), selection: preference("voice")) { Text(m.t("native.speech")).tag("browser"); Text(m.t("settings.voice_off")).tag("off") }
-            Text(m.t("settings.voice_hint")); Text(m.t("settings.voice_try")).bold(); TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical); VoiceButton(text: $voiceTest)
+            Text(m.t("settings.voice_hint")); Text(m.t("settings.voice_try")).bold(); TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical).labelsHidden().lineLimit(3...6).dictation($voiceTest)
             Text(m.t("settings.voice_mac")).font(.caption)
         }
     }
