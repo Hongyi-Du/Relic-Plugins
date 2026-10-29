@@ -118,6 +118,80 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(elements["subtitle"]["style"]["font_size"], 11)
         self.assertEqual(elements["title"]["parent"], "button")
 
+    def test_chart_node_uses_button_provider_and_preserves_actual_current_and_labels(self):
+        node = xaml_node("node", "ChartNodeButton", bounds=box(10, 20, 236, 80))
+        node["state"].update(current=True, selected=None)
+        node["state_evidence"] = {"current": {"value": True, "source": "ChartNodeButton.IsCurrent"}}
+        content = xaml_node("content", "Grid", parent="node", bounds=node["bounds"], declared_content_owner="node")
+        title = xaml_node("title", text="Design", parent="content", bounds=box(30, 25, 80, 20))
+        subtitle = xaml_node("subtitle", text="Lead: Sam", parent="content", bounds=box(30, 50, 80, 18))
+        result = self.capture([node, content, title, subtitle], [uia_node("provider", "Button", "Design Lead: Sam", bounds=node["bounds"])])
+        elements = self.by_id(result)
+        self.assertEqual(elements["node"]["kind"], "chart-node")
+        self.assertEqual(elements["node"]["evidence"]["uia_id"], "provider")
+        self.assertTrue(elements["node"]["state"]["current"])
+        self.assertIsNone(elements["node"]["state"]["selected"])
+        self.assertEqual(elements["node"]["evidence"]["state_evidence"]["current"]["source"], "ChartNodeButton.IsCurrent")
+        self.assertEqual(elements["node"]["text"], "")
+        self.assertEqual(elements["title"]["text"], "Design")
+        self.assertEqual(elements["subtitle"]["text"], "Lead: Sam")
+
+    def test_menu_tag_content_keeps_checkbox_avatar_and_independent_labels(self):
+        item = xaml_node("item", "MenuFlyoutItem", "A Alice alice", bounds=box(10, 20, 220, 36))
+        presenter = xaml_node("presenter", "ContentPresenter", parent="item", bounds=item["bounds"])
+        presenter["style"]["background"] = [245, 245, 245, 255]
+        row = xaml_node("row", "StackPanel", parent="presenter", bounds=box(20, 27, 190, 22),
+                        declared_content_owner="item", declared_content_source="FrameworkElement.Tag UIElement in the actual visual tree")
+        check = xaml_node("check", "CheckBox", parent="row", bounds=box(20, 30, 13, 13))
+        check["state"]["checked"] = True
+        avatar = xaml_node("avatar", "Border", parent="row", bounds=box(40, 27, 20, 20))
+        avatar["style"]["background"] = [220, 180, 200, 255]
+        initial = xaml_node("initial", text="A", parent="avatar", bounds=box(44, 28, 12, 18))
+        primary = xaml_node("primary", text="Alice", parent="row", bounds=box(70, 27, 50, 20))
+        secondary = xaml_node("secondary", text="alice", parent="row", bounds=box(130, 29, 40, 18))
+        secondary["style"]["font_size"] = 11.96
+        result = self.capture([item, presenter, row, check, avatar, initial, primary, secondary], [
+            uia_node("uia-item", "MenuItem", "A Alice alice", bounds=item["bounds"]),
+            uia_node("uia-check", "CheckBox", parent="uia-item", bounds=check["bounds"]),
+        ])
+        elements = self.by_id(result)
+        self.assertEqual(elements["item"]["text"], "")
+        self.assertNotIn("presenter", elements)
+        self.assertIn("check", elements)
+        self.assertTrue(elements["check"]["state"]["checked"])
+        self.assertIn("avatar", elements)
+        self.assertEqual(elements["initial"]["text"], "A")
+        self.assertEqual(elements["primary"]["text"], "Alice")
+        self.assertEqual(elements["secondary"]["style"]["font_size"], 11.96)
+
+    def test_menu_single_label_is_not_collapsed_when_checkbox_is_separate(self):
+        item = xaml_node("item", "MenuFlyoutItem", "All")
+        check = xaml_node("check", "CheckBox", parent="item", bounds=box(12, 24, 13, 13))
+        label = xaml_node("label", text="All", parent="item", bounds=box(30, 22, 50, 18))
+        result = self.capture([item, check, label], [uia_node("provider", "MenuItem", "All")])
+        self.assertEqual(self.by_id(result)["item"]["text"], "")
+        self.assertEqual(self.by_id(result)["label"]["text"], "All")
+
+    def test_actual_panel_subclass_and_stroked_rectangle_are_not_lost(self):
+        legend = xaml_node("legend", "ChartFlexPanel", bounds=box(10, 20, 400, 34),
+                           render_type_evidence={"is_panel": True, "is_shape": False})
+        legend["style"]["background"] = [239, 238, 234, 255]
+        swatch = xaml_node("swatch", "ChartLegendSwatch", parent="legend", bounds=box(30, 30, 18, 12),
+                           render_type_evidence={"is_panel": True, "is_shape": False})
+        outline = xaml_node("outline", "Rectangle", parent="swatch", bounds=swatch["bounds"],
+                            render_type_evidence={"is_panel": False, "is_shape": True})
+        outline["style"].update(stroke_width=1.5, stroke_dash=[4.5, 4.5], stroke_dash_offset=0,
+                                stroke_linecap="butt", stroke_linejoin="miter")
+        outline["stroke_evidence"] = {"raw_pattern": {"dash_array": [3, 3], "dash_offset": 0}}
+        result = self.capture([legend, swatch, outline], [uia_node("unused", "Text", "", bounds=box(900, 600, 10, 10))])
+        elements = self.by_id(result)
+        self.assertEqual(elements["legend"]["kind"], "region")
+        self.assertIsNone(elements["legend"]["state"]["enabled"])
+        self.assertNotIn("swatch", elements)
+        self.assertEqual(elements["outline"]["style"]["stroke_dash"], [4.5, 4.5])
+        self.assertEqual(elements["outline"]["style"]["foreground"], [27, 27, 26, 255])
+        self.assertEqual(elements["outline"]["evidence"]["stroke_evidence"]["raw_pattern"]["dash_array"], [3, 3])
+
     def test_painted_wrapper_cannot_steal_same_box_button_uia(self):
         surface = xaml_node("surface", "Border")
         surface["style"]["background"] = [255, 255, 255, 255]
@@ -339,9 +413,10 @@ class ProjectionTests(unittest.TestCase):
         result = self.capture(measured([text]), [witness])
         element = self.by_id(result)["text"]
         self.assertEqual(element["evidence"]["text_bounds"], rectangles)
-        self.assertEqual(element["style"]["rendered_fonts"][0]["family_name"], "Microsoft YaHei UI")
-        self.assertIsNone(element["style"]["rendered_fonts"][0]["postscript_name"])
-        self.assertNotEqual(element["style"]["rendered_fonts"][0]["family_name"], text["font_family"])
+        self.assertEqual(element["evidence"]["provider_fonts"][0]["family_name"], "Microsoft YaHei UI")
+        self.assertIsNone(element["evidence"]["provider_fonts"][0]["postscript_name"])
+        self.assertNotEqual(element["evidence"]["provider_fonts"][0]["family_name"], text["font_family"])
+        self.assertIsNone(element["style"]["rendered_fonts"], "UIA's declared name is not an observed physical glyph-run face")
 
     def test_mixed_rich_run_typography_cannot_pass_as_one_uniform_font(self):
         text = xaml_node("text", text="标题正文")
@@ -480,8 +555,9 @@ class ProjectionTests(unittest.TestCase):
         owner, witness = self.rich_fixture()
         result = self.capture(measured([owner]), [witness])
         elements = self.by_id(result)
-        self.assertEqual([f["family_name"] for f in elements["rich:run:0"]["style"]["rendered_fonts"]], ["Segoe UI Variable"])
-        self.assertEqual([f["family_name"] for f in elements["rich:run:1"]["style"]["rendered_fonts"]], ["Microsoft YaHei UI"])
+        self.assertEqual([f["family_name"] for f in elements["rich:run:0"]["evidence"]["provider_fonts"]], ["Segoe UI Variable"])
+        self.assertEqual([f["family_name"] for f in elements["rich:run:1"]["evidence"]["provider_fonts"]], ["Microsoft YaHei UI"])
+        self.assertIsNone(elements["rich:run:0"]["style"]["rendered_fonts"])
         self.assertTrue(any(p.get("source") == "uia-rich" and "TextElement Run" in p["reason"] for p in result["projection"]))
         self.assertFalse(any(issue.get("id") == "uia-rich" and issue.get("property") == "render correspondence"
                              for issue in result["coverage"]["unmeasured"]))
@@ -492,7 +568,7 @@ class ProjectionTests(unittest.TestCase):
         witness["text_pattern"]["document"] = {"text": owner["text"], "bounds": [deepcopy(owner["bounds"])]}
         result = self.capture(measured([owner]), [witness])
         first = self.by_id(result)["rich:run:0"]
-        self.assertEqual(first["style"]["rendered_fonts"][0]["family_name"], "Segoe UI Variable")
+        self.assertEqual(first["evidence"]["provider_fonts"][0]["family_name"], "Segoe UI Variable")
         self.assertEqual(first["evidence"]["uia_font_ranges"][0]["uia_id"], "uia-rich")
 
     def test_wrong_text_in_matching_uia_range_cannot_supply_a_font(self):
@@ -501,6 +577,42 @@ class ProjectionTests(unittest.TestCase):
         witness["text_pattern"]["document"] = {"text": "unrelated", "bounds": [deepcopy(owner["bounds"])]}
         result = self.capture(measured([owner]), [witness])
         self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+        self.assertEqual(self.by_id(result)["rich:run:0"]["evidence"]["provider_fonts"], [])
+
+    def test_uia_provider_family_cannot_be_used_when_actual_cmap_cannot_cover_text(self):
+        owner, witness = self.rich_fixture()
+        coverage = {"status": "provider-family-cannot-cover-text", "provider_family_name": "Segoe UI Variable",
+                    "missing_scalars": ["U+6807", "U+9898"], "proves_actual_render_face": False,
+                    "reason": "Actual physical family has no glyph for the visible characters"}
+        witness["text_pattern"]["visible_ranges"][0]["format_runs"][0]["font_family_coverage"] = coverage
+        result = self.capture(measured([owner]), [witness])
+        self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+        self.assertEqual(self.by_id(result)["rich:run:0"]["evidence"]["provider_fonts"], [])
+        self.assertTrue(any(issue.get("font_family_coverage", {}).get("missing_scalars") == coverage["missing_scalars"]
+                            for issue in result["coverage"]["unmeasured"]))
+        self.assertEqual(self.by_id(result)["rich:run:0"]["evidence"]["font_family_evidence"][0], coverage)
+
+    def test_supported_character_coverage_is_not_claimed_as_actual_glyph_run_identity(self):
+        owner, witness = self.rich_fixture()
+        coverage = {"status": "family-can-cover-scalars", "proves_actual_render_face": False,
+                    "provider_family_name": "Segoe UI Variable", "missing_scalars": []}
+        witness["text_pattern"]["visible_ranges"][0]["format_runs"][0]["font_family_coverage"] = coverage
+        result = self.capture(measured([owner]), [witness])
+        font = self.by_id(result)["rich:run:0"]["evidence"]["provider_fonts"][0]
+        self.assertEqual(font["family_name"], "Segoe UI Variable")
+        self.assertFalse(font["proves_actual_render_face"])
+        self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+        self.assertTrue(any(issue.get("id") == "rich:run:0" and issue.get("property") == "style.rendered_fonts.actual_face"
+                            for issue in result["coverage"]["unmeasured"]))
+
+    def test_unreadable_font_metadata_does_not_fall_back_to_declared_xaml_family(self):
+        owner, witness = self.rich_fixture()
+        witness["text_pattern"]["visible_ranges"][0]["format_runs"][0]["font_family_coverage"] = {
+            "status": "unresolved", "reason": "Physical font metadata is unavailable", "proves_actual_render_face": False}
+        result = self.capture(measured([owner]), [witness])
+        self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+        self.assertEqual(self.by_id(result)["rich:run:0"]["evidence"]["provider_fonts"], [])
+        self.assertTrue(any("Physical font metadata" in issue.get("reason", "") for issue in result["coverage"]["unmeasured"]))
 
     def test_rich_owner_own_background_retained_without_duplicating_leaf_paint(self):
         owner, witness = self.rich_fixture()
@@ -528,6 +640,9 @@ class ProjectionTests(unittest.TestCase):
         second["text_pattern"]["visible_ranges"][0]["format_runs"][0]["attributes"]["font_family"] = "Unrelated family"
         result = self.capture(measured([owner]), [witness, second])
         self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+        self.assertTrue(any(issue.get("property") == "UIA text-owner correspondence" for issue in result["coverage"]["unmeasured"]))
+        self.assertFalse(any(item.get("source") in {"uia-rich", "uia-unrelated"} and "TextElement Run" in item.get("reason", "")
+                             for item in result["projection"]))
 
     def test_incomplete_rich_run_geometry_remains_an_explicit_gap(self):
         owner, witness = self.rich_fixture()
@@ -556,6 +671,39 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(elements["button"]["style"]["font_size"], 12)
         self.assertNotIn("label:run:0", elements)
         self.assertEqual(elements["button"]["evidence"]["text_bounds"], [glyph_box])
+
+    def test_single_run_retains_its_unambiguous_actual_uia_text_owner_name(self):
+        owner = xaml_node("owner", text="Organizations", bounds=box(18, 144, 75.3984375, 15.9609375))
+        owner["layout"]["rich_text_runs"] = [{
+            "type": "Run", "text": "Organizations", "font_size": 12, "font_weight": 400,
+            "foreground": [143, 140, 134, 255], "bounds": [box(18, 144, 75.3984375, 15.9609375)],
+            "coordinate_space": "content-window", "geometry_complete": True}]
+        witness = uia_node("uia-owner", name="Organizations", bounds=box(18, 144, 224, 16))
+        witness["text_pattern"] = {"document": {"text": "Organizations", "bounds": [box(18, 144, 75, 15)]}}
+        result = self.capture(measured([owner]), [witness])
+        actual = self.by_id(result)["owner:run:0"]
+        self.assertEqual(actual["name"], "Organizations")
+        self.assertEqual(actual["evidence"]["accessible_name_evidence"]["uia_id"], "uia-owner")
+        self.assertEqual(actual["evidence"]["accessible_name_evidence"]["ownership"], "whole text owner represented by one measured Run")
+        # Keep an actual custom name, even when it differs from visible text.
+        witness["name"] = "Organization summary"
+        result = self.capture(measured([owner]), [witness])
+        self.assertEqual(self.by_id(result)["owner:run:0"]["name"], "Organization summary")
+
+    def test_rich_parent_name_is_not_fabricated_for_each_text_fragment(self):
+        owner, witness = self.rich_fixture()
+        result = self.capture(measured([owner]), [witness])
+        self.assertEqual(self.by_id(result)["rich:run:0"]["name"], "")
+        self.assertEqual(self.by_id(result)["rich:run:1"]["name"], "")
+
+    def test_ambiguous_text_owner_names_are_not_resolved_by_copying_visible_text(self):
+        owner, witness = self.rich_fixture()
+        owner["text"] = "标题"
+        owner["layout"]["rich_text_runs"] = [owner["layout"]["rich_text_runs"][0]]
+        witness["name"] = "标题"
+        duplicate = deepcopy(witness); duplicate["id"] = "uia-other"
+        result = self.capture(measured([owner]), [witness, duplicate])
+        self.assertEqual(self.by_id(result)["rich:run:0"]["name"], "")
 
     def test_multiline_measured_run_keeps_exact_text_and_line_geometry(self):
         owner, witness = self.rich_fixture()

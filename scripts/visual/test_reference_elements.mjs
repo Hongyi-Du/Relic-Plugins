@@ -138,3 +138,145 @@ test('requested weight and variation settings stay distinct from resolved faces'
   assert.equal(request({ fontWeight: 'bold', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 700);
   assert.equal(request({ fontWeight: 'normal', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 400);
 });
+
+// Matrix/shape fixtures provide only the API quantities actually read by the
+// production function. They do not stand in for browser paint validation.
+class SVGElementFixture {
+  constructor(children = []) { this.children = children; }
+  querySelectorAll() { return this.children; }
+}
+class SVGGeometryFixture extends SVGElementFixture {
+  constructor(style = {}, transform = matrix(1), pathLength = null) {
+    super();
+    this.style = { display: 'inline', visibility: 'visible', stroke: '#7058b8', strokeOpacity: '1',
+      strokeWidth: '1.2px', strokeDasharray: '4px, 3px', strokeDashoffset: '0px', strokeLinecap: 'butt',
+      strokeLinejoin: 'miter', strokeMiterlimit: '4', vectorEffect: 'none', ...style };
+    this.transform = transform; this.pathLength = pathLength;
+  }
+  closest() { return null; }
+  getScreenCTM() { return this.transform; }
+  getAttribute(name) { return name === 'pathLength' ? this.pathLength : null; }
+}
+function matrix(a, b = 0, c = 0, d = a, e = 0, f = 0) {
+  return { a, b, c, d, e, f,
+    inverse() {
+      const determinant = this.a * this.d - this.b * this.c;
+      return matrix(this.d / determinant, -this.b / determinant, -this.c / determinant, this.a / determinant,
+        (this.c * this.f - this.d * this.e) / determinant, (this.b * this.e - this.a * this.f) / determinant);
+    },
+    multiply(other) {
+      return matrix(this.a * other.a + this.c * other.b, this.b * other.a + this.d * other.b,
+        this.a * other.c + this.c * other.d, this.b * other.c + this.d * other.d,
+        this.a * other.e + this.c * other.f + this.e, this.b * other.e + this.d * other.f + this.f);
+    },
+  };
+}
+function strokeReader() {
+  const errors = [];
+  const read = vm.runInNewContext('(' + expression('svgStrokeData', 'styleData') + ')', {
+    SVGElement: SVGElementFixture, SVGGeometryElement: SVGGeometryFixture, svgStrokes: new WeakMap(),
+    styleOf: shape => shape.style, pathOf: () => '#actual-path', cumulativeOpacity: () => 1,
+    color: () => [112, 88, 184, 255], nodeIds: new WeakMap(), unmeasured: errors,
+  });
+  return { read, errors };
+}
+
+test('SVG dash and offset use the actual screen transform and retain source units', () => {
+  const { read, errors } = strokeReader();
+  const shape = new SVGGeometryFixture({ strokeDashoffset: '-1.5px', strokeLinecap: 'round', strokeLinejoin: 'bevel' }, matrix(2, 0, 0, 2, 50, 70));
+  const result = normalize(read(shape));
+  assert.equal(result.width, 2.4);
+  assert.deepEqual(result.dash, [8, 6]);
+  assert.equal(result.dash_offset, -3);
+  assert.equal(result.linecap, 'round'); assert.equal(result.linejoin, 'bevel'); assert.equal(result.miterlimit, 4);
+  assert.equal(result.shapes[0].source_dash_css, '4px, 3px');
+  assert.deepEqual(result.shapes[0].source_dash, [
+    { value: 4, unit: 'px', coordinate_space: 'svg-stroke-user-units' },
+    { value: 3, unit: 'px', coordinate_space: 'svg-stroke-user-units' },
+  ]);
+  assert.deepEqual(result.shapes[0].screen_ctm, { a: 2, b: 0, c: 0, d: 2, e: 50, f: 70 });
+  assert.equal(result.shapes[0].stroke_to_window_scale, 2);
+  assert.deepEqual(errors, []);
+});
+
+test('SVG odd dash cycles repeat and all-zero cycles paint as a solid stroke', () => {
+  const { read, errors } = strokeReader();
+  assert.deepEqual(normalize(read(new SVGGeometryFixture({ strokeDasharray: '5, 3, 2' })).dash), [5, 3, 2, 5, 3, 2]);
+  assert.deepEqual(normalize(read(new SVGGeometryFixture({ strokeDasharray: '0px, 0px' })).dash), []);
+  assert.deepEqual(normalize(read(new SVGGeometryFixture({ strokeDasharray: 'none' })).dash), []);
+  assert.deepEqual(errors, []);
+});
+
+test('nonuniform transforms fail dash and width coverage instead of averaging axes', () => {
+  const { read, errors } = strokeReader();
+  const result = normalize(read(new SVGGeometryFixture({}, matrix(2, 0, 0, 1))));
+  assert.equal(result.width, null); assert.equal(result.dash, null); assert.equal(result.dash_offset, null);
+  assert.equal(result.linecap, 'butt', 'The measured cap enum is retained independently of unresolved window geometry');
+  assert.ok(errors.some(error => error.property === 'style.stroke_width'));
+  assert.ok(errors.some(error => error.property === 'style.stroke_dash'));
+  assert.ok(errors.some(error => error.property === 'style.stroke_dash_offset'));
+  assert.deepEqual(result.shapes[0].screen_ctm, { a: 2, b: 0, c: 0, d: 1, e: 0, f: 0 });
+});
+
+test('unresolved percentage and pathLength units remain gaps while measured width survives', () => {
+  const first = strokeReader();
+  const percentage = normalize(first.read(new SVGGeometryFixture({ strokeDasharray: '4%, 3%', strokeDashoffset: '5%' })));
+  assert.equal(percentage.width, 1.2); assert.equal(percentage.dash, null); assert.equal(percentage.dash_offset, null);
+  assert.equal(percentage.shapes[0].source_dash_css, '4%, 3%');
+  assert.ok(first.errors.some(error => error.property === 'style.stroke_dash'));
+  const second = strokeReader();
+  const calibrated = normalize(second.read(new SVGGeometryFixture({}, matrix(1), '100')));
+  assert.equal(calibrated.width, 1.2); assert.equal(calibrated.dash, null); assert.equal(calibrated.dash_offset, null);
+  assert.equal(calibrated.shapes[0].source_path_length_attribute, '100');
+  assert.ok(second.errors.some(error => error.property === 'style.stroke_dash_offset'));
+});
+
+test('mixed visible child strokes cannot collapse to the first child style', () => {
+  const { read, errors } = strokeReader();
+  const result = normalize(read(new SVGElementFixture([
+    new SVGGeometryFixture(), new SVGGeometryFixture({ strokeDasharray: '1px, 2px', strokeLinecap: 'square' }),
+  ])));
+  assert.equal(result.width, 1.2); assert.equal(result.dash, null); assert.equal(result.linecap, null);
+  assert.equal(result.linejoin, 'miter');
+  assert.ok(errors.some(error => error.property === 'style.stroke_dash'));
+  assert.ok(errors.some(error => error.property === 'style.stroke_linecap'));
+});
+
+test('non-scaling stroke removes measured viewBox mapping but retains actual host CSS scale', () => {
+  const { read, errors } = strokeReader();
+  const shape = new SVGGeometryFixture({ vectorEffect: 'non-scaling-stroke' }, matrix(60));
+  shape.ownerSVGElement = { getScreenCTM: () => matrix(8, 0, 0, 8, 50, 70), getCTM: () => matrix(4), ownerSVGElement: null };
+  const result = normalize(read(shape));
+  assert.equal(result.width, 2.4); assert.deepEqual(result.dash, [8, 6]);
+  assert.deepEqual(result.shapes[0].stroke_to_window, { a: 2, b: 0, c: 0, d: 2, e: 50, f: 70 });
+  assert.equal(result.shapes[0].screen_ctm.a, 60, 'Original CTM remains available and is not overwritten');
+  assert.deepEqual(errors, []);
+});
+
+test('CSS border styles preserve each side and do not invent dashed paint lengths', () => {
+  const read = vm.runInNewContext('(' + expression('styleData', 'stateOf') + ')', {
+    number: value => Number.parseFloat(value), radius: () => 0, SVGElement: SVGElementFixture,
+    color: value => value, pathOf: () => '#real-border', cumulativeOpacity: () => 1,
+    shadowData: () => [], backgroundData: () => 'none', svgStrokeData: () => null,
+  });
+  const style = { fontSize: '14px', fontWeight: '400', color: '#111111', backgroundColor: '#ffffff',
+    borderTopWidth: '1px', borderRightWidth: '2px', borderBottomWidth: '0px', borderLeftWidth: '3px',
+    borderTopStyle: 'solid', borderRightStyle: 'dashed', borderBottomStyle: 'none', borderLeftStyle: 'double',
+    borderTopColor: '#222222', borderRightColor: '#333333', borderBottomColor: '#444444', borderLeftColor: '#555555' };
+  const result = normalize(read({}, style, false));
+  assert.deepEqual(result.border_styles, ['solid', 'dashed', 'none', 'double']);
+  assert.deepEqual(result.border_widths, [1, 2, 0, 3]);
+  assert.equal(result.border_dash, undefined, 'CSS dashed does not expose the UA-selected dash/gap lengths');
+  assert.equal(result.stroke_dash, null);
+});
+
+test('current chart organization is distinct from selection and uses actual aria-current', () => {
+  const read = vm.runInNewContext('(' + expression('stateOf', 'iconOf') + ')', { document: { activeElement: null } });
+  const chart = value => ({ localName: 'button', classList: { contains: () => false }, hasAttribute: () => false,
+    getAttribute: name => name === 'aria-current' ? value : null,
+    matches: selector => selector === '.oc-node' || selector.startsWith('button,input'),
+  });
+  assert.equal(read(chart('true')).current, true);
+  assert.equal(read(chart(null)).current, false);
+  assert.equal(read(chart('true')).selected, null);
+});

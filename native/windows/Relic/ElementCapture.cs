@@ -19,7 +19,7 @@ public sealed partial class MainWindow
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Element capture is CI-only");
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
-        var declaredContent = new Dictionary<DependencyObject, string>();
+        var declaredContent = new Dictionary<DependencyObject, (string Owner, string Property)>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -44,9 +44,17 @@ public sealed partial class MainWindow
             node["render_sibling_order"] = siblingOrder;
             node["paint_order"] = nodes.Count;
             node["paint_layer"] = paintLayer;
-            if (declaredContent.TryGetValue(value, out var contentOwner)) node["declared_content_owner"] = contentOwner;
-            if (value is ContentControl contentControl && contentControl.Content is DependencyObject controlContent) declaredContent[controlContent] = id;
-            if (value is Expander contentExpander && contentExpander.Content is DependencyObject expanderContent) declaredContent[expanderContent] = id;
+            if (declaredContent.TryGetValue(value, out var contentOwner))
+            {
+                node["declared_content_owner"] = contentOwner.Owner;
+                node["declared_content_source"] = contentOwner.Property;
+            }
+            if (value is ContentControl contentControl && contentControl.Content is DependencyObject controlContent) declaredContent[controlContent] = (id, "ContentControl.Content");
+            if (value is Expander contentExpander && contentExpander.Content is DependencyObject expanderContent) declaredContent[expanderContent] = (id, "Expander.Content");
+            // Only an object which also occurs in the actual visual walk can
+            // receive this ownership. Tag strings and unused metadata do not
+            // become rendered content or supply inferred labels.
+            if (value is FrameworkElement tagged && tagged.Tag is UIElement tagContent) declaredContent[tagContent] = (id, "FrameworkElement.Tag UIElement in the actual visual tree");
             nodes.Add(node);
             var opacity = ancestorOpacity;
             if (value is UIElement ui)
@@ -111,6 +119,9 @@ public sealed partial class MainWindow
                         Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or IconElement => "glyphs",
                         Control => "template", _ => "none"
                     };
+                    node["render_type_evidence"] = new JsonObject { ["is_panel"] = element is Panel,
+                        ["is_shape"] = element is Shape, ["is_content_control"] = element is ContentControl,
+                        ["source"] = "Actual runtime XAML base types" };
                     if (element is Border borderElement) node["background_sizing"] = borderElement.BackgroundSizing.ToString();
                     if (element is ContentPresenter presenterElement) node["background_sizing"] = presenterElement.BackgroundSizing.ToString();
                     if (element is Rectangle rectangle) node["shape_corner_radius"] = new JsonObject { ["x"] = rectangle.RadiusX, ["y"] = rectangle.RadiusY };
@@ -127,10 +138,15 @@ public sealed partial class MainWindow
                         ["enabled"] = element is Control control ? control.IsEnabled : null,
                         ["focused"] = element is Control focus ? focus.FocusState != FocusState.Unfocused : null,
                         ["selected"] = element is SelectorBarItem tab ? tab.IsSelected : element is SelectorItem item ? item.IsSelected : null,
+                        ["current"] = element is ChartNodeButton chartNode ? chartNode.IsCurrent : null,
                         ["checked"] = element is ToggleButton toggle ? toggle.IsChecked : element is ToggleSwitch change ? change.IsOn : null,
                         ["indeterminate"] = element is ToggleButton triState ? triState.IsChecked == null : element is ToggleSwitch ? false : null,
                         ["expanded"] = element is Expander expander ? expander.IsExpanded : null,
                         ["hovered"] = hovered.Contains(element), ["unread"] = null
+                    };
+                    if (element is ChartNodeButton currentNode) node["state_evidence"] = new JsonObject
+                    {
+                        ["current"] = new JsonObject { ["value"] = currentNode.IsCurrent, ["source"] = "ChartNodeButton.IsCurrent", ["meaning"] = "Actual current organization state used by the chart control" }
                     };
                     node["layout"] = CaptureTextLayout(element, id, errors, root, hidden == null);
                     if (element is FontIcon fontIcon) node["icon"] = new JsonObject { ["source"] = fontIcon.FontFamily.Source, ["glyph"] = fontIcon.Glyph };
@@ -156,7 +172,7 @@ public sealed partial class MainWindow
                         if (bitmap?.UriSource is { } sourceUri) node["icon"] = new JsonObject { ["source"] = "image", ["glyph"] = sourceUri.ToString() };
                     }
                     else if (element is Microsoft.UI.Xaml.Shapes.Path path) node["icon"] = new JsonObject { ["source"] = "xaml-path", ["glyph"] = path.Data?.ToString() };
-                    if (element is Shape renderedShape && renderedShape.Stroke != null) CaptureStrokeEvidence(renderedShape, root, node, id, errors);
+                    if (element is Shape renderedShape) CaptureStrokeEvidence(renderedShape, root, node, id, errors);
                     if (element is TextBlock block) node["font_family"] = block.FontFamily.Source;
                     if (element is Control fontControl) node["font_family"] = fontControl.FontFamily.Source;
                 }
@@ -188,12 +204,18 @@ public sealed partial class MainWindow
         CaptureFiniteMeasurements(result, errors);
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"), result.ToJsonString());
         var manifestDirectory = System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!;
-        var request = System.IO.Path.Combine(manifestDirectory, "elements-request.json");
-        var receipt = System.IO.Path.Combine(manifestDirectory, "elements-complete.json");
-        if (System.IO.File.Exists(receipt)) System.IO.File.Delete(receipt);
+        // A request is immutable and belongs to one scene. Replacing the shared
+        // previous request could race Python's open/read on Windows, whose file
+        // handle need not allow delete/rename sharing.
+        var requests = System.IO.Path.Combine(manifestDirectory, "element-requests");
+        var receipts = System.IO.Path.Combine(manifestDirectory, "element-receipts");
+        System.IO.Directory.CreateDirectory(requests); System.IO.Directory.CreateDirectory(receipts);
+        var request = System.IO.Path.Combine(requests, caseId + ".json");
+        var receipt = System.IO.Path.Combine(receipts, caseId + ".json");
+        if (System.IO.File.Exists(request) || System.IO.File.Exists(receipt)) throw new InvalidOperationException("Duplicate element capture scene " + caseId);
         var origin = new CapturePoint(); var handle = WinRT.Interop.WindowNative.GetWindowHandle(this); ClientToScreen(handle, ref origin);
         await System.IO.File.WriteAllTextAsync(request + ".tmp", JsonSerializer.Serialize(new { case_id = caseId, pid = Environment.ProcessId, hwnd = (long)handle, origin = new { x = origin.x, y = origin.y }, width, height }));
-        System.IO.File.Move(request + ".tmp", request, true);
+        System.IO.File.Move(request + ".tmp", request);
         // Yield the dispatcher while the independent process reads UIA. Holding
         // the UI thread here would deadlock real provider calls.
         var until = DateTime.UtcNow.AddSeconds(85);
@@ -332,27 +354,85 @@ public sealed partial class MainWindow
             ["border_widths"] = new JsonArray(thickness.Top, thickness.Right, thickness.Bottom, thickness.Left),
             ["border_widths_order"] = "top,right,bottom,left",
             ["border_colors"] = new JsonArray(BorderColor(thickness.Top), BorderColor(thickness.Right), BorderColor(thickness.Bottom), BorderColor(thickness.Left)),
+            ["border_styles"] = new JsonArray(thickness.Top > 0 ? "solid" : "none", thickness.Right > 0 ? "solid" : "none", thickness.Bottom > 0 ? "solid" : "none", thickness.Left > 0 ? "solid" : "none"),
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
     }
     private static void CaptureStrokeEvidence(Shape shape, UIElement captureRoot, JsonObject node, string id, JsonArray errors)
     {
+        var rawDashes = shape.StrokeDashArray?.ToArray() ?? [];
+        string Cap(PenLineCap cap) => cap == PenLineCap.Flat ? "butt" : cap.ToString().ToLowerInvariant();
+        var startCap = Cap(shape.StrokeStartLineCap); var endCap = Cap(shape.StrokeEndLineCap); var dashCap = Cap(shape.StrokeDashCap);
+        var commonCap = startCap == endCap && (rawDashes.Length == 0 || startCap == dashCap) ? startCap : null;
+        var strokeStyle = (JsonObject)node["style"]!;
+        strokeStyle["stroke_dash"] = rawDashes.Length == 0 ? new JsonArray() : null;
+        strokeStyle["stroke_dash_offset"] = null;
+        strokeStyle["stroke_linecap"] = commonCap;
+        strokeStyle["stroke_linejoin"] = shape.StrokeLineJoin.ToString().ToLowerInvariant();
+        strokeStyle["stroke_miterlimit"] = shape.StrokeMiterLimit;
+        var rawPattern = new JsonObject { ["dash_array"] = new JsonArray(rawDashes.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+            ["dash_offset"] = shape.StrokeDashOffset, ["dash_units"] = "multiples of Shape.StrokeThickness",
+            ["start_linecap"] = startCap, ["end_linecap"] = endCap, ["dash_linecap"] = dashCap,
+            ["linejoin"] = shape.StrokeLineJoin.ToString(), ["miter_limit"] = shape.StrokeMiterLimit };
+        var visibleStroke = node["hidden_reason"] == null && shape.Stroke != null && shape.StrokeThickness > 0;
+        if (commonCap == null && visibleStroke) errors.Add(id + ": distinct actual stroke start/end/dash caps cannot be represented by one canonical linecap");
         var transform = shape.TransformToVisual(captureRoot);
         var zero = transform.TransformPoint(new Point(0, 0));
         var unitX = transform.TransformPoint(new Point(1, 0)); var unitY = transform.TransformPoint(new Point(0, 1));
-        var ax = unitX.X - zero.X; var ay = unitX.Y - zero.Y;
-        var bx = unitY.X - zero.X; var by = unitY.Y - zero.Y;
+        // One-unit differences lose significant bits when WinUI's float-backed
+        // transform adds a large window translation. Measure the actual shape
+        // axes over their complete layout extent instead, retaining both reads.
+        var extentX = shape.ActualWidth; var extentY = shape.ActualHeight;
+        if (!(extentX > 0 && extentY > 0))
+        {
+            node["stroke_evidence"] = new JsonObject { ["raw_width"] = shape.StrokeThickness,
+                ["raw_pattern"] = rawPattern,
+                ["source_extent"] = new JsonObject { ["x"] = extentX, ["y"] = extentY },
+                ["measurement_status"] = "No positive two-axis layout extent is available",
+                ["source"] = "Actual Shape layout extent before TransformToVisual axis measurement" };
+            node["style"]!["stroke_width"] = null;
+            if (visibleStroke)
+                errors.Add(id + ": stroke transform requires positive actual shape axes or measured directional line geometry");
+            return;
+        }
+        var axisX = transform.TransformPoint(new Point(extentX, 0));
+        var axisY = transform.TransformPoint(new Point(0, extentY));
+        var ax = extentX > 0 ? (axisX.X - zero.X) / extentX : double.NaN;
+        var ay = extentX > 0 ? (axisX.Y - zero.Y) / extentX : double.NaN;
+        var bx = extentY > 0 ? (axisY.X - zero.X) / extentY : double.NaN;
+        var by = extentY > 0 ? (axisY.Y - zero.Y) / extentY : double.NaN;
         var scaleX = Math.Sqrt(ax * ax + ay * ay); var scaleY = Math.Sqrt(bx * bx + by * by);
         var uniform = double.IsFinite(scaleX) && double.IsFinite(scaleY) && Math.Abs(scaleX - scaleY) < 1e-8 && Math.Abs(ax * bx + ay * by) < 1e-8;
         node["stroke_evidence"] = new JsonObject
         {
             ["raw_width"] = shape.StrokeThickness, ["scale_x"] = scaleX, ["scale_y"] = scaleY,
+            ["raw_pattern"] = rawPattern,
             ["basis_x"] = new JsonObject { ["x"] = ax, ["y"] = ay }, ["basis_y"] = new JsonObject { ["x"] = bx, ["y"] = by },
-            ["source"] = "Shape.StrokeThickness and actual Shape.TransformToVisual(content-root)"
+            ["source_extent"] = new JsonObject { ["x"] = extentX, ["y"] = extentY },
+            ["origin"] = new JsonObject { ["x"] = zero.X, ["y"] = zero.Y },
+            ["axis_endpoint_x"] = new JsonObject { ["x"] = axisX.X, ["y"] = axisX.Y },
+            ["axis_endpoint_y"] = new JsonObject { ["x"] = axisY.X, ["y"] = axisY.Y },
+            ["unit_difference_x"] = new JsonObject { ["x"] = unitX.X - zero.X, ["y"] = unitX.Y - zero.Y },
+            ["unit_difference_y"] = new JsonObject { ["x"] = unitY.X - zero.X, ["y"] = unitY.Y - zero.Y },
+            ["source"] = "Shape.StrokeThickness and full actual Shape.TransformToVisual(content-root) layout-axis endpoints; unit-difference diagnostics retained"
         };
         node["style"]!["stroke_width"] = uniform ? shape.StrokeThickness * scaleX : null;
+        if (uniform)
+        {
+            var strokeScale = shape.StrokeThickness * scaleX;
+            // An odd pattern alternates stroke/gap on its next repetition, so
+            // its complete measured period contains two copies (WinUI docs).
+            var period = rawDashes.Length % 2 == 1 ? rawDashes.Concat(rawDashes).ToArray() : rawDashes;
+            strokeStyle["stroke_dash"] = new JsonArray(period.Select(value => (JsonNode?)JsonValue.Create(value * strokeScale)).ToArray());
+            strokeStyle["stroke_dash_offset"] = shape.StrokeDashOffset * strokeScale;
+            if (rawDashes.Length > 0 && rawDashes.All(value => value == 0))
+            {
+                strokeStyle["stroke_dash"] = null;
+                if (visibleStroke) errors.Add(id + ": actual all-zero WinUI dash pattern needs renderer evidence; SVG solid behavior is not presumed");
+            }
+        }
         node["style"]!["foreground"] = CaptureColor(shape.Stroke);
-        if (!uniform) errors.Add(id + ": nonuniform or non-finite actual stroke transform requires directional stroke measurement");
+        if (!uniform && visibleStroke) errors.Add(id + ": nonuniform or non-finite actual stroke transform requires directional stroke measurement");
     }
     private static IEnumerable<TextElement> CaptureTextLeaves(InlineCollection inlines)
     {

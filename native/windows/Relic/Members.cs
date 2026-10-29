@@ -18,66 +18,146 @@ public sealed partial class MainWindow
         "chat" => T("card.identity_chat", ("harness", c.Text("harness_label"))),
         _ => T("card.identity_session", ("where", c.Text("harness_label") + " " + c.Text("surface_label")))
     };
-    private async Task MemberCard(string name)
+    private async Task MemberCard(string name, FrameworkElement? anchor = null)
     {
-        var id = org; var c = await api!.Get(Client.Org(id, "/member/" + Client.Segment(name)));
-        var box = new StackPanel { Spacing = 10, Width = 350 }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(box, T("card.aria", ("name", Display(name))));
-        var rename = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
-        var label = Field(rename, "card.new_name"); label.MaxLength = 40; label.PlaceholderText = c.Text("display"); label.Text = c.Flag("display_custom") ? c.Text("display") : "";
-        rename.Children.Add(Quiet(T("card.rename_hint"), 11));
-        rename.Children.Add(Button(T("common.save"), async () => { var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = label.Text.Trim() }); Note((label.Text.Trim().Length > 0 ? T("card.renamed") : T("card.name_reset")) + " " + result.Text("note")); await Refresh(); await MemberCard(name); }));
-        var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name); }); avatar.Content = Avatar(c.Text("avatar"), Display(name), 48); avatar.Padding = new Thickness(0); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
-        var heading = new Grid { ColumnSpacing = 10 }; heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.Children.Add(avatar);
-        var identity = Stack(Heading(Display(name), 16), Quiet(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named")), 11)); identity.Spacing = 3;
-        var badges = new ActionRow { Spacing = 4 }; if (c.Flag("leader")) badges.Children.Add(Badge(T("common.leader"))); if (c.Flag("secretary")) badges.Children.Add(Badge(T("common.secretary"), true)); identity.Children.Add(badges); Grid.SetColumn(identity, 1); heading.Children.Add(identity);
-        var editName = IconButton("\uE70F", "card.new_name", () => { rename.Visibility = rename.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; return Task.CompletedTask; }); Grid.SetColumn(editName, 2); heading.Children.Add(editName); box.Children.Add(heading); box.Children.Add(rename); box.Children.Add(new Border { Height = 1, Background = Line, Margin = new Thickness(0, 6, 0, 6) });
-        void Row(string key, string value)
+        var id = org; var c = await api!.Get(Client.Org(id, "/member/" + Client.Segment(name))); var editingName = false; var editingModel = false;
+        var box = new StackPanel { Spacing = 12, Width = 302 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(box, T("card.aria", ("name", Display(name))));
+        Button Ghost(string label, Func<Task> action)
         {
-            if (value.Length == 0) return; var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(64) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(Quiet(T(key), 12)); var text = Text(value, 12); text.MaxLines = 3; text.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(text, value); Grid.SetColumn(text, 1); row.Children.Add(text); box.Children.Add(row);
+            var button = OverviewAction(label, action); button.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); button.BorderThickness = new Thickness(1); button.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); return button;
         }
-        Row("common.role", c.Text("role").Length > 0 ? c.Text("role") : T("card.no_role")); Row("card.identity", Identity(c));
-        if (c["ex_officio"] != null)
+        TextBlock Mono(string text, double size = 11.5)
         {
-            Row("card.seat_origin", T("card.ex_officio_tag"));
-            box.Children.Add(Button(T("card.ex_officio", ("org", c["ex_officio"].Text("org_name"))), async () => { visibleDialog?.Hide(); await Select(c["ex_officio"].Text("org")); }));
+            var label = OverviewText(text, size); label.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); return label;
         }
-        if (c.Rows("also_in").Count > 0) box.Children.Add(Quiet(T("card.also_in"), 12));
-        foreach (var seat in c.Rows("also_in")) box.Children.Add(QuietButton(T("card.also_in_item", ("org", seat.Text("org_name")), ("member", seat.Text("member"))) + (seat.Flag("main") ? " · " + T("card.main_seat") : ""), async () => { transientFlyout?.Hide(); await Select(seat.Text("org"), seat.Text("member")); }));
-        Row("common.model", (c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + (c.Text("effort").Length > 0 ? " · " + c.Text("effort") : ""));
-        if (c.Flag("model_editable"))
+        OverviewBadgeView Tag(string label)
         {
-            var modelFields = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; box.Children.Add(QuietButton(T("common.change") + " · " + T("common.model"), () => { modelFields.Visibility = modelFields.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; return Task.CompletedTask; })); box.Children.Add(modelFields);
-            var model = Choice(modelFields, "common.model", new[] { ("", T("common.default_model")) }.Concat(c.Rows("models").Select(x => (x.Text(), x.Text())))); SetChoice(model, c.Text("model"));
-            var effort = Choice(modelFields, "member.effort", new[] { ("", T("common.default_effort")) }.Concat(c.Rows("efforts").Select(x => (x.Text(), x.Text())))); SetChoice(effort, c.Text("effort"));
-            modelFields.Children.Add(Button(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); await Refresh(); }));
+            var text = OverviewText(label, 10.5, weight: 600, lineHeight: 18); text.Foreground = Paint("5A5853", "B8B5AE");
+            return new OverviewBadgeView { Content = text, FontSize = 10.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = text.Foreground, Background = Paint("EFEEEA", "262624"), Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5) };
         }
-        if (c.Text("model_note").Length > 0) box.Children.Add(Quiet(c.Text("model_note"), 11));
-        var state = MemberState(c.Text("state")); Row("common.status", state + (c.Text("detail").Length > 0 && c.Text("detail") != state ? " · " + c.Text("detail") : ""));
-        Row("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", Ago(c.Text("doing_at")))) : c.Text("doing"));
-        Row("card.owns", string.Join("\n", c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).Select(t => t.Text("id") + " " + t.Text("title"))));
-        if (c.Rows("tasks").Count > 0 && c.Rows("tasks").All(t => t.Text("status") is "done" or "dropped")) Row("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
-        Row("common.session", c.Text("session") + (c.Text("agent").Length > 0 ? " / " + c.Text("agent") : "") + (c.Text("parent").Length > 0 ? T("card.in_parent_session", ("parent", Display(c.Text("parent")))) : ""));
-        Row("card.folder", c.Text("cwd")); Row("card.joined", c.Text("joined_at").Length > 0 ? When(c.Text("joined_at")) + (int.TryParse(c.Text("carriers"), out var carriers) && carriers > 1 ? " · " + T("card.session_nth", ("n", carriers)) : "") : "");
-        Row("card.recent", string.Join("\n", c.Rows("recent").Take(4).Select(r => r.Text("tool") + " " + r.Text("summary"))));
-        var actions = new ActionRow(); actions.Children.Add(Button(T("card.message"), async () => { transientFlyout?.Hide(); await Select(id, name); })); actions.Children.Add(Button(T("common.context_trace"), () => Details("trace", name))); box.Children.Add(actions);
-        var seatActions = new ActionRow { Spacing = 4 }; box.Children.Add(seatActions);
-        void SeatButton(string title, string hint, Func<Task> action) { var button = QuietButton(title, action); ToolTipService.SetToolTip(button, T(hint)); seatActions.Children.Add(button); }
-        var own = c.Text("surface") is not ("chat" or "subagent"); var hosted = own && !c.Flag("embedded") && (c["config"].Text("harness").Length > 0 || c.Text("surface") is "cli" or "desktop");
-        if (own && (c.Flag("embedded") || hosted && Delivery(c.Text("harness"), c["config"].Text("surface"))))
+        async Task Reload()
         {
-            SeatButton(T("card.new_session"), "card.new_session_hint", () => SeatAction("fresh", name, c.Text("session").Length > 0 ? T("card.new_session_confirm", ("name", Display(name))) : ""));
+            await Refresh(); c = await api.Get(Client.Org(id, "/member/" + Client.Segment(name))); Fill();
         }
-        if (hosted)
+        void Fill()
         {
-            if (c.Text("session").Length > 0) SeatButton(T("card.open_session"), "card.open_session_hint", () => SeatAction("open_session", name));
-            SeatButton(T("card.edit_setup"), "card.edit_setup_hint", () => MemberDialog(edit: name));
+            box.Children.Clear();
+            var face = new Grid { Width = 60, Height = 60 }; face.Children.Add(Avatar(c.Text("avatar"), Display(name), 60));
+            if (c.Text("state") is not ("" or "idle"))
+            {
+                var state = c.Text("state"); var color = state switch { "working" or "running" => Paint("3E9B5E", "6CC287"), "waiting" or "starting" => Paint("B7791F", "E2B15A"), "error" => Paint("C2412D", "EE8A78"), "active" => Paint("75A782", "669572"), _ => Paint("B8B5AF", "5F5D58") };
+                var dot = new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E"), Background = state == "vacant" ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) : color,
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -2, -2) };
+                if (state == "vacant") dot.Child = new Microsoft.UI.Xaml.Shapes.Ellipse { Stroke = color, StrokeThickness = 1.5 }; face.Children.Add(dot);
+            }
+            var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name, anchor); }); avatar.Content = face; avatar.Padding = new Thickness(0); avatar.Width = avatar.Height = 60; avatar.CornerRadius = new CornerRadius(14); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
+            var heading = new Grid { ColumnSpacing = 14 }; heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.Children.Add(avatar);
+            var identity = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(identity, 1); heading.Children.Add(identity);
+            if (editingName)
+            {
+                var label = SettingsInput(c.Flag("display_custom") ? c.Text("display") : "", c.Text("display").Length > 0 ? c.Text("display") : T("card.new_name")); label.MaxLength = 40; label.Height = 32.4; label.CornerRadius = new CornerRadius(8); label.Padding = new Thickness(8, 4, 34, 4);
+                async Task SaveName()
+                {
+                    var value = label.Text.Trim(); var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = value });
+                    Note(value.Length > 0 ? T("card.renamed") + (result.Text("note").Length > 0 ? " " + result.Text("note") : "") : T("card.name_reset")); editingName = false; await Reload();
+                }
+                var rename = TwoColumns(SettingsVoiceField(label, double.NaN), OverviewAction(T("common.save"), SaveName, true)); rename.ColumnSpacing = 6; identity.Children.Add(rename);
+                label.KeyDown += async (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await Run(SaveName); } else if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; editingName = false; Fill(); } };
+                label.Loaded += (_, _) => label.Focus(FocusState.Programmatic);
+            }
+            else
+            {
+                var title = new ActionRow { Spacing = 6 }; var display = OverviewText(c.Text("display").Length > 0 ? c.Text("display") : name, 17, weight: 650, lineHeight: 22.1); display.Margin = new Thickness(0, .95, 0, .95); title.Children.Add(display);
+                void AddTag(OverviewBadgeView tag) { tag.Margin = new Thickness(0, 3, 0, 3); title.Children.Add(tag); }
+                if (c.Flag("leader")) AddTag(SidebarTag(T("common.leader"), false)); if (c.Flag("secretary")) AddTag(SidebarTag(T("common.secretary"), true)); if (c["ex_officio"] != null) AddTag(Tag(T("card.ex_officio_tag")));
+                var editName = IconButton("\uE70F", "card.new_name", () => { editingName = true; Fill(); return Task.CompletedTask; }, T("card.rename_hint")); editName.Content = ReferenceIcon("edit", 14); editName.Width = editName.Height = 24; editName.Padding = new Thickness(5); title.Children.Add(editName); identity.Children.Add(title);
+            }
+            var identityLabel = Mono(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named")), 12); identityLabel.Foreground = Muted; identity.Children.Add(identityLabel); box.Children.Add(heading);
+            var kv = new Grid { ColumnSpacing = 12, RowSpacing = 7 }; kv.ColumnDefinitions.Add(new() { Width = new GridLength(52) }); kv.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            void Row(string key, UIElement value)
+            {
+                var row = kv.RowDefinitions.Count; kv.RowDefinitions.Add(new() { Height = GridLength.Auto }); var term = OverviewText(T(key), 12.5, true); Grid.SetRow(term, row); kv.Children.Add(term);
+                Grid.SetRow((FrameworkElement)value, row); Grid.SetColumn((FrameworkElement)value, 1); kv.Children.Add(value);
+            }
+            void TextRow(string key, string value) { if (value.Length > 0) Row(key, OverviewText(value)); }
+            Button SeatLink(string label, Func<Task> action)
+            {
+                var button = QuietButton("", action); var text = OverviewText(label); text.Foreground = Accent; button.Content = text; button.Padding = new Thickness(0); button.MinHeight = 0; button.HorizontalAlignment = HorizontalAlignment.Left; button.CornerRadius = new CornerRadius(0); return button;
+            }
+            TextRow("common.role", c.Text("role").Length > 0 ? c.Text("role") : T("card.no_role")); TextRow("card.identity", Identity(c));
+            if (c["ex_officio"] != null) Row("card.seat_origin", SeatLink(T("card.ex_officio", ("org", c["ex_officio"].Text("org_name"))), async () => { transientFlyout?.Hide(); await Select(c["ex_officio"].Text("org")); }));
+            if (c.Rows("also_in").Count > 0)
+            {
+                var seats = new StackPanel { Spacing = 3 };
+                foreach (var seat in c.Rows("also_in"))
+                {
+                    var button = SeatLink(T("card.also_in_item", ("org", seat.Text("org_name")), ("member", seat.Text("member"))), async () => { transientFlyout?.Hide(); await Select(seat.Text("org"), seat.Text("member")); });
+                    if (seat.Text("role").Length > 0) ToolTipService.SetToolTip(button, seat.Text("role"));
+                    if (seat.Flag("main")) { var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; var label = (UIElement)button.Content; button.Content = null; row.Children.Add(label); row.Children.Add(Tag(T("card.main_seat"))); button.Content = row; } seats.Children.Add(button);
+                }
+                Row("card.also_in", seats);
+            }
+            var modelCell = new StackPanel(); var modelLine = new ActionRow { Spacing = 3 }; var modelLabel = OverviewText((c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + (c.Text("effort").Length > 0 ? " · " + c.Text("effort") : "")); modelLabel.Margin = new Thickness(0, c.Flag("model_editable") ? 3 : 0, 0, 0); modelLine.Children.Add(modelLabel);
+            if (c.Flag("model_editable")) modelLine.Children.Add(Ghost(T(editingModel ? "common.collapse" : "common.change"), () => { editingModel = !editingModel; Fill(); return Task.CompletedTask; })); modelCell.Children.Add(modelLine);
+            if (!c.Flag("model_editable") && c.Text("model_note").Length > 0) { var hint = OverviewText(c.Text("model_note"), 11.5, true); hint.Margin = new Thickness(0, 2, 0, 0); modelCell.Children.Add(hint); }
+            if (editingModel && c.Flag("model_editable"))
+            {
+                var modelFields = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
+                ComboBox Select(string selected, string defaultText, IEnumerable<string> values)
+                {
+                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text"), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
+                    choice.Items.Add(new ComboBoxItem { Content = defaultText, Tag = "" }); foreach (var value in values) choice.Items.Add(new ComboBoxItem { Content = value, Tag = value }); SetChoice(choice, selected); modelFields.Children.Add(choice); return choice;
+                }
+                var model = Select(c.Text("model"), T("common.default_model"), c.Rows("models").Select(x => x.Text())); var effort = Select(c.Text("effort"), T("common.default_effort"), c.Rows("efforts").Select(x => x.Text()));
+                modelFields.Children.Add(OverviewText(c.Text("model_note"), 11.5, true)); modelFields.Children.Add(OverviewAction(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); editingModel = false; await Reload(); }, true)); modelCell.Children.Add(modelFields);
+            }
+            Row("common.model", modelCell);
+            var status = new ActionRow { Spacing = 3 }; var stateLabel = MemberState(c.Text("state")); status.Children.Add(OverviewChip(stateLabel, c.Text("state") switch { "running" or "working" => "ok", "waiting" => "warn", "error" => "bad", _ => "" }));
+            if (c.Text("detail").Length > 0 && c.Text("detail") != stateLabel) status.Children.Add(OverviewText(c.Text("detail"))); Row("common.status", status);
+            if (c.Text("doing").Length > 0) TextRow("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", Ago(c.Text("doing_at")))) : c.Text("doing"));
+            var tasks = c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).ToArray();
+            if (tasks.Length > 0) { var rows = new StackPanel(); foreach (var task in tasks) { var label = OverviewText(task.Text("id") + " " + task.Text("title")); label.TextWrapping = TextWrapping.NoWrap; label.TextTrimming = TextTrimming.CharacterEllipsis; rows.Children.Add(label); } Row("card.owns", rows); }
+            else if (c.Rows("tasks").Count > 0) TextRow("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
+            if (c.Text("agent").Length > 0)
+            {
+                var session = new TextBlock { FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text"), Foreground = Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+                session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "subagent " }); session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = c.Text("agent")[..Math.Min(12, c.Text("agent").Length)], FontSize = 11.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code") });
+                if (c.Text("parent").Length > 0) session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = T("card.in_parent_session", ("parent", Display(c.Text("parent")))) }); ToolTipService.SetToolTip(session, c.Text("agent")); Row("common.session", session);
+            }
+            else if (c.Text("session").Length > 0) { var session = Mono(c.Text("session")[..Math.Min(18, c.Text("session").Length)] + (c.Text("session").Length > 18 ? "…" : "")); ToolTipService.SetToolTip(session, c.Text("session")); Row("common.session", session); }
+            if (c.Text("cwd").Length > 0) Row("card.folder", Mono(OverviewClip(c.Text("cwd"), 64)));
+            TextRow("card.joined", c.Text("joined_at").Length > 0 ? When(c.Text("joined_at")) + (int.TryParse(c.Text("carriers"), out var carriers) && carriers > 1 ? " · " + T("card.session_nth", ("n", carriers)) : "") : "");
+            if (c.Rows("recent").Count > 0)
+            {
+                var recent = new StackPanel(); foreach (var entry in c.Rows("recent").Take(4))
+                {
+                    var tool = System.Text.RegularExpressions.Regex.Replace(entry.Text("tool").Length > 0 ? entry.Text("tool") : "tool", "^mcp__plugin_relic_org__|^mcp__relic_org__", "Relic "); tool = System.Text.RegularExpressions.Regex.Replace(tool, "^mcp__", "");
+                    var label = OverviewText(Ago(entry.Text("at")) + " " + tool + " " + OverviewClip(entry.Text("summary"), 50), 12.5, true); label.TextWrapping = TextWrapping.NoWrap; label.TextTrimming = TextTrimming.CharacterEllipsis; recent.Children.Add(label);
+                }
+                Row("card.recent", recent);
+            }
+            box.Children.Add(new Border { Child = kv, BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 12.5, 0, 12.5) });
+            Button Action(string label, Func<Task> action, bool primary = false)
+            {
+                var button = OverviewAction(label, action, primary); button.Height = 32; button.Padding = new Thickness(13, 0, 13, 0); button.CornerRadius = new CornerRadius(9); if (button.Content is TextBlock text) { text.FontSize = 13; text.LineHeight = 20.8; } button.HorizontalAlignment = HorizontalAlignment.Stretch; return button;
+            }
+            var message = Action(T("card.message"), async () => { transientFlyout?.Hide(); await Select(id, name); }, true); var trace = Action(T("common.context_trace"), async () => { transientFlyout?.Hide(); await Details("trace", name); });
+            message.Measure(new(double.PositiveInfinity, double.PositiveInfinity)); trace.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+            var actions = new Grid { ColumnSpacing = 8 }; actions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = message.DesiredSize.Width }); actions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = trace.DesiredSize.Width }); actions.Children.Add(message); Grid.SetColumn(trace, 1); actions.Children.Add(trace); box.Children.Add(actions);
+            var seatActions = new ActionRow { Spacing = 6 };
+            void SeatButton(string title, string hint, Func<Task> action) { var button = Ghost(title, action); ToolTipService.SetToolTip(button, T(hint)); seatActions.Children.Add(button); }
+            var own = c.Text("surface") is not ("chat" or "subagent"); var hosted = own && !c.Flag("embedded") && (c["config"].Text("harness").Length > 0 || c.Text("surface") is "cli" or "desktop");
+            if (own && (c.Flag("embedded") || hosted && Delivery(c.Text("harness"), c["config"].Text("surface").Length > 0 ? c["config"].Text("surface") : c.Text("surface")))) SeatButton(T("card.new_session"), "card.new_session_hint", () => SeatAction("fresh", name, c.Text("session").Length > 0 ? T("card.new_session_confirm", ("name", Display(name))) : ""));
+            if (hosted) { if (c.Text("session").Length > 0) SeatButton(T("card.open_session"), "card.open_session_hint", () => SeatAction("open_session", name)); SeatButton(T("card.edit_setup"), "card.edit_setup_hint", async () => { transientFlyout?.Hide(); await MemberDialog(edit: name); }); }
+            if (c.Text("harness") == "chatgpt") SeatButton(c.Text("waiting_replies") is "" or "0" ? T("card.forward_reply") : T("card.forward_reply_waiting", ("n", c.Text("waiting_replies"))), "card.forward_reply_hint", async () => { transientFlyout?.Hide(); await Forward(name); });
+            if (c.Text("session").Length > 0) SeatButton(T("card.leave_seat"), "card.leave_seat_hint", () => SeatAction("unbind", name, T("card.leave_seat_confirm", ("name", Display(name)))));
+            if (seatActions.Children.Count > 0) box.Children.Add(new Border { Child = seatActions, BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 10, 0, 0) });
         }
-        if (c.Text("harness") == "chatgpt")
-        {
-            SeatButton(c.Text("waiting_replies") is "" or "0" ? T("card.forward_reply") : T("card.forward_reply_waiting", ("n", c.Text("waiting_replies"))), "card.forward_reply_hint", () => Forward(name));
-        }
-        if (c.Text("session").Length > 0) SeatButton(T("card.leave_seat"), "card.leave_seat_hint", () => SeatAction("unbind", name, T("card.leave_seat_confirm", ("name", Display(name)))));
-        ShowPopover(box, chatHead, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight);
+        Fill(); transientFlyout?.Hide(); box.RequestedTheme = root.RequestedTheme; foreach (var resource in root.Resources) box.Resources[resource.Key] = resource.Value;
+        var scroll = Scroll(box); scroll.MaxHeight = Math.Max(0, root.ActualHeight - 62);
+        var presenter = new Style(typeof(FlyoutPresenter)); presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(18))); presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1))); presenter.Setters.Add(new Setter(Control.BorderBrushProperty, Line)); presenter.Setters.Add(new Setter(Control.BackgroundProperty, Paint("FFFFFF", "252523"))); presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(16))); presenter.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d)); presenter.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, 340d)); presenter.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, Math.Max(0, root.ActualHeight - 24)));
+        var flyout = new Flyout { Content = scroll, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight, FlyoutPresenterStyle = presenter }; transientFlyout = flyout; flyout.ShowAt(anchor ?? chatHead);
     }
     private async Task SeatAction(string action, string who, string confirm = "")
     {

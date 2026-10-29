@@ -22,17 +22,18 @@ CONTROL_KINDS = {
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
+    "ChartNodeButton": "chart-node", "ChartSurface": "region",
 }
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
 TEXT_TYPES = {"TextBlock", "RichTextBlock", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
-STATE_KEYS = ("enabled", "selected", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
-UIA_KINDS = {"Button": {"button", "icon-button"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
+STATE_KEYS = ("enabled", "selected", "current", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
+UIA_KINDS = {"Button": {"button", "icon-button", "chart-node"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
              "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
              "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
              "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
              "Custom": {"region", "card"}, "Window": {"region"}}
-INTERACTIVE_KINDS = {"button", "icon-button", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
+INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
 ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
 PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
 
@@ -351,6 +352,7 @@ def project_text_leaves(raw, unmeasured, pointer):
                 "font_size": run.get("font_size"), "font_weight": run.get("font_weight"), "foreground": run.get("foreground"),
                 "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0,
                 "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)],
+                "border_styles": ["none", "none", "none", "none"],
                 "corner_radius": 0, "corner_radii": [0, 0, 0, 0], "background_image": "none", "shadow": [],
                 "opacity": node.get("opacity"),
             }
@@ -414,6 +416,7 @@ def run_font_witnesses(uia_nodes, owner, glyph_boxes):
                     continue
                 records.append({"uia_id": candidate["id"], "attributes": copy.deepcopy(run.get("attributes", {})),
                                 "attribute_status": copy.deepcopy(run.get("attribute_status", {})),
+                                "font_family_coverage": copy.deepcopy(run.get("font_family_coverage")),
                                 "bounds": run_boxes, "glyph_boxes": relevant, "text": run.get("text")})
     return providers, records
 
@@ -457,11 +460,11 @@ def interaction_applicability(node, kind, witness):
         focusable = witness.get("state", {}).get("focusable")
         if focusable is True:
             return True, "UIA measured IsKeyboardFocusable=true"
-        if node["type"] in PAINT_ONLY_TYPES and focusable is False and isinstance(patterns, list):
+        if (node["type"] in PAINT_ONLY_TYPES or node.get("render_type_evidence", {}).get("is_panel") is True) and focusable is False and isinstance(patterns, list):
             return False, "Paint-only XAML element; UIA reports no action pattern and IsKeyboardFocusable=false"
         return None, "UIA interaction applicability is not completely measured"
     interaction = node.get("interaction_evidence", {})
-    if interaction.get("is_control") is False and node["type"] in PAINT_ONLY_TYPES:
+    if interaction.get("is_control") is False and (node["type"] in PAINT_ONLY_TYPES or node.get("render_type_evidence", {}).get("is_panel") is True):
         return False, "Actual XAML non-Control paint element with no independent UIA interactive witness"
     if interaction.get("is_hit_test_visible") is False and interaction.get("is_tab_stop") is False:
         return False, "Actual XAML element is neither hit-testable nor a tab stop"
@@ -570,12 +573,14 @@ def project(xaml_path, uia_path, png_path):
                 continue
             if child["type"] in TEXT_TYPES and child.get("text") and not ancestor(child, {n["id"] for n in raw if n["type"] in ICON_TYPES}):
                 labels.append(child)
-            if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"} and not user_content(child, node["id"]):
+            if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"}:
                 if node["type"] == "PersonPicture":
                     # A letter/avatar background is one semantic surface. Its
                     # decorative rings, image and icon content remain separate.
                     if distance(child["bounds"], node["bounds"]) <= 1e-6 and painted(child.get("style", {}).get("background")):
                         avatar_backgrounds.append(child)
+                    continue
+                if user_content(child, node["id"]):
                     continue
                 control_paint[node["id"]].append(child)
                 owned[child["id"]] = (node["id"], "semantic control template paint")
@@ -587,7 +592,16 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "avatar.paint_ownership",
                                "reason": "Multiple actual avatar background layers require independent paint composition",
                                "sources": [child["id"] for child in avatar_backgrounds]})
-        if len(labels) == 1 and (CONTROL_KINDS.get(node["type"]) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row"}:
+        distinct_semantics = any(child["id"] in semantic and visible(child) for child in descendants(node))
+        distinct_content_paint = any(user_content(child, node["id"]) and visible(child)
+                                     and child["type"] not in TEXT_TYPES
+                                     and (painted(child.get("style", {}).get("background"))
+                                          or painted(child.get("style", {}).get("border_color"))
+                                          and finite(child.get("style", {}).get("border_width"))
+                                          and child["style"]["border_width"] > 0)
+                                     for child in descendants(node))
+        compound = distinct_semantics or distinct_content_paint and node["type"] != "PersonPicture"
+        if len(labels) == 1 and not compound and (CONTROL_KINDS.get(node["type"]) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -636,8 +650,11 @@ def project(xaml_path, uia_path, png_path):
             kind = "chart-edge" if ancestor(node, {n["id"] for n in raw if n["type"] == "Canvas"}) else "divider"
         elif typ == "Ellipse":
             kind = "state-dot" if node["bounds"]["width"] <= 10 else "image"
-        elif typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"}:
-            if painted(style.get("background")) or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0:
+        elif typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"} or node.get("render_type_evidence", {}).get("is_panel") is True:
+            if (painted(style.get("background"))
+                    or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0
+                    or node.get("render_type_evidence", {}).get("is_shape") is True
+                    and painted(style.get("foreground")) and finite(style.get("stroke_width")) and style["stroke_width"] > 0):
                 kind = "divider" if min(node["bounds"]["width"], node["bounds"]["height"]) <= 2 else "card"
                 if node.get("parent") is None or typ == "Border" and node["region"] != by_id.get(node.get("parent"), {}).get("region"):
                     kind = "region"
@@ -680,7 +697,7 @@ def project(xaml_path, uia_path, png_path):
                 style["corner_radius"] = ps.get("corner_radius")
                 style["corner_radii"] = ps.get("corner_radii")
             if painted(ps.get("border_color")) and finite(ps.get("border_width")) and ps["border_width"] > 0:
-                for key in ("border_color", "border_width", "border_widths", "border_colors", "corner_radius", "corner_radii"):
+                for key in ("border_color", "border_width", "border_widths", "border_colors", "border_styles", "corner_radius", "corner_radii"):
                     style[key] = ps.get(key)
             break
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
@@ -714,12 +731,24 @@ def project(xaml_path, uia_path, png_path):
                                  for b in r.get("bounds", []) if positive(b)]
         text_source = label or node
         run_source = text_source.get("text_run_source")
+        run_name_witness = None
         actual_run_font_records = []
         font_witnesses = [] if run_source else [witness] if witness else []
         if run_source:
             text_owner = by_id[run_source["owner"]]
             run_providers, actual_run_font_records = run_font_witnesses(uia_nodes, text_owner, actual_text_boxes)
-            for provider in run_providers:
+            # A single Run representing the whole measured text owner can
+            # retain that owner's actual UIA Name. A parent name is not copied
+            # into individual rich-text fragments or a containing button.
+            if (typ == "Run" and len(run_providers) == 1 and len(text_owner.get("projected_run_ids", [])) == 1
+                    and text == text_owner.get("text_before_run_projection")
+                    and isinstance(run_providers[0].get("name"), str)):
+                run_name_witness = run_providers[0]
+            if len(run_providers) > 1:
+                unmeasured.append({"id": node["id"], "property": "UIA text-owner correspondence",
+                                   "reason": "Multiple independent UIA providers match the measured text owner; none is silently claimed",
+                                   "candidates": [provider["id"] for provider in run_providers]})
+            for provider in run_providers if len(run_providers) == 1 else []:
                 if actual_text_boxes:
                     used_uia.add(provider["id"])
                     projection.append({"source": provider["id"], "owner": text_owner["id"], "element": node["id"],
@@ -728,7 +757,7 @@ def project(xaml_path, uia_path, png_path):
         elif label:
             font_witnesses += [n for n in uia_nodes if n.get("control_type") == "ControlType.Text"
                                and n.get("name") == text and distance(n["bounds"], label["bounds"]) <= 8]
-        rendered_fonts = []
+        provider_fonts = []
         font_records = list(actual_run_font_records)
         for font_source in font_witnesses:
             for text_range in (font_source.get("text_pattern") or {}).get("visible_ranges", []):
@@ -738,14 +767,28 @@ def project(xaml_path, uia_path, png_path):
             family = record.get("attributes", {}).get("font_family")
             if record.get("attribute_status", {}).get("font_family") != "measured" or not isinstance(family, str) or not family:
                 continue
+            coverage = record.get("font_family_coverage")
+            if isinstance(coverage, dict) and coverage.get("status") in {"unresolved", "provider-family-cannot-cover-text"}:
+                unmeasured.append({"id": node["id"], "property": "style.rendered_fonts",
+                                   "reason": coverage.get("reason") or "Provider font family cannot establish the actual rendered glyph family",
+                                   "uia_id": record["uia_id"], "font_family_coverage": copy.deepcopy(coverage)})
+                continue
             identity = {"family_name": family, "postscript_name": None, "is_custom_font": None, "glyph_count": None,
-                        "source": "UIA.TextPattern.FontNameAttribute", "uia_id": record["uia_id"]}
-            if not any(f["family_name"] == family for f in rendered_fonts):
-                rendered_fonts.append(identity)
-        style["rendered_fonts"] = rendered_fonts if text and rendered_fonts else None
+                        "source": "UIA.TextPattern.FontNameAttribute", "uia_id": record["uia_id"],
+                        "proves_actual_render_face": False, "font_family_coverage": copy.deepcopy(coverage)}
+            if not any(f["family_name"] == family for f in provider_fonts):
+                provider_fonts.append(identity)
+        if text and provider_fonts:
+            unmeasured.append({"id": node["id"], "property": "style.rendered_fonts.actual_face",
+                               "reason": "UIA font-name attributes are retained as provider evidence; actual DirectWrite glyph-run/fallback face identity is not exposed by this capture",
+                               "provider_families": [font["family_name"] for font in provider_fonts]})
+        # WinUI's UIA adapter reads TextElement.FontFamily.Source, not the
+        # physical fallback face. Never put that requested family into the
+        # canonical actual-font field, even when a cmap supports the text.
+        style["rendered_fonts"] = None
         if text and not actual_text_boxes:
             unmeasured.append({"id": node["id"], "property": "evidence.text_bounds", "reason": "Actual window-relative text rectangles are unavailable"})
-        if text and not rendered_fonts:
+        if text and not provider_fonts:
             unmeasured.append({"id": node["id"], "property": "style.rendered_fonts", "reason": "UIA did not measure the rendered font; declared XAML family is not substituted"})
         if run_source and actual_text_boxes:
             font_rectangles = [b for record in actual_run_font_records
@@ -760,7 +803,7 @@ def project(xaml_path, uia_path, png_path):
         if not text:
             layout = {"wrap": None, "truncation": None, "line_count": None}
             style["font_size"] = style["font_weight"] = None
-            if kind not in {"icon", "chart-edge"}:
+            if kind not in {"icon", "chart-edge"} and node.get("render_type_evidence", {}).get("is_shape") is not True:
                 style["foreground"] = None
         bounds = node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
@@ -776,7 +819,8 @@ def project(xaml_path, uia_path, png_path):
             if style.get(key) is None:
                 unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})
         region = node["region"]
-        reported_name = witness.get("name") if witness else node.get("accessible_name")
+        name_witness = witness or run_name_witness
+        reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": node["visible_bounds"], "style": style, "state": state,
@@ -788,14 +832,21 @@ def project(xaml_path, uia_path, png_path):
                                 "text_bounds": actual_text_boxes, "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
+                                "font_family_evidence": [copy.deepcopy(record.get("font_family_coverage")) for record in font_records],
+                                "provider_fonts": provider_fonts if text else [],
                                 "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,
                                                               "xaml": copy.deepcopy(node.get("interaction_evidence")),
                                                               "uia_state": copy.deepcopy(witness.get("state")) if witness else None,
                                                               "uia_patterns": copy.deepcopy(witness.get("supported_patterns")) if witness else None},
-                                "accessible_name_evidence": {"reported": reported_name, "source": "UIA.NameProperty" if witness else "XAML.AutomationProperties.Name",
+                                "accessible_name_evidence": {"reported": reported_name, "source": "UIA.NameProperty" if name_witness else "XAML.AutomationProperties.Name",
+                                                             "uia_id": name_witness["id"] if name_witness else None,
+                                                             "ownership": "whole text owner represented by one measured Run" if run_name_witness and not witness else "direct element",
                                                              "status": "reported" if isinstance(reported_name, str) else "not-provided",
                                                              "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
+                                "state_evidence": copy.deepcopy(node.get("state_evidence")),
+                                "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
+                                "declared_content_source": node.get("declared_content_source"),
                                 "brush_evidence": copy.deepcopy(node.get("style", {}).get("brush_evidence")),
                                 "animated_icon_evidence": copy.deepcopy(node.get("animated_icon_evidence")),
                                 "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),

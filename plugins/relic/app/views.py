@@ -7,6 +7,7 @@ writes to the store.
 import calendar
 import copy
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -460,6 +461,80 @@ def protocol_rules(rules):
     return result
 
 
+def _display_json_number(value):
+    """JSON's binary64 value, using ECMAScript's decimal/exponent thresholds.
+
+    Python's shortest-round-trip coefficient supplies the significant digits;
+    Number::toString formats them without .0, -0, or padded exponents. Integers
+    cross the same binary64 boundary as JSON.parse in the reference client.
+    """
+    try:
+        number = float(value)
+    except OverflowError:
+        return "null"
+    if not math.isfinite(number):
+        return "null"
+    if number == 0:
+        return "0"
+    coefficient, _, exponent = repr(abs(number)).partition("e")
+    whole, _, fraction = coefficient.partition(".")
+    digits = whole + fraction
+    point = len(whole) + int(exponent or 0) - (len(digits) - len(digits.lstrip("0")))
+    digits = digits.lstrip("0").rstrip("0")
+    if 0 < point <= 21:
+        body = (digits + "0" * (point - len(digits)) if point >= len(digits)
+                else digits[:point] + "." + digits[point:])
+    elif -6 < point <= 0:
+        body = "0." + "0" * -point + digits
+    else:
+        body = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
+        body += "e" + ("+" if point > 0 else "-") + str(abs(point - 1))
+    return ("-" if number < 0 else "") + body
+
+
+def protocol_rules_display(rules):
+    """JSON.stringify(plainRules(wire.rules), null, 2), solely for UI text.
+
+    The input is the already-normalized rules sent in the same snapshot. Keep
+    ordinary property insertion order; JavaScript enumerates array-index keys
+    first in numeric order. No executable rule or nested payload is modified.
+    """
+    plain = [{key: value for key, value in rule.items() if key not in ("code", "examples", "code_sha256")}
+             if rule.get("effect") == "check" else rule for rule in rules or []]
+
+    def quoted(text):
+        # JSON.stringify emits Unicode directly, but escapes lone surrogates.
+        return "".join("\\u%04x" % ord(char) if 0xD800 <= ord(char) <= 0xDFFF else char
+                       for char in json.dumps(text, ensure_ascii=False))
+
+    def encode(value, depth=0):
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return _display_json_number(value)
+        if isinstance(value, str):
+            return quoted(value)
+        if isinstance(value, dict):
+            indices = sorted((key for key in value if key.isascii() and key.isdecimal()
+                              and str(int(key)) == key and int(key) < 2 ** 32 - 1), key=int)
+            keys = indices + [key for key in value if key not in indices]
+            items = [quoted(key) + ": " + encode(value[key], depth + 1) for key in keys]
+            opening, closing = "{", "}"
+        elif isinstance(value, list):
+            items = [encode(item, depth + 1) for item in value]
+            opening, closing = "[", "]"
+        else:
+            raise TypeError("Protocol display requires JSON values")
+        if not items:
+            return opening + closing
+        indent = "  " * (depth + 1)
+        return opening + "\n" + indent + (",\n" + indent).join(items) + "\n" + "  " * depth + closing
+
+    return encode(plain)
+
+
 def copies(store, lang=None):
     """What was copied to the person (GET /api/cc): protocols with a check program, each with its note for the person,
     who proposed it (author_display, by display name) and how it stands now; unread counts every unread copy."""
@@ -521,6 +596,8 @@ def snapshot(store, org_id, hub=None, lang=None):
                   "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
                   "from_id": a["id"], "issued_by": p.get("issued_by"), "check": has_check(p),
                   "summary_for_person": p.get("summary_for_person", "")} for a, p in lineage["inherited"]]
+    for protocol in protocols + inherited:
+        protocol["rules_display"] = protocol_rules_display(protocol["rules"])
     # protocols of the organizations above that this organization or one between overrode or stopped
     replaced = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "from": a["name"], "from_id": a["id"],
                  "how": how, "by": by, "at": level["name"], "at_id": level["id"]}

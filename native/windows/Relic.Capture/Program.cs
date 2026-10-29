@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Text;
@@ -305,6 +306,9 @@ internal sealed class Capture
             ["attributes"] = attributes, ["attribute_status"] = status,
             ["font_size_unit"] = "pt"
         };
+        if (status["font_family"]?.ToString() == "measured" && attributes["font_family"] is JsonValue familyValue &&
+            familyValue.TryGetValue<string>(out var familyName) && !string.IsNullOrEmpty(familyName))
+            result["font_family_coverage"] = FontFamilyEvidence.Inspect(familyName, result["text"]?.ToString() ?? "");
         if (includeRuns)
         {
             var runs = new JsonArray();
@@ -374,5 +378,62 @@ internal sealed class Capture
     {
         var packed = Convert.ToInt32(value, CultureInfo.InvariantCulture);
         return new JsonArray(packed & 0xff, (packed >> 8) & 0xff, (packed >> 16) & 0xff, 255);
+    }
+}
+
+internal static class FontFamilyEvidence
+{
+    private sealed record FamilyRecord(List<System.Windows.Media.GlyphTypeface> Faces, string? Error);
+    private static readonly Dictionary<string, FamilyRecord> families = new(StringComparer.OrdinalIgnoreCase);
+
+    public static JsonObject Inspect(string familyName, string text)
+    {
+        var evidence = new JsonObject
+        {
+            ["provider_family_name"] = familyName,
+            ["source"] = "UIA FontNameAttribute plus read-only system font metadata/cmap inspection",
+            ["proves_actual_render_face"] = false,
+            ["limitation"] = "Character coverage can reject an impossible provider family; it does not identify the actual DirectWrite glyph run or fallback face"
+        };
+        try
+        {
+            if (!families.TryGetValue(familyName, out var family))
+            {
+                var matching = System.Windows.Media.Fonts.SystemFontFamilies.Where(candidate =>
+                    candidate.Source.Equals(familyName, StringComparison.OrdinalIgnoreCase) ||
+                    candidate.FamilyNames.Values.Any(name => name.Equals(familyName, StringComparison.OrdinalIgnoreCase))).ToArray();
+                var faces = new List<System.Windows.Media.GlyphTypeface>(); var failures = new List<string>();
+                foreach (var candidate in matching)
+                    foreach (var face in candidate.GetTypefaces())
+                    {
+                        try { if (face.TryGetGlyphTypeface(out var glyphs)) faces.Add(glyphs); }
+                        catch (Exception error) { failures.Add(error.GetType().Name + ": " + error.Message); }
+                    }
+                family = new FamilyRecord(faces, matching.Length == 0 ? "Provider family is absent from the measured system font family collection" :
+                    faces.Count == 0 ? "No readable physical typeface for the provider family: " + string.Join("; ", failures) : null);
+                families[familyName] = family;
+            }
+            evidence["physical_faces"] = new JsonArray(family.Faces.Select(face => (JsonNode)new JsonObject
+            {
+                ["uri"] = face.FontUri.ToString(),
+                ["family_names"] = new JsonArray(face.FamilyNames.Values.Distinct().Select(name => (JsonNode)JsonValue.Create(name)!).ToArray())
+            }).ToArray());
+            if (family.Error != null)
+            {
+                evidence["status"] = "unresolved"; evidence["reason"] = family.Error; return evidence;
+            }
+            var scalars = text.EnumerateRunes().Where(rune => Rune.GetUnicodeCategory(rune) is not (UnicodeCategory.Control or UnicodeCategory.Format)
+                && rune.Value is not (>= 0xFE00 and <= 0xFE0F) && rune.Value is not (>= 0xE0100 and <= 0xE01EF)).Select(rune => rune.Value).Distinct().ToArray();
+            var missing = scalars.Where(scalar => !family.Faces.Any(face => face.CharacterToGlyphMap.TryGetValue(scalar, out var glyph) && glyph != 0)).ToArray();
+            evidence["checked_scalars"] = new JsonArray(scalars.Select(scalar => (JsonNode)JsonValue.Create("U+" + scalar.ToString("X4", CultureInfo.InvariantCulture))!).ToArray());
+            evidence["missing_scalars"] = new JsonArray(missing.Select(scalar => (JsonNode)JsonValue.Create("U+" + scalar.ToString("X4", CultureInfo.InvariantCulture))!).ToArray());
+            evidence["status"] = missing.Length == 0 ? "family-can-cover-scalars" : "provider-family-cannot-cover-text";
+            if (missing.Length > 0) evidence["reason"] = "UIA names a family whose physical faces cannot cover the visible text; actual fallback glyph runs are unmeasured";
+        }
+        catch (Exception error)
+        {
+            evidence["status"] = "unresolved"; evidence["reason"] = error.GetType().Name + ": " + error.Message;
+        }
+        return evidence;
     }
 }

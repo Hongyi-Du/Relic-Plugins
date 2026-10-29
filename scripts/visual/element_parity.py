@@ -24,7 +24,8 @@ CLIENTS = ("reference",) + PLATFORMS
 REGIONS = {"window", "header", "sidebar", "conversation", "composer", "right-pane", "dialog", "menu"}
 KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link"}
 STYLE_FIELDS = ("font_size", "font_weight", "foreground", "background", "border_color", "border_width", "corner_radius")
-PAINT_FIELDS = ("border_widths", "border_colors", "corner_radii", "opacity", "background_image", "shadow")
+PAINT_FIELDS = ("border_widths", "border_colors", "border_styles", "corner_radii", "opacity", "background_image", "shadow")
+STROKE_FIELDS = ("stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin")
 STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
 LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
 INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link"}
@@ -79,6 +80,18 @@ def paint_issues(style: dict) -> list[str]:
             issues.append("Expected four measured nonnegative values: " + field)
     if style.get("border_colors") is not None and not (isinstance(style["border_colors"], list) and len(style["border_colors"]) == 4 and all(rgba(c) for c in style["border_colors"])):
         issues.append("Expected four measured RGBA border colors in TRBL order")
+    if style.get("border_styles") is not None and not (isinstance(style["border_styles"], list) and len(style["border_styles"]) == 4 and all(s in ("none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset") for s in style["border_styles"])):
+        issues.append("Expected four measured border styles in TRBL order")
+    if number(style.get("stroke_width")) and style["stroke_width"] > 0:
+        dash = style.get("stroke_dash")
+        if not isinstance(dash, list) or not all(number(value) and value >= 0 for value in dash):
+            issues.append("Visible stroke has no measured nonnegative window-pixel stroke_dash array")
+        if not number(style.get("stroke_dash_offset")):
+            issues.append("Visible stroke has no measured window-pixel stroke_dash_offset")
+        if style.get("stroke_linecap") not in ("butt", "round", "square"):
+            issues.append("Visible stroke has no measured stroke_linecap")
+        if style.get("stroke_linejoin") not in ("miter", "round", "bevel"):
+            issues.append("Visible stroke has no measured stroke_linejoin")
     for scalar, field in (("border_width", "border_widths"), ("corner_radius", "corner_radii")):
         if number(style.get(scalar)) and vector(style.get(field), 4) and abs(style[scalar] - max(style[field])) > 1e-8:
             issues.append(scalar + " must agree with the maximum of " + field)
@@ -328,6 +341,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                 error(kind + " has no " + key + " state", eid)
         if element.get("kind") in ("checkbox", "toggle") and not isinstance(state.get("indeterminate"), bool):
             error("Checkable element has no measured indeterminate state", eid)
+        if element.get("kind") == "chart-node" and not isinstance(state.get("current"), bool):
+            error("Chart node has no measured current-organization state", eid)
         if element.get("kind") in ("icon", "chart-edge", "image") and not element.get("icon"):
             error("Visible glyph/vector/image has no independently extracted identity", eid)
         icon = element.get("icon")
@@ -512,10 +527,24 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                     for index, (left, right) in enumerate(zip(av, bv)):
                         if vector(aw, 4) and vector(bw, 4) and aw[index] == bw[index] == 0: continue
                         compare_color(field + f"[{index}]", left, right)
+            elif field == "border_styles":
+                if not isinstance(av, list) or not isinstance(bv, list) or len(av) != 4 or len(bv) != 4:
+                    mismatch("style_out_of_tolerance", field, av, bv, reason="Expected four measured edge styles")
+                else:
+                    aw, bw = a["style"].get("border_widths"), b["style"].get("border_widths")
+                    for index, (left, right) in enumerate(zip(av, bv)):
+                        if vector(aw, 4) and vector(bw, 4) and aw[index] == bw[index] == 0: continue
+                        if left != right: mismatch("style_out_of_tolerance", field + f"[{index}]", left, right)
             else:
                 compare_structured(field, av, bv)
         if a.get("style", {}).get("stroke_width") is not None or b.get("style", {}).get("stroke_width") is not None:
             compare_structured("stroke_width", a.get("style", {}).get("stroke_width"), b.get("style", {}).get("stroke_width"))
+        if any(number(e.get("style", {}).get("stroke_width")) and e["style"]["stroke_width"] > 0 for e in (a, b)):
+            for field in STROKE_FIELDS:
+                av, bv = a.get("style", {}).get(field), b.get("style", {}).get(field)
+                if av is None or bv is None:
+                    mismatch("style_out_of_tolerance", field, av, bv, reason="Visible stroke measurement is unknown")
+                else: compare_structured(field, av, bv)
         for group, fields, category in (("state", STATE_FIELDS, "state_mismatch"), ("layout", LAYOUT_FIELDS, "layout_mismatch")):
             if group == "layout" and not has_text(a) and not has_text(b): continue
             for field in fields:
@@ -525,6 +554,10 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
             av, bv = a.get("state", {}).get("indeterminate"), b.get("state", {}).get("indeterminate")
             if not isinstance(av, bool) or not isinstance(bv, bool) or av != bv:
                 mismatch("state_mismatch", "indeterminate", av, bv)
+        if any(e.get("kind") == "chart-node" for e in (a, b)):
+            av, bv = a.get("state", {}).get("current"), b.get("state", {}).get("current")
+            if not isinstance(av, bool) or not isinstance(bv, bool) or av != bv:
+                mismatch("state_mismatch", "current", av, bv)
         if has_text(a) or has_text(b):
             fonts_a, fonts_b = rendered_fonts(a), rendered_fonts(b)
             if fonts_a is None or fonts_b is None:
@@ -725,7 +758,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
               "tolerances": TOLERANCES, "exceptions": [], "approved_icon_mappings": [], "unexpected_captures": [], "scenes": [], "summary": {}, "passed": False}
     report["reference_baselines"] = {platform: {"platform": platform, "source_root": str(roots[client]), "artifact_client": client}
                                      for platform, client in references.items()}
-    report["font_identity_policy"] = "Measured actual family_name is required for visible text; size and weight are checked separately. PostScript names are supplemental and compared when both APIs provide them. Glyph counters and custom-font loading flags are preserved as evidence, not treated as visible style differences. Configured fallback lists cannot establish actual font identity."
+    report["font_identity_policy"] = "Actual render-run font evidence is required for visible text; size and weight are checked separately. Complete measured PostScript face sets are compared exactly when both providers expose every face, retaining original localized family spellings. Otherwise measured family sets must match exactly, with available faces compared per family. Additional fallback faces are never dropped. Glyph counters and custom-font loading flags remain evidence. Configured fallback lists and unverified UIA provider family properties cannot establish actual render-face identity."
     report["element_count_definitions"] = {
         "raw_reference_elements / raw_native_elements": "Number of entries in the extractor's original elements array, before structural filtering.",
         "valid_reference_elements / valid_native_elements": "Structurally comparable entries accepted by the matcher; missing or invalid measurements can still fail extraction validation.",

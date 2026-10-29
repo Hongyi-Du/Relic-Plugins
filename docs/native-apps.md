@@ -8,6 +8,60 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (`2749a17` ordered JSON request): snapshot protocol rows
+in both `protocols` and `inherited_protocols` now include additive
+`rules_display`, the two-space display JSON for the same normalized wire rules.
+Only check-rule `code`/`examples`/`code_sha256` are omitted from that string;
+original rules and command payloads are unchanged. JavaScript array-index key
+ordering, Unicode and numeric display are covered by CI regression fixtures.
+Both native clients consume this string, with older-server fallbacks still
+subject to text comparison. No new route or engine fork is introduced.
+
+Changes for the clients (Windows CI hand-off fix): visual run 40955522655
+captured all 126 en-US/dark screenshots but failed one workspace element export
+when a shared request-file replacement collided with the observer's read.
+Each scene now publishes an immutable request and receipt under
+`element-requests/<case>.json` and `element-receipts/<case>.json`. Files remain
+audit evidence; the observer does not rename/delete a file another scene reads.
+Two pure regression fixtures cover queue publication and scene identity. This
+changes capture transport only, with no retries, exclusions or tolerance change.
+
+Changes for the clients (`dc32635` dash request): the shared contract now
+requires measured `style.border_styles` (TRBL) and, for visible strokes,
+window-pixel `stroke_dash`, `stroke_dash_offset`, `stroke_linecap` and
+`stroke_linejoin`. Missing values fail; no exact CSS dashed-border cadence is
+invented. Chart nodes require independent `state.current`, not `selected`.
+macOS must project its actual `projection.stroke_dash` / stroke properties and
+`surface_evidence.border_dash` into these canonical quantities where measured,
+retaining raw units and unknown coverage when not measured. See native-elements.md.
+
+Changes for the clients (Windows font evidence): verified WinUI source shows
+UIA FontName/FontSize/FontWeight report text dependency properties, not actual
+DirectWrite fallback faces. Canonical rendered_fonts now remains unknown;
+provider names and cmap coverage are preserved separately. Actual physical-face
+measurement is unfinished and fails the gate. Single-run accessible names now
+use an unambiguous real UIA owner; multi-run ambiguity is never filled from text.
+
+Changes for the clients (captured failure evidence): `1c3b037` report download
+is complete at `S:\Codex\Outputs\Relic-native-visual\parity-1c3b037\`, including
+all 504 scene HTML/JSON reports and heatmaps. Windows: 93,032 reference,
+90,563 raw native, 8,442 invalid native elements; macOS: 92,536 reference,
+100,785 raw native, 5,634 invalid native elements. Both have zero fully measured
+or passing scenes. Exact category counts remain in summary.json; no exceptions.
+`8210a6c` Windows build/tests and static parity pass, while macOS failed at
+SelectableText.swift:71 with ambiguous greatestFiniteMagnitude; native-macos
+`e4c559e` already fixes that compiler error and is being integrated. Earlier
+visual run 40955522655 has a separate macOS en-US/dark mention capture failure
+(empty text, candidates=0, attached=true); the macOS owner must fix it, not skip it.
+
+Changes for the clients (production UI): Windows now follows the reference
+settings' 920x640 two-column structure, 340px member card, actual menu avatars /
+checkboxes / secondary labels, and the native chart's reference layout algorithm,
+legend and toolbar. Hierarchy chart entry/capture passes the actual current org
+as focus; global chart menu retains all-organizations behavior. These changes
+are awaiting strict CI comparison, not accepted parity. Exact shadows, input
+templates, truncation and unresolved measured font faces remain open failures.
+
 Changes for the clients (`34d56cd` font-identity request): the strict matcher
 compares complete measured PostScript face sets when both APIs expose them,
 retaining exact localized family spellings and every fallback face in the raw

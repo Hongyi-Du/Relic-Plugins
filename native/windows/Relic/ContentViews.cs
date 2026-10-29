@@ -58,7 +58,7 @@ public sealed partial class MainWindow
             {
                 var code = new List<string>(); var language = line.Trim()[3..];
                 while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                var source = string.Join("\n", code); var codeText = Text(source, 12.5); codeText.FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"); codeText.TextWrapping = TextWrapping.NoWrap;
+                var source = string.Join("\n", code); var codeText = Text(source, 12.5); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
                 codeText.LineHeight = 19.375; codeText.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
                 var block = new Grid(); var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
                 block.Children.Add(new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) });
@@ -133,7 +133,7 @@ public sealed partial class MainWindow
                     }); paragraph.Inlines.Add(link); break;
                 case "code":
                     var shade = Ink.Color; shade.A = 18;
-                    var code = new TextBlock { Text = part.Text, FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"), Foreground = Ink,
+                    var code = new TextBlock { Text = part.Text, FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code"), Foreground = Ink,
                         LineHeight = fontSize * 1.65, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
                     paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = code, Padding = new Thickness(5, 1, 5, 1), Background = new SolidColorBrush(shade), CornerRadius = new CornerRadius(5) } }); break;
                 case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
@@ -208,7 +208,7 @@ public sealed partial class MainWindow
                         document.Children.Clear();
                         document.Children.Add(Heading(key + " · " + T("details.revision", ("n", doc.Text("revision"))), 20));
                         document.Children.Add(Quiet(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12.5));
-                        var source = Text(doc.Text("body"), 12.5); source.FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"); source.LineHeight = 12.5 * 1.65;
+                        var source = Text(doc.Text("body"), 12.5); source.FontFamily = new FontFamily("Cascadia Code"); source.LineHeight = 12.5 * 1.65;
                         document.Children.Add(new Border { Child = source, Background = Paint("F6F5F2", "232321"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14) });
                     }
                     documentList.SelectionChanged += (_, _) => { if ((documentList.SelectedItem as ListViewItem)?.Tag is string key) documentSelection = Run(() => LoadDocument(key)); };
@@ -274,7 +274,9 @@ public sealed partial class MainWindow
         {
             var rules = new JsonArray();
             foreach (var original in p.Rows("rules")) { var rule = original?.DeepClone(); if (rule is JsonObject obj && rule.Text("effect") == "check") { obj.Remove("code"); obj.Remove("examples"); obj.Remove("code_sha256"); } rules.Add(rule); }
-            box.Children.Add(Rich("```json\n" + rules.ToJsonString(new() { WriteIndented = true }) + "\n```"));
+            var display = p.Text("rules_display");
+            if (display.Length == 0) display = rules.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            box.Children.Add(Rich("```json\n" + display + "\n```"));
             if (p.Rows("rules").Any(r => r.Text("effect") == "check")) box.Children.Add(CheckRules(p.Rows("rules")));
         }
         box.Children.Add(Quiet(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 12)); return Card(box);

@@ -20,7 +20,7 @@ public sealed partial class MainWindow
             var b = QuietButton("", action); var content = new Grid(); content.Children.Add(Glyph(glyph)); b.Content = content; b.IsEnabled = enabled; b.Width = 30; b.Height = 28; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(7); b.Foreground = alert ? Paint("B7791F", "E2B15A") : Paint("5A5853", "B8B5AE");
             if (selected) b.Background = Paint("E7E5DF", "2F2E2B");
             if (badge > 0) content.Children.Add(new Border { MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8), Background = Paint("C2412D", "EE8A78"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Child = new TextBlock { Text = badge.ToString(), FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF"), LineHeight = 15, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, HorizontalAlignment = HorizontalAlignment.Center } });
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, label);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, tip);
             ToolTipService.SetToolTip(b, tip); toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = b });
         }
         navigationButtons.Children.Clear(); var brand = new Border { Width = 20, Height = 20, Margin = new Thickness(5, 0, 7, 0), CornerRadius = new CornerRadius(5), Background = Ink, Child = new TextBlock { Text = "R", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF", "1B1B1A"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; ToolTipService.SetToolTip(brand, T("page.titlebar")); navigationButtons.Children.Add(brand); navigationButtons.Children.Add(IconButton("\uE700", "appmenu.sidebar", ToggleSide, T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar")));
@@ -38,6 +38,7 @@ public sealed partial class MainWindow
     }
     private void DrawSidebar()
     {
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sidebarSurface, T("page.side"));
         searchSurface.Children.Clear(); searchSurface.ColumnDefinitions.Clear(); side.Children.Clear(); sideTools.Children.Clear(); sidebarFooter.Children.Clear();
         side.Padding = new Thickness(8, 4, 8, 12); side.Spacing = 0;
         var create = QuietButton("", CreateOrg); create.HorizontalAlignment = HorizontalAlignment.Stretch; create.Height = 34; create.MinHeight = 0; create.Padding = new Thickness(10, 0, 10, 0); create.CornerRadius = new CornerRadius(8);
@@ -150,7 +151,7 @@ public sealed partial class MainWindow
     private Grid SidebarFace(string who, string url, string state, bool secretary)
     {
         var label = who.Length > 0 ? Display(who) : T("common.group_chat");
-        var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : Avatar(url, label, 28);
+        var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : AvatarPaint(url, label, 28);
         if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; } }
         var result = new Grid { Width = 28, Height = 28 }; result.Children.Add(SidebarPicture(label, painted, 28));
         if (state is not ("" or "idle"))

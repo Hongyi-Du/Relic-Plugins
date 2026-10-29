@@ -15,6 +15,7 @@ public sealed partial class MainWindow
     private ContentDialog? visibleDialog;
     private Task<ContentDialogResult>? visibleDialogTask;
     private readonly Dictionary<string, TextBlock> installViews = new();
+    private readonly Dictionary<string, ScrollViewer> installLogSurfaces = new();
     private readonly Dictionary<string, List<string>> installLines = new();
     private SpeechRecognitionEngine? speech;
     private Button? speechButton;
@@ -106,16 +107,54 @@ public sealed partial class MainWindow
     }
     private void PreferenceToggle(StackPanel target, string title, string hint, string field)
     {
-        var toggle = new ToggleSwitch { IsOn = preferences.Flag(field), OnContent = "", OffContent = "", MinWidth = 42 };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, T(title));
+        var toggle = SettingsToggle(T(title), preferences.Flag(field), value => SavePreferences(new JsonObject { [field] = value }));
         target.Children.Add(SettingRow(T(title), hint.Length > 0 ? T(hint) : "", toggle));
-        toggle.Toggled += async (_, _) => await Run(() => SavePreferences(new JsonObject { [field] = toggle.IsOn }));
+    }
+    private FrameworkElement SettingsToggle(string title, bool value, Func<bool, Task> change)
+    {
+        var row = (Grid)OverviewSwitch(title, true, value, change); var toggle = (FrameworkElement)row.Children[0]; row.Children.RemoveAt(0); return toggle;
     }
     private Border SettingRow(string title, string hint, FrameworkElement control)
     {
-        var labels = Stack(Heading(title, 13)); labels.Spacing = 5; labels.VerticalAlignment = VerticalAlignment.Center;
-        if (hint.Length > 0) labels.Children.Add(Quiet(hint, 12)); control.VerticalAlignment = VerticalAlignment.Center;
-        return new Border { Child = TwoColumns(labels, control), Padding = new Thickness(0, 10, 0, 18), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line };
+        var labels = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center }; labels.Children.Add(OverviewText(title, 13.5, weight: 600));
+        if (hint.Length > 0) labels.Children.Add(OverviewText(hint, 12.5, true)); control.VerticalAlignment = VerticalAlignment.Center;
+        var row = TwoColumns(labels, control); row.ColumnSpacing = 16;
+        return new Border { Tag = "setting-row", Child = row, Padding = new Thickness(0, 14, 0, 14), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line };
+    }
+    private TextBlock SettingsHeading(string label)
+    {
+        var title = OverviewText(label, 18, weight: 650); title.Margin = new Thickness(0, 0, 0, 8); return title;
+    }
+    private TextBox SettingsInput(string value, string placeholder, double width = double.NaN, bool multiline = false, bool mono = false, double fontSize = 14)
+    {
+        var input = new TextBox { Text = value, PlaceholderText = placeholder, Width = width, FontSize = fontSize, FontFamily = new FontFamily(mono ? "Cascadia Code" : "Segoe UI Variable Text"),
+            AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap, Height = multiline ? 60.8 : fontSize * 1.6 + 16, MinHeight = 0,
+            Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), CornerRadius = new CornerRadius(9), Background = Paint("FFFFFF", "1F1F1E"), Foreground = Ink };
+        input.Resources["TextControlBorderThicknessFocused"] = new Thickness(1); return input;
+    }
+    private Grid SettingsVoiceField(TextBox input, double width)
+    {
+        var row = new Grid { Width = width }; input.Width = double.NaN; row.Children.Add(input);
+        if (preferences.Text("voice") != "off")
+        {
+            input.Padding = new Thickness(10, 7, 34, 7); var mic = Microphone(input); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
+            mic.HorizontalAlignment = HorizontalAlignment.Right; mic.VerticalAlignment = VerticalAlignment.Center; mic.Margin = new Thickness(0, 0, 4, 0); row.Children.Add(mic);
+        }
+        return row;
+    }
+    private Border SettingsSegments(string field, Func<Task> redraw, params (string, string)[] choices)
+    {
+        var tabs = new SelectorBar { Padding = new Thickness(0) }; var values = new Dictionary<SelectorBarItem, string>();
+        foreach (var (value, text) in choices)
+        {
+            var selected = preferences.Text(field) == value; var label = OverviewText(text, 12); label.TextWrapping = TextWrapping.NoWrap; label.IsTextSelectionEnabled = false; label.Foreground = selected ? Ink : Paint("5A5853", "B8B5AE");
+            var item = new SelectorBarItem { Text = text, Tag = label, IsSelected = selected, Padding = new Thickness(9, 2, 9, 2), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
+                CornerRadius = new CornerRadius(6), Background = selected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
+            values.Add(item, value); tabs.Items.Add(item);
+        }
+        tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem == null || !values.TryGetValue(tabs.SelectedItem, out var value) || value == preferences.Text(field)) return; await Run(async () => { await SavePreferences(new JsonObject { [field] = value }); await redraw(); }); };
+        return new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(8), Background = Paint("EFEEEA", "262624") };
     }
     private async Task SavePreferences(JsonObject changes)
     {
@@ -149,112 +188,169 @@ public sealed partial class MainWindow
     }
     private async Task SettingsScreen(string section = "profile")
     {
-        var body = new Grid { Width = Math.Min(860, Math.Max(600, root.ActualWidth - 180)), Height = Math.Min(570, root.ActualHeight - 180), ColumnSpacing = 28 };
-        body.ColumnDefinitions.Add(new() { Width = new GridLength(180) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var navigation = new ListView { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        var content = new StackPanel { Spacing = 20, Padding = new Thickness(0, 6, 8, 20) }; body.Children.Add(navigation); var contentScroll = Scroll(content); Grid.SetColumn(contentScroll, 1); body.Children.Add(contentScroll);
+        var current = section;
+        var body = new Grid { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = Paint("FFFFFF", "252523") };
+        body.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = body };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("common.settings"));
+        var navigation = new StackPanel { Spacing = 2, Padding = new Thickness(10, 14, 10, 14) };
+        var navTitle = OverviewText(T("common.settings"), 16, weight: 650); navTitle.Margin = new Thickness(10, 4, 10, 12); navigation.Children.Add(navTitle);
+        var navigationSurface = new Border { Child = navigation, Background = Paint("F8F7F5", "191918"), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 0), CornerRadius = new CornerRadius(16, 0, 0, 16) }; body.Children.Add(navigationSurface);
+        var pane = new Grid(); Grid.SetColumn(pane, 1); body.Children.Add(pane);
+        var content = new StackPanel { Spacing = 6, Padding = new Thickness(28, 22, 28, 28) }; pane.Children.Add(Scroll(content));
+        var close = IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; }); close.Content = ReferenceIcon("x", 18); close.Padding = new Thickness(0);
+        close.HorizontalAlignment = HorizontalAlignment.Right; close.VerticalAlignment = VerticalAlignment.Top; close.Margin = new Thickness(0, 14, 14, 0); pane.Children.Add(close);
+        var tabs = new Dictionary<string, (SelectorBarItem Item, TextBlock Label, ReferenceVectorIcon Icon)>();
         async Task Draw(string key)
         {
-            content.Children.Clear(); installViews.Clear();
+            current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); body.Background = dialog.Background = Paint("FFFFFF", "252523");
+            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink; close.Foreground = Muted;
+            foreach (var (id, tab) in tabs)
+            {
+                var selected = id == key; tab.Item.IsSelected = selected; tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                tab.Label.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal; tab.Label.Foreground = tab.Icon.Foreground = selected ? Ink : Paint("5A5853", "B8B5AE");
+            }
             switch (key)
             {
                 case "profile":
-                    content.Children.Add(Heading(T("settings.profile"), 20));
-                    var avatarActions = new ActionRow { Spacing = 10 }; avatarActions.Children.Add(Avatar(preferences.Text("avatar"), Display("human"), 56));
-                    avatarActions.Children.Add(Button(T("common.change"), async () => { await ChangeAvatar(); await Draw(key); }));
-                    if (preferences.Text("avatar").Length > 0) avatarActions.Children.Add(Button(T("settings.remove"), async () => { await api!.Post("/api/avatar", new { data = "" }); await LoadPreferences(); await Draw(key); }));
+                    content.Children.Add(SettingsHeading(T("settings.profile")));
+                    var avatarActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; avatarActions.Children.Add(Avatar(preferences.Text("avatar"), Display("human"), 60));
+                    var change = OverviewAction(T("common.change"), async () => { await ChangeAvatar(); await Draw(key); }); change.VerticalAlignment = VerticalAlignment.Center; avatarActions.Children.Add(change);
+                    if (preferences.Text("avatar").Length > 0) { var remove = OverviewAction(T("settings.remove"), async () => { await api!.Post("/api/avatar", new { data = "" }); await LoadPreferences(); await Draw(key); }); remove.VerticalAlignment = VerticalAlignment.Center; remove.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent); remove.BorderThickness = new Thickness(0); avatarActions.Children.Add(remove); }
                     content.Children.Add(SettingRow(T("settings.avatar"), T("settings.avatar_hint"), avatarActions));
-                    var name = new TextBox { Text = preferences.Text("name"), PlaceholderText = T("common.you"), FontSize = 13, MinWidth = 170 };
-                    var nameActions = TwoColumns(name, Microphone(name)); nameActions.Width = 240;
+                    var name = SettingsInput(preferences.Text("name"), T("common.you"));
                     name.LostFocus += async (_, _) => { if (name.Text.Trim() != preferences.Text("name")) await Run(() => SavePreferences(new JsonObject { ["name"] = name.Text.Trim() })); };
                     name.KeyDown += async (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await Run(() => SavePreferences(new JsonObject { ["name"] = name.Text.Trim() })); } };
-                    content.Children.Add(SettingRow(T("common.name"), T("settings.name_hint"), nameActions));
-                    break;
+                    content.Children.Add(SettingRow(T("common.name"), T("settings.name_hint"), SettingsVoiceField(name, 220))); break;
                 case "appearance":
-                    content.Children.Add(Text(T("settings.appearance"), 20));
-                    SegmentedPreference(content, "settings.theme", "theme", ("system", T("common.theme_system")), ("light", T("common.theme_light")), ("dark", T("common.theme_dark")));
-                    AccentPreference(content);
-                    SegmentedPreference(content, "settings.font_size", "font", ("small", T("common.size_small")), ("medium", T("common.size_medium")), ("large", T("common.size_large")));
-                    SegmentedPreference(content, "settings.density", "density", ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact")));
-                    break;
+                    content.Children.Add(SettingsHeading(T("settings.appearance")));
+                    content.Children.Add(SettingRow(T("settings.theme"), "", SettingsSegments("theme", () => Draw(key), ("system", T("common.theme_system")), ("light", T("common.theme_light")), ("dark", T("common.theme_dark")))));
+                    var colors = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                    foreach (var (value, hex) in new[] { ("clay", "C8643F"), ("ink", "3A3936"), ("indigo", "5B61D6"), ("blue", "2F6BD8"), ("rose", "C4456C"), ("amber", "B9821D") })
+                    {
+                        var swatch = QuietButton("", async () => { await SavePreferences(new JsonObject { ["accent"] = value }); await Draw(key); }); swatch.Width = swatch.Height = 24; swatch.MinHeight = 0; swatch.Padding = new Thickness(0); swatch.CornerRadius = new CornerRadius(12); swatch.Background = Paint(hex); swatch.BorderThickness = new Thickness(2); swatch.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent); ToolTipService.SetToolTip(swatch, value); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(swatch, value);
+                        var ring = new Grid { Width = 24, Height = 24 }; if (preferences.Text("accent") == value) ring.Children.Add(new Border { Margin = new Thickness(-4), CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(2), BorderBrush = Ink, Child = new Border { CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E") } }); ring.Children.Add(swatch); colors.Children.Add(ring);
+                    }
+                    content.Children.Add(SettingRow(T("settings.accent"), T("settings.accent_hint"), colors));
+                    content.Children.Add(SettingRow(T("settings.font_size"), "", SettingsSegments("font", () => Draw(key), ("small", T("common.size_small")), ("medium", T("common.size_medium")), ("large", T("common.size_large")))));
+                    content.Children.Add(SettingRow(T("settings.density"), "", SettingsSegments("density", () => Draw(key), ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact"))))); break;
                 case "language":
-                    content.Children.Add(Heading(T("settings.language.title"), 20));
-                    var language = new ComboBox { MinWidth = 180, FontSize = 13 }; foreach (var item in words.Languages) language.Items.Add(new ComboBoxItem { Content = item.Text("name"), Tag = item.Text("code") }); SetChoice(language, words.Language);
+                    content.Children.Add(SettingsHeading(T("settings.language.title")));
+                    var language = new ComboBox { Width = 200, Height = 37, MinHeight = 0, FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = 14, Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(9) };
+                    language.Items.Add(new ComboBoxItem { Content = T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), Tag = "" });
+                    foreach (var item in words.Languages) language.Items.Add(new ComboBoxItem { Content = item.Text("name"), Tag = item.Text("code") });
+                    var selectedLanguage = preferences.Text("lang"); if (selectedLanguage.Length > 0 && !words.Languages.Any(item => item.Text("code") == selectedLanguage)) language.Items.Add(new ComboBoxItem { Content = selectedLanguage, Tag = selectedLanguage }); SetChoice(language, selectedLanguage);
                     content.Children.Add(SettingRow(T("settings.language.label"), T("settings.language.hint"), language));
-                    content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await SettingsScreen("language"); }));
                     language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await SettingsScreen("language"); });
-                    PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names");
-                    break;
+                    PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names"); break;
                 case "voice":
-                    content.Children.Add(Heading(T("common.voice_input"), 20));
-                    SegmentedPreference(content, "common.voice_input", "voice", ("browser", T("native.voice_system")), ("off", T("settings.voice_off")));
-                    var sample = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80, Width = 210, FontSize = 13, PlaceholderText = T("settings.voice_try_here") };
-                    content.Children.Add(SettingRow(T("settings.voice_try"), T("native.voice_hint"), TwoColumns(sample, Microphone(sample))));
-                    break;
+                    content.Children.Add(SettingsHeading(T("common.voice_input")));
+                    // These recognizer descriptions remain an explicit parity
+                    // difference: the Windows App does not use Edge recognition.
+                    content.Children.Add(SettingRow(T("common.voice_input"), T("settings.voice_hint"), SettingsSegments("voice", () => Draw(key), ("browser", T("native.voice_system")), ("off", T("settings.voice_off")))));
+                    var sample = SettingsInput("", T("settings.voice_try_here"), multiline: true);
+                    content.Children.Add(SettingRow(T("settings.voice_try"), T("native.voice_hint"), SettingsVoiceField(sample, 300)));
+                    var voiceNote = OverviewText(T("settings.voice_wechat"), 12.5, true, lineHeight: 21.25); voiceNote.Margin = new Thickness(0, 10, 0, 0); content.Children.Add(voiceNote); break;
                 case "notify":
-                    content.Children.Add(Heading(T("settings.notify"), 20));
-                    PreferenceToggle(content, "settings.desktop_notify", "settings.desktop_notify_hint", "notify");
-                    content.Children.Add(SettingRow(T("settings.notify_test"), "", Button(T("settings.notify_send_test"), () => { Notify(T("settings.notify_on")); return Task.CompletedTask; })));
-                    break;
+                    content.Children.Add(SettingsHeading(T("settings.notify"))); PreferenceToggle(content, "settings.desktop_notify", "settings.desktop_notify_hint", "notify");
+                    content.Children.Add(SettingRow(T("settings.notify_test"), "", OverviewAction(T("settings.notify_send_test"), () => { Notify(T("settings.notify_on")); return Task.CompletedTask; }))); break;
                 case "harness": await HarnessSettings(content); break;
                 case "about":
-                    content.Children.Add(Heading(T("settings.about"), 20));
-                    content.Children.Add(SettingRow(T("settings.data_folder"), preferences.Text("data"), Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "data" }); })));
-                    content.Children.Add(SettingRow(T("settings.logs"), T("settings.logs_hint"), Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "logs" }); })));
-                    content.Children.Add(SettingRow(T("settings.local_server"), T("settings.local_server_hint", ("port", preferences.Text("port"))), Badge("v" + preferences.Text("version"))));
-                    content.Children.Add(SettingRow(T("settings.install_app"), T("settings.install_app_done"), Badge(T("settings.installed"))));
-                    break;
+                    content.Children.Add(SettingsHeading(T("settings.about")));
+                    content.Children.Add(SettingRow(T("settings.data_folder"), preferences.Text("data"), OverviewAction(T("common.open"), async () => { await api!.Post("/api/open", new { what = "data" }); })));
+                    content.Children.Add(SettingRow(T("settings.logs"), T("settings.logs_hint"), OverviewAction(T("common.open"), async () => { await api!.Post("/api/open", new { what = "logs" }); })));
+                    content.Children.Add(SettingRow(T("settings.local_server"), T("settings.local_server_hint", ("port", preferences.Text("port"))), OverviewChip("v" + preferences.Text("version"))));
+                    // Browser Install versus an already-installed native app is
+                    // unresolved; no exception or substitute is counted as parity.
+                    content.Children.Add(SettingRow(T("settings.install_app"), T("settings.install_app_done"), OverviewChip(T("settings.installed"), "ok"))); break;
             }
+            if (content.Children.LastOrDefault() is Border last && last.Tag?.ToString() == "setting-row") last.BorderThickness = new Thickness(0);
         }
         foreach (var (key, label, glyph) in new[] { ("profile", "settings.profile", "\uE77B"), ("appearance", "settings.appearance", "\uE790"), ("language", "settings.language.title", "\uE774"), ("voice", "common.voice_input", "\uE720"), ("notify", "settings.notify", "\uEA8F"), ("harness", "common.harness", "\uE839"), ("about", "settings.about", "\uE946") })
         {
-            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; labelRow.Children.Add(Glyph(glyph, 14)); labelRow.Children.Add(Text(T(label), 13));
-            navigation.Items.Add(new ListViewItem { Content = labelRow, Tag = key, IsSelected = key == section, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(6) });
+            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = OverviewText(T(label), 14); text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; labelRow.Children.Add(text);
+            var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
+                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
+            var bar = new SelectorBar { Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch }; bar.Items.Add(tab); navigation.Children.Add(bar); tabs.Add(key, (tab, text, icon));
+            bar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
+            bar.SelectionChanged += async (_, _) => { if (tab.IsSelected && current != key) await Run(() => Draw(key)); };
         }
-        navigation.SelectionChanged += async (_, _) => { if (navigation.SelectedItem is ListViewItem item) await Run(() => Draw(item.Tag.ToString()!)); };
-        await Draw(section); await Show(T("common.settings"), body);
+        dialog.Opened += (_, _) =>
+        {
+            dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0);
+            if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
+            if (DialogPart<Border>(dialog, "BackgroundElement") is { } background) { background.Padding = new Thickness(0); background.CornerRadius = new CornerRadius(16); }
+            if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } scroll) { scroll.Padding = new Thickness(0); scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; }
+            if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
+        };
+        await Draw(section); await Dialog(dialog);
     }
     private async Task HarnessSettings(StackPanel content)
     {
-        content.Children.Add(Text(T("common.harness"), 20)); content.Children.Add(Text(T("settings.harness_intro")));
+        content.Children.Add(SettingsHeading(T("common.harness")));
+        var intro = OverviewText(T("settings.harness_intro"), 12.5, true); intro.Margin = new Thickness(0, 0, 0, 12); content.Children.Add(intro);
         async Task SavePath(string key, string path)
         {
             var paths = preferences["paths"]?.DeepClone() as JsonObject ?? new JsonObject(); paths[key] = path.Trim();
             await SavePreferences(new JsonObject { ["paths"] = paths }); Note(T("settings.path_saved"));
+            content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); await HarnessSettings(content);
         }
         foreach (var runtime in new[] { "node", "npm" })
         {
-            var input = new TextBox { Text = preferences["paths"].Text(runtime), PlaceholderText = T("settings.auto_find"), FontSize = 13, MinWidth = 140 };
-            var controls = TwoColumns(input, Button(T("common.save"), () => SavePath(runtime, input.Text))); controls.Width = 260;
-            content.Children.Add(new Border { Child = TwoColumns(Stack(Heading(runtime == "node" ? "Node.js" : "npm", 13), Quiet(T("settings.runtime_path_hint"), 11)), controls), Padding = new Thickness(0, 8, 0, 16), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line });
+            // The reference's 20-character, .92em monospace path field keeps
+            // its intrinsic width while the label takes the remaining space.
+            var input = SettingsInput(preferences["paths"].Text(runtime), T("settings.auto_find"), 203, mono: true, fontSize: 12.88);
+            var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; controls.Children.Add(input);
+            var save = OverviewAction(T("common.save"), () => SavePath(runtime, input.Text)); save.VerticalAlignment = VerticalAlignment.Center; controls.Children.Add(save);
+            content.Children.Add(SettingRow(runtime == "node" ? "Node.js" : "npm", T("settings.runtime_path_hint"), controls));
         }
-        var platform = await api!.Get("/api/platform");
-        var connections = Stack(Quiet(T("settings.desktop_probe_hint"), 12));
-        foreach (var connection in new[] { "desktop_transport", "claude_desktop" }) if (platform[connection].Text("reason").Length > 0) connections.Children.Add(Text(platform[connection].Text("reason"), 12));
-        if (!platform.Flag("claude_desktop_wake")) connections.Children.Add(Text(T("settings.claude_desktop_hint")));
-        connections.Children.Add(Button(T("settings.desktop_probe"), async () => { var result = await api.Post("/api/platform", new { probe = true }); var reasons = new[] { result["desktop_transport"].Text("reason"), result["claude_desktop"].Text("reason") }.Where(value => value.Length > 0); Note(string.Join("\n", reasons.DefaultIfEmpty(T(result.Flag("codex_desktop_wake") ? "settings.connected" : "settings.not_connected")))); }));
-        content.Children.Add(new Expander { Header = T("settings.desktop_connections"), Content = connections, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-        var list = (await api.Get("/api/harnesses")).Rows();
+        // drawHarness exposes desktop transport controls only on macOS. The
+        // Windows page therefore continues directly into the harness cards.
+        var list = (await api!.Get("/api/harnesses")).Rows();
         foreach (var harness in list.Where(h => !h.Flag("later")))
         {
-            var id = harness.Text("id");
-            var card = new StackPanel { Spacing = 10 };
-            var log = Text(string.Join("\n", installLines.GetValueOrDefault(id, []))); installViews[id] = log; log.Visibility = log.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            var install = Button(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
-            { installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; log.Visibility = Visibility.Visible; await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { }); });
-            card.Children.Add(TwoColumns(Stack(Heading(harness.Text("title"), 14), Quiet(harness.Text("vendor"), 11)), install));
-            card.Children.Add(Badge(harness.Flag("available") ? T("settings.connected") : harness.Text("problem").Length > 0 ? harness.Text("problem") : T("settings.not_connected"), !harness.Flag("available")));
-            var program = new TextBox { Header = T("settings.program"), Text = preferences["paths"].Text(id), PlaceholderText = harness.Text("program").Length > 0 ? harness.Text("program") : T("settings.auto_find"), FontSize = 13 };
-            var save = Button(T("common.save"), () => SavePath(id, program.Text)); save.VerticalAlignment = VerticalAlignment.Bottom; card.Children.Add(TwoColumns(program, save));
-            card.Children.Add(Quiet(T("settings.adapter") + " · " + (harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter")))), 12));
-            card.Children.Add(Quiet("Node.js · " + (harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found")), 12));
-            card.Children.Add(Quiet(T("settings.default_mode") + " · " + (harness.Text("mode").Length > 0 ? harness.Text("mode") : harness.Text("note").Length > 0 ? T("settings.adapter_default_note", ("note", harness.Text("note"))) : T("settings.adapter_default")), 12));
-            if (harness.Rows("models").Count > 0) card.Children.Add(Text(T("settings.models") + " · " + string.Join(T("settings.models_sep"), harness.Rows("models").Select(x => x.Text()))));
-            card.Children.Add(log); content.Children.Add(Card(card));
+            var id = harness.Text("id"); var card = new StackPanel { Spacing = 10 };
+            var log = OverviewText(string.Join("\n", installLines.GetValueOrDefault(id, [])), 11.5, lineHeight: 17.25); log.FontFamily = new FontFamily("Cascadia Code"); installViews[id] = log;
+            var logSurface = Scroll(log); logSurface.Background = Paint("F6F5F2", "232321"); logSurface.Padding = new Thickness(8); logSurface.CornerRadius = new CornerRadius(8); logSurface.MaxHeight = 160;
+            logSurface.Visibility = log.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible; installLogSurfaces[id] = logSurface;
+            var install = OverviewAction(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
+            {
+                installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; logSurface.Visibility = Visibility.Visible;
+                await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { });
+            });
+            var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; title.Children.Add(OverviewText(harness.Text("title"), 14, weight: 700)); title.Children.Add(OverviewText(harness.Text("vendor"), 14, true));
+            var header = TwoColumns(title, install); header.ColumnSpacing = 10; card.Children.Add(header);
+            var kv = new Grid { ColumnSpacing = 12, RowSpacing = 7, Margin = new Thickness(0, 12.5, 0, 12.5) };
+            kv.ColumnDefinitions.Add(new() { Width = new GridLength(76) }); kv.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            void Row(string label, UIElement value)
+            {
+                var row = kv.RowDefinitions.Count; kv.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                var term = OverviewText(label, 12.5, true); Grid.SetRow(term, row); kv.Children.Add(term);
+                Grid.SetRow((FrameworkElement)value, row); Grid.SetColumn((FrameworkElement)value, 1); kv.Children.Add(value);
+            }
+            var status = OverviewChip(harness.Flag("available") ? T("settings.connected") : harness.Text("problem").Length > 0 ? harness.Text("problem") : T("settings.not_connected"), harness.Flag("available") ? "ok" : "bad"); status.HorizontalAlignment = HorizontalAlignment.Left; Row(T("common.status"), status);
+            var program = SettingsInput(preferences["paths"].Text(id), harness.Text("program").Length > 0 ? harness.Text("program") : T("settings.auto_find"), mono: true, fontSize: 12);
+            var save = OverviewAction(T("common.save"), () => SavePath(id, program.Text)); save.VerticalAlignment = VerticalAlignment.Top; var controls = TwoColumns(program, save); controls.ColumnSpacing = 6; Row(T("settings.program"), controls);
+            Row(T("settings.adapter"), OverviewText(harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter")))));
+            Row("Node.js", OverviewText(harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found")));
+            Row(T("settings.default_mode"), OverviewText(harness.Text("mode").Length > 0 ? harness.Text("mode") : harness.Text("note").Length > 0 ? T("settings.adapter_default_note", ("note", harness.Text("note"))) : T("settings.adapter_default")));
+            if (harness.Rows("models").Count > 0) Row(T("settings.models"), OverviewText(string.Join(T("settings.models_sep"), harness.Rows("models").Select(x => x.Text()))));
+            card.Children.Add(kv); card.Children.Add(logSurface);
+            content.Children.Add(new Border { Child = card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 10) });
         }
-        content.Children.Add(Text(T("settings.later"), 18));
-        foreach (var h in list.Where(h => h.Flag("later"))) content.Children.Add(Text(h.Text("title") + " · " + h.Text("vendor") + "\n" + h.Text("launch")));
-        content.Children.Add(Text(T("settings.later_hint"), 12));
+        var laterHeading = OverviewText(T("settings.later"), 15, weight: 650); laterHeading.Margin = new Thickness(0, 12, 0, 8); content.Children.Add(laterHeading);
+        var later = new StackPanel { Spacing = 6 };
+        foreach (var harness in list.Where(h => h.Flag("later")))
+        {
+            var title = new TextBlock { FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = 12.5, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, Foreground = Ink, TextWrapping = TextWrapping.Wrap };
+            title.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = harness.Text("title"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+            title.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + harness.Text("vendor"), Foreground = Muted });
+            var launch = OverviewText(harness.Text("launch"), 11.5, true); launch.FontFamily = new FontFamily("Cascadia Code"); launch.HorizontalAlignment = HorizontalAlignment.Right;
+            var row = TwoColumns(title, launch); row.ColumnSpacing = 10;
+            var frame = new Grid(); frame.Children.Add(new Border { Child = row, Padding = new Thickness(11, 9, 11, 9), CornerRadius = new CornerRadius(10) });
+            frame.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Stroke = Paint("DEDBD4", "3A3936"), StrokeThickness = 1, RadiusX = 10, RadiusY = 10, StrokeDashArray = new DoubleCollection { 3, 3 }, IsHitTestVisible = false }); later.Children.Add(frame);
+        }
+        content.Children.Add(later); var laterHint = OverviewText(T("settings.later_hint"), 12, true); laterHint.Margin = new Thickness(0, 8, 0, 0); content.Children.Add(laterHint);
     }
     private void InstallEvent(JsonNode ev)
     {
@@ -266,8 +362,10 @@ public sealed partial class MainWindow
             Note(ev.Text("done") == "0" ? T("settings.adapter_installed") : T("settings.adapter_install_failed"));
         }
         if (installViews.TryGetValue(id, out var view)) view.Text = string.Join("\n", lines.TakeLast(200));
+        if (installLogSurfaces.TryGetValue(id, out var surface)) { surface.Visibility = Visibility.Visible; surface.UpdateLayout(); surface.ChangeView(null, surface.ScrollableHeight, null, true); }
     }
-    private UIElement Avatar(string url, string label, int size = 32)
+    private UIElement Avatar(string url, string label, int size = 32) => SidebarPicture(label, AvatarPaint(url, label, size), size);
+    private UIElement AvatarPaint(string url, string label, int size)
     {
         if (url.StartsWith("/api/avatar"))
         {
