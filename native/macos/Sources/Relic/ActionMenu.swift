@@ -175,8 +175,8 @@ struct NativeMenuRow: View {
 }
 
 struct MenuItemStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Body(configuration: configuration) }
-    private struct Body: View {
+    func makeBody(configuration: Configuration) -> some View { StyledContent(configuration: configuration) }
+    private struct StyledContent: View {
         let configuration: Configuration
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
