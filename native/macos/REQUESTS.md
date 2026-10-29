@@ -29,7 +29,8 @@ Reference job `123420849114` fails at `member-card` before the remaining scenes:
 `openCard(app.js:1990)`, called by `reference-hook.js` using
 `document.querySelector('#head') || document.querySelector('#chat')` (both null).
 Please anchor the existing production card to the actual chat header/member control,
-with a verified non-null element. No production markup replacement is requested.
+with a verified non-null element (`index.html:30` defines `#chat-head`, not `#head`).
+No production markup replacement is requested.
 The macOS/Windows full captures continue in that run; the seven-scene smoke comparison
 passed at `40865319424`. Native apps build/tests passed at `40866008575` (51 macOS tests).
 The full 504-case comparison must be rerun after this shared fix.
