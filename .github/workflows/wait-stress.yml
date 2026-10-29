@@ -1,0 +1,32 @@
+name: Diagnose stdio wait cancellation
+on:
+  push:
+    branches: [fix/wait-cancel]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Diagnose the original server over 30 isolated runs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          $failures = 0
+          for ($i = 1; $i -le 30; $i++) {
+            python -B -X utf8 -m unittest discover -s plugins/relic/tests -p test_server.py -v *> "test-results/baseline-$i.log"
+            if ($LASTEXITCODE -ne 0) { $failures++; Get-Content "test-results/baseline-$i.log" }
+            Write-Output "baseline iteration $i / 30; cumulative failures: $failures"
+          }
+          Write-Output "baseline failed iterations: $failures / 30"
+          if ($failures) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: baseline-wait-diagnostics
+          path: test-results

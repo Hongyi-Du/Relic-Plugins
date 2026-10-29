@@ -32,9 +32,12 @@ class Server:
         env = dict(os.environ, RELIC_HOME=str(home), PYTHONDONTWRITEBYTECODE="1")
         for key in ("RELIC_ACTOR", "RELIC_MAX_WAIT", "CODEX_THREAD_ID", "CODEX_APP_TOOLS_PIPE_PATH"):
             env.pop(key, None)
-        self.proc = subprocess.Popen([sys.executable, "-X", "utf8", str(script)], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
-                                     env=env)
+        diagnostic = ("import faulthandler, runpy; faulthandler.dump_traceback_later(4, repeat=True); "
+                      "runpy.run_path(%r, run_name='__main__')" % str(script))
+        self.errors = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        self.proc = subprocess.Popen([sys.executable, "-X", "utf8", "-c", diagnostic], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=self.errors, text=True, encoding="utf-8",
+                                     env=env, creationflags=0x08000000 if os.name == "nt" else 0)
         self.lines, self.seen, self.closed, self.seq = queue.Queue(), [], False, 0
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -75,7 +78,8 @@ class Server:
             if found:
                 return found
             if self.closed or time.monotonic() >= deadline:
-                raise AssertionError("no reply to request %s within %.0f s" % (rid, timeout))
+                self.errors.seek(0)
+                raise AssertionError("no reply to request %s within %.0f s\n%s" % (rid, timeout, self.errors.read()))
             self.drain(min(0.2, max(0.01, deadline - time.monotonic())))
 
     def text(self, rid, timeout=QUICK):
@@ -96,6 +100,7 @@ class Server:
                 self.proc.kill()
                 self.proc.wait()
         self.proc.stdout.close()
+        self.errors.close()
 
 
 class SharedServer(unittest.TestCase):
