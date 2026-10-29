@@ -8,6 +8,15 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (expanded check examples): normalized check-rule
+examples now include additive `call_display` and `call_json` in snapshot and
+copy responses. They follow the reference's command/file_path/path priority,
+JavaScript truthiness, whitespace normalization and 160 UTF-16-unit clipping;
+the tooltip retains the full ordered, two-space JSON. Existing call/expect/note
+and stored rules are unchanged. The JSON response encoder escapes lone
+surrogates created by the reference-compatible clipping without replacing
+Unicode. Pure formatter and mocked response tests run only in CI.
+
 Changes for the clients (`2749a17` ordered JSON request): snapshot protocol rows
 in both `protocols` and `inherited_protocols` now include additive
 `rules_display`, the two-space display JSON for the same normalized wire rules.

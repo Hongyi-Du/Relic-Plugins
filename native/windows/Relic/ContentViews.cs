@@ -283,21 +283,45 @@ public sealed partial class MainWindow
     }
     private UIElement CheckRules(JsonArray rules)
     {
-        var body = new StackPanel { Spacing = 10 };
+        var body = new StackPanel { Spacing = 0 };
         foreach (var rule in rules.Where(r => r.Text("effect") == "check"))
         {
+            var block = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) }; body.Children.Add(block);
             var scope = new List<string> { rule.Rows("tools").Count == 1 && rule.Rows("tools")[0].Text() == "Reply" ? T("cc.scope_reply") : string.Join(" / ", rule.Rows("tools").Select(x => x.Text())) };
             if (rule.Text("path_glob").Length > 0) scope.Add(T("cc.scope_path", ("glob", rule.Text("path_glob"))));
             if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", words.List(rule.Rows("input_contains").Select(x => x.Text())))));
             var who = rule.Rows("roles").Concat(rule.Rows("members")).ToArray(); var except = rule.Rows("except_roles").Concat(rule.Rows("except_members")).ToArray();
             if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", words.List(who.Select(x => x.Text())))));
             if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", words.List(except.Select(x => x.Text())))));
-            body.Children.Add(Text(T("cc.scope", ("what", string.Join(" · ", scope)))));
-            body.Children.Add(Text(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow")));
-            body.Children.Add(Rich("```python\n" + rule.Text("code") + "\n```"));
-            if (rule.Text("code_sha256").Length > 0) body.Children.Add(Quiet("sha256 " + rule.Text("code_sha256"), 11));
-            if (rule.Rows("examples").Count > 0) body.Children.Add(Heading(T("cc.examples")));
-            foreach (var example in rule.Rows("examples")) body.Children.Add(new Expander { Header = T(example.Text("expect") switch { "deny" => "cc.decision_deny", "review" => "cc.decision_review", _ => "cc.decision_allow" }) + " · " + example?["call"].Text("tool"), Content = Stack(Rich("```json\n" + (example?["call"]?.ToJsonString(new() { WriteIndented = true }) ?? "") + "\n```"), Text(example.Text("note"))), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            block.Children.Add(OverviewText(T("cc.scope", ("what", string.Join(" · ", scope))), 12, true));
+            block.Children.Add(OverviewText(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow"), 12, true));
+            var program = OverviewText(rule.Text("code"), 12, lineHeight: 18.6); program.FontFamily = new FontFamily("Cascadia Code"); program.TextWrapping = TextWrapping.NoWrap;
+            var codeScroll = new ScrollViewer { Content = program, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 322 };
+            block.Children.Add(new Border { Child = codeScroll, Padding = new Thickness(10, 8, 10, 8), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8), Background = Paint("F6F5F2", "232321") });
+            if (rule.Text("code_sha256").Length > 0) { var sha = OverviewText("sha256 " + rule.Text("code_sha256")[..Math.Min(16, rule.Text("code_sha256").Length)] + "…", 12, true); sha.FontFamily = new FontFamily("Cascadia Code"); block.Children.Add(sha); }
+            if (rule.Rows("examples").Count > 0)
+            {
+                var examples = new StackPanel { Spacing = 4 }; examples.Children.Add(OverviewText(T("cc.examples"), 12, true)); block.Children.Add(examples);
+                foreach (var example in rule.Rows("examples"))
+                {
+                    var row = new Grid { ColumnSpacing = 8, RowSpacing = 2 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                    row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                    var decision = example.Text("expect"); row.Children.Add(OverviewChip(decision switch { "allow" => T("cc.decision_allow"), "deny" => T("cc.decision_deny"), "review" => T("cc.decision_review"), _ => decision }, decision switch { "allow" => "ok", "deny" => "bad", "review" => "warn", _ => "" }));
+                    var call = example?["call"];
+                    var display = example.Text("call_display");
+                    if (example?["call_display"] == null)
+                    {
+                        var input = call?["input"]; var argument = input.Text("command"); if (argument.Length == 0) argument = input.Text("file_path"); if (argument.Length == 0) argument = input.Text("path");
+                        if (argument.Length == 0 && input is JsonObject fields && fields.Count > 0) argument = input.ToJsonString(new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+                        display = Regex.Replace(string.Join(" ", new[] { call.Text("tool"), argument }.Where(value => value.Length > 0)), @"\s+", " ").Trim(); if (display.Length > 160) display = display[..159] + "…";
+                    }
+                    var command = OverviewText(display, 11.5); command.Foreground = Paint("5A5853", "B8B5AE"); command.FontFamily = new FontFamily("Cascadia Code"); command.TextWrapping = TextWrapping.NoWrap; command.TextTrimming = TextTrimming.CharacterEllipsis;
+                    ToolTipService.SetToolTip(command, example.Text("call_json").Length > 0 ? example.Text("call_json") : call?.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) ?? "{}");
+                    Grid.SetColumn(command, 1); row.Children.Add(command);
+                    if (example.Text("note").Length > 0) { var note = OverviewText(example.Text("note"), 12, true); Grid.SetColumn(note, 1); Grid.SetRow(note, 1); row.Children.Add(note); }
+                    examples.Children.Add(row);
+                }
+            }
         }
         return new Expander { Header = T("cc.code"), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     }
