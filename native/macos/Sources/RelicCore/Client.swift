@@ -8,6 +8,9 @@ public struct Node {
     public var flag: Bool { (raw as? Bool) ?? false }
     public var rows: [Node] { (raw as? [Any] ?? []).map(Node.init) }
     public var isNull: Bool { raw is NSNull }
+    public var object: [String: Any] { raw as? [String: Any] ?? [:] }
+    public var integer: Int { (raw as? NSNumber)?.intValue ?? Int(text) ?? 0 }
+    public var display: String { self["display"].text.isEmpty ? self["name"].text : self["display"].text }
 }
 
 public enum RelicError: LocalizedError {
@@ -25,14 +28,14 @@ public final class Client {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
         configuration.timeoutIntervalForRequest = 30
-        self.session = session ?? URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration, delegate: LoopbackDelegate(), delegateQueue: nil)
     }
     public static func segment(_ text: String) -> String {
         text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
     }
     public static func org(_ id: String, _ rest: String = "") -> String { "/api/org/" + segment(id) + rest }
     func request(_ path: String, body: [String: Any]? = nil) throws -> URLRequest {
-        guard path.hasPrefix("/api/"), let url = URL(string: base.absoluteString + path) else { throw RelicError.message("Invalid API path") }
+        guard path.hasPrefix("/api/"), !path.contains("#"), let url = URL(string: base.absoluteString + path), url.host == "127.0.0.1", url.port == base.port else { throw RelicError.message("Invalid API path") }
         var request = URLRequest(url: url)
         request.setValue(token, forHTTPHeaderField: "X-Relic-Token")
         if let body {
@@ -45,21 +48,29 @@ public final class Client {
     public func post(_ path: String, _ body: [String: Any]) async throws -> Node { try await call(path, body: body) }
     private func call(_ path: String, body: [String: Any]? = nil) async throws -> Node {
         let (data, response) = try await session.data(for: request(path, body: body))
-        let node = Node(try JSONSerialization.jsonObject(with: data))
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw RelicError.message(node["error"].text) }
+        let node = Node((try? JSONSerialization.jsonObject(with: data)) ?? NSNull())
+        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw RelicError.message(node["error"].text.isEmpty ? "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)" : node["error"].text) }
+        guard !node.isNull else { throw RelicError.message("Invalid JSON response") }
+        if node["status"].text == "failed" || (!node["ok"].isNull && !node["ok"].flag) { throw RelicError.message(node["error"].text) }
         return node
+    }
+    public func data(_ path: String) async throws -> Data {
+        let (data, response) = try await session.data(for: request(path))
+        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw RelicError.message("Unable to load image") }
+        return data
     }
     public func events(_ receive: @escaping (Node) async -> Void) async {
         while !Task.isCancelled {
             do {
-                let (bytes, response) = try await session.bytes(for: request("/api/events"))
+                var eventRequest = try request("/api/events")
+                eventRequest.timeoutInterval = 86400
+                eventRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                let (bytes, response) = try await session.bytes(for: eventRequest)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw RelicError.message("Event stream unavailable") }
-                // URLSession's lines iterator omits empty lines. Server emits one JSON data line per event.
-                for try await line in bytes.lines {
+                var decoder = EventDecoder()
+                for try await byte in bytes {
                     try Task.checkCancellation()
-                    if line.hasPrefix("data:"), let data = line.dropFirst(5).data(using: .utf8) {
-                        await receive(Node(try JSONSerialization.jsonObject(with: data)))
-                    }
+                    if let event = decoder.append(byte) { await receive(event) }
                 }
             } catch { if Task.isCancelled { return } }
             do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
@@ -71,9 +82,10 @@ public final class Client {
 public struct Words {
     public private(set) var language = "en-US"
     private var strings = Node()
+    public private(set) var languages: [Node] = []
     public init() {}
     public static func normalize(_ language: String) -> String { language.lowercased().hasPrefix("zh") ? "zh-CN" : "en-US" }
-    public mutating func load(_ response: Node) { language = Self.normalize(response["lang"].text); strings = response["strings"] }
+    public mutating func load(_ response: Node) { language = Self.normalize(response["lang"].text); strings = response["strings"]; languages = response["languages"].rows.filter { ["zh-CN", "en-US"].contains($0["code"].text) } }
     public func t(_ key: String, _ args: [String: String] = [:]) -> String {
         var value = strings[key]
         if value.raw is [String: Any] { value = value[language == "en-US" && args["n"] == "1" ? "one" : "other"] }
@@ -84,7 +96,9 @@ public struct Words {
 }
 
 public enum Composer {
-    public static func message(body: String, member: String, selected: [String], members: [Node]) -> [String: Any] {
+    public static func message(body: String, member: String, selected: [String], members: [Node], quote: String = "", replyTo: String = "") -> [String: Any] {
+        let body = quote.isEmpty ? body : quote + "\n\n" + body
+        if !replyTo.isEmpty { return ["body": body, "channel": member.isEmpty ? "group" : "private", "reply_to": Int(replyTo).map { $0 as Any } ?? replyTo] }
         var to = selected
         if !member.isEmpty { to = [member] }
         else if to.isEmpty || to.contains("all") {
@@ -123,7 +137,7 @@ public final class ServerHost {
             let info = Node(try JSONSerialization.jsonObject(with: data))
             let client = try Client(port: Int(info["port"].text) ?? 0, token: info["token"].text)
             let live = try await client.get("/api/lifecycle")
-            guard live["instance"].text == info["instance"].text, live["pid"].text == info["pid"].text else { throw RelicError.message("Relic instance changed during startup") }
+            guard live["app"].text == "relic", live["state"].text == "running", live["port"].integer == info["port"].integer, live["instance"].text == info["instance"].text, live["pid"].text == info["pid"].text else { throw RelicError.message("Relic instance changed during startup") }
             return client
         } catch { stop(); throw error }
     }
