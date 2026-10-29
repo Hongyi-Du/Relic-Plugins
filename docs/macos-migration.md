@@ -1,10 +1,11 @@
 # macOS arm64 migration tracker
 
-**v0.4.1-macos-beta.1 is an unsigned Apple silicon prerelease candidate awaiting approval to publish.** It preserves
+**v0.4.1-macos-beta.1 is an unsigned Apple silicon prerelease approved for publication.** It preserves
 the tested v0.4.1-beta.1 baseline; newer upstream v0.6.0-beta.1 changes are outside this release. Intel and Rosetta are
 out of scope. Installation, server lifecycle and a signed-in Claude Code/Codex organization workflow have passed
 local checks. Browser and native desktop acceptance remain limited as recorded below and in
-[validation.md](validation.md). No Git push or GitHub publication is part of the local preparation.
+[validation.md](validation.md). The source branch `release/macos-v0.4.1-beta.1` has been pushed; `main` remains unchanged.
+The release tag and assets use this independent branch.
 
 ## Step 1 — Platform and filesystem behavior
 
@@ -30,13 +31,14 @@ child cleanup. Real host cancellation/resume and sleep/wake acceptance remain in
 
 **Implemented:** managed `~/Applications/Relic.app` launcher, `--no-shortcut`, data-preserving `--remove-launcher`,
 absolute runtime selection, source archives and runtime diagnostics. The built-in ACP pair uses a committed npm
-lockfile and a hash-specific installation directory, with a legacy-location fallback. CI declares native arm64 checks
-and Windows/macOS Python coverage.
+lockfile and a hash-specific installation directory, with a legacy-location fallback. CI has passed native arm64 checks
+and Windows/macOS Python coverage in all four jobs.
 
 **Validation:** all 15 packaging/installer tests passed. The final local ZIP was extracted with macOS `ditto` and
 passed installation, diagnostics, launcher execution, status, authenticated restart and stop in an isolated home.
 Portable archive launch configurations are checked without changing the live install. The source package and locally
-generated Finder launcher are unsigned and not notarized. Updated Windows CI has not run.
+generated Finder launcher are unsigned and not notarized. The packaging suite passed all 15 tests in both Mac CI jobs;
+each Windows job passed 13 with two Mac/POSIX-specific skips.
 
 ## Step 4 — Desktop transport implementation
 
@@ -55,11 +57,13 @@ conditions remain unverified on this machine, and native desktop delivery is out
 **Prepared:** focused regression suites, bilingual macOS instructions, environment/lifecycle reference and release
 metadata for v0.4.1-macos-beta.1. The Mac package is supplied as ZIP and tar.gz with checksums and a source manifest.
 It contains source and a launcher installer; Python, Node.js, host CLIs and account access are supplied by the user.
-GitHub publication awaits approval.
+Publication is approved; the tag and GitHub release are prepared from the independent Mac branch.
 
 **Validation:** see [validation.md](validation.md) for current counts, runtime versions, adapter observations and
-archive checks. Fixture, real adapter and signed-in model results must remain distinguishable. Local Mac success does
-not imply that the changed Windows CI matrix has run.
+archive checks. All four jobs passed in [CI run 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809)
+on runtime commit `2d790de6777454fc04013ff1ba2830c567da7108`. The release adds only documentation after that commit;
+the passing run applies to the named runtime commit, not a new CI run on the documentation-only descendant.
+Fixture, real adapter and signed-in model results remain distinct.
 
 ## Step 6 — Signed-in workflow and remaining acceptance
 
@@ -77,7 +81,6 @@ not demonstrate autonomous startup. Prompt design remains separate research work
 - Safari/Chromium, Finder/Terminal, clipboard, English/Chinese IME, trackpad and permission-denial interaction.
   Chrome automation was unavailable, the in-app browser timed out, and a Safari attempt hung and was aborted.
 - Codex and Claude native desktop gates, exact delivery receipts and duplicate-send behavior against real hosts.
-- The updated Windows CI matrix. No new Windows artifact is offered by this Mac prerelease.
 
-The release scope is an unsigned Apple silicon prerelease with these limitations disclosed. The remaining publication
-step is approval of the prepared source, documentation and artifacts before any Git push or GitHub release creation.
+The release scope is an unsigned Apple silicon prerelease with these limitations disclosed. Windows CI passed, but no
+new Windows artifact is offered by this Mac prerelease. The newer Windows release and `main` remain unchanged.

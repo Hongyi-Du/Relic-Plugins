@@ -79,9 +79,9 @@ The runtime uses Python's standard library. `python3 scripts/check.py` runs the 
 python3 scripts/package.py --platform macos --macos-format both --output dist
 ```
 
-This also writes `SHA256SUMS.txt` and `release-manifest.json`. Building archives does not publish a GitHub release. The CI matrix declares Python 3.11/3.13 on Windows and macOS, Node 22 and native arm64 checks on macOS; the updated Windows matrix still needs to run.
+This also writes `SHA256SUMS.txt` and `release-manifest.json`. Building archives does not publish a GitHub release. All four jobs passed in [CI run 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809): macOS 15/Python 3.11, macOS 26/Python 3.13, and Windows 2025/Python 3.11 and 3.13. The macOS jobs also verified native arm64 Python and Node 22.
 
-Validation of the tested Mac baseline recorded **406 passed, 2 skipped** under each of Python 3.11 and Python 3.13. The packaging suite passed **15 tests**, and archive extraction, installation, launcher startup, restart and shutdown were exercised on the Mac. The [validation record](docs/validation.md) describes the evidence and remaining coverage limits; automated tests do not certify every desktop-host integration.
+Each Mac CI job recorded **417 passed, 2 skipped**; each Windows job recorded **379 passed, 40 skipped**, with platform-specific skips listed in the logs. CI tested runtime commit [`2d790de`](https://github.com/Hongyi-Du/Relic-Plugins/commit/2d790de6777454fc04013ff1ba2830c567da7108); the release adds only documentation after that commit. Local archive extraction, installation, launcher startup, restart and shutdown were also exercised on the Mac. The [validation record](docs/validation.md) separates CI from the signed-in organization test and describes the remaining coverage limits; automated tests do not certify every desktop-host integration.
 
 The macOS installer creates `~/Applications/Relic.app`; `--no-shortcut` skips it and `--remove-launcher` removes only that managed launcher.
 `python3 -X utf8 scripts/open_app.py --status`, `--stop` and `--restart` manage the server for the selected data directory.

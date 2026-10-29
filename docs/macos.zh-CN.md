@@ -101,6 +101,7 @@ python3 -X utf8 scripts/open_app.py --no-window
 真实浏览器验收尚未完成：Chrome 自动化不可用，内置浏览器超时，Safari 尝试挂起后被中止。这些尝试
 不计为成功的 UI 验证。Finder/Terminal 交互、剪贴板、中英文输入、触控板和拒绝权限流程尚未全部进行
 交互实测。真实宿主的取消/续接/睡眠以及完整治理和上下级流程也超出本次已完成的测试范围。桌面投递须
-通过上述宿主检查，当前环境尚未验证。更新后的 Windows CI 矩阵尚未运行。
+通过上述宿主检查，当前环境尚未验证。[CI 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809)
+中的四个 Windows/macOS 任务已全部通过；受测运行时代码提交、数量及平台专用跳过项见 [验证记录](validation.md)。
 
 本版提供源码安装包和本地生成的启动器，未经签名或公证。

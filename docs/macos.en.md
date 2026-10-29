@@ -114,7 +114,9 @@ Browser acceptance remains incomplete: Chrome automation was unavailable, the in
 attempt hung and was aborted. Finder/Terminal interaction, clipboard, English/Chinese input, trackpad behavior and
 permission-denial flows have not all been validated interactively. Real-host cancellation/resume/sleep and the full
 governance/hierarchy workflow also remain outside the completed smoke test. Desktop delivery requires the host checks
-above and is not validated on this setup. The updated Windows CI matrix has not run.
+above and is not validated on this setup. All four Windows/macOS jobs passed in
+[CI run 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809); the exact tested runtime
+commit, counts and platform-specific skips are recorded in [validation.md](validation.md).
 
 This release is a source installation package with a locally generated launcher; it is unsigned and not notarized.
 No signing or notarization is claimed for this prerelease.

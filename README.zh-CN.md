@@ -77,9 +77,9 @@ v0.2.0-beta.1 有三个版本：Relic Claude 0.1.0-beta.1、Relic Codex / GPT 0.
 python3 scripts/package.py --platform macos --macos-format both --output dist
 ```
 
-同时生成 `SHA256SUMS.txt` 和 `release-manifest.json`。构建压缩包不会发布 GitHub Release。CI 矩阵声明了 Windows/macOS 的 Python 3.11/3.13、Node 22 和 macOS 原生 arm64 检查；更新后的 Windows 矩阵仍待实际运行。
+同时生成 `SHA256SUMS.txt` 和 `release-manifest.json`。构建压缩包不会发布 GitHub Release。[CI 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809) 的四个任务全部通过：macOS 15/Python 3.11、macOS 26/Python 3.13，以及 Windows 2025/Python 3.11 和 3.13。macOS 任务还确认了原生 arm64 Python 和 Node 22。
 
-已测试的 Mac 基线在 Python 3.11 和 Python 3.13 下各有 **406 项通过、2 项跳过**；安装打包测试 **15 项通过**，并在 Mac 上验证了解压、安装、启动器启动、重启及停止。[验证记录](docs/validation.md) 说明了已有证据和剩余覆盖范围；自动化测试不代表每种桌面宿主集成都已验收。
+每个 Mac CI 任务有 **417 项通过、2 项跳过**；每个 Windows 任务有 **379 项通过、40 项跳过**，平台专用跳过项详见日志。CI 测试的运行时代码提交为 [`2d790de`](https://github.com/Hongyi-Du/Relic-Plugins/commit/2d790de6777454fc04013ff1ba2830c567da7108)，发行版在其后仅更新文档。此外，已在 Mac 本机验证压缩包解压、安装、启动器启动、重启及停止。[验证记录](docs/validation.md) 分别记录 CI、已登录组织实测和剩余覆盖范围；自动化测试不代表每种桌面宿主集成都已验收。
 
 macOS 安装器创建 `~/Applications/Relic.app`，`--no-shortcut` 跳过创建，`--remove-launcher` 只移除该受管理的启动器。
 `python3 -X utf8 scripts/open_app.py --status`、`--stop`、`--restart` 管理选定数据目录的服务。
