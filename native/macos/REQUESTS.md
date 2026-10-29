@@ -11,6 +11,14 @@ geometry/color/resource evidence is collected by transparent native view probes.
 Toolbar menus and pane tabs now have in-window counterparts. This is ongoing
 implementation, not an accepted element-parity result.
 
+Update from CI 40930279724: public AX client initialization succeeded (0).
+The en-US/dark group scene now exposes 790 raw nodes and 171 normalized
+elements, including actual SwiftUI.AccessibilityNode children, not just the
+hosting root. All 126 en-US/dark captures finished. Style/paint coverage still
+fails explicitly; actual AXFont/CGColor attributes and TextKit run geometry are
+being decoded next. It also exposed incorrectly inherited container AX labels;
+those are being fixed in production views, not rewritten in the exporter.
+
 The first complete strict report, CI 40926888945 at 61b2740, is downloaded to
 S:\Codex\Outputs\Relic-native-visual\parity-61b2740\report. Both platforms have
 0 fully measured/passing scenes. macOS AX still returned only hosting roots;

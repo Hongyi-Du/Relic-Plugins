@@ -31,7 +31,7 @@ struct MainView: View {
         .font(.system(size: m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14))
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
-        .accessibilityLabel(m.t("page.titlebar"))
+        .accessibilityIdentifier("relic-root")
     }
 }
 
@@ -53,7 +53,7 @@ struct AppToolbar: View {
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
                             .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }
                     }
-                }.padding(.leading, 4).accessibilityLabel(m.t("appbar.menus"))
+                }.padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
                 Spacer(minLength: 10)
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count, size: 16, height: 28) { m.setPane("overview") }
                 IconButton(title: m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "cc", badge: m.copies.filter { !$0["read"].flag }.count, size: 16, height: 28) { m.sheet = .copies }
@@ -74,6 +74,7 @@ struct AppToolbar: View {
                     ActionMenu().environmentObject(m).measuredRegion("menu").offset(x: max(4, min(anchor.minX, m.windowSize.width - 270)), y: anchor.maxY + 4)
                 }
             }
+            .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.titlebar"))
     }
 }
 
@@ -154,7 +155,7 @@ struct Sidebar: View {
                 }.buttonStyle(QuietButtonStyle()).help(m.t("page.me"))
                 IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
             }.padding(8)
-        }.background(RelicStyle.sidebar).accessibilityLabel(m.t("page.side"))
+        }.background(RelicStyle.sidebar).accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
     }
 }
