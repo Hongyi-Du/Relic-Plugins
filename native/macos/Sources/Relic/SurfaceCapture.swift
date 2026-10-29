@@ -12,9 +12,17 @@ struct RecordedSurface: ViewModifier {
     var kind: String? = nil
     var owner: String? = nil
     var hovered: Bool? = nil
+    var shadows: [SurfaceShadow] = []
+    var cornerRadii: [CGFloat]? = nil
+    var insetLeadingWidth: CGFloat = 0
+    var insetLeadingColor: Color = .clear
     @Environment(\.captureOpacity) private var opacity
+    private var shape: UnevenRoundedRectangle {
+        let corners = cornerRadii ?? Array(repeating: radius, count: 4)
+        return UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3], bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
+    }
     func body(content: Content) -> some View {
-        content.background(background, in: RoundedRectangle(cornerRadius: radius))
+        content.background(background, in: shape)
             .overlay {
                 if let edges {
                     ZStack {
@@ -23,9 +31,25 @@ struct RecordedSurface: ViewModifier {
                         border.frame(height: edges.bottom).frame(maxHeight: .infinity, alignment: .bottom)
                         border.frame(width: edges.leading).frame(maxWidth: .infinity, alignment: .leading)
                     }.allowsHitTesting(false)
-                } else { RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: borderWidth).allowsHitTesting(false) }
+                } else { shape.strokeBorder(border, lineWidth: borderWidth).allowsHitTesting(false) }
             }
-            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered))
+            .overlay { if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) } }
+            .modifier(SurfaceShadows(values: shadows))
+            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor))
+    }
+}
+
+struct SurfaceShadow {
+    let color: Color
+    let radius: CGFloat, x: CGFloat, y: CGFloat
+    static let dialog = [SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.14), radius: 16, x: 0, y: 10), SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.06), radius: 3, x: 0, y: 2)]
+}
+private struct SurfaceShadows: ViewModifier {
+    let values: [SurfaceShadow]
+    func body(content: Content) -> some View {
+        values.reversed().reduce(AnyView(content)) { view, value in
+            AnyView(view.shadow(color: value.color, radius: value.radius, x: value.x, y: value.y))
+        }
     }
 }
 
@@ -52,31 +76,40 @@ struct SurfacePaintProbe: NSViewRepresentable {
     let kind: String?
     let owner: String?
     let hovered: Bool?
+    let shadows: [SurfaceShadow]
+    let cornerRadii: [CGFloat]?
+    let insetLeadingWidth: CGFloat
+    let insetLeadingColor: Color
     private static let live = NSHashTable<SurfaceView>.weakObjects()
     func makeNSView(context: Context) -> SurfaceView { let view = SurfaceView(); Self.live.add(view); updateNSView(view, context: context); return view }
     func updateNSView(_ view: SurfaceView, context: Context) {
         view.fill = NSColor(background); view.border = NSColor(border); view.width = borderWidth
         view.widths = edges.map { [$0.top, $0.trailing, $0.bottom, $0.leading] } ?? Array(repeating: borderWidth, count: 4)
         view.separateEdges = edges != nil; view.radius = radius; view.opacity = opacity; view.kind = kind; view.owner = owner; view.hovered = hovered
+        view.shadows = shadows
+        view.cornerRadii = cornerRadii ?? Array(repeating: radius, count: 4)
+        view.insetLeadingWidth = insetLeadingWidth; view.insetLeadingColor = NSColor(insetLeadingColor)
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return nil }
             let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.bounds, to: nil)), in: content)
-            var fill: Any = NSNull(), border: Any = NSNull()
-            window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = []
+            view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 fill = ElementCapture.rgba(view.fill); border = ElementCapture.rgba(view.border)
+                shadows = view.shadows.map { ["inset": false, "offset_x": Double($0.x), "offset_y": Double($0.y), "blur_radius": Double($0.radius * 2), "spread_radius": 0, "color": ElementCapture.rgba(NSColor($0.color))] }
+                if view.insetLeadingWidth > 0 { shadows.insert(["inset": true, "offset_x": Double(view.insetLeadingWidth), "offset_y": 0, "blur_radius": 0, "spread_radius": 0, "color": ElementCapture.rgba(view.insetLeadingColor)], at: 0) }
             }
             var opacity = view.opacity
             var ancestor: NSView? = view
             while let current = ancestor { opacity *= Double(current.alphaValue); ancestor = current.superview }
             return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect),
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
-                    "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.radius),
+                    "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.cornerRadii.max() ?? view.radius),
                               "border_widths": view.widths.map { Double($0) },
-                              "border_colors": Array(repeating: border, count: 4), "corner_radii": Array(repeating: Double(view.radius), count: 4),
-                              "opacity": opacity, "background_image": "none", "shadow": []],
-                    "evidence": ["source": "live-native-surface-probe", "renderer": view.separateEdges ? "RoundedRectangle.fill and four edge Rectangles" : "RoundedRectangle.fill/strokeBorder", "attachment": "production ViewModifier", "identity": view.identity]]
+                              "border_colors": Array(repeating: border, count: 4), "corner_radii": view.cornerRadii.map { Double($0) },
+                              "opacity": opacity, "background_image": "none", "shadow": shadows],
+                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "native_shadow_radii": view.shadows.map { Double($0.radius) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
         }
     }
     final class SurfaceView: NSView {
@@ -86,6 +119,10 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var widths: [CGFloat] = [0,0,0,0]
         var kind: String?, owner: String?, hovered: Bool?
         var separateEdges = false
+        var shadows: [SurfaceShadow] = []
+        var cornerRadii: [CGFloat] = [0,0,0,0]
+        var insetLeadingWidth: CGFloat = 0
+        var insetLeadingColor = NSColor.clear
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
     }

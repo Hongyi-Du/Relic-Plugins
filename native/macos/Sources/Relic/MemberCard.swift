@@ -15,18 +15,16 @@ struct MemberCard: View {
     private var own: Bool { !["chat", "subagent"].contains(card["surface"].text) }
     private var hosted: Bool { own && !card["embedded"].flag && (!card["config"]["harness"].text.isEmpty || ["cli", "desktop"].contains(card["surface"].text)) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 7) {
                     information
                     if !status.isEmpty { Text(status).foregroundStyle(RelicStyle.accent).fixedSize(horizontal: false, vertical: true) }
-                }.padding(.vertical, 2).padding(.trailing, 4)
-            }
+                }
             Divider()
             actions
-        }.font(RelicStyle.font(13, weight: 400)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
@@ -34,22 +32,21 @@ struct MemberCard: View {
         }
     }
     private var header: some View {
-        HStack(spacing: 12) {
-            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 52) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
+        HStack(spacing: 14) {
+            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 60, showState: true, stateBorder: RelicStyle.card) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
                     Text(card.display).font(RelicStyle.font(17, weight: 600)).lineLimit(2).help(card.display)
                     IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName) { editingName.toggle() }
                 }
-                Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(who)
+                Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(Font(RelicStyle.monoFont(12))).foregroundStyle(RelicStyle.muted).lineLimit(1).help(who)
                 HStack(spacing: 5) {
                     if card["leader"].flag { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
                     if card["secretary"].flag { SmallBadge(text: m.t("common.secretary"), color: RelicStyle.violet) }
                     if !card["ex_officio"].isNull { SmallBadge(text: m.t("card.ex_officio_tag")) }
                 }
             }
-            Spacer(minLength: 16)
-        }.padding(.trailing, 16)
+        }
     }
     @ViewBuilder private var information: some View {
         if editingName {
@@ -86,15 +83,26 @@ struct MemberCard: View {
         if !card["tasks"].rows.isEmpty {
             row("card.owns") {
                 if card["tasks"].rows.allSatisfy({ ["done", "dropped"].contains($0["status"].text) }) { Text(m.t("card.tasks_done", ["n": String(card["tasks"].rows.count)])) }
-                else { DisclosureGroup(m.t("common.tasks")) { Rows(card["tasks"].rows) { TaskCard(task: $0) } } }
+                else { VStack(alignment: .leading, spacing: 0) { Rows(card["tasks"].rows.filter { !["done", "dropped"].contains($0["status"].text) }) { task in ReferenceLabel(task["id"].text + " " + task["title"].text, size: 12.5).help(task["title"].text) } } }
             }
         }
-        row("common.session") { Text(card["agent"].text.isEmpty ? card["session"].text : card["agent"].text).font(.system(size: 12, design: .monospaced)).lineLimit(1).help(card["agent"].text.isEmpty ? card["session"].text : card["agent"].text).textSelection(.enabled) }
-        if !card["parent"].text.isEmpty { Text(m.t("card.in_parent_session", ["parent": m.name(card["parent"].text)])) }
-        if card["carriers"].integer > 1 { Text(m.t("card.session_nth", ["n": card["carriers"].text])) }
-        row("card.folder") { Text(card["cwd"].text).font(.system(size: 12, design: .monospaced)).lineLimit(2).truncationMode(.middle).help(card["cwd"].text).textSelection(.enabled) }
-        row("card.joined") { Text(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"])).help(card["joined_at"].text) }
-        if !card["recent"].rows.isEmpty { DisclosureGroup(m.t("card.recent")) { Rows(card["recent"].rows) { Text($0["at"].text + " · " + $0["tool"].text + " · " + $0["summary"].text).font(RelicStyle.font(12, weight: 400)) } } }
+        if !card["agent"].text.isEmpty {
+            row("common.session") {
+                Text("subagent ") + Text(String(card["agent"].text.prefix(12))).font(Font(RelicStyle.monoFont(12.5))) + Text(card["parent"].text.isEmpty ? "" : m.t("card.in_parent_session", ["parent": m.name(card["parent"].text)]))
+            }.help(card["agent"].text)
+        } else if !card["session"].text.isEmpty {
+            row("common.session") { Text(String(card["session"].text.prefix(18)) + (card["session"].text.count > 18 ? "…" : "")).font(Font(RelicStyle.monoFont(12.5))).help(card["session"].text) }
+        }
+        if !card["cwd"].text.isEmpty { row("card.folder") { Text(ReferenceText.clip(card["cwd"].text, to: 64)).font(Font(RelicStyle.monoFont(12.5))).help(card["cwd"].text) } }
+        if !card["joined_at"].isNull { row("card.joined") { Text(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"]) + (card["carriers"].integer > 1 ? " · " + m.t("card.session_nth", ["n": card["carriers"].text]) : "")) } }
+        if !card["recent"].rows.isEmpty {
+            row("card.recent") {
+                VStack(alignment: .leading, spacing: 0) { Rows(Array(card["recent"].rows.prefix(4))) { recent in
+                    ReferenceLabel(m.ago(recent["at"]) + " " + ToolActivity.toolName(recent["tool"].text) + " " + ReferenceText.clip(recent["summary"].text, to: 50), size: 12.5, color: RelicStyle.muted)
+                } }
+            }
+        }
+
     }
     private var modelEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -114,23 +122,23 @@ struct MemberCard: View {
     }
     private var actions: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { Text(m.t("card.message")).frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
+            HStack(spacing: 8) {
+                Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { Text(m.t("card.message")).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
                 Button { m.openDetails("trace", member: who) } label: { Text(m.t("common.context_trace")).frame(maxWidth: .infinity) }
-            }.controlSize(.large)
-            ViewThatFits(in: .horizontal) { HStack(spacing: 10) { seatActions }; VStack(alignment: .leading, spacing: 8) { seatActions } }.font(RelicStyle.font(11.5, weight: 400))
+            }.buttonStyle(ReferenceButtonStyle())
+            FlowLayout(spacing: 6) { seatActions }.padding(.top, 10).overlay(alignment: .top) { RelicStyle.line.frame(height: 1) }.font(RelicStyle.font(12, weight: 600))
         }
     }
     @ViewBuilder private var seatActions: some View {
-        if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { Button(m.t("card.new_session")) { confirmation = "fresh" }.buttonStyle(.link).help(m.t("card.new_session_hint")) }
-        if hosted && !card["session"].text.isEmpty { Button(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.buttonStyle(.link).help(m.t("card.open_session_hint")) }
-        if hosted { Button(m.t("card.edit_setup")) { m.openMemberForm(mode: "host", edit: who) }.buttonStyle(.link).help(m.t("card.edit_setup_hint")) }
-        if card["harness"].text == "chatgpt" { Button(m.t(card["waiting_replies"].integer > 0 ? "card.forward_reply_waiting" : "card.forward_reply", ["n": card["waiting_replies"].text])) { m.sheet = .forward }.buttonStyle(.link).help(m.t("card.forward_reply_hint")) }
-        if !card["session"].text.isEmpty { Button(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.buttonStyle(.link).help(m.t("card.leave_seat_hint")) }
+        if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { Button(m.t("card.new_session")) { confirmation = "fresh" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.new_session_hint")) }
+        if hosted && !card["session"].text.isEmpty { Button(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.open_session_hint")) }
+        if hosted { Button(m.t("card.edit_setup")) { m.openMemberForm(mode: "host", edit: who) }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.edit_setup_hint")) }
+        if card["harness"].text == "chatgpt" { Button(m.t(card["waiting_replies"].integer > 0 ? "card.forward_reply_waiting" : "card.forward_reply", ["n": card["waiting_replies"].text])) { m.sheet = .forward }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.forward_reply_hint")) }
+        if !card["session"].text.isEmpty { Button(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.leave_seat_hint")) }
     }
     private func row<Content: View>(_ key: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(m.t(key)).foregroundStyle(RelicStyle.muted).frame(width: 76, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.muted, lines: 0).frame(width: 52, alignment: .leading)
             content().frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
         }
     }

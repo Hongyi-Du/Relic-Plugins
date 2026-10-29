@@ -53,20 +53,21 @@ struct ReferenceButtonStyle: ButtonStyle {
     var primary = false
     var small = false
     var danger = false
+    var ghost = false
     func makeBody(configuration: Configuration) -> some View {
-        StyledButton(configuration: configuration, primary: primary, small: small, danger: danger)
+        StyledButton(configuration: configuration, primary: primary, small: small, danger: danger, ghost: ghost)
     }
     private struct StyledButton: View {
         let configuration: Configuration
-        let primary: Bool, small: Bool, danger: Bool
+        let primary: Bool, small: Bool, danger: Bool, ghost: Bool
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
             configuration.label.font(RelicStyle.font(small ? 12 : 13, weight: 600))
                 .foregroundStyle(primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink)
                 .padding(.horizontal, small ? 9 : 13).frame(height: small ? 26 : 32)
-                .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : RelicStyle.card,
-                    border: primary ? RelicStyle.ink : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
+                .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : ghost ? .clear : RelicStyle.card,
+                    border: primary ? RelicStyle.ink : ghost ? .clear : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
                 .recordedOpacity(enabled ? 1 : 0.45).onHover { hovered = $0 }
         }
     }
@@ -108,27 +109,10 @@ struct OverviewPicker: View {
     let title: String
     @Binding var selection: String
     let options: [(String, String)]
-    @State private var expanded = false
     var body: some View {
         HStack(spacing: 10) {
-            Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize()
-            Button { expanded.toggle() } label: {
-                HStack { Text(options.first { $0.0 == selection }?.1 ?? "").lineLimit(1); Spacer(minLength: 4); ReferenceIcon(name: "chev", size: 12).rotationEffect(.degrees(90)) }
-                    .font(RelicStyle.font(13, weight: 400)).padding(.horizontal, 10).frame(height: 34)
-                    .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8))
-            }.buttonStyle(.plain).accessibilityIdentifier("relic-dropdown/" + title)
-                .accessibilityRepresentation {
-                    Picker(title, selection: $selection) { ForEach(options, id: \.0) { value, label in Text(label).tag(value) } }
-                }
-                .popover(isPresented: $expanded, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(options, id: \.0) { value, label in
-                            Button { selection = value; expanded = false } label: {
-                                HStack { Text(label); Spacer(); if selection == value { ReferenceIcon(name: "check", size: 14) } }.padding(.horizontal, 10).padding(.vertical, 5)
-                            }.buttonStyle(QuietButtonStyle(selected: selection == value))
-                        }
-                    }.padding(4).frame(minWidth: 180).font(RelicStyle.font(13, weight: 400)).measuredRegion("menu")
-                }
+            ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary).fixedSize()
+            ReferenceSelectField(title: title, selection: $selection, options: options)
         }
     }
 }

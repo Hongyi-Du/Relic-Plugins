@@ -16,6 +16,9 @@ struct SelectableText: NSViewRepresentable {
     var scale: CGFloat = 1
     var weight: NSFont.Weight = .regular
     var color: Color = RelicStyle.ink
+    var pointSize: CGFloat? = nil
+    var lineHeight: CGFloat? = nil
+    var monospaced = false
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let view = QuoteTextView()
@@ -35,9 +38,10 @@ struct SelectableText: NSViewRepresentable {
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
         let paragraph = NSMutableParagraphStyle()
-        let baseSize: CGFloat = (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
-        paragraph.minimumLineHeight = baseSize * 1.6; paragraph.maximumLineHeight = baseSize * 1.6
-        rendered.addAttributes([.font: RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400), .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
+        let baseSize: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
+        paragraph.minimumLineHeight = lineHeight ?? baseSize * 1.65; paragraph.maximumLineHeight = paragraph.minimumLineHeight
+        let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
+        rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         for run in value.runs {
@@ -45,7 +49,7 @@ struct SelectableText: NSViewRepresentable {
             let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
             let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
             var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
-            if intent.contains(.code) { font = .monospacedSystemFont(ofSize: baseSize * 0.9, weight: .regular) }
+            if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9) }
             if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             rendered.addAttribute(.font, value: font, range: nsRange)
@@ -57,21 +61,23 @@ struct SelectableText: NSViewRepresentable {
         }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
-        let offered = proposal.width ?? 400
+        let offered = proposal.width ?? (monospaced ? 100_000 : 400)
         let available = offered.isFinite ? max(1, offered) : 400
         // Measure a separate TextKit layout. SwiftUI probes several widths before
         // assigning the final frame; mutating the live container here leaves the
         // last probe width behind and can draw a second line outside its height.
         let storage = NSTextStorage(attributedString: nsView.attributedString())
         let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: available, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         layout.ensureLayout(for: container)
-        let width = max(1, min(available, ceil(layout.usedRect(for: container).width) + 1))
+        // CSS shrink-to-fit is based on the unwrapped preferred width. Using the
+        // longest already-wrapped line incorrectly narrows the entire bubble.
+        let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
         container.containerSize.width = width
         layout.ensureLayout(for: container)
-        return CGSize(width: width, height: max(20, ceil(layout.usedRect(for: container).height) + 2))
+        return CGSize(width: width, height: max(1, ceil(layout.usedRect(for: container).height)))
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SelectableText

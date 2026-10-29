@@ -1,3 +1,26 @@
+## 2026-10-29: actual macOS font identities and dialog continuation
+
+`34d56cd` Native apps run 40953908181 is green, including macOS build/tests.
+The en-US/dark shard of visual run 40952663814 (`119f04c`) completed all
+126 captures. Its actual CoreText font records identify `PingFang SC` /
+`PingFangSC-Regular` (or `PingFangSC-Semibold`); CDP records the same PostScript
+faces with localized family name `蘋方-簡`. Please define the schema's font
+identity comparison using the measured PostScript face when both APIs supply
+it, preserving each original family spelling and all fallback runs. Do not
+substitute fonts or suppress real face differences. The current report must
+continue failing until this measurement question is resolved and tested.
+
+This shard also exposed a native extraction bug: dynamic text colors were
+resolved outside the text view's effective appearance, so dark screenshot
+text had a light-theme foreground measurement. The macOS fix resolves the
+actual attributed colors in each view's effective drawing appearance; it
+does not copy screenshot expectations or reference values.
+
+Native settings/form dialogs now use an in-window SwiftUI overlay to reproduce
+reference placement, dimensions and scrim rather than the offset system
+sheet. The actual native hierarchy and surface paint remain exported; this
+change does not exempt background occlusion or any element/style mismatch.
+
 # Requests to the shared/native-apps owner
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
