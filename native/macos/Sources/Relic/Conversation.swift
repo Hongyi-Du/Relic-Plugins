@@ -306,7 +306,7 @@ struct ComposerView: View {
     let send: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(.quaternary) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))

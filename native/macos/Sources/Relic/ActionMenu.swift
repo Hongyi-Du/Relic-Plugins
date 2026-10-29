@@ -21,7 +21,7 @@ struct ActionMenu: View {
                     }
                 }.padding(2)
             }
-        }.padding(10).frame(width: 320, height: m.appMenu == "view" ? 540 : m.appMenu == "help" ? 230 : 360)
+        }.padding(10).frame(width: 320, height: m.appMenu == "view" ? 540 : m.appMenu == "help" ? 230 : 360).background(RelicStyle.card).foregroundStyle(RelicStyle.ink)
     }
     private func row(_ title: String, _ shortcut: String = "", action: @escaping () -> Void) -> some View {
         Button { m.appMenu = nil; action() } label: {
@@ -95,6 +95,6 @@ struct RecipientPicker: View {
                     })) { HStack { Avatar(member: who["name"].text, size: 22); Text(who.display).lineLimit(1).help(who.display) } }.toggleStyle(.checkbox)
                 }
             } }
-        }.padding(14).frame(width: 270, height: 260)
+        }.padding(14).frame(width: 270, height: 260).background(RelicStyle.card).foregroundStyle(RelicStyle.ink)
     }
 }
