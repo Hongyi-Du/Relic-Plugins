@@ -15,8 +15,13 @@ REFERENCE = ROOT / "plugins/relic/app/static/app.js"
 
 
 def reference_contract(text):
-    keys = set(re.findall(r"\bt(?:n)?\(\s*['\"]([^'\"]+)['\"]", text))
-    keys = {key for key in keys if not key.endswith(".")}
+    vocabulary = json.loads((ROOT / "plugins/relic/relic_core/locales/en-US.json").read_text(encoding="utf-8"))
+    # Include ternary alternatives and data-driven menu/settings keys, not only
+    # t('literal'). Prefix lookups expand against the one shared vocabulary.
+    literals = set(re.findall(r"['\"]([a-z][a-z0-9_.-]+)['\"]", text))
+    keys = literals.intersection(vocabulary)
+    prefixes = re.findall(r"\bt(?:n)?\(\s*['\"]([a-z][a-z0-9_.-]*\.)['\"]\s*\+", text)
+    keys.update(key for key in vocabulary if any(key.startswith(prefix) for prefix in prefixes))
     html = (ROOT / "plugins/relic/app/static/index.html").read_text(encoding="utf-8")
     keys.update(re.findall(r'data-i18n(?:-[\w-]+)?="([^"]+)"', html))
     routes = set(re.findall(r"['\"](/api/[a-z-]+(?:/[a-z-]+)*)", text))
@@ -54,6 +59,15 @@ def route_present(route, text):
     return True
 
 
+def key_present(key, text):
+    if '"' + key + '"' in text:
+        return True
+    # Both clients use the same finite server state/task values with a shared
+    # vocabulary prefix. Require an actual localization call, not a bare list.
+    prefixes = re.findall(r'\b(?:T|t)\(\s*"([a-z][a-z0-9_.-]*\.)"\s*\+', text)
+    return any(key.startswith(prefix) for prefix in prefixes)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "test-results/native-parity.json")
@@ -69,7 +83,7 @@ def main():
     for platform in platforms:
         source = implementation(platform)
         exemptions = dict(allow["keys"], **allow.get("platform_keys", {}).get(platform, {}))
-        missing_keys = sorted(key for key in keys if key not in exemptions and ('"' + key + '"') not in source)
+        missing_keys = sorted(key for key in keys if key not in exemptions and not key_present(key, source))
         missing_routes = sorted(route for route in routes if route not in allow["routes"] and not route_present(route, source))
         column = 0 if platform == "windows" else 1
         missing_flows = [name + "@" + str(line) for name, line in functions

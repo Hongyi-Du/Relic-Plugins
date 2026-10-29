@@ -4,8 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Relic.Core;
 using System.Text.Json.Nodes;
-using Windows.Globalization;
-using Windows.Media.SpeechRecognition;
+using System.Speech.Recognition;
 using Windows.Storage.Pickers;
 
 namespace Relic;
@@ -16,7 +15,7 @@ public sealed partial class MainWindow
     private Task<ContentDialogResult>? visibleDialogTask;
     private readonly Dictionary<string, TextBlock> installViews = new();
     private readonly Dictionary<string, List<string>> installLines = new();
-    private SpeechRecognizer? speech;
+    private SpeechRecognitionEngine? speech;
     private Button? speechButton;
 
     private async Task Dialog(ContentDialog dialog)
@@ -229,11 +228,12 @@ public sealed partial class MainWindow
         button = Button(T("composer.voice_title"), () => Voice(target, button!));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input")); return button;
     }
-    private async Task StopVoice()
+    private Task StopVoice()
     {
         var current = speech; speech = null;
-        if (current != null) { try { await current.ContinuousRecognitionSession.StopAsync(); } catch { } current.Dispose(); }
+        if (current != null) { try { current.RecognizeAsyncCancel(); } catch (InvalidOperationException) { } current.Dispose(); }
         if (speechButton != null) speechButton.Content = T("composer.voice_title"); speechButton = null;
+        return Task.CompletedTask;
     }
     private async Task Voice(TextBox target, Button button)
     {
@@ -241,24 +241,27 @@ public sealed partial class MainWindow
         if (preferences.Text("voice") == "off") { Note(T("composer.voice_off")); return; }
         try
         {
-            var recognizer = new SpeechRecognizer(new Language(words.Language)); speech = recognizer; speechButton = button;
-            recognizer.Constraints.Add(new SpeechRecognitionTopicConstraint(SpeechRecognitionScenario.Dictation, "Relic"));
-            var result = await recognizer.CompileConstraintsAsync();
-            if (result.Status != SpeechRecognitionResultStatus.Success) throw new InvalidOperationException(T("composer.voice_no_mic"));
+            var installed = SpeechRecognitionEngine.InstalledRecognizers().FirstOrDefault(r => r.Culture.Name.Equals(words.Language, StringComparison.OrdinalIgnoreCase));
+            if (installed == null) { Note(T("native.voice_language_missing", ("language", words.Language))); return; }
+            var recognizer = new SpeechRecognitionEngine(installed); speech = recognizer; speechButton = button;
+            recognizer.LoadGrammar(new DictationGrammar());
+            recognizer.SetInputToDefaultAudioDevice();
             var before = target.Text[..target.SelectionStart]; var after = target.Text[(target.SelectionStart + target.SelectionLength)..]; var final = "";
-            recognizer.ContinuousRecognitionSession.ResultGenerated += (_, e) => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (speech != recognizer || e.Result.Status != SpeechRecognitionResultStatus.Success) return;
-                final += e.Result.Text + " "; target.Text = before + final + after; target.SelectionStart = before.Length + final.Length;
-            });
-            recognizer.HypothesisGenerated += (_, e) => DispatcherQueue.TryEnqueue(() => { if (speech == recognizer) target.Text = before + final + e.Hypothesis.Text + after; });
-            recognizer.ContinuousRecognitionSession.Completed += (_, e) => DispatcherQueue.TryEnqueue(async () =>
+            recognizer.SpeechRecognized += (_, e) => DispatcherQueue.TryEnqueue(() =>
             {
                 if (speech != recognizer) return;
-                if (e.Status != SpeechRecognitionResultStatus.Success) Note(e.Status == SpeechRecognitionResultStatus.AudioQualityFailure ? T("composer.voice_no_speech") : T("composer.voice_network"));
+                final += e.Result.Text + (words.Language == "en-US" ? " " : ""); target.Text = before + final + after; target.SelectionStart = before.Length + final.Length;
+            });
+            recognizer.SpeechHypothesized += (_, e) => DispatcherQueue.TryEnqueue(() => { if (speech == recognizer) { target.Text = before + final + e.Result.Text + after; target.SelectionStart = before.Length + final.Length + e.Result.Text.Length; } });
+            recognizer.SpeechRecognitionRejected += (_, _) => DispatcherQueue.TryEnqueue(() => { if (speech == recognizer) Note(T("composer.voice_no_speech")); });
+            recognizer.RecognizeCompleted += (_, e) => DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (speech != recognizer) return;
+                if (e.Error is System.Net.WebException) Note(T("composer.voice_network"));
+                else if (e.Error != null) Note(T("composer.voice_start_failed", ("error", e.Error.Message)));
                 target.Text = before + final + after; await StopVoice(); target.Focus(FocusState.Programmatic);
             });
-            await recognizer.ContinuousRecognitionSession.StartAsync(); button.Content = T("common.cancel");
+            recognizer.RecognizeAsync(RecognizeMode.Multiple); button.Content = T("common.cancel");
         }
         catch (UnauthorizedAccessException) { await StopVoice(); Note(T("native.speech_unavailable")); }
         catch (Exception ex) { await StopVoice(); Note(T("composer.voice_start_failed", ("error", ex.Message))); }

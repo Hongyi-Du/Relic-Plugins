@@ -45,7 +45,7 @@ of actions and server payloads below. Every row is required; there are no deferr
 | `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations and current members; unread/recent chat previews; selected group and member rows | done | done |
 | `openOrg`, `go`, `renderHead`, `renderBanner` | Shared selection state; native conversation title, member state and permission/waiting banner | done | done |
 | `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read-by disclosure, history pagination, tool/activity disclosure and live session items | done | done |
-| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | done | done |
+| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | done | pending |
 | `permissionCard`, `decisionCard` | Native action cards; use exact permission option IDs; approve/deny structural requests; open blocked member/task | done | done |
 | `renderOrgPane`, `hierarchyBlock` | Native Overview: goal, status, members, tasks/reports, protocol origins and inherited/replaced rules; parent/leader/secretariat/auto-wake and subgroup controls | done | done |
 | `drawCopies`, `copyCard`, `checkRulesView`, `ackCopy`, `retireCopy` | Copies sheet, summary/author/status/statistics, expandable code/examples; Got it and confirmed Retire | done | done |
@@ -358,7 +358,7 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `micButton@1236` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `field@1242` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `composerBox@1249` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
-| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | done | pending |
 | `renderComposer@1290` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `toPicker@1312` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
 | `mentionCheck@1331` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
@@ -470,6 +470,11 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | done | done |
 
 ## Changes for the clients
+
+- 2026-10-29: Vocabulary coverage now includes keys in ternaries and data-driven arrays, plus real dynamic translation prefixes; the original literal t(...) scan missed these. CI scanner regressions are in tests/test_native_parity.py. Add actual corresponding controls if new missing keys appear; do not add inert lists.
+- 2026-10-29: Windows voice now uses Microsoft System.Speech 8.0 / desktop SAPI because Windows.Media.SpeechRecognition requires package identity, unavailable in our Inno/ZIP distribution. It uses the installed en-US or zh-CN recognizer and desktop microphone permission, never a browser. native.voice_hint is corrected; native.voice_language_missing explains the OS language-component prerequisite. See https://learn.microsoft.com/en-us/windows/apps/develop/input/speech-recognition and https://www.nuget.org/packages/System.Speech/8.0.0.
+- 2026-10-29: Composer mapping correction: reference permits sending a quote without typed text, stops dictation on send, and locks against duplicate Enter submissions. Windows now does all three. macOS Model.send/sendThread currently reject empty typed text even with quote; please allow quote-only sends, lock thread sends, and stop SpeechInput on successful send/navigation. Keep the existing draft-race protection.
+
 
 - 2026-10-29: Reviewed the full implementation mappings and marked corresponding rows done (gate 1 only). Gate 2 still requires CI at the latest head; gate 3 remains the person's. macOS freshToken/post/connect remain pending: Client currently stores immutable base/token and reuses them after SSE reconnect. Please reread RELIC_HOME/app.json (default ~/.relic), validate /api/lifecycle against token/pid/instance, update the transport and reconnect events. A POST may retry only the explicit 403 missing-token rejection, never an ambiguous write failure. Windows implements this with mock HTTP regression coverage.
 - 2026-10-29: macOS ProtocolForm already exposes strength/rules, but still sends a supersedes field that issue_protocol_as_person ignores. Please remove that misleading input/payload and use shared native.protocol_* labels (including strength/rules/rules_hint) in the same order as Windows. Preserve summary_for_person and inherit; no new engine semantics are requested.

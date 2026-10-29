@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250602001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.3916" />
+    <PackageReference Include="System.Speech" Version="8.0.0" />
     <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
   </ItemGroup>
 </Project>

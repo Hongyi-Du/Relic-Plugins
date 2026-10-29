@@ -308,12 +308,19 @@ public sealed partial class MainWindow
     }
     private async Task SendThread()
     {
-        if (string.IsNullOrWhiteSpace(threadEditor.Text) || composing.Contains(threadEditor) || threadId.Length == 0) return;
+        if (sendingThread || (string.IsNullOrWhiteSpace(threadEditor.Text) && quoteText.Length == 0) || composing.Contains(threadEditor) || threadId.Length == 0) return;
+        sendingThread = true;
+        try
+        {
+        await StopVoice();
         var selectedOrg = org; var rootId = threadId; var sent = threadEditor.Text;
-        await api!.Post(PathFor("/send"), new { body = Quoted(sent), reply_to = long.Parse(rootId), channel = member.Length == 0 ? "group" : "private" });
+        try { await api!.Post(PathFor("/send"), new { body = Quoted(sent.Trim()), reply_to = long.Parse(rootId), channel = member.Length == 0 ? "group" : "private" }); }
+        catch (Exception ex) { Note(T("composer.send_failed", ("error", ex.Message))); return; }
         drafts[selectedOrg + "/thread/" + rootId] = "";
         if (org == selectedOrg && threadId == rootId) { if (threadEditor.Text == sent) threadEditor.Text = ""; ClearQuote(); await OpenThread(rootId); await Refresh(); }
         SaveViewState();
+        }
+        finally { sendingThread = false; }
     }
     private UIElement ToolActions(JsonNode group)
     {

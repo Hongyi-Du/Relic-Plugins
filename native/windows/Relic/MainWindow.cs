@@ -34,7 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly MenuBar menu = new();
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
-    private bool refreshing, pending, closing, ready;
+    private bool refreshing, pending, closing, ready, sending, sendingThread;
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
     private bool active = true;
@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         Title = "Relic";
-        Activated += (_, e) => active = e.WindowActivationState != WindowActivationState.Deactivated;
+        Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1480, 940));
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -193,10 +193,14 @@ public sealed partial class MainWindow : Window
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
+        await StopVoice();
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
         chatLimit = 1000;
         if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
-        RestoreChat(); if (!fromHistory) PushHistory(); folded.Remove(id); SaveViewState();
+        RestoreChat(); if (!fromHistory) PushHistory();
+        var reveal = id; var ancestors = new HashSet<string>();
+        while (reveal.Length > 0 && ancestors.Add(reveal)) { folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
+        SaveViewState();
         await Refresh();
         if (different && digestOpen) await LoadDigest(false);
     }
@@ -206,19 +210,25 @@ public sealed partial class MainWindow : Window
         preferences = await api!.Get("/api/prefs");
         var language = Words.Normalize(preferences.Text("lang"));
         if (language != words.Language) { plain.Clear(); plainPending.Clear(); plainFailed.Clear(); digest = new JsonObject(); }
-        words.Load(await api.Get("/api/i18n?lang=" + language)); DrawMenu();
+        words.Load(await api.Get("/api/i18n?lang=" + language)); ApplyAppearance(); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {
-        if (api == null || org.Length == 0 || composing.Contains(editor) || string.IsNullOrWhiteSpace(editor.Text)) return;
+        if (sending || api == null || org.Length == 0 || composing.Contains(editor) || (string.IsNullOrWhiteSpace(editor.Text) && quoteText.Length == 0)) return;
+        sending = true;
+        try
+        {
+        await StopVoice();
         var body = editor.Text; var destination = PathFor("/send"); var key = org + "/" + member;
-        var payload = Composer.Message(Quoted(body), member, recipientNames.ToArray(), snap.Rows("members"));
+        var payload = Composer.Message(Quoted(body.Trim()), member, recipientNames.ToArray(), snap.Rows("members"));
         try { await api.Post(destination, payload); } catch (Exception ex) { Note(T("composer.send_failed", ("error", ex.Message))); return; }
         drafts[key] = ""; if (key == org + "/" + member && editor.Text == body) { editor.Text = ""; ClearQuote(); recipientNames.Clear(); recipientNames.Add("all"); SaveViewState(); }
         await Refresh(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null);
+        }
+        finally { sending = false; }
     }
     private async Task Post(string action, object value) { await api!.Post(PathFor(action), value); await Refresh(); }
 

@@ -13,6 +13,9 @@ Build and unit-test evidence does not replace trying the actual native windows.
 - Python 3.11+ available as `python` on Windows or `python3` on macOS.
   `RELIC_PYTHON` may name the absolute interpreter path. The Python interpreter
   is not bundled in these unsigned candidates.
+- Windows dictation uses the installed Windows desktop speech engine for en-US or zh-CN.
+  Add the selected language's Speech component in Windows Settings and allow desktop
+  microphone access. macOS dictation uses Apple Speech and asks for speech/microphone permission on the first click.
 - Claude Code or Codex installed and signed in for members. App-managed ACP
   members also need Node.js 22+ and the corresponding adapter; retain the existing
   plugin installation. The native UI does not sign in to model providers.
@@ -45,6 +48,8 @@ disable Gatekeeper globally. A `.dmg` and distribution signing come later.
 解压 macOS ZIP，将 `Relic.app` 复制到 `~/Applications` 后在 Finder 打开。
 这是 SwiftUI 可执行应用，不是旧版启动器。当前没有 Developer ID 签名或公证；
 首次打开的系统确认留到本人试用时处理。`.dmg`、签名及公证尚未发布。
+
+Opening via scripts/open_app.py or plugins/relic/scripts/relic_app.py now finds the native application. It never falls back to Edge/Chrome. RELIC_NATIVE_APP can select an explicit compiled executable or .app bundle. Plugin-only packages require the native App to be installed separately; --no-window, --serve, and lifecycle commands remain available for headless engine use.
 
 ## Lifecycle / 退出行为
 
