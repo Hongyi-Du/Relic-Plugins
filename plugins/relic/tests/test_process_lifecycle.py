@@ -277,6 +277,37 @@ class ProcessLifecycle(unittest.TestCase):
         self.assertTrue(agent._close_complete)
         self.assertIsNone(agent._owned_pgid)
 
+    def test_group_exit_after_poll_still_reaps_the_exact_adapter(self):
+        for group_exists in (False, True):
+            with self.subTest(group_exists=group_exists):
+                agent = acp.AcpAgent(["fixture"])
+                agent.proc = mock.Mock(pid=4321, returncode=None)
+                agent.proc.poll.return_value = None
+                agent._owned_pgid = 4321
+
+                def reap(timeout):
+                    agent.proc.returncode = -signal.SIGKILL
+                    return agent.proc.returncode
+
+                agent.proc.wait.side_effect = reap
+                with mock.patch.object(agent, "_signal_group", return_value=group_exists), \
+                        mock.patch.object(acp, "group_has_live_members", return_value=False):
+                    self.assertTrue(agent._wait_for_exit(0))
+                agent.proc.wait.assert_called_once_with(timeout=0)
+                self.assertEqual(agent.proc.returncode, -signal.SIGKILL)
+
+    def test_group_absence_cannot_mark_an_unreaped_adapter_complete(self):
+        agent = acp.AcpAgent(["fixture"])
+        agent.proc = mock.Mock(pid=4321, returncode=None)
+        agent.proc.poll.return_value = None
+        agent.proc.wait.side_effect = subprocess.TimeoutExpired("fixture", 0)
+        agent._owned_pgid = 4321
+        with mock.patch.object(agent, "_signal_group", return_value=False):
+            self.assertFalse(agent._wait_for_exit(0))
+        agent.proc.wait.assert_called_once_with(timeout=0)
+        self.assertIsNone(agent.proc.returncode)
+        self.assertEqual(agent._owned_pgid, 4321)
+
     def test_shutdown_during_spawn_waits_for_ownership_and_reaps_the_child(self):
         agent = self.agent("graceful")
         entered, release = threading.Event(), threading.Event()

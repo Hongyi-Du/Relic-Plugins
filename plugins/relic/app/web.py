@@ -10,6 +10,7 @@ import os
 import queue
 import secrets
 import signal
+import socketserver
 import tempfile
 import threading
 import time
@@ -843,6 +844,12 @@ def open_install_window(port):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = os.name != "nt"  # POSIX restarts may reuse our TIME_WAIT port; Windows keeps exclusive binds.
+
+    def server_bind(self):
+        # HTTPServer reverse-resolves its address here, which can block startup
+        # while DNS is unavailable. This server only uses numeric loopback URLs.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def bind(port):

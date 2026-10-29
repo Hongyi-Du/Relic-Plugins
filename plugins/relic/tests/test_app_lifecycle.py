@@ -261,6 +261,15 @@ class Authentication(Isolated):
 
 
 class ServerLifecycle(Isolated):
+    def test_loopback_bind_does_not_depend_on_reverse_dns(self):
+        with mock.patch.object(socket, "getfqdn", side_effect=AssertionError("reverse DNS is unavailable")):
+            server = web.bind(0)
+        try:
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertEqual(server.server_port, server.server_address[1])
+        finally:
+            server.server_close()
+
     def test_startup_timeout_reaps_its_own_child(self):
         spawn = subprocess.Popen
         children = []

@@ -178,11 +178,20 @@ class AcpAgent:
             if self._owned_pgid is not None:
                 running = self._signal_group(0)
             if not running:
-                return True
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return self._owned_pgid is not None and group_has_live_members(self._owned_pgid) is False
+                if self._owned_pgid is None or group_has_live_members(self._owned_pgid) is not False:
+                    return False
+                break
             time.sleep(min(0.05, remaining))
+        # The leader may exit between poll() and group inspection. Group absence
+        # (or zombie-only state) does not reap our Popen child or set returncode.
+        try:
+            self.proc.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return False
+        return True
 
     def _fail_pending(self, message):
         with self._lock:
