@@ -86,7 +86,7 @@ struct FilePreview: View {
                     Button(m.t("file.copy_path")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
                     Button(m.t("file.open_default")) { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
                 }
-                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.file["mtime"].text])).font(.caption)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption)
                 if m.file["truncated"].flag { Text(m.t("file.truncated")).foregroundStyle(.orange) }
                 if m.file["kind"].text == "image", let image = m.fileImage { ScrollView([.horizontal, .vertical]) { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 1200) } }
                 else if m.file["kind"].text == "binary" { Text(m.t("file.binary")); Spacer() }

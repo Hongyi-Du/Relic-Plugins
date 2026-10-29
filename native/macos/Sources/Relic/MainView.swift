@@ -5,7 +5,7 @@ struct Rows<Content: View>: View {
     let nodes: [Node]
     @ViewBuilder let content: (Node) -> Content
     init(_ nodes: [Node], @ViewBuilder content: @escaping (Node) -> Content) { self.nodes = nodes; self.content = content }
-    var body: some View { ForEach(Array(nodes.enumerated()), id: \.offset) { _, node in content(node) } }
+    var body: some View { ForEach(NodeRow.identify(nodes)) { content($0.node) } }
 }
 
 struct MainView: View {
@@ -78,7 +78,7 @@ struct Sidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button(m.t("common.new_org")) { m.sheet = .create }
-            TextField(m.t("page.search"), text: $m.search).focused($focused)
+            HStack { TextField(m.t("page.search"), text: $m.search).focused($focused); VoiceButton(text: $m.search).labelStyle(.iconOnly) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(m.t("page.tree")).font(.caption).foregroundStyle(.secondary)

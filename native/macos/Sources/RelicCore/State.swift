@@ -1,5 +1,21 @@
 import Foundation
 
+public struct NodeRow: Identifiable {
+    public let id: String
+    public let node: Node
+    public static func identify(_ nodes: [Node]) -> [NodeRow] {
+        var occurrences: [String: Int] = [:]
+        return nodes.map { node in
+            let key: String
+            if let field = ["id", "seq", "key", "name", "path", "i"].first(where: { !node[$0].isNull && !node[$0].text.isEmpty }) { key = field + ":" + node[field].text }
+            else if !node["at"].isNull { key = [node["type"].text, node["role"].text, node["member"].text, node["from"].text, node["at"].text].joined(separator: "|") }
+            else { key = node.text }
+            let occurrence = occurrences[key, default: 0]; occurrences[key] = occurrence + 1
+            return NodeRow(id: key + "#" + String(occurrence), node: node)
+        }
+    }
+}
+
 // Streaming bytes preserve SSE frame boundaries, UTF-8 and multiline data.
 public struct EventDecoder {
     private var line = Data()

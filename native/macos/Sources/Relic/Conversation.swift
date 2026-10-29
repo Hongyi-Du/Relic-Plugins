@@ -37,12 +37,14 @@ struct RichText: View {
                 let line = Int(parts.queryItems?.first(where: { $0.name == "line" })?.value ?? "") ?? 0
                 m.run { try await m.openFile(path, line: line) }; return .handled
             }
-            if url.isFileURL || url.scheme == nil && url.path.hasPrefix("/") { m.run { try await m.openFile(url.path) }; return .handled }
+            if url.isFileURL || url.scheme == nil && url.path.hasPrefix("/") {
+                let ref = NativeLinks.file(url.path); m.run { try await m.openFile(ref?.path ?? url.path, line: ref?.line ?? 0) }; return .handled
+            }
             return .systemAction
         })
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: (try? AttributedString(markdown: linkedPaths(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).frame(maxWidth: .infinity, alignment: .leading).help(m.t("chat.path_preview"))
+        SelectableText(value: (try? AttributedString(markdown: NativeLinks.markdown(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).frame(maxWidth: .infinity, alignment: .leading).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
@@ -51,8 +53,8 @@ struct RichText: View {
         case "quote":
             HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(quoteText(block)) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))
         case "list":
-            VStack(alignment: .leading, spacing: 3) { ForEach(Array(block.lines.enumerated()), id: \.offset) { _, line in
-                HStack(alignment: .top) { Text(line.trimmingCharacters(in: .whitespaces).prefix(1).first?.isNumber == true ? String(line.trimmingCharacters(in: .whitespaces).prefix { $0.isNumber }) + "." : "•"); inline(line.replacingOccurrences(of: #"^\s*([-*•+]|\d+[.)])\s+"#, with: "", options: .regularExpression)) }.padding(.leading, line.hasPrefix("  ") ? 20 : 0)
+            VStack(alignment: .leading, spacing: 3) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
             } }
         case "table":
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
@@ -70,19 +72,6 @@ struct RichText: View {
             return "**" + m.t("chat.quote_from", ["name": head]) + "**" + value[range.upperBound...]
         }
         return value
-    }
-    private func linkedPaths(_ input: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"(?<![\w./:\\(])/(?!/)[^\s<>\"'`|*?，。；、（）)\]]+"#) else { return input }
-        var output = input
-        for match in regex.matches(in: input, range: NSRange(input.startIndex..., in: input)).reversed() {
-            guard let range = Range(match.range, in: output) else { continue }
-            let token = String(output[range]); let parts = token.split(separator: ":")
-            let line = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
-            let path = String(parts[0]); var url = URLComponents(); url.scheme = "relic-file"; url.host = "preview"
-            url.queryItems = [.init(name: "path", value: path), .init(name: "line", value: String(line))]
-            if let target = url.url?.absoluteString { output.replaceSubrange(range, with: "[" + token + "](" + target + ")") }
-        }
-        return output
     }
 }
 
@@ -317,7 +306,7 @@ struct ThreadView: View {
     @State private var sending = false
     var body: some View {
         VStack(alignment: .leading) {
-            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])); Spacer(); Button(m.t("panel.close_thread")) { m.threadID = ""; m.setPane("overview") } }
+            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])); Spacer(); Button(m.t("panel.close_thread")) { m.closeThread() } }
             ScrollView { LazyVStack(alignment: .leading, spacing: 16) {
                 if !m.threadData["root"].isNull { MessageView(item: m.threadData["root"], inThread: true) }
                 Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
