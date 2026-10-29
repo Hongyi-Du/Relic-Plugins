@@ -1,3 +1,22 @@
+## 2026-10-29: measured chart paths and dashed stroke evidence
+
+The macOS chart now draws the reference's orthogonal parent connectors and
+shared-seat cubic paths with native SwiftUI/CoreGraphics, and exports each
+live path's actual geometry, width, dash array, opacity, transform and glyph.
+Zero-width vertical path bounds are retained because the stroke is visible.
+Nodes carry their own real accessibility identities and individual native labels.
+
+Please extend shared style comparison to preserve/check actual dash patterns
+(`stroke_dash` for SVG/native paths, and border dash/style evidence for subgroup
+cards). macOS exposes its production arrays as `projection.stroke_dash` and
+`surface_evidence.border_dash`. These were absent from the common style shape,
+but dashed versus solid is visible and is required by element parity. This is
+an added measurement request, not an exception or a tolerance change.
+
+`e4c559e` Native apps run 40957778580 is green. Earlier `57f183a` failed to
+compile because an NSSize literal made greatestFiniteMagnitude ambiguous; the
+fix explicitly specifies CGFloat and is included in e4c559e.
+
 ## 2026-10-29: actual macOS font identities and dialog continuation
 
 `34d56cd` Native apps run 40953908181 is green, including macOS build/tests.

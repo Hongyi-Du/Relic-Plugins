@@ -185,9 +185,9 @@ import CoreText
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let assignedRegion = path == "window" ? "window" : inheritedRegion == "dialog" || inheritedRegion == "menu" ? inheritedRegion : region(rect, fallback: inheritedRegion)
@@ -319,6 +319,28 @@ import CoreText
             if let owner { elements.insert(node, at: owner + 1) } else { elements.append(node) }
         }
 
+        var chartEdges: [[String: Any]] = []
+        for sample in ChartEdgeProbe.snapshots(in: contentScreen) {
+            let rect = (sample["rectValue"] as! NSValue).rectValue, width = sample["width"] as! Double
+            // A vertical or horizontal path can have a zero-area geometric box
+            // while its stroked paint is visible. Keep the actual path bounds.
+            let painted = rect.insetBy(dx: -width / 2, dy: -width / 2).intersection(viewport)
+            guard !painted.isNull && painted.width > 0 && painted.height > 0 else { continue }
+            let evidence = sample["evidence"] as! [String: Any]
+            let sx = evidence["scale_x"] as! Double, sy = evidence["scale_y"] as! Double
+            if abs(sx - sy) > 0.0001 { surfaceGaps.append("Nonuniform chart edge transform needs directional stroke geometry: " + (sample["id"] as! String)) }
+            let clipped = rect.intersection(viewport)
+            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
+                "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false,
+                "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
+                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any],
+                "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()], "pixelSamples": samples(painted, bitmap: bitmap)]
+            raw.append(node); chartEdges.append(node)
+        }
+        // ChartView's native ZStack draws edges before node controls. Preserve
+        // that production layer order when supplementing AX with path paint.
+        elements.insert(contentsOf: chartEdges, at: elements.firstIndex { $0["kind"] as? String == "chart-node" } ?? elements.count)
+
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
         var unmeasured = ["Paint-only SwiftUI decoration coverage beyond instrumented path icons", "Exact opaque-overlay occlusion", "Reading order for paint without an AX owner"]
@@ -354,7 +376,7 @@ import CoreText
                 actualStyle["stroke_width"] = sourceStyle["stroke_width"] ?? NSNull()
                 if sourceStyle["stroke_width"] == nil { unmeasured.append(id + ":style.stroke_width") }
             }
-            let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item"].contains(kind)
+            let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item", "chart-node"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)

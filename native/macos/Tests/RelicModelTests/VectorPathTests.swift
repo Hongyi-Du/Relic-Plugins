@@ -23,4 +23,13 @@ final class VectorPathTests: XCTestCase {
         XCTAssertThrowsError(try VectorPath.parse("M1"))
         XCTAssertThrowsError(try VectorPath.parse("M0 0R2 3"))
     }
+    func testChartEdgesPreserveZeroWidthAndActualCubicExtrema() throws {
+        let vertical = try VectorPath.parse("M142,104V127H142V150")
+        XCTAssertEqual(vertical.boundingBoxOfPath, CGRect(x: 142, y: 104, width: 0, height: 46))
+        XCTAssertFalse(vertical.isEmpty)
+        let shared = try VectorPath.parse("M260,190C292,190 292,316 260,316")
+        XCTAssertEqual(shared.boundingBoxOfPath.minX, 260, accuracy: 0.001)
+        XCTAssertEqual(shared.boundingBoxOfPath.width, 24, accuracy: 0.001)
+        XCTAssertEqual(shared.boundingBoxOfPath.height, 126, accuracy: 0.001)
+    }
 }
