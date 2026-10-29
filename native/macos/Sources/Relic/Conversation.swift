@@ -159,6 +159,7 @@ struct ConversationStream: View {
                         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
                     }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { followsBottom = $0 <= viewport.size.height + 90 }
+                        .onChange(of: viewport.size) { if followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } } }
                 }
                 ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
             }.onChange(of: m.selection) { initialLoad = true; followsBottom = true }

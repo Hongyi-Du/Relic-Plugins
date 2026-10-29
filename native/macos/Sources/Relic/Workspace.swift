@@ -100,14 +100,16 @@ struct FilePreview: View {
                     else {
                         ScrollViewReader { proxy in
                             HStack { TextField("#", text: $jump).frame(width: 70).onSubmit { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .top) } }; Button(m.t("common.open")) { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .top) } } }
-                            ScrollView([.vertical, .horizontal]) {
+                            GeometryReader { viewport in
+                              ScrollView([.vertical, .horizontal]) {
                                 LazyVStack(alignment: .leading, spacing: 0) {
                                     ForEach(Array(lines.prefix(6000).enumerated()), id: \.offset) { index, line in
                                         HStack(alignment: .top, spacing: 12) { Text(String(index + 1)).foregroundStyle(RelicStyle.muted).frame(width: 32, alignment: .trailing); Text(line.isEmpty ? " " : line).textSelection(.enabled).fixedSize(horizontal: true, vertical: false) }
                                             .font(.system(size: 12, design: .monospaced)).padding(.vertical, 3).background(m.fileLine == index + 1 ? RelicStyle.mine : .clear).id(index + 1)
                                     }
-                                }
-                            }.defaultScrollAnchor(.topLeading).background(RelicStyle.background).onAppear { proxy.scrollTo(max(1, m.fileLine), anchor: .top) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .top) }
+                                }.padding(8).frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
+                              }.defaultScrollAnchor(.topLeading).background(RelicStyle.background).onAppear { proxy.scrollTo(max(1, m.fileLine), anchor: .top) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .top) }
+                            }
                             if lines.count > 6000 { Text(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)])).font(.caption) }
                         }
                     }

@@ -37,7 +37,7 @@ struct DocumentsView: View {
             ScrollView { VStack(alignment: .leading, spacing: 10) {
                 if m.snapshot["documents"].rows.isEmpty || doc["missing"].flag { Text(m.t("details.no_docs")) }
                 Text(key + " · " + m.t("details.revision", ["n": doc["revision"].text])).font(.headline)
-                Text(m.t("details.written", ["name": m.name(doc["author"].text), "when": doc["at"].text])).font(.caption)
+                Text(m.t("details.written", ["name": m.name(doc["author"].text), "when": m.day(doc["at"]) + " " + m.clock(doc["at"])])).font(.caption)
                 RichText(doc["body"].text.isEmpty ? doc["text"].text : doc["body"].text)
                 if !error.isEmpty { Text(error).foregroundStyle(.red) }
             }.padding(8).frame(maxWidth: .infinity, alignment: .leading) }

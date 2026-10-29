@@ -128,8 +128,9 @@ import RelicCore
             let rect = NSRect(x: childRect.minX - contentRect.minX, y: childRect.minY - contentRect.minY, width: childRect.width, height: childRect.height)
             NSGraphicsContext.saveGraphicsState()
             // cacheDisplay may flatten a transparent hosting view against black;
-            // retain the same rounded mask that SheetContent uses in the real app.
-            if child === window.attachedSheet { NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16).addClip() }
+            // retain the native rounded window boundary for sheets/popovers.
+            let radius: CGFloat = child === window.attachedSheet ? 16 : 12
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
             childBitmap.draw(in: rect)
             NSGraphicsContext.restoreGraphicsState()
         }
