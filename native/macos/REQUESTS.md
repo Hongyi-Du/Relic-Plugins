@@ -2,25 +2,50 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
-## Current shared-owner action (2026-10-29, after `fe453f6`)
+## Current handoff (2026-10-29, after `467fa95`)
 
-The macOS Release build, **30 tests**, and unsigned app packaging passed in
-https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40831000291/job/123304950300.
-Every reference HTTP route is implemented (the forbidden browser installer is
-already exempt). The remaining literal-key misses below are exclusively native
-platform substitutions. Please review and add per-platform justified exceptions
-in `native/parity-allowlist.json`, then update **all 23 screen rows and 214 function
-rows** in the macOS column of `docs/native-apps.md` from the implementation mapping
-in `STATUS.md`. These shared-file gates currently make parity fail even though the
-macOS build/tests/package succeed. The native screens still need real-Mac review;
-the table should distinguish implementation/CI from that human acceptance.
+The macOS Release build, **39 tests**, and unsigned app packaging passed at
+`73a2c49`: https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40834159051/job/123314926758.
+The latest push adds seven regression tests (46 total intended), currently in CI.
+Static scan: zero missing routes and zero missing keys after shared substitutions.
 
-The next commit restores exact reference Enter/Shift-Enter behavior, keeps IME
-composition safe, and retains Command/Control-Enter as additional send gestures.
-**No new send-shortcut i18n keys or exceptions are needed.**
+Review follow-ups from `258e3d8` are implemented in `467fa95`:
 
-Resolved in shared commits through `184b381`: speech bundle metadata and native
-speech keys, per-platform CI reporting, and inventory corrections listed below.
+- `Client.refreshRecord` reads the `RELIC_HOME/app.json` provider, verifies
+  app/state/port/pid/instance using its token, and adopts the new loopback transport.
+  SSE reconnect refreshes it. POST retries only an explicit HTTP 403
+  `{"error":"missing token"}`, once; network errors and other rejections never
+  replay a write. Four mocked transport tests cover renewal and rejection.
+- Quote-only group/private/thread sends work; thread sends have a model-level
+  duplicate-submission lock. Speech is exclusive across fields and stops on
+  send/navigation/modal changes. Tests cover quote-only dispatch/failure and
+  thread `reply_to`/duplicate Enter. Newer drafts/quotes/recipients are retained.
+- Removed the ignored protocol `supersedes` control/payload. Shared native
+  strength/rules labels and Windows field order are applied; the engine handles
+  strong-rule validation. `summary_for_person` and `inherit` remain.
+
+Please review these three remaining pending macOS function rows
+(`freshToken`, `post`, `connect`) and promote after the latest CI passes.
+Every other inventory row was reviewed by the shared owner in `258e3d8`.
+
+## Final bundle metadata request
+
+`native/macos/Resources/Relic.icns` packages the existing reference 512px PNG
+unchanged into Apple's ICNS container (no new artwork). In `scripts/native_package.py`
+copy it to `Relic.app/Contents/Resources/Relic.icns` and set
+`CFBundleIconFile: "Relic.icns"`; Finder and Dock should use the same Relic identity.
+Set `CFBundleDevelopmentRegion: "en"` and `CFBundleLocalizations: ["en", "zh-Hans"]`
+so native system controls use the supported bundle languages on other-language Macs.
+Add shared `native.episodes: "Episode"` in both approved word lists to remove the
+reference's last literal section title from native source (same wording).
+The Mac retains a Dock process when its last window closes and reopens that window
+on Dock click; **Quit** releases the engine lease. Please reflect that platform
+distinction in `docs/native-install.md` rather than saying closing the last Mac
+window stops the engine.
+
+Resolved already: native speech keys/privacy metadata, per-platform CI, inventory
+corrections, explicit Enter/Shift-Enter semantics and justified vocabulary
+substitutions. The older request rationale below remains for traceability.
 
 ## Native speech bundle metadata (required)
 
