@@ -42,7 +42,7 @@ import RelicCore
                 model.detailTask = ""; model.detailFilter = "open"; model.editMember = ""
                 model.newSecretary = false; model.memberMode = "app"; model.expandRules = false
                 model.appMenu = nil; model.recipientPicker = false
-                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel")
+                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel"); model.defaults.set(520.0, forKey: "width.files")
                 try await model.select(fixture["org"].text)
                 model.pane = "overview"; model.detailMember = fixture["member"].text; model.cardMember = fixture["member"].text
                 model.windowSize = CGSize(width: CGFloat(width), height: CGFloat(height))

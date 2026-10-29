@@ -19,7 +19,7 @@ struct MainView: View {
             HSplitView {
                 if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340) }
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: 320, idealWidth: 320, maxWidth: 740) }
+                if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 320, maxWidth: 740) }
             }
         }.background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
         .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
