@@ -60,7 +60,7 @@ public sealed partial class MainWindow
     {
         var b = Button("", action); b.Content = key == "chat.card" ? ReferenceIcon("card") : key == "card.new_name" ? ReferenceIcon("edit") : Glyph(glyph, glyph is "\uE720" or "\uE74A" ? 17 : 16); b.Width = 30; b.Height = 30;
         b.Padding = new Thickness(5); b.BorderThickness = new Thickness(0); b.Background = new SolidColorBrush(Colors.Transparent);
-        AutomationProperties.SetName(b, T(key)); ToolTipService.SetToolTip(b, tooltip ?? T(key)); return b;
+        AutomationProperties.SetName(b, tooltip ?? T(key)); ToolTipService.SetToolTip(b, tooltip ?? T(key)); return b;
     }
     private Button QuietButton(string label, Func<Task> action)
     {
@@ -114,7 +114,7 @@ public sealed partial class MainWindow
         menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918"); navigationButtons.Background = Paint("F8F7F5", "191918");
         editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
         root.Resources["AccentTextFillColorPrimaryBrush"] = Accent; root.Resources["AccentFillColorDefaultBrush"] = Accent;
-        if (sendButton != null) { sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); }
+        if (sendButton != null) { sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); if (sendButton.Content is ReferenceVectorIcon glyph) glyph.Foreground = sendButton.Foreground; }
     }
     private void DrawPaneHeader()
     {

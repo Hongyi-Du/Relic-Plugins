@@ -171,23 +171,36 @@ def font_evidence(cdp, snapshot, input_text):
     return result
 
 
+def pending_element_request(directory, completed):
+    """Read an immutable, atomically published request for one native scene.
+
+    Completed files stay as audit evidence. No reader holds the next scene's
+    target while its writer publishes it, unlike a repeatedly replaced mailbox.
+    """
+    for path in sorted((directory / "element-requests").glob("*.json")):
+        if path.stem in completed:
+            continue
+        request = json.loads(path.read_text(encoding="utf-8-sig"))
+        if request.get("case_id") != path.stem:
+            raise ValueError("Element request filename does not match its scene: " + str(path))
+        return path, request
+    return None
+
+
 def native(manifest_path, manifest, exe):
     environment = dict(os.environ, RELIC_VISUAL_MANIFEST=str(manifest_path), RELIC_VISUAL_OUTPUT=manifest["output"], RELIC_ENGINE_ROOT=str(ROOT), RELIC_PYTHON=sys.executable, RELIC_HOME=manifest["fixture"]["home"], RELIC_VISUAL_NOW=manifest["fixture"]["clock"], TZ="UTC")
     if manifest["client"] == "windows":
         (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
-        last_request = ""
+        completed_requests = set()
         def capture_elements():
-            nonlocal last_request
             if manifest["client"] != "windows":
                 return
-            request_path = manifest_path.parent / "elements-request.json"
-            if not request_path.exists():
+            pending = pending_element_request(manifest_path.parent, completed_requests)
+            if pending is None:
                 return
-            request = json.loads(request_path.read_text(encoding="utf-8-sig"))
-            if request["case_id"] == last_request:
-                return
+            request_path, request = pending
             last_request = request["case_id"]
             output = Path(manifest["output"])
             raw = output / (last_request + ".uia.json")
@@ -205,9 +218,11 @@ def native(manifest_path, manifest, exe):
             except Exception as error:
                 projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
             (output / (last_request + ".elements.json")).write_text(json.dumps(projected, ensure_ascii=False), encoding="utf-8")
-            receipt = manifest_path.parent / "elements-complete.json"
+            receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
+            receipt.parent.mkdir(exist_ok=True)
             receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request}), encoding="utf-8")
             receipt.with_suffix(".tmp").replace(receipt)
+            completed_requests.add(last_request)
         try:
             receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=1200, on_tick=capture_elements)
             if receipt.get("errors"):

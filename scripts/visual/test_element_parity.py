@@ -19,6 +19,7 @@ def element(eid="r0", text="今天 11:00", order=0, kind="text", region="convers
             "style": {"font_size": 13., "font_weight": 400, "foreground": [27, 27, 26, 255],
                       "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0,
                       "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)], "corner_radii": [0, 0, 0, 0],
+                      "border_styles": ["none"] * 4,
                       "opacity": 1, "background_image": "none", "shadow": [],
                       "rendered_fonts": [{"family_name": "Fixture Sans", "postscript_name": "FixtureSans-Regular", "glyph_count": 8, "is_custom_font": False}]},
             "state": {key: None for key in STATE_FIELDS},
@@ -281,6 +282,30 @@ class ElementComparisonTests(unittest.TestCase):
         # An unknown face cannot be paired through a different localized family.
         b["style"]["rendered_fonts"] = [{"family_name": "Localized Fixture", "postscript_name": None}]
         self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_visible_stroke_pattern_and_phase_are_required_and_exact(self):
+        a, b = element(), element("n")
+        for item in (a, b):
+            item["style"].update(stroke_width=1, stroke_dash=[4, 3], stroke_dash_offset=0, stroke_linecap="round", stroke_linejoin="round")
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        for field, value in (("stroke_dash", [4, 4]), ("stroke_dash_offset", .1), ("stroke_linecap", "butt"), ("stroke_linejoin", "miter")):
+            changed = deepcopy(b); changed["style"][field] = value
+            self.assertTrue(any(row["field"].startswith(field) for row in compare_elements([a], [changed])["style_out_of_tolerance"]))
+        del a["style"]["stroke_dash"]; del b["style"]["stroke_dash"]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        self.assertTrue(validate_capture(capture(elements=[a]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1}))
+
+    def test_positive_border_style_is_not_erased_by_same_color(self):
+        a, b = element(), element("n")
+        for item in (a, b):
+            item["style"].update(border_width=1, border_widths=[1] * 4, border_styles=["solid"] * 4)
+        b["style"]["border_styles"][0] = "dashed"
+        self.assertTrue(any(row["field"] == "border_styles[0]" for row in compare_elements([a], [b])["style_out_of_tolerance"]))
+
+    def test_chart_current_is_separate_from_selection(self):
+        a, b = element(kind="chart-node"), element("n", kind="chart-node")
+        a["state"]["current"], b["state"]["current"] = True, False
+        self.assertTrue(any(row["field"] == "current" for row in compare_elements([a], [b])["state_mismatch"]))
 
 
 class ExtractionContractTests(unittest.TestCase):

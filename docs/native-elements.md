@@ -28,6 +28,7 @@ write `<case-id>.elements.json`. Preserve the raw source tree separately or in
       "foreground": [27,27,26,255], "background": [0,0,0,0],
       "border_color": [0,0,0,0], "border_width": 0, "corner_radius": 0,
       "border_widths": [0,0,0,0],
+      "border_styles": ["none","none","none","none"],
       "border_colors": [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
       "corner_radii": [0,0,0,0], "opacity": 1,
       "background_image": "none", "shadow": []
@@ -55,7 +56,7 @@ measurement. Unknown measurements go in `extraction_errors` and/or
 `coverage.unmeasured`, which fail the gate.
 
 Paint audit additions (no changed tolerances): `border_widths` and
-`border_colors` use top/right/bottom/left; `corner_radii` uses
+`border_colors` and `border_styles` use top/right/bottom/left; `corner_radii` uses
 top-left/top-right/bottom-right/bottom-left. Compare the individual edges and
 corners, not only a maximum scalar. `opacity` is actual effective paint opacity.
 `shadow` is `[]` for measured absence or a list of
@@ -76,6 +77,21 @@ the original vector stroke in its source units and actual CTM in evidence;
 apply actual scale (or vector-effect non-scaling-stroke) before comparing.
 Nonuniform transforms need their actual directional stroke geometry or an
 explicit coverage gap; do not assume every transform has one scalar scale.
+Visible strokes also require `stroke_dash` (a measured array of window-pixel
+lengths, `[]` for solid), `stroke_dash_offset` (window pixels),
+`stroke_linecap` (`butt`/`round`/`square`) and `stroke_linejoin`
+(`miter`/`round`/`bevel`). Keep source arrays and units in evidence. SVG odd-length
+dash lists repeat to an even period; WinUI dash numbers multiply the actual
+stroke thickness before the actual transform. These are unit conversions, not
+matching tolerances. Unknown pathLength calibration, nonuniform transforms or
+unknown paint fail. Computed CSS border styles do not reveal the exact painted
+dash lengths: retain their measured `border_styles` without inventing a
+`border_dash` pattern. Native dashed border primitives remain measured shapes
+unless actual control ownership proves they belong to the same border surface.
+
+Chart nodes additionally require `state.current`, independently of selection.
+Read actual `aria-current` / production current-organization state and preserve
+its provider source; a current node is not automatically an AX/UIA selected item.
 
 Windows TextPattern document/range bounds can prove a font witness even when
 the UIA control's outer layout slot is stretched. Match the actual text and
@@ -84,6 +100,12 @@ with the configured font family. WinUI TextPointer character rectangles are
 caret positions, not glyph ink: preserve their raw positions and derive text
 advance bounds only from measured monotonic start/end positions. Nonmonotonic
 or unresolved ranges remain coverage failures requiring disjoint measurements.
+UIA `FontNameAttribute` is a declared text property in WinUI, not the physical
+fallback glyph-run face. The Windows extractor now stores it in
+`evidence.provider_fonts` and leaves canonical `style.rendered_fonts` unknown
+until physical-face evidence exists. System-font cmap inspection may disprove
+an impossible family but cannot prove which face WinUI rendered. See the
+[actual WinUI implementation](https://github.com/microsoft/microsoft-ui-xaml/blob/0a03f68d586d1c100f753ca3221597c3ee550f4a/dxaml/xcp/core/text/common/textrangeadapter.cpp#L1987).
 
 For reference text, `bounds` is the DOMRange envelope after its own text
 container's content clipping; `visible_bounds` additionally applies ancestor

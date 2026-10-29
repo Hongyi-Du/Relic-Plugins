@@ -98,7 +98,7 @@ public sealed partial class MainWindow
     private static string OverviewClip(string value, int length) { var text = System.Text.RegularExpressions.Regex.Replace(value ?? "", @"\s+", " ").Trim(); return text.Length > length ? text[..(length - 1)] + "…" : text; }
     private void Hierarchy(JsonNode o)
     {
-        var box = OverviewBlock(); box.Children.Add(OverviewHeading(OverviewText(T("org.hierarchy"), 12, true), OverviewLink(T("chart.title"), Chart, "chev")));
+        var box = OverviewBlock(); box.Children.Add(OverviewHeading(OverviewText(T("org.hierarchy"), 12, true), OverviewLink(T("chart.title"), () => ShowChart(org), "chev")));
         var descendants = new HashSet<string> { org }; bool added;
         do { added = false; foreach (var child in orgs) if (descendants.Contains(child.Text("parent"))) added |= descendants.Add(child.Text("id")); } while (added);
         var above = o["parent"].Text("id"); var activeOrg = o.Text("status") is "" or "active";

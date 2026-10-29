@@ -415,7 +415,14 @@
       const s = styleOf(shape);
       if (s.display === 'none' || s.visibility !== 'visible' || cumulativeOpacity(shape) === 0) continue;
       const record = { selector: pathOf(shape), source_width_css: s.strokeWidth, source_width: null, vector_effect: s.vectorEffect,
-        screen_ctm: matrixValue(shape.getScreenCTM()), effective_width: null, coordinate_space: 'viewport-css-pixels' };
+        source_dash_css: s.strokeDasharray, source_dash_offset_css: s.strokeDashoffset,
+        source_linecap_css: s.strokeLinecap, source_linejoin_css: s.strokeLinejoin, source_miterlimit_css: s.strokeMiterlimit,
+        source_path_length_attribute: shape.getAttribute('pathLength'), source_dash: null, source_dash_offset: null,
+        screen_ctm: matrixValue(shape.getScreenCTM()), effective_width: null, effective_dash: null, effective_dash_offset: null,
+        linecap: ['butt', 'round', 'square'].includes(s.strokeLinecap) ? s.strokeLinecap : null,
+        linejoin: ['miter', 'miter-clip', 'round', 'bevel', 'arcs'].includes(s.strokeLinejoin) ? s.strokeLinejoin : null,
+        miterlimit: Number.isFinite(Number(s.strokeMiterlimit)) ? Number(s.strokeMiterlimit) : null,
+        coordinate_space: 'viewport-css-pixels' };
       records.push(record);
       if (s.stroke === 'none' || color(s.stroke, pathOf(shape))?.[3] === 0 || Number(s.strokeOpacity) === 0) { record.effective_width = 0; continue; }
       if (!/^(?:\d*\.)?\d+(?:px)?$/.test(s.strokeWidth)) { record.problem = 'Unresolved SVG source stroke unit.'; continue; }
@@ -444,12 +451,54 @@
       // A scalar width is valid for a similarity transform only. Nonuniform
       // scaling/shear needs a full stroked path, not a guessed mean scale.
       if (xSquared !== ySquared || dot !== 0) { record.problem = 'Nonuniform stroke transform cannot be represented by a universal scalar width.'; continue; }
-      record.effective_width = record.source_width * Math.sqrt(xSquared);
+      record.stroke_to_window_scale = Math.sqrt(xSquared);
+      record.effective_width = record.source_width * record.stroke_to_window_scale;
+      // SVG computed px/number lengths are in the stroke's user coordinate
+      // space. Only the measured similarity transform makes them window px.
+      // Percentages and pathLength calibration require additional evidence;
+      // they must not silently become unscaled source lengths.
+      const length = raw => {
+        const match = /^([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?)(px)?$/i.exec(raw);
+        if (!match || !Number.isFinite(Number(match[1]))) return null;
+        return { value: Number(match[1]), unit: match[2] || 'number', coordinate_space: 'svg-stroke-user-units' };
+      };
+      const rawDash = s.strokeDasharray?.trim();
+      if (rawDash === 'none') { record.source_dash = []; record.effective_dash = []; }
+      else {
+        const parts = rawDash?.split(/[\s,]+/).filter(Boolean), lengths = parts?.map(length);
+        if (!lengths?.length || lengths.some(part => !part || part.value < 0)) record.dash_problem = 'Unresolved or invalid actual SVG dash length/unit.';
+        else {
+          record.source_dash = lengths;
+          if (record.source_path_length_attribute !== null) record.dash_problem = 'Actual SVG pathLength calibration is not measured for dash lengths.';
+          else {
+            let values = lengths.map(part => part.value);
+            if (values.every(value => value === 0)) values = [];
+            else if (values.length % 2) values = values.concat(values);
+            record.effective_dash = values.map(value => value * record.stroke_to_window_scale);
+          }
+        }
+      }
+      record.source_dash_offset = length(s.strokeDashoffset?.trim() || '');
+      if (!record.source_dash_offset) record.dash_offset_problem = 'Unresolved or invalid actual SVG dash offset/unit.';
+      else if (record.source_path_length_attribute !== null) record.dash_offset_problem = 'Actual SVG pathLength calibration is not measured for dash offset.';
+      else record.effective_dash_offset = record.source_dash_offset.value * record.stroke_to_window_scale;
     }
     const painted = records.filter(record => record.effective_width !== 0);
     const widths = Array.from(new Set(painted.map(record => record.effective_width)));
     const width = records.some(record => record.problem) || widths.length > 1 ? null : widths[0] ?? 0;
-    const result = { width, source: 'getComputedStyle + SVGGraphicsElement.getScreenCTM/getCTM', shapes: records };
+    const uniform = (key, property) => {
+      if (!painted.length) return null;
+      const values = painted.map(record => record[key]);
+      if (values.some(value => value === null || value === undefined) || new Set(values.map(value => JSON.stringify(value))).size !== 1) {
+        unmeasured.push({ element: nodeIds.get(el), property, evidence: records,
+          reason: 'The actual visible SVG strokes do not have one measured value for this style quantity; source units and per-path evidence are retained.' });
+        return null;
+      }
+      return values[0];
+    };
+    const result = { width, dash: uniform('effective_dash', 'style.stroke_dash'), dash_offset: uniform('effective_dash_offset', 'style.stroke_dash_offset'),
+      linecap: uniform('linecap', 'style.stroke_linecap'), linejoin: uniform('linejoin', 'style.stroke_linejoin'),
+      miterlimit: uniform('miterlimit', 'style.stroke_miterlimit'), source: 'getComputedStyle + SVGGraphicsElement.getScreenCTM/getCTM', shapes: records };
     svgStrokes.set(el, result);
     if (width === null) unmeasured.push({ element: nodeIds.get(el), property: 'style.stroke_width', evidence: result,
       reason: 'Actual SVG strokes do not have one measurable content-window width; no source-space width is substituted.' });
@@ -465,10 +514,14 @@
       border_color: Math.max(...widths) ? color(s['border' + sides[widths.indexOf(Math.max(...widths))] + 'Color'], pathOf(el)) : [0, 0, 0, 0],
       border_width: Math.max(...widths), corner_radius: Math.max(...radii),
       font_family: text ? s.fontFamily : null, border_widths: widths, corner_radii: radii,
+      border_styles: sides.map(side => s['border' + side + 'Style']),
       border_colors: sides.map((side, i) => widths[i] > 0 ? color(s['border' + side + 'Color'], pathOf(el)) : [0, 0, 0, 0]),
       opacity: cumulativeOpacity(el) * (pseudo ? Number(s.opacity) : 1), shadow: shadowData(el, s.boxShadow), background_image: backgroundData(el, s, measuredBox),
       text_align: s.textAlign, letter_spacing: s.letterSpacing, line_height: s.lineHeight,
       stroke_width: svgStrokeData(el)?.width ?? null,
+      stroke_dash: svgStrokeData(el)?.dash ?? null, stroke_dash_offset: svgStrokeData(el)?.dash_offset ?? null,
+      stroke_linecap: svgStrokeData(el)?.linecap ?? null, stroke_linejoin: svgStrokeData(el)?.linejoin ?? null,
+      stroke_miterlimit: svgStrokeData(el)?.miterlimit ?? null,
       pseudo };
   };
   const stateOf = el => {
@@ -481,6 +534,7 @@
       checked: checkable ? !!el.checked || el.getAttribute('aria-checked') === 'true' : null,
       expanded: expandable ? el.localName === 'summary' ? !!el.parentElement.open : el.getAttribute('aria-expanded') === 'true' || el.classList.contains('open') : null,
       focused: interactive ? el === document.activeElement : null, hovered: el.matches(':hover'),
+      current: el.matches('.oc-node') ? el.getAttribute('aria-current') === 'true' : null,
       unread: el.matches('.cc-card,.chat-row') ? el.classList.contains('unread') || !!el.querySelector('.badge') : null,
       indeterminate: checkable ? !!el.indeterminate || el.getAttribute('aria-checked') === 'mixed' : null,
       role };
@@ -507,6 +561,7 @@
     if (kind === 'text' && !options.pseudo) {
       paintStyle.background = [0, 0, 0, 0]; paintStyle.border_color = [0, 0, 0, 0]; paintStyle.border_width = 0; paintStyle.corner_radius = 0;
       paintStyle.border_widths = [0, 0, 0, 0]; paintStyle.corner_radii = [0, 0, 0, 0]; paintStyle.border_colors = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+      paintStyle.border_styles = ['none', 'none', 'none', 'none'];
       paintStyle.shadow = []; paintStyle.background_image = 'none';
     }
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
@@ -523,7 +578,7 @@
         truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : boxes.length ? lineCount(boxes) : null },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
-        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
+        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
         font_request: text ? fontRequestEvidence(s) : null,
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,

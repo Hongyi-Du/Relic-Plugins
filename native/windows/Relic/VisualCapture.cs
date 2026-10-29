@@ -71,7 +71,7 @@ public sealed partial class MainWindow
                         case "thread": await OpenThread(fixture.Text("thread")); break;
                         case "workspace": workspaceMember = fixture.Text("member"); await SetPane("workspace"); break;
                         case "copies": case "copy-rules": dialog = Copies(); break;
-                        case "chart": dialog = Chart(); break;
+                        case "chart": dialog = ShowChart(org); break;
                         case "new-org": dialog = CreateOrg(); break;
                         case "member-app": dialog = MemberDialog("app"); break;
                         case "member-host": dialog = MemberDialog("host"); break;

@@ -26,6 +26,11 @@
           <SolidColorBrush x:Key="RelicControlSecondary" Color="#B8B5AE" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
+      <!-- Use the reference's text face explicitly. XamlAutoFontFamily can
+           select a different Segoe optical family even at the same size. -->
+      <Style TargetType="TextBlock"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
+      <Style TargetType="RichTextBlock"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
+      <Style TargetType="TextBox"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
       <!-- Native template: retain Button/UIA/keyboard semantics while matching
            the reference's flat paint instead of the default Fluent bevel. -->
       <Style TargetType="Button">
@@ -97,6 +102,48 @@
           </ControlTemplate>
         </Setter.Value></Setter>
       </Style>
+      <Style x:Key="RelicComposerMenuItemStyle" TargetType="MenuFlyoutItem">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{ThemeResource RelicControlInk}" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Template"><Setter.Value>
+          <ControlTemplate TargetType="MenuFlyoutItem">
+            <ContentPresenter x:Name="ComposerMenuRow" Content="{TemplateBinding Tag}" Foreground="{TemplateBinding Foreground}" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center">
+              <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                  <VisualState x:Name="Normal" />
+                  <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ComposerMenuRow.Background" Value="{ThemeResource RelicControlHover}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ComposerMenuRow.Background" Value="{ThemeResource RelicControlHover}" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="ComposerMenuRow.Foreground" Value="{ThemeResource RelicControlDisabled}" /></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+              </VisualStateManager.VisualStateGroups>
+            </ContentPresenter>
+          </ControlTemplate>
+        </Setter.Value></Setter>
+      </Style>
+      <Style x:Key="RelicComposerCheckStyle" TargetType="CheckBox">
+        <Setter Property="MinWidth" Value="0" /><Setter Property="MinHeight" Value="0" />
+        <Setter Property="Width" Value="13" /><Setter Property="Height" Value="13" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Template"><Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <Grid>
+              <Border x:Name="CheckSurface" CornerRadius="2" Background="{ThemeResource RelicControlCard}" BorderBrush="#767676" BorderThickness="1" />
+              <Path x:Name="CheckMark" Data="M 3,6.5 L 5.2,9 L 10,3.5" Stroke="White" StrokeThickness="1.5" Visibility="Collapsed" />
+              <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CheckStates">
+                  <VisualState x:Name="Unchecked" />
+                  <VisualState x:Name="Checked"><VisualState.Setters><Setter Target="CheckSurface.Background" Value="{ThemeResource AccentFillColorDefaultBrush}" /><Setter Target="CheckSurface.BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" /><Setter Target="CheckMark.Visibility" Value="Visible" /></VisualState.Setters></VisualState>
+                  <VisualState x:Name="Indeterminate" />
+                </VisualStateGroup>
+              </VisualStateManager.VisualStateGroups>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value></Setter>
+      </Style>
       <Style x:Key="RelicMenuItemStyle" TargetType="MenuFlyoutItem">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
         <Setter Property="FontSize" Value="13" />
@@ -112,7 +159,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <ContentPresenter Content="{TemplateBinding Tag}" VerticalAlignment="Center" />
                 <TextBlock x:Name="MenuLabel" Grid.Column="1" Text="{TemplateBinding Text}" FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}" Foreground="{TemplateBinding Foreground}" LineHeight="20.8" LineStackingStrategy="BlockLineHeight" TextWrapping="NoWrap" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="2" Text="{TemplateBinding KeyboardAcceleratorTextOverride}" FontFamily="Cascadia Code, Cascadia Mono, Consolas" FontSize="11" Foreground="{ThemeResource RelicControlMuted}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{TemplateBinding KeyboardAcceleratorTextOverride}" FontFamily="Cascadia Code" FontSize="11" Foreground="{ThemeResource RelicControlMuted}" VerticalAlignment="Center" />
                 <VisualStateManager.VisualStateGroups>
                   <VisualStateGroup x:Name="CommonStates">
                     <VisualState x:Name="Normal" />

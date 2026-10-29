@@ -21,6 +21,10 @@ public sealed partial class MainWindow
     private Button? threadSendButton;
     private readonly TextBlock quoteLabel = new() { TextWrapping = TextWrapping.Wrap };
     private Button? recipientButton;
+    private MenuFlyout? mentionPopup;
+    private readonly List<(MenuFlyoutItem Item, Action Pick)> mentionChoices = new();
+    private int mentionIndex;
+    private bool pickingMention;
     private const int chatLimit = 1000;
     private bool chatMore, olderHistory;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
@@ -50,50 +54,106 @@ public sealed partial class MainWindow
     private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; quoteRow.Visibility = Visibility.Collapsed; UpdateSendState(); }
     private Task PickRecipients()
     {
-        var box = new StackPanel { Spacing = 2, Width = 270 };
-        var options = new[] { ("all", T("composer.all_members")) }.Concat(snap.Rows("members").Select(m => (m.Text("name"), m.Text("display"))));
-        var toggles = new List<CheckBox>(); bool changing = false;
+        var menu = ComposerMenu();
+        var options = new[] { ("all", T("composer.all_members")) }.Concat(snap.Rows("members").Select(m => (m.Text("name"), Display(m.Text("name")))));
         foreach (var (id, label) in options)
         {
-            var check = new CheckBox { Content = Ellipsis(label), Tag = id, IsChecked = recipientNames.Contains(id), MinHeight = 34, HorizontalAlignment = HorizontalAlignment.Stretch };
-            void Changed()
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+            var check = new CheckBox { Style = (Style)Application.Current.Resources["RelicComposerCheckStyle"], IsChecked = recipientNames.Contains(id), Margin = new Thickness(4, 3, 3, 3), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, IsTabStop = false };
+            row.Children.Add(check);
+            if (id == "all")
             {
-                if (changing) return; changing = true;
-                if (check.IsChecked == true) foreach (var other in toggles) if (other != check && (id == "all" || other.Tag?.ToString() == "all")) other.IsChecked = false;
-                if (!toggles.Any(c => c.IsChecked == true)) toggles[0].IsChecked = true;
-                recipientNames.Clear(); foreach (var selected in toggles.Where(c => c.IsChecked == true)) recipientNames.Add(selected.Tag!.ToString()!);
-                UpdateRecipient(); SaveViewState(); changing = false;
+                var glyph = (ReferenceVectorIcon)ReferenceIcon("hash", 17); glyph.Foreground = Paint("5A5853", "B8B5AE");
+                row.Children.Add(new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Paint("EFEEEA", "262624"), Child = glyph });
             }
-            check.Checked += (_, _) => Changed(); check.Unchecked += (_, _) => Changed();
-            toggles.Add(check); box.Children.Add(check);
+            else row.Children.Add(Avatar(snap.Rows("members").FirstOrDefault(m => m.Text("name") == id).Text("avatar"), label, 20));
+            row.Children.Add(ComposerMenuLabel(label));
+            if (id != "all" && id != label) row.Children.Add(ComposerMenuLabel(id, true));
+            var avatarText = id == "all" || snap.Rows("members").FirstOrDefault(m => m.Text("name") == id).Text("avatar").Length > 0 ? "" : label[..1].ToUpperInvariant() + " ";
+            var item = new MenuFlyoutItem { Text = avatarText + label + (id == "all" || id == label ? "" : " " + id), Tag = row, Style = (Style)Application.Current.Resources["RelicComposerMenuItemStyle"] };
+            void Pick()
+            {
+                if (id == "all") { recipientNames.Clear(); recipientNames.Add("all"); }
+                else { recipientNames.Remove("all"); if (!recipientNames.Add(id)) recipientNames.Remove(id); if (recipientNames.Count == 0) recipientNames.Add("all"); }
+                menu.Hide(); UpdateRecipient(); SaveViewState();
+            }
+            item.Click += (_, _) => Pick(); menu.Items.Add(item);
         }
-        ShowPopover(box, recipientButton!, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft); return Task.CompletedTask;
+        OpenComposerMenu(menu, recipientButton!); return Task.CompletedTask;
+    }
+    private TextBlock ComposerMenuLabel(string value, bool secondary = false)
+    {
+        var text = new TextBlock { Text = value, FontSize = secondary ? 11.96 : 13, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(secondary ? "Cascadia Code" : "Segoe UI Variable Text"), Foreground = secondary ? Muted : Ink,
+            LineHeight = secondary ? 19.136 : 20.8, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center };
+        return text;
+    }
+    private MenuFlyout ComposerMenu()
+    {
+        var style = new Style(typeof(MenuFlyoutPresenter));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Paint("FFFFFF", "252523")));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, Paint("DEDBD4", "3A3936")));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(12)));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
+        style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 220d));
+        style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, root.ActualHeight * .6));
+        return new MenuFlyout { MenuFlyoutPresenterStyle = style };
+    }
+    private void OpenComposerMenu(MenuFlyout menu, FrameworkElement anchor)
+    {
+        transientFlyout?.Hide(); transientFlyout = menu;
+        menu.ShowAt(anchor, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft, ShowMode = Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowMode.Transient });
     }
     private void UpdateRecipient()
     {
         if (recipientButton != null)
         {
-            var label = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display))));
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; row.Children.Add(Ellipsis(label, 12.5));
-            var arrow = ReferenceIcon("chev", 12); arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; row.Children.Add(arrow);
+            var target = recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display));
+            if (target.Length > 24) target = target[..23] + "…";
+            var label = T("composer.send_to", ("to", target));
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center }; var text = Ellipsis(label, 12.5); text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
+            var arrow = (ReferenceVectorIcon)ReferenceIcon("down", 14); arrow.Foreground = text.Foreground; row.Children.Add(arrow);
             recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(9); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(10, 0, 10, 0);
             recipientButton.MaxWidth = 230; ToolTipService.SetToolTip(recipientButton, label); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
     private void MentionMenu()
     {
+        mentionPopup?.Hide(); mentionPopup = null; mentionChoices.Clear(); mentionIndex = 0;
+        if (pickingMention || member.Length > 0 || org.Length == 0) return;
         var start = editor.SelectionStart; var text = editor.Text[..Math.Min(start, editor.Text.Length)]; var match = Regex.Match(text, @"(?:^|\s)@([^\s@]*)$");
         if (!match.Success) return;
-        var choices = snap.Rows("members").Where(m => m.Text("name").Contains(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase) || m.Text("display").Contains(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase)).Take(10).ToArray();
+        var choices = snap.Rows("members").Where(m => m.Text("name").StartsWith(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase) || m.Text("display").StartsWith(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase)).Take(8).ToArray();
         if (choices.Length == 0) return;
-        var menu = new MenuFlyout();
+        var menu = ComposerMenu();
         foreach (var m in choices)
         {
-            var option = new MenuFlyoutItem { Text = m.Text("display") + " · @" + m.Text("name") };
-            option.Click += (_, _) => { var at = text.LastIndexOf('@'); var inserted = "@" + m.Text("display") + " "; editor.Text = editor.Text[..at] + inserted + editor.Text[start..]; editor.SelectionStart = at + inserted.Length; recipientNames.Remove("all"); recipientNames.Add(m.Text("name")); UpdateRecipient(); SaveViewState(); editor.Focus(FocusState.Programmatic); };
+            var label = Display(m.Text("name")); var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(Avatar(m.Text("avatar"), label, 20)); row.Children.Add(ComposerMenuLabel(label)); row.Children.Add(ComposerMenuLabel(m.Text("name"), true));
+            var option = new MenuFlyoutItem { Text = (m.Text("avatar").Length > 0 ? "" : label[..1].ToUpperInvariant() + " ") + label + " " + m.Text("name"), Tag = row, Style = (Style)Application.Current.Resources["RelicComposerMenuItemStyle"], Background = menu.Items.Count == 0 ? Paint("EFEEEA", "262624") : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            void Pick()
+            {
+                pickingMention = true;
+                try { var at = text.LastIndexOf('@'); var inserted = "@" + label + " "; editor.Text = editor.Text[..at] + inserted + editor.Text[start..]; editor.SelectionStart = at + inserted.Length; recipientNames.Remove("all"); recipientNames.Add(m.Text("name")); menu.Hide(); UpdateRecipient(); SaveViewState(); editor.Focus(FocusState.Programmatic); }
+                finally { pickingMention = false; }
+            }
+            option.Click += (_, _) => Pick(); mentionChoices.Add((option, Pick));
             menu.Items.Add(option);
         }
-        transientFlyout?.Hide(); transientFlyout = menu; menu.ShowAt(editor);
+        mentionPopup = menu; menu.Closed += (_, _) => { if (ReferenceEquals(mentionPopup, menu)) { mentionPopup = null; mentionChoices.Clear(); } }; OpenComposerMenu(menu, editor);
+    }
+    private bool MentionKey(VirtualKey key)
+    {
+        if (mentionPopup == null || mentionChoices.Count == 0) return false;
+        if (key is VirtualKey.Up or VirtualKey.Down)
+        {
+            mentionIndex = (mentionIndex + (key == VirtualKey.Down ? 1 : -1) + mentionChoices.Count) % mentionChoices.Count;
+            for (var i = 0; i < mentionChoices.Count; i++) mentionChoices[i].Item.Background = i == mentionIndex ? Paint("EFEEEA", "262624") : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            return true;
+        }
+        if (key is VirtualKey.Enter or VirtualKey.Tab) { mentionChoices[mentionIndex].Pick(); return true; }
+        if (key == VirtualKey.Escape) { mentionPopup.Hide(); return true; }
+        return false;
     }
     private void WireComposer()
     {
@@ -111,11 +171,11 @@ public sealed partial class MainWindow
         };
         editor.KeyDown += async (_, e) =>
         {
+            if (!composing.Contains(editor) && MentionKey(e.Key)) { e.Handled = true; return; }
             var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
             if (e.Key == VirtualKey.Enter && !shift && !composing.Contains(editor)) { e.Handled = true; await Run(Send); }
-            if (e.Key == VirtualKey.Space && editor.Text[..Math.Min(editor.SelectionStart, editor.Text.Length)].EndsWith('@')) MentionMenu();
         };
-        editor.TextChanged += (_, _) => { if (editor.Text[..Math.Min(editor.SelectionStart, editor.Text.Length)].EndsWith('@')) DispatcherQueue.TryEnqueue(MentionMenu); };
+        editor.TextChanged += (_, _) => { if (!pickingMention && !composing.Contains(editor)) DispatcherQueue.TryEnqueue(MentionMenu); };
     }
     private IEnumerable<JsonNode?> ConversationItems()
     {
@@ -196,11 +256,11 @@ public sealed partial class MainWindow
             var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             var roleName = Display(member) == T("common.secretary") ? member : Display(member);
             heading.Children.Add(HeaderLabel(m.Flag("secretary") ? T("chat.secretary_title", ("name", roleName)) : Display(member)));
-            if (m.Text("display").Length > 0 && m.Text("display") != member) { var identifier = HeaderLabel(member); identifier.Foreground = Muted; identifier.FontWeight = Microsoft.UI.Text.FontWeights.Normal; identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Cascadia Mono, Consolas"); identifier.FontSize = 13.8; heading.Children.Add(identifier); }
+            if (m.Text("display").Length > 0 && m.Text("display") != member) { var identifier = HeaderLabel(member); identifier.Foreground = Muted; identifier.FontWeight = Microsoft.UI.Text.FontWeights.Normal; identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); identifier.FontSize = 13.8; heading.Children.Add(identifier); }
             if (m.Flag("leader")) heading.Children.Add(Badge(T("common.leader"), true)); titles.Children.Add(heading);
             titles.Children.Add(HeaderMeta(string.Join(" · ", new[] { snap["org"].Text("name"), m.Text("harness_label"), m.Text("surface_label"), m.Text("model"), MemberState(m.Text("state")) }.Where(x => x.Length > 0))));
             if (m.Flag("embedded") && m.Text("state") is "running" or "waiting") actions.Children.Add(IconButton("\uE71A", "chat.stop_turn", () => Post("/cancel", new { member })));
-            actions.Children.Add(IconButton("\uE77B", "chat.card", () => MemberCard(member)));
+            Button? card = null; card = IconButton("\uE77B", "chat.card", () => MemberCard(member, card)); actions.Children.Add(card);
             actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
             if (m.Text("surface") != "chat") actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
@@ -270,7 +330,7 @@ public sealed partial class MainWindow
             }
             label.Children.Add(Who(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), 12.5, true));
             if (!inThread && member.Length == 0 && snap.Rows("members").Any(m => m.Text("name") == from))
-            { var identifier = Who(from, 11); identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Cascadia Mono, Consolas"); label.Children.Add(identifier); }
+            { var identifier = Who(from, 11); identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); label.Children.Add(identifier); }
             var names = item.Rows("to").Select(x => x.Text()).ToArray(); var everyone = names.Contains("all") || snap.Rows("members").Where(m => m.Text("name") != from).All(m => names.Contains(m.Text("name")));
             if (!inThread && member.Length == 0) label.Children.Add(Who(T("msg.to", ("names", everyone ? T("msg.everyone") : words.List(names.Select(Display)))), 12));
             label.Children.Add(Who(time, 12)); column.Children.Add(label);
@@ -318,10 +378,11 @@ public sealed partial class MainWindow
             var replies = QuietButton("", () => OpenThread(item.Text("id"))); replies.Content = row; replies.Padding = new Thickness(4, 3, 8, 3); replies.CornerRadius = new CornerRadius(8); after.Children.Add(replies);
         }
         var secretary = from == snap["org"].Text("secretary");
-        var bubble = new Border { Child = box, Padding = new Thickness(13, 9, 13, 9), CornerRadius = mine ? new CornerRadius(14, 4, 14, 14) : new CornerRadius(4, 14, 14, 14), Background = mine ? MessageTint() : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7058B8", "A894E0") : Line, BorderThickness = new Thickness(0), MaxWidth = 720, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        var bubble = new Border { Child = box, Padding = new Thickness(13, 9, 13, 9), CornerRadius = mine ? new CornerRadius(14, 4, 14, 14) : new CornerRadius(4, 14, 14, 14), Background = mine ? MessageTint() : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7058B8", "A894E0") : Line, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch };
         if (secretary && member.Length == 0) { bubble.BorderThickness = new Thickness(3, 0, 0, 0); bubble.Padding = new Thickness(10, 9, 13, 9); }
         if (showingPlain) { bubble.Background = Paint("F3F0FA", "302A40"); bubble.BorderBrush = Paint("D8CEE9", "4C405E"); bubble.BorderThickness = new Thickness(1); }
-        column.Children.Add(bubble); if (after.Children.Count > 0) column.Children.Add(after);
+        var bubbleLayout = new MessageBubbleLayout { MaxWidth = 720, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left }; bubbleLayout.Children.Add(bubble);
+        column.Children.Add(bubbleLayout); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
         message.Children.Add(column); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
         message.PointerEntered += (_, _) => actions.Opacity = 1; message.PointerExited += (_, _) => actions.Opacity = 0;
@@ -329,7 +390,7 @@ public sealed partial class MainWindow
         var outer = new Grid { ColumnSpacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, continued ? 4 : preferences.Text("density") == "compact" ? 7 : 14, 0, 0) };
         outer.ColumnDefinitions.Add(new() { Width = mine ? new GridLength(1, GridUnitType.Star) : GridLength.Auto }); outer.ColumnDefinitions.Add(new() { Width = mine ? GridLength.Auto : new GridLength(1, GridUnitType.Star) });
         var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
-        var avatar = QuietButton("", () => mine ? Settings() : MemberCard(from)); avatar.Content = SmallAvatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), size: 36); avatar.Padding = new Thickness(0); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1;
+        Button? avatar = null; avatar = QuietButton("", () => mine ? Settings() : MemberCard(from, avatar)); avatar.Content = SmallAvatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), size: 36); avatar.Padding = new Thickness(0); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1;
         Grid.SetColumn(avatar, mine ? 1 : 0); Grid.SetColumn(message, mine ? 0 : 1); outer.Children.Add(avatar); outer.Children.Add(message); return outer;
     }
     private Microsoft.UI.Xaml.Media.SolidColorBrush MessageTint()
@@ -472,5 +533,26 @@ public sealed partial class MainWindow
             }
         };
         return expand;
+    }
+}
+
+// CSS grid's fit-content behavior keeps a wrapping bubble at the constrained
+// preferred width. RichTextBlock.DesiredSize alone shrinks it to the longest
+// already-wrapped line, moving the bubble edge even when line breaks match.
+public sealed class MessageBubbleLayout : Panel
+{
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        if (Children.Count == 0) return default;
+        var child = Children[0];
+        child.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var width = Math.Min(child.DesiredSize.Width, availableSize.Width);
+        child.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
+        return new Windows.Foundation.Size(width, child.DesiredSize.Height);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        if (Children.Count > 0) Children[0].Arrange(new Windows.Foundation.Rect(0, 0, finalSize.Width, finalSize.Height));
+        return finalSize;
     }
 }
