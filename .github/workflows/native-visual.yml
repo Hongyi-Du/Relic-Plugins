@@ -13,20 +13,30 @@ on:
         description: Full acceptance matrix or fast first-look scenes
         type: choice
         options: [smoke, full]
-        default: smoke
+        default: full
 permissions:
   contents: read
 concurrency:
   group: visual-${{ github.ref_name }}
   cancel-in-progress: true
 jobs:
+  element-checker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+      - name: Test strict matcher thresholds and failure coverage
+        run: python -m unittest discover -s scripts/visual -p 'test_element_parity.py' -v
   windows:
     runs-on: windows-2025
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
+        include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -38,9 +48,10 @@ jobs:
       - run: pip install pillow playwright
       - run: python -m playwright install chromium
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+      - run: dotnet publish native/windows/Relic.Capture/Relic.Capture.csproj -c Release -o native-build/capture
       - name: Set CI desktop size without a settings window
         run: ./scripts/visual/windows-display.ps1
-      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -57,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
+        include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,7 +80,7 @@ jobs:
       - shell: bash
         run: |
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
+            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
           done
       - uses: actions/upload-artifact@v4
         if: always()
@@ -77,7 +88,8 @@ jobs:
           name: visual-macos-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/macos
   compare:
-    needs: [windows, macos]
+    needs: [windows, macos, element-checker]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,22 +98,35 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: visual-reference-*
           merge-multiple: true
           path: visual/reference
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: visual-windows-*
           merge-multiple: true
           path: visual/windows
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: visual-macos-*
           merge-multiple: true
           path: visual/macos
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
+        continue-on-error: true
+      - name: Require all 504 scenes to have zero element mismatches
+        if: always()
+        run: python scripts/visual/element_parity.py --source visual --output visual/parity --matrix full
       - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-native-element-parity
+          path: visual/parity
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Relic-native-visual-comparisons
           path: visual/comparisons

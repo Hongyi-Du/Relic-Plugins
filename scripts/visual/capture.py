@@ -12,11 +12,13 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
 
-def wait_file(path, process, timeout=60):
+def wait_file(path, process, timeout=60, on_tick=None):
     end = time.monotonic() + timeout
     progress_file = path.parent / "current-case.txt" if path.name == "complete.json" else None
     current_case, last_progress = "", time.monotonic()
     while time.monotonic() < end:
+        if on_tick:
+            on_tick()
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8-sig"))
         if process.poll() is not None:
@@ -61,6 +63,14 @@ def reference(manifest):
                 page.locator(".details .doc-body").wait_for(state="visible")
             page.wait_for_timeout(700)
             page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
+            cdp = page.context.new_cdp_session(page)
+            snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
+            evidence = Path(manifest["output"]) / (case["id"] + ".dom.json")
+            evidence.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+            extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
+            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot})
+            (Path(manifest["output"]) / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
+            cdp.detach()
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
             page.close()
@@ -73,8 +83,39 @@ def native(manifest_path, manifest, exe):
         (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
+        last_request = ""
+        def capture_elements():
+            nonlocal last_request
+            if manifest["client"] != "windows":
+                return
+            request_path = manifest_path.parent / "elements-request.json"
+            if not request_path.exists():
+                return
+            request = json.loads(request_path.read_text(encoding="utf-8-sig"))
+            if request["case_id"] == last_request:
+                return
+            last_request = request["case_id"]
+            output = Path(manifest["output"])
+            raw = output / (last_request + ".uia.json")
+            try:
+                result = subprocess.run([manifest["uia_exe"], "--request", str(request_path), "--output", str(raw)], timeout=75, capture_output=True, text=True)
+                if result.returncode:
+                    raise RuntimeError(f"UIA extractor exited {result.returncode}: {result.stderr}")
+            except Exception as error:
+                partial = json.loads(raw.read_text(encoding="utf-8-sig")) if raw.exists() else {"raw_nodes": []}
+                partial.setdefault("extraction_errors", []).append(str(error))
+                raw.write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
+            from windows_elements import project
+            try:
+                projected = project(output / (last_request + ".xaml.json"), raw, output / (last_request + ".png"))
+            except Exception as error:
+                projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
+            (output / (last_request + ".elements.json")).write_text(json.dumps(projected, ensure_ascii=False), encoding="utf-8")
+            receipt = manifest_path.parent / "elements-complete.json"
+            receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request}), encoding="utf-8")
+            receipt.with_suffix(".tmp").replace(receipt)
         try:
-            receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=1200)
+            receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=1200, on_tick=capture_elements)
             if receipt.get("errors"):
                 raise RuntimeError(str(receipt["errors"]))
             for case in manifest["cases"]:
@@ -95,6 +136,7 @@ def main():
     parser.add_argument("--lang", choices=["zh-CN", "en-US"])
     parser.add_argument("--theme", choices=["light", "dark"])
     parser.add_argument("--exe", type=Path)
+    parser.add_argument("--uia-exe", type=Path, help="Independent Windows UIA reader; CI only")
     parser.add_argument("--reference", action="store_true", help="Capture reference against this exact native fixture/server on the Windows runner")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -120,6 +162,10 @@ def main():
                     work.mkdir(exist_ok=True)
                     cases = [{"id": f"{lang}-{theme}-{width}x{height}-{scene}", "scene": scene, "width": width, "height": height, "file": f"{lang}-{theme}-{width}x{height}-{scene}.png"} for width, height in sizes for scene in scenes]
                     manifest = {"version": 1, "client": args.client, "lang": lang, "theme": theme, "fixture": fixture, "output": str(output), "cases": cases}
+                    if args.client == "windows":
+                        if not args.uia_exe:
+                            raise ValueError("Windows capture requires the independent --uia-exe reader")
+                        manifest["uia_exe"] = str(args.uia_exe.resolve())
                     path = work / "manifest.json"
                     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
                     if args.reference:
