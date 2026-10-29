@@ -12,7 +12,7 @@ struct MainView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(spacing: 0) {
-            AppToolbar().measuredRegion("appbar")
+            AppToolbar().measuredRegion("header")
             if !m.error.isEmpty { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }

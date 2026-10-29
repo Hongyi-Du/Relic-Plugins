@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import RelicCore
+import RelicAX
 
 // Measurements come from the live production accessibility/view tree and PNG.
 // This exporter never reads the reference's element data or substitutes its values.
@@ -17,19 +18,18 @@ import RelicCore
         case "AXStaticText": return "text"
         case "AXTextField", "AXTextArea", "AXSearchField": return "input"
         case "AXCheckBox": return "checkbox"
-        case "AXRadioButton": return "radio"
+        case "AXRadioButton": return "tab"
         case "AXPopUpButton", "AXComboBox": return "dropdown"
         case "AXLink": return "link"
         case "AXImage": return "image"
         case "AXMenuItem": return "menu-item"
-        case "AXMenu": return "menu"
-        case "AXTabGroup": return "tabs"
-        case "AXRow": return "row"
-        case "AXList", "AXOutline", "AXTable": return "list"
+        case "AXMenu", "AXTabGroup": return "region"
+        case "AXRow": return "list-row"
+        case "AXList", "AXOutline", "AXTable": return "region"
         case "AXSplitter", "AXSplitGroup": return "divider"
-        case "AXScrollArea": return "scroll-area"
+        case "AXScrollArea": return "region"
         case "AXScrollBar": return "scrollbar"
-        case "AXGroup", "AXLayoutArea": return "group"
+        case "AXGroup", "AXLayoutArea": return "region"
         default: return "unknown"
         }
     }
@@ -41,20 +41,20 @@ import RelicCore
     }
     static func rgba(_ color: NSColor?) -> Any {
         guard let color = color?.usingColorSpace(.sRGB) else { return NSNull() }
-        return [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent].map(Double.init)
+        return [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent].map { Double($0 * 255) }
     }
     private static func string(_ value: Any?) -> String {
         if let value = value as? String { return value }
         if let value = value as? NSAttributedString { return value.string }
         return ""
     }
-    private static func style(_ object: AnyObject, ax: any NSAccessibilityProtocol, text: String) -> [String: Any] {
+    private static func style(_ object: AnyObject, text: String) -> [String: Any] {
         var result: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(), "borderWidth": NSNull(), "borderRadius": NSNull()]
         var font: NSFont?, foreground: NSColor?, background: NSColor?
         if let textView = object as? NSTextView { font = textView.font; foreground = textView.textColor; if textView.drawsBackground { background = textView.backgroundColor } }
         else if let field = object as? NSTextField { font = field.font; foreground = field.textColor; if field.drawsBackground { background = field.backgroundColor } }
         else if let control = object as? NSControl { font = control.font }
-        if !text.isEmpty, let attributed = ax.accessibilityAttributedString(for: NSRange(location: 0, length: (text as NSString).length)), attributed.length > 0 {
+        if !text.isEmpty, let attributed = RelicAXText(object, NSRange(location: 0, length: (text as NSString).length)), attributed.length > 0 {
             let attributes = attributed.attributes(at: 0, effectiveRange: nil)
             font = (attributes[.font] as? NSFont) ?? font
             foreground = (attributes[.foregroundColor] as? NSColor) ?? foreground
@@ -92,33 +92,58 @@ import RelicCore
             return regions.filter { $0.rect.contains(point) }.min(by: { $0.rect.width * $0.rect.height < $1.rect.width * $1.rect.height })?.name ?? fallback
         }
         func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect) {
-            guard let object = value as? NSObject, let ax = object as? any NSAccessibilityProtocol else { return }
+            let object = value as AnyObject
+            let attributes = RelicAXRead(object) as! [String: Any]
+            let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
-            let role = ax.accessibilityRole()?.rawValue ?? "", rect = topLeft(ax.accessibilityFrame(), in: contentScreen)
+            let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
             let visibleRect = rect.intersection(clip)
-            let label = ax.accessibilityLabel() ?? "", title = ax.accessibilityTitle() ?? "", valueText = string(ax.accessibilityValue())
+            let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let text = !valueText.isEmpty && ["AXStaticText", "AXTextField", "AXTextArea"].contains(role) ? valueText : !title.isEmpty ? title : label
             let assignedRegion = inheritedRegion == "dialog" || inheritedRegion == "menu" ? inheritedRegion : region(rect, fallback: inheritedRegion)
-            let visible = !ax.isAccessibilityHidden() && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
-            var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax.accessibilitySubrole()?.rawValue ?? "", "kind": kind(role), "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax.accessibilityPlaceholderValue() ?? "", "identifier": ax.accessibilityIdentifier() ?? "", "help": ax.accessibilityHelp() ?? "", "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax.isAccessibilityElement(), "order": raw.count, "source": "NSAccessibilityProtocol", "class": String(describing: type(of: object))]
-            node["state"] = ["disabled": !ax.isAccessibilityEnabled(), "focused": ax.isAccessibilityFocused(), "selected": ax.isAccessibilitySelected(), "expanded": ax.isAccessibilityExpanded(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? ((ax.accessibilityValue() as? NSNumber)?.intValue == 1) : false]
-            node["style"] = style(object, ax: ax, text: text)
+            let visible = !ax["hidden"].flag && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
+            var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": kind(role), "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
+            node["state"] = ["disabled": !ax["enabled"].flag, "focused": ax["focused"].flag, "selected": ax["selected"].flag, "expanded": ax["expanded"].flag, "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? ((attributes["value"] as? NSNumber)?.intValue == 1) : false]
+            node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
+            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
             raw.append(node)
-            if visible && ax.isAccessibilityElement() { elements.append(node) }
+            if visible && ax["element"].flag { elements.append(node) }
             let childClip = role == "AXScrollArea" ? clip.intersection(rect) : clip
-            for (index, child) in (ax.accessibilityChildren() ?? []).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip) }
+            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip) }
         }
         visit(content, path: "window", parent: nil, inheritedRegion: "window", clip: viewport)
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
             visit(child.contentView!, path: "surface-" + String(index), parent: nil, inheritedRegion: child === window.attachedSheet ? "dialog" : "menu", clip: viewport)
         }
-        guard !elements.isEmpty else { throw RelicError.message("Native accessibility extraction returned no visible elements") }
+
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
-        var normalized = metadata
-        normalized["elements"] = elements
-        normalized["extraction"] = ["source": "live-native-AX-and-PNG", "coverageComplete": false, "diagnostics": ["Paint-only SwiftUI decorations require supplemental view measurements", "Null style attributes are unmeasured and must not count as matches"], "rawNodes": raw.count, "visibleAXElements": elements.count]
+        var unmeasured = ["Paint-only SwiftUI decoration coverage", "Exact opaque-overlay occlusion"]
+        if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
+        var orders: [String: Int] = [:]
+        let canonical = elements.map { node -> [String: Any] in
+            let id = node["id"] as! String, region = node["region"] as! String, kind = node["kind"] as! String
+            let sourceStyle = node["style"] as! [String: Any], sourceState = node["state"] as! [String: Any]
+            let text = node["text"] as! String
+            let styleKeys = ["font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color", "background": "backgroundColor", "border_color": "borderColor", "border_width": "borderWidth", "corner_radius": "borderRadius"]
+            var actualStyle: [String: Any] = [:]
+            for (key, original) in styleKeys {
+                let value = sourceStyle[original] ?? NSNull()
+                actualStyle[key] = value
+                if value is NSNull && (!key.hasPrefix("font_") || !text.isEmpty) { unmeasured.append(id + ":style." + key) }
+            }
+            let isControl = ["button", "input", "checkbox", "tab", "dropdown", "link", "menu-item"].contains(kind)
+            let order = orders[region, default: 0]; orders[region] = order + 1
+            let state: [String: Any] = ["enabled": isControl ? !(sourceState["disabled"] as? Bool ?? false) as Any : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": sourceState["expanded"]!, "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": NSNull(), "unread": NSNull()]
+            unmeasured.append(id + ":state.hovered")
+            if !text.isEmpty { unmeasured.append(id + ":layout") }
+            var evidence = node
+            evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
+            evidence["raw_node_id"] = id
+            return ["id": id, "parent": node["parent"]!, "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": NSNull(), "evidence": evidence]
+        }
+        let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
         try JSONSerialization.data(withJSONObject: audit, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))
