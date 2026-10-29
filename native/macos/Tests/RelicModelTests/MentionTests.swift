@@ -4,6 +4,17 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
+    func testBareAtOffersMembersAndQueryMatchesDisplayOrSeatName() {
+        let editor = ComposerTextView()
+        editor.members = [Node(["name": "engineer", "display": "工程师"]), Node(["name": "designer", "display": "设计师"])]
+        editor.string = "@"; editor.setSelectedRange(NSRange(location: 1, length: 0))
+        XCTAssertEqual(editor.mentionCandidates().map { $0["name"].text }, ["engineer", "designer"])
+        editor.string = "@工程"; editor.setSelectedRange(NSRange(location: 3, length: 0))
+        XCTAssertEqual(editor.mentionCandidates().map { $0["name"].text }, ["engineer"])
+        editor.string = "@DES"; editor.setSelectedRange(NSRange(location: 4, length: 0))
+        XCTAssertEqual(editor.mentionCandidates().map { $0["name"].text }, ["designer"])
+    }
+
     func testMentionAtUTF16CaretReplacesOnlyQueryAndSelectsRecipient() {
         let editor = ComposerTextView()
         editor.string = "检查 ✅ @工 后续文字"

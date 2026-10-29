@@ -19,9 +19,9 @@ struct MainView: View {
             HSplitView {
                 if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340) }
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: 320, idealWidth: 320, maxWidth: 740) }
-            }
-        }.background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
+                if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 320, maxWidth: 740) }
+            }.frame(maxHeight: .infinity)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
         .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
@@ -57,7 +57,7 @@ struct AppToolbar: View {
 }
 
 func accent(_ name: String) -> Color {
-    switch name { case "ink": return RelicStyle.ink; case "indigo": return Color(red: 0.36, green: 0.38, blue: 0.84); case "rose": return .pink; case "amber": return .orange; case "blue": return .blue; default: return RelicStyle.accent }
+    switch name { case "ink": return RelicStyle.color(0x3A3936, 0xD9D6CF); case "indigo": return RelicStyle.color(0x5B61D6, 0x5B61D6); case "rose": return RelicStyle.color(0xC4456C, 0xC4456C); case "amber": return RelicStyle.color(0xB9821D, 0xB9821D); case "blue": return RelicStyle.color(0x2F6BD8, 0x2F6BD8); default: return RelicStyle.accent }
 }
 
 struct SheetContent: View {

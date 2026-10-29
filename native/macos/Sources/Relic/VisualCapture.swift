@@ -42,7 +42,7 @@ import RelicCore
                 model.detailTask = ""; model.detailFilter = "open"; model.editMember = ""
                 model.newSecretary = false; model.memberMode = "app"; model.expandRules = false
                 model.appMenu = nil; model.recipientPicker = false
-                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel")
+                model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel"); model.defaults.set(520.0, forKey: "width.files")
                 try await model.select(fixture["org"].text)
                 model.pane = "overview"; model.detailMember = fixture["member"].text; model.cardMember = fixture["member"].text
                 model.windowSize = CGSize(width: CGFloat(width), height: CGFloat(height))
@@ -86,6 +86,7 @@ import RelicCore
                 if scene == "mention", let editor = textEditors(window.contentView).first {
                     window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
                     try await Task.sleep(for: .milliseconds(350))
+                    guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker") }
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)

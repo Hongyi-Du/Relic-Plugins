@@ -3,6 +3,7 @@ import RelicCore
 
 // These tables drive controls and state labels; wording is always fetched from /api/i18n.
 enum Choices {
+    static let accents = [("clay", "native.color_clay"), ("ink", "native.color_ink"), ("indigo", "native.color_indigo"), ("blue", "native.color_blue"), ("rose", "native.color_rose"), ("amber", "native.color_amber")]
     static let themes = [("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark")]
     static let fonts = [("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large")]
     static let densities = [("comfortable", "settings.density_comfortable"), ("compact", "settings.density_compact")]

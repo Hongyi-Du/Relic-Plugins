@@ -10,8 +10,8 @@ struct SettingsView: View {
     var body: some View {
         HSplitView {
             List(sections, id: \.0) { key, title in
-                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(.system(size: 13)).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).listRowSeparator(.hidden)
-            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 170).background(RelicStyle.sidebar)
+                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(.system(size: 13)).lineLimit(2).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).help(m.t(title)).listRowSeparator(.hidden)
+            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 210).background(RelicStyle.sidebar)
             Form {
                 switch m.settingsSection {
                 case "profile": profile
@@ -40,7 +40,7 @@ struct SettingsView: View {
     private var appearance: some View {
         Section(m.t("settings.appearance")) {
             Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(Choices.themes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)
-            HStack { Text(m.t("settings.accent")); ForEach(["clay", "ink", "indigo", "blue", "rose", "amber"], id: \.self) { color in Button { m.run { try await m.savePreferences(["accent": color]) } } label: { Circle().fill(accent(color)).frame(width: 24, height: 24).overlay { if m.preferences["accent"].text == color { Image(systemName: "checkmark").foregroundStyle(.white) } } }.buttonStyle(.plain).accessibilityLabel(color) } }
+            HStack { Text(m.t("settings.accent")); ForEach(Choices.accents, id: \.0) { color, key in Button { m.run { try await m.savePreferences(["accent": color]) } } label: { Circle().fill(accent(color)).frame(width: 24, height: 24).overlay { if m.preferences["accent"].text == color { Image(systemName: "checkmark").foregroundStyle(.white) } } }.buttonStyle(.plain).accessibilityLabel(m.t(key)).help(m.t(key)) } }
             Text(m.t("settings.accent_hint")).font(.caption)
             Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(Choices.fonts, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)
             Picker(m.t("settings.density"), selection: preference("density")) { ForEach(Choices.densities, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)

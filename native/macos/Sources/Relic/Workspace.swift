@@ -92,22 +92,22 @@ struct FilePreview: View {
                 Divider().overlay(RelicStyle.line)
                 Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption).foregroundStyle(RelicStyle.muted)
                 if m.file["truncated"].flag { Text(m.t("file.truncated")).foregroundStyle(.orange) }
-                if m.file["kind"].text == "image", let image = m.fileImage { ScrollView([.horizontal, .vertical]) { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 1200) } }
+                if m.file["kind"].text == "image", let image = m.fileImage { ScrollView { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity) } }
                 else if m.file["kind"].text == "binary" { Text(m.t("file.binary")); Spacer() }
                 else {
                     if m.file["kind"].text == "markdown" { Picker("", selection: $source) { Text(m.t("file.preview")).tag(false); Text(m.t("file.source")).tag(true) }.pickerStyle(.segmented) }
                     if m.file["kind"].text == "markdown" && !source { ScrollView { RichText(m.file["text"].text).padding(12).frame(maxWidth: .infinity, alignment: .leading) }.background(RelicStyle.background) }
                     else {
                         ScrollViewReader { proxy in
-                            HStack { TextField("#", text: $jump).frame(width: 70).onSubmit { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } }; Button(m.t("common.open")) { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } } }
+                            HStack { TextField("#", text: $jump).frame(width: 70).onSubmit { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .top) } }; Button(m.t("common.open")) { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .top) } } }
                             ScrollView([.vertical, .horizontal]) {
                                 LazyVStack(alignment: .leading, spacing: 0) {
                                     ForEach(Array(lines.prefix(6000).enumerated()), id: \.offset) { index, line in
-                                        HStack(alignment: .top) { Text(String(index + 1)).foregroundStyle(.secondary).frame(width: 50, alignment: .trailing); Text(line.isEmpty ? " " : line).textSelection(.enabled) }
-                                            .font(.system(.caption, design: .monospaced)).padding(.vertical, 2).background(m.fileLine == index + 1 ? Color.accentColor.opacity(0.15) : .clear).id(index + 1)
+                                        HStack(alignment: .top, spacing: 12) { Text(String(index + 1)).foregroundStyle(RelicStyle.muted).frame(width: 32, alignment: .trailing); Text(line.isEmpty ? " " : line).textSelection(.enabled).fixedSize(horizontal: true, vertical: false) }
+                                            .font(.system(size: 12, design: .monospaced)).padding(.vertical, 3).background(m.fileLine == index + 1 ? RelicStyle.mine : .clear).id(index + 1)
                                     }
                                 }
-                            }.onAppear { proxy.scrollTo(m.fileLine, anchor: .center) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .center) }
+                            }.defaultScrollAnchor(.topLeading).background(RelicStyle.background).onAppear { proxy.scrollTo(max(1, m.fileLine), anchor: .top) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .top) }
                             if lines.count > 6000 { Text(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)])).font(.caption) }
                         }
                     }

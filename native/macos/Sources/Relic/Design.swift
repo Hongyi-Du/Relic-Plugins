@@ -61,7 +61,7 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) { Image(systemName: icon).font(.system(size: 14, weight: .medium)).frame(width: 30, height: 28) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
-            .overlay(alignment: .topTrailing) { if badge > 0 { Circle().fill(RelicStyle.accent).frame(width: 7, height: 7).allowsHitTesting(false) } }
+            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(.system(size: 9, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 3).frame(minWidth: 12, minHeight: 12).background(RelicStyle.accent, in: Capsule()).allowsHitTesting(false) } }
             .help(title).accessibilityLabel(title)
     }
 }
