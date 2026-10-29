@@ -54,15 +54,19 @@ def native_keys():
     native = ROOT.parents[1] / "native"
     keys = set()
     for path in native.rglob("*"):
-        if path.suffix not in (".cs", ".swift", ".xaml") or any(part in ("bin", "obj", ".build", "Tests") for part in path.parts):
+        if path.suffix not in (".cs", ".swift", ".xaml") or any(part in ("bin", "obj", ".build") or "Tests" in part for part in path.parts):
             continue
         source = path.read_text(encoding="utf-8-sig")
         source = re.sub(r'forKey:\s*"[^"]+"', '', source)  # native persistence keys are not displayed
         # Reverse coverage matters: web -> native parity cannot detect a typo
         # used only by a native control (composer.voice_title was one).
-        namespaces = {key.split(".", 1)[0] for key in word_list("en-US") if "." in key}
+        # Swift's list.* SF Symbols are icon identifiers. Actual list-template
+        # lookups are collected by the direct T/t-call scan below.
+        namespaces = {key.split(".", 1)[0] for key in word_list("en-US") if "." in key} - {"list"}
         keys.update(key for key in re.findall(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"', source)
                     if key.split(".", 1)[0] in namespaces and not key.endswith("_"))
+        keys.update(key for key in re.findall(r'\b(?:T|t)\(\s*"([a-z][a-z0-9_.]+)"', source)
+                    if not key.endswith(("_", ".")))
     packaging = ROOT.parents[1] / "scripts/native_package.py"
     if packaging.exists():
         keys.update(re.findall(r'"(native\.[a-z_]+)"', packaging.read_text(encoding="utf-8")))
@@ -75,6 +79,15 @@ class WordLists(unittest.TestCase):
         self.assertGreater(len(keys), 400)
         for code in SHIPPED:
             self.assertEqual(sorted(keys - set(word_list(code))), [], code)
+
+    def test_native_dynamic_vocabulary_families_exist_in_both_lists(self):
+        for path in (ROOT.parents[1] / "native").rglob("*"):
+            if path.suffix not in (".cs", ".swift") or any(part in ("bin", "obj", ".build", "Tests") or "Tests" in part for part in path.parts):
+                continue
+            prefixes = re.findall(r'\b(?:T|t)\(\s*"([a-z][a-z0-9_.]+[._])"\s*\+', path.read_text(encoding="utf-8-sig"))
+            for prefix in prefixes:
+                for code in SHIPPED:
+                    self.assertTrue(any(key.startswith(prefix) for key in word_list(code)), (path.name, prefix, code))
 
     def test_the_app_ships_simplified_chinese_and_english(self):
         self.assertEqual(i18n.codes(), SHIPPED)

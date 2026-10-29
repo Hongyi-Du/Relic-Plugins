@@ -28,6 +28,23 @@ The visual workflow assembles a real `.app` bundle before running the macOS
 capture; launching a bare SwiftPM executable crashed before any capture. The
 first reference captures are available in run `40862157094`. Fixture group
 recipients and check-rule copies were corrected after inspecting those images.
+Changes for the clients: the member-card reference anchor reported in macOS
+REQUESTS.md (run `40866009267`) is fixed to the actual `#chat-head` element.
+Reference captures now run on Windows against the exact same fixture/server as
+WinUI; macOS receives the same deterministic fixture contents. The matrix and
+manifest format are unchanged. Windows CI sets its desktop to 1920x1080 and the
+client rejects any actual viewport differing from the requested dimensions.
+Run `40864840870` produced all 504 Windows captures; visual review found excess
+toolbar/message spacing, wide member forms and detached voice buttons. These
+are being corrected; capture success is not visual acceptance. The reverse-key
+scan excludes test literals and Swift `list.*` SF Symbol names while retaining
+all direct translation lookups and checking dynamic vocabulary families.
+For the macOS owner: full run `40864840870`, job `123417024885`, timed out after
+1200 seconds in the first zh-CN/light manifest. Its artifact contains 34 PNGs
+through `quote`/`recipients`, with no `mention` PNG. `client.log` ends with
+`NSSpellServer suggestCompletionsForPartialWordRange timed out`; please inspect
+the actual native mention/completion path. The artifact is downloaded under
+`S:\Codex\Outputs\Relic-native-visual\iteration-3\macos` for read-only review.
 
 All reference functionality is required on both systems. The draft PR cannot
 leave draft until the per-function inventory is done on both, the route and

@@ -15,7 +15,7 @@ public sealed partial class MainWindow
     private readonly Border sidebarSurface = new(), inspectorSurface = new(), composerSurface = new();
     private readonly Grid inspector = new(), paneHeader = new(), quoteRow = new();
     private readonly StackPanel sidebarFooter = new() { Spacing = 4, Padding = new Thickness(12, 8, 12, 12) };
-    private bool Dark => root.ActualTheme == ElementTheme.Dark;
+    private bool Dark => preferences.Text("theme") == "dark" || preferences.Text("theme") is "" or "system" && root.ActualTheme == ElementTheme.Dark;
     private SolidColorBrush Paint(string light, string dark = "")
     {
         var hex = Dark && dark.Length > 0 ? dark : light;
@@ -71,9 +71,9 @@ public sealed partial class MainWindow
     {
         root.Background = Paint("FFFFFF", "1F1F1E");
         sidebarSurface.Background = Paint("F8F7F5", "191918"); sidebarSurface.BorderBrush = Line;
-        inspectorSurface.Background = Paint("FFFFFF", "1F1F1E"); inspectorSurface.BorderBrush = Line;
+        inspectorSurface.Background = Paint("F8F7F5", "191918"); inspectorSurface.BorderBrush = Line;
         composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");
-        menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918");
+        menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918"); navigationButtons.Background = Paint("F8F7F5", "191918");
         editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
         root.Resources["AccentTextFillColorPrimaryBrush"] = Accent; root.Resources["AccentFillColorDefaultBrush"] = Accent;
         if (sendButton != null) sendButton.Background = Accent;

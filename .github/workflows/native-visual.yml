@@ -20,22 +20,6 @@ concurrency:
   group: visual-${{ github.ref_name }}
   cancel-in-progress: true
 jobs:
-  reference:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install pillow playwright
-      - run: python -m playwright install --with-deps chromium
-      - run: python scripts/visual/capture.py --client reference --matrix ${{ inputs.matrix || 'smoke' }} --output visual/reference
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: visual-reference
-          path: visual/reference
   windows:
     runs-on: windows-2025
     timeout-minutes: 45
@@ -47,16 +31,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pillow
+      - run: pip install pillow playwright
+      - run: python -m playwright install chromium
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
       - name: Set CI desktop size without a settings window
         run: ./scripts/visual/windows-display.ps1
-      - run: python -X utf8 scripts/visual/capture.py --client windows --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: visual-windows
           path: visual/windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-reference
+          path: visual/reference
   macos:
     runs-on: macos-15
     timeout-minutes: 45
@@ -79,7 +69,7 @@ jobs:
           name: visual-macos
           path: visual/macos
   compare:
-    needs: [reference, windows, macos]
+    needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

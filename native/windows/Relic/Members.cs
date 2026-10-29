@@ -72,7 +72,7 @@ public sealed partial class MainWindow
             box.Children.Add(Button(c.Text("waiting_replies") is "" or "0" ? T("card.forward_reply") : T("card.forward_reply_waiting", ("n", c.Text("waiting_replies"))), () => Forward(name)));
         }
         if (c.Text("session").Length > 0) { box.Children.Add(Text(T("card.leave_seat_hint"), 12)); box.Children.Add(Button(T("card.leave_seat"), () => SeatAction("unbind", name, T("card.leave_seat_confirm", ("name", Display(name)))))); }
-        await Show(T("card.aria", ("name", Display(name))), box);
+        await Show(T("card.aria", ("name", Display(name))), box, 440);
     }
     private async Task SeatAction(string action, string who, string confirm = "")
     {
@@ -114,6 +114,7 @@ public sealed partial class MainWindow
         var note = Text(""); form.Children.Add(note);
         var name = Field(form, "member.name_label"); name.Text = edit ?? (secretary ? "secretary" : ""); name.IsReadOnly = edit != null; name.PlaceholderText = T("member.name_placeholder");
         var role = Field(form, "common.role"); role.Text = card.Text("role"); role.PlaceholderText = secretary ? T("member.role_placeholder_secretary") : T("member.role_placeholder");
+        var nameSurface = (FrameworkElement)name.Parent; var roleSurface = (FrameworkElement)role.Parent;
         var appFields = new StackPanel { Spacing = 8 }; form.Children.Add(appFields);
         var harness = Choice(appFields, "common.harness", harnesses.Rows().Where(h => h.Flag("available") && !h.Flag("later")).Select(h => (h.Text("id"), h.Text("title"))));
         foreach (var h in harnesses.Rows().Where(h => !h.Flag("later"))) appFields.Children.Add(Text(h.Text("title") + " · " + (h.Flag("available") ? T("member.connected", ("program", h.Text("program"))) : h.Text("problem")), 12));
@@ -150,7 +151,10 @@ public sealed partial class MainWindow
         FindSessions(); find.TextChanged += (_, _) => FindSessions();
         existing.Children.Add(Text(found.Length == 0 ? T("member.no_sessions") : T("member.which_seat"), 12));
         existing.Children.Add(Text(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(p => p.Text())), 12));
-        form.Children.Clear(); form.Children.Add(run); form.Children.Add(note); var fields = new StackPanel { Spacing = 10 }; form.Children.Add(fields);
+        var modes = new SelectorBar { Visibility = run.Visibility };
+        foreach (var (id, label) in new[] { ("app", "member.run_app"), ("host", "member.run_host"), ("existing", "member.run_existing") }) modes.Items.Add(new SelectorBarItem { Text = T(label), Tag = id, IsSelected = Value(run) == id, FontSize = 13 });
+        modes.SelectionChanged += (_, _) => { if (modes.SelectedItem?.Tag is string value) SetChoice(run, value); };
+        form.Children.Clear(); form.Children.Add(modes); form.Children.Add(note); var fields = new StackPanel { Spacing = 10 }; form.Children.Add(fields);
         void DrawMode()
         {
             var value = Value(run); note.Text = edit != null ? T("member.edit_note") : value switch { "app" => T("member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
@@ -159,8 +163,7 @@ public sealed partial class MainWindow
             role.Header = value == "existing" ? T("member.role_new") : T("common.role");
             fields.Children.Clear();
             if (value == "existing") fields.Children.Add(existing);
-            fields.Children.Add(name); fields.Children.Add(role);
-            if (preferences.Text("voice") != "off") fields.Children.Add(Microphone(role));
+            fields.Children.Add(nameSurface); fields.Children.Add(roleSurface);
             if (value == "app") fields.Children.Add(appFields); else if (value == "host") fields.Children.Add(hostFields);
             if (visibleDialog != null) visibleDialog.PrimaryButtonText = SubmitLabel();
         }
