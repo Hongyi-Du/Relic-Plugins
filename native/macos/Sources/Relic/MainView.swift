@@ -43,6 +43,7 @@ struct MainView: View {
         .environment(\.locale, Locale(identifier: m.words.language))
         .accessibilityIdentifier("relic-root")
         .coordinateSpace(name: "relic-window")
+        .background(ScrollAppearance())
         }
     }
     private var inspector: some View {

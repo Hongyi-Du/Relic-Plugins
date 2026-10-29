@@ -72,7 +72,7 @@ enum RelicStyle {
         return Color(hue: hue, saturation: value == 0 ? 0 : 2 * (1 - lightness / value), brightness: value)
     }
     static func state(_ value: String) -> Color {
-        switch value { case "working", "running": return green; case "active": return color(0x75A783, 0x669572); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
+        switch value { case "working", "running": return green; case "active": return mix(green, faint, fraction: 0.55); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
     }
 }
 
@@ -103,11 +103,12 @@ struct IconButton: View {
     var badge = 0
     var size: CGFloat = 18
     var height: CGFloat = 30
+    var width: CGFloat = 30
     @Environment(\.isEnabled) private var enabled
     @State private var identity = "relic-icon-button/" + UUID().uuidString
     let action: () -> Void
     var body: some View {
-        Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: 30, height: height) }
+        Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: width, height: height) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
             .help(title).accessibilityLabel(title).accessibilityIdentifier(identity)
             .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(RelicStyle.font(10, weight: 700)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
@@ -154,9 +155,8 @@ struct StateDot: View {
     let state: String
     let border: Color
     var body: some View {
-        Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10)
-            .overlay { if state == "vacant" { Circle().strokeBorder(RelicStyle.faint, lineWidth: 1.5).padding(2) } }
-            .overlay(Circle().strokeBorder(border, lineWidth: 2))
+        Color.clear.frame(width: 10, height: 10)
+            .modifier(RecordedSurface(background: state == "vacant" ? .clear : RelicStyle.state(state), border: border, borderWidth: 2, radius: 5, kind: "state-dot", insetRingWidth: state == "vacant" ? 1.5 : 0, insetRingColor: RelicStyle.faint))
     }
 }
 

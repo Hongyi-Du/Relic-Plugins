@@ -42,7 +42,7 @@ struct ChartEdgeProbe: NSViewRepresentable {
             let glyph: [String: Any] = ["tag": "path", "attributes": ["d": edge.path], "children": []]
             let encoded = String(data: try! JSONSerialization.data(withJSONObject: glyph, options: [.sortedKeys, .withoutEscapingSlashes]), encoding: .utf8)!
             return ["id": "chart-edge/" + view.identity, "rectValue": NSValue(rect: rect), "color": color, "opacity": edge.opacity, "width": Double(edge.width * sx), "region": view.region, "icon": ["source": "svg", "glyph": encoded],
-                    "evidence": ["source": "live-native-chart-path", "renderer": "SwiftUI.Path/CoreGraphics", "path": edge.path, "source_width": Double(edge.width), "scale_x": Double(sx), "scale_y": Double(sy), "stroke_dash": edge.dash.map { Double($0) }, "native_layer_order": view.index]]
+                    "evidence": ["source": "live-native-chart-path", "renderer": "SwiftUI.Path/CoreGraphics", "path": edge.path, "source_width": Double(edge.width), "scale_x": Double(sx), "scale_y": Double(sy), "stroke_dash": edge.dash.map { Double($0) }, "stroke_dash_offset": 0, "stroke_linecap": "butt", "stroke_linejoin": "miter", "native_layer_order": view.index]]
         }
     }
     final class EdgeView: NSView {

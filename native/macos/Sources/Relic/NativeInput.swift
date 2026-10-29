@@ -5,21 +5,27 @@ import AVFoundation
 import RelicCore
 
 struct MentionEditor: NSViewRepresentable {
+    @EnvironmentObject var m: Model
     @Binding var text: String
+    var contextID = "main"
+    var placeholder = ""
+    var focusChanged: (Bool) -> Void = { _ in }
     let members: [Node]
     let onMention: (String) -> Void
     let send: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
-        let editor = ComposerTextView()
-        editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor.labelColor; editor.insertionPointColor = NSColor.labelColor
+        let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 26.4))
+        editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor(RelicStyle.ink); editor.insertionPointColor = NSColor(RelicStyle.ink)
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false; editor.isVerticallyResizable = true
         editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
-        editor.textContainerInset = NSSize(width: 6, height: 6); editor.font = RelicStyle.nativeFont(14, weight: 400)
+        editor.textContainerInset = NSSize(width: 0, height: 2); editor.textContainer?.lineFragmentPadding = 0; editor.font = RelicStyle.nativeFont(14, weight: 400)
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
+        editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
+        editor.placeholder = placeholder; editor.focusChanged = focusChanged
         scroll.documentView = editor; return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -27,6 +33,21 @@ struct MentionEditor: NSViewRepresentable {
         guard let editor = scroll.documentView as? ComposerTextView else { return }
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
+        editor.composerID = contextID
+        editor.placeholder = placeholder; editor.focusChanged = focusChanged
+        let size: CGFloat = m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14
+        let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
+        editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
+        editor.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.needsDisplay = true
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        guard let editor = nsView.documentView as? ComposerTextView else { return nil }
+        let width = max(1, proposal.width ?? 400), font = editor.font ?? RelicStyle.nativeFont(14, weight: 400)
+        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default])
+        let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
+        return CGSize(width: width, height: min(260, max(26, layout.usedRect(for: container).height + 4)))
     }
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -37,6 +58,20 @@ struct MentionEditor: NSViewRepresentable {
 }
 
 final class ComposerTextView: NSTextView, NSPopoverDelegate {
+    var composerID = "main"
+    var placeholder = ""
+    var focusChanged: (Bool) -> Void = { _ in }
+    override func accessibilityPlaceholderValue() -> String? { placeholder }
+    override func becomeFirstResponder() -> Bool { let accepted = super.becomeFirstResponder(); if accepted { focusChanged(true) }; return accepted }
+    override func resignFirstResponder() -> Bool { let accepted = super.resignFirstResponder(); if accepted { focusChanged(false) }; return accepted }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if string.isEmpty {
+            let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
+            NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph])
+                .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
+        }
+    }
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
     var members: [Node] = []
@@ -189,10 +224,11 @@ private struct MentionSuggestions: View {
 struct VoiceButton: View {
     @EnvironmentObject var m: Model
     @Binding var text: String
+    var size: CGFloat = 26
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: 26, action: toggle)
+            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, action: toggle)
                 .disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         }
     }
