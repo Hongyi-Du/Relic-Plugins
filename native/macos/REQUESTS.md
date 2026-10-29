@@ -88,10 +88,9 @@ requiring dead strings in Swift. The macOS alternatives are:
   explicit message/file copy buttons.
 * `appbar.menus`, `appmenu.edit`, `appmenu.view`, `appmenu.help`: native macOS menu
   groups replace the web toolbar's menu-popup scaffolding.
-* `settings.notify_unsupported`: browser Notification-API availability checks
-  are replaced by the required macOS 14+ UserNotifications framework. The app
-  handles authorization/denial using `settings.notify_denied`, persists the
-  preference, sends a native test notification, and supports click navigation.
+Notification authorization now handles both denial and UserNotifications service
+errors with shared `settings.notify_denied` / `settings.notify_unsupported` keys;
+no notification-key exception is required.
 
 All other vocabulary is integrated into matching controls, status formatting,
 accessibility labels, errors and success states. The Enter/Shift-Enter labels

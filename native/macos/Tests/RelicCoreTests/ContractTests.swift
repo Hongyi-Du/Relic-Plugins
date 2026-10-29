@@ -150,4 +150,26 @@ final class ContractTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
         XCTAssertEqual(decoded, draft)
     }
+    func testSendKeyPreservesIMECompletionAndNewline() {
+        XCTAssertTrue(Composer.sendsReturn(shift: false, composing: false, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: true, composing: false, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: false, composing: true, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: false, composing: false, completing: true))
+    }
+    func testChartParentCentersChildrenAndOrdersCabinetBeforeSubgroups() {
+        let graph = OrganizationLayout([Node(["id": "root", "status": "active"]), Node(["id": "sub", "parent": "root", "kind": "subgroup", "status": "active"]), Node(["id": "cab", "parent": "root", "cabinet": true, "status": "active"]), Node(["id": "formal", "parent": "root", "status": "active"])])
+        XCTAssertEqual(graph.nodes.map { $0["id"].text }, ["root", "cab", "formal", "sub"])
+        XCTAssertEqual(graph.centers["root"]!.x, (graph.centers["cab"]!.x + graph.centers["sub"]!.x) / 2, accuracy: 0.01)
+        XCTAssertLessThan(graph.centers["root"]!.y, graph.centers["formal"]!.y)
+        XCTAssertGreaterThan(graph.centers["formal"]!.x - graph.centers["cab"]!.x, OrganizationLayout.card.width)
+        XCTAssertEqual(graph.parents["cab"], "root")
+    }
+    func testChartCyclesOrphansAndFocusedBoundsStayReachable() {
+        let graph = OrganizationLayout([Node(["id": "a", "parent": "b"]), Node(["id": "b", "parent": "a"]), Node(["id": "orphan", "parent": "filtered"]), Node(["id": "self", "parent": "self"])])
+        XCTAssertEqual(Set(graph.nodes.map { $0["id"].text }), Set(["a", "b", "orphan", "self"]))
+        XCTAssertEqual(graph.nodes.count, 4); XCTAssertEqual(graph.parents.count, 1)
+        let focus = graph.bounds(focus: "orphan"), all = graph.bounds()
+        XCTAssertEqual(focus.width, OrganizationLayout.card.width); XCTAssertTrue(all.contains(focus))
+        XCTAssertEqual(OrganizationLayout([]).bounds().width, OrganizationLayout.card.width + 48)
+    }
 }

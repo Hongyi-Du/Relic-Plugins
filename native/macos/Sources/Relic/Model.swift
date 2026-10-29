@@ -167,7 +167,7 @@ import RelicCore
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
         copies = try await get("/api/cc")["items"].rows
         let unreadCopies = copies.filter { !$0["read"].flag }.count
-        if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text])) }
+        if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text]), org: copy["org"].text, member: "") }
         previousCopies = unreadCopies
         if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }
         if organization.isEmpty, let first = organizations.first { setSelection(ChatSelection(first["id"].text)) }
@@ -189,7 +189,7 @@ import RelicCore
         previousDecisions[organization] = ids
         for (chatKey, raw) in snap["chats"].object {
             let last = Node(raw)["last"], key = organization + "/" + chatKey
-            if let previous = previousMessages[key], previous != last["id"].text, last["from"].text != "human" { backgroundNotify(t("notify.new_messages")) }
+            if let previous = previousMessages[key], previous != last["id"].text, last["from"].text != "human" { backgroundNotify(t("notify.new_messages"), org: organization, member: chatKey.hasPrefix("member:") ? String(chatKey.dropFirst(7)) : "") }
             previousMessages[key] = last["id"].text
         }
         if !threadID.isEmpty { try await loadThread() }
@@ -241,14 +241,20 @@ import RelicCore
     }
     func saveSettings(language: String, notify: Bool) async throws {
         try await savePreferences(["lang": Words.normalize(language), "notify": notify])
-        if notify { _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        if notify { try await authorizeNotifications() }
         try await refresh()
     }
-    func notify(_ message: String) {
-        let content = UNMutableNotificationContent(); content.title = "Relic"; content.body = message; content.userInfo = ["org": organization, "member": member]
+    func authorizeNotifications() async throws {
+        let allowed: Bool
+        do { allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        catch { throw RelicError.message(t("settings.notify_unsupported") + " " + error.localizedDescription) }
+        guard allowed else { throw RelicError.message(t("settings.notify_denied")) }
+    }
+    func notify(_ message: String, org: String? = nil, member: String? = nil) {
+        let content = UNMutableNotificationContent(); content.title = "Relic"; content.body = message; content.userInfo = ["org": org ?? organization, "member": member ?? self.member]
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
-    private func backgroundNotify(_ message: String) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message) } }
+    private func backgroundNotify(_ message: String, org: String? = nil, member: String? = nil) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message, org: org, member: member) } }
     func openMemberForm(mode: String = "app", edit: String = "", secretary: Bool = false) { memberMode = mode; editMember = edit; newSecretary = secretary; sheet = .member }
     func openCard(_ name: String) { cardMember = name; sheet = .card }
     func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }

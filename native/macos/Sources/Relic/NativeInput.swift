@@ -43,6 +43,7 @@ final class ComposerTextView: NSTextView {
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
     var members: [Node] = []
+    private var completing = false
     override var rangeForUserCompletion: NSRange {
         let cursor = selectedRange().location
         guard cursor != NSNotFound, cursor <= (string as NSString).length else { return NSRange(location: NSNotFound, length: 0) }
@@ -51,13 +52,14 @@ final class ComposerTextView: NSTextView {
         return NSRange(location: NSNotFound, length: 0)
     }
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 && !hasMarkedText() && !event.modifierFlags.contains(.shift) { send?(); return }
+        if event.keyCode == 36 && Composer.sendsReturn(shift: event.modifierFlags.contains(.shift), composing: hasMarkedText(), completing: completing) { send?(); return }
         super.keyDown(with: event)
-        if event.characters == "@", !members.isEmpty, !hasMarkedText() { complete(nil) }
+        if event.keyCode == 53 || rangeForUserCompletion.location == NSNotFound { completing = false }
+        if event.characters == "@", !members.isEmpty, !hasMarkedText() { completing = true; complete(nil) }
     }
     override func insertCompletion(_ word: String, forPartialWordRange range: NSRange, movement: Int, isFinal: Bool) {
         super.insertCompletion(word, forPartialWordRange: range, movement: movement, isFinal: isFinal)
-        if isFinal, let member = members.first(where: { "@" + $0.display == word }) { onMention?(member["name"].text) }
+        if isFinal { completing = false; if let member = members.first(where: { "@" + $0.display == word }) { onMention?(member["name"].text) } }
     }
 }
 
@@ -68,23 +70,28 @@ final class ComposerTextView: NSTextView {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var tapInstalled = false
+    private var requestID = UUID()
     func start(language: String, model: Model, update: @escaping (String) -> Void) async throws {
-        guard !starting && !recording else { return }; starting = true
+        guard !starting && !recording else { return }; stop(); starting = true
+        let id = UUID(); requestID = id
         defer { starting = false }
         // Shared packaging supplies the privacy keys; never trigger Apple's fatal missing-key path.
         guard Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil,
               Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil else { throw RelicError.message(model.t("native.speech_unavailable")) }
         let speech = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) } }
+        guard requestID == id && !Task.isCancelled else { return }
         guard speech else { throw RelicError.message(model.t("native.speech_permission")) }
         let microphone = await AVCaptureDevice.requestAccess(for: .audio)
+        guard requestID == id && !Task.isCancelled else { return }
         guard microphone else { throw RelicError.message(model.t("native.microphone_permission")) }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.isAvailable else { throw RelicError.message(model.t("composer.voice_unsupported_mac")) }
-        stop(); let request = SFSpeechAudioBufferRecognitionRequest(); request.shouldReportPartialResults = true; self.request = request
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.isAvailable else { throw RelicError.message(model.t("native.speech_unavailable")) }
+        let request = SFSpeechAudioBufferRecognitionRequest(); request.shouldReportPartialResults = true; self.request = request
         let input = audio.inputNode, format = audio.inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw RelicError.message(model.t("composer.voice_no_mic")) }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }; tapInstalled = true
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
+                guard self?.requestID == id else { return }
                 if let result { update(result.bestTranscription.formattedString) }
                 if let error {
                     let ns = error as NSError
@@ -97,7 +104,7 @@ final class ComposerTextView: NSTextView {
         }
         do { audio.prepare(); try audio.start(); recording = true } catch { stop(); throw error }
     }
-    func stop() { audio.stop(); if tapInstalled { audio.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); task?.cancel(); task = nil; request = nil; recording = false }
+    func stop() { requestID = UUID(); audio.stop(); if tapInstalled { audio.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); task?.cancel(); task = nil; request = nil; recording = false }
 }
 
 struct VoiceButton: View {
