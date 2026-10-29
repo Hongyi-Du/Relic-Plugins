@@ -63,8 +63,8 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
-    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .copies ? 760 : sheet == .forward ? 720 : [Model.Sheet.create, .secretary].contains(sheet) ? 520 : 620, max(480, m.windowSize.width - 40)) }
-    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 400 : sheet == .secretary ? 440 : sheet == .copies ? (m.expandRules ? 640 : 460) : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
+    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .copies ? 760 : sheet == .forward ? 720 : [Model.Sheet.create, .secretary, .card].contains(sheet) ? 520 : 620, max(480, m.windowSize.width - 40)) }
+    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 400 : sheet == .secretary ? 440 : sheet == .card ? 600 : sheet == .copies ? (m.expandRules ? 640 : 460) : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
         VStack(spacing: 12) {
             switch sheet {

@@ -90,8 +90,14 @@ struct ChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
-                ContentUnavailableView(m.t("chat.no_orgs"), systemImage: "person.3", description: Text(m.t("chat.no_orgs_hint")))
-                Button(m.t("common.new_org")) { m.sheet = .create }.buttonStyle(.borderedProminent).padding(.bottom, 32)
+                VStack(spacing: 18) {
+                    Spacer()
+                    Image(systemName: "person.3").font(.system(size: 42)).foregroundStyle(RelicStyle.muted.opacity(0.5))
+                    Text(m.t("chat.no_orgs")).font(.system(size: 24, weight: .semibold))
+                    Text(m.t("chat.no_orgs_hint")).font(.system(size: 14)).foregroundStyle(RelicStyle.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 430)
+                    Button(m.t("common.new_org")) { m.sheet = .create }.buttonStyle(.borderedProminent).controlSize(.large)
+                    Spacer()
+                }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
