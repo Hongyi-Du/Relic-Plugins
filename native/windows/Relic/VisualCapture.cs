@@ -1,0 +1,111 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Relic.Core;
+using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
+using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
+
+namespace Relic;
+
+public sealed partial class MainWindow
+{
+    private bool VisualCaptureEnabled => Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"));
+
+    private async Task CaptureVisuals()
+    {
+        var path = Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST")!;
+        var failures = new List<string>(); var count = 0;
+        try
+        {
+            var manifest = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(path))!; var fixture = manifest["fixture"]!;
+            foreach (var shot in manifest.Rows("cases"))
+            {
+                try
+                {
+                    if (visibleDialog != null) { visibleDialog.Hide(); if (visibleDialogTask != null) await visibleDialogTask; }
+                    await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
+                    AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
+                    sideWidth = 276; panelWidth = 320; fileWidth = 460; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
+                    pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote();
+                    await Select(fixture.Text("org")); LayoutColumns();
+                    var scene = shot.Text("scene"); Task? dialog = null;
+                    if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene[9..]);
+                    else if (scene.StartsWith("file-")) await OpenFile(fixture["files"].Text(scene[5..]), scene == "file-code" ? 2 : 0);
+                    else if (scene.StartsWith("menu-"))
+                    {
+                        var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, scene[5..]);
+                        var automation = new Microsoft.UI.Xaml.Automation.Peers.MenuBarItemAutomationPeer(menu.Items[index]);
+                        (automation.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.ExpandCollapse) as Microsoft.UI.Xaml.Automation.Provider.IExpandCollapseProvider)?.Expand();
+                    }
+                    else switch (scene)
+                    {
+                        case "group": break;
+                        case "private": await Select(fixture.Text("org"), fixture.Text("member")); break;
+                        case "overview": await SetPane("overview"); break;
+                        case "thread": await OpenThread(fixture.Text("thread")); break;
+                        case "workspace": workspaceMember = fixture.Text("member"); await SetPane("workspace"); break;
+                        case "copies": case "copy-rules": dialog = Copies(); break;
+                        case "chart": dialog = Chart(); break;
+                        case "new-org": dialog = CreateOrg(); break;
+                        case "member-app": dialog = MemberDialog("app"); break;
+                        case "member-host": dialog = MemberDialog("host"); break;
+                        case "member-existing": dialog = MemberDialog("existing"); break;
+                        case "member-card": dialog = MemberCard(fixture.Text("member")); break;
+                        case "member-edit": dialog = MemberDialog("host", fixture.Text("member")); break;
+                        case "forward": dialog = Forward("advisor"); break;
+                        case "secretary": dialog = SecretarySetup(); break;
+                        case "tasks": dialog = Details("tasks"); break;
+                        case "task-report": dialog = Details("tasks", taskId: fixture.Text("task")); break;
+                        case "protocols": dialog = Details("protocols"); break;
+                        case "documents": dialog = Details("docs"); break;
+                        case "trajectory": dialog = Details("trace", fixture.Text("member")); break;
+                        case "shortcuts": dialog = Shortcuts(); break;
+                        case "recipients": dialog = PickRecipients(); break;
+                        case "quote": Quote(Display(fixture.Text("member")), fixture.Text("quote")); break;
+                        case "mention": editor.Text = "@"; editor.SelectionStart = 1; MentionMenu(); break;
+                        case "digest": digest = fixture["digest"]!.DeepClone(); digestOpen = true; DrawConversation(); break;
+                        case "plain": foreach (var item in messages) plain[PlainKey(item.Text("id"))] = fixture.Text("plain"); plainMode = true; DrawConversation(); plainTimer.Stop(); break;
+                        case "quick-start": org = ""; orgs.Clear(); snap = new JsonObject(); DrawSidebar(); DrawConversation(); DrawDetail(); break;
+                        default: throw new InvalidOperationException("Unimplemented visual scene: " + scene);
+                    }
+                    await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    root.UpdateLayout(); await Task.Delay(250);
+                    await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    count++;
+                }
+                catch (Exception ex) { failures.Add(shot.Text("id") + ": " + ex); }
+            }
+        }
+        catch (Exception ex) { failures.Add(ex.ToString()); }
+        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "complete.json"), System.Text.Json.JsonSerializer.Serialize(new { errors = failures, count }));
+    }
+
+    private async Task CaptureClient(string path, int width, int height)
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var dc = GetDC(handle); var memory = CreateCompatibleDC(dc); var bitmap = CreateCompatibleBitmap(dc, width, height); var previous = SelectObject(memory, bitmap);
+        try
+        {
+            if (!PrintWindow(handle, memory, 3)) throw new InvalidOperationException("PrintWindow failed");
+            var info = new BitmapInfo { size = 40, width = width, height = -height, planes = 1, bits = 32, imageSize = (uint)(width * height * 4) };
+            var pixels = new byte[width * height * 4];
+            if (GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0) == 0) throw new InvalidOperationException("GetDIBits failed");
+            if (pixels.Where((_, i) => i % 4 != 3).Distinct().Take(12).Count() < 12) throw new InvalidOperationException("Window capture is blank");
+            using var output = new InMemoryRandomAccessStream(); var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output);
+            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels); await encoder.FlushAsync();
+            using var reader = new DataReader(output.GetInputStreamAt(0)); await reader.LoadAsync((uint)output.Size); var encoded = new byte[(int)output.Size]; reader.ReadBytes(encoded); await System.IO.File.WriteAllBytesAsync(path, encoded);
+        }
+        finally { SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(handle, dc); }
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo { public uint size; public int width, height; public ushort planes, bits; public uint compression, imageSize; public int xppm, yppm; public uint used, important; }
+    [DllImport("user32.dll")] private static extern nint GetDC(nint handle);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(nint handle, nint dc);
+    [DllImport("user32.dll")] private static extern bool PrintWindow(nint handle, nint dc, uint flags);
+    [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);
+    [DllImport("gdi32.dll")] private static extern nint CreateCompatibleBitmap(nint dc, int width, int height);
+    [DllImport("gdi32.dll")] private static extern nint SelectObject(nint dc, nint value);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint value);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(nint dc);
+    [DllImport("gdi32.dll")] private static extern int GetDIBits(nint dc, nint bitmap, uint start, uint lines, byte[] bits, ref BitmapInfo info, uint usage);
+}

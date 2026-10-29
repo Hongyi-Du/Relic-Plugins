@@ -29,7 +29,7 @@ public sealed partial class MainWindow
     {
         quoteWho = who; quoteText = Regex.Replace(body, @"^(>.*\n?)+\n*", "").Trim();
         if (quoteText.Length > 1200) quoteText = quoteText[..1200] + "…";
-        quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; SaveViewState();
+        quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; quoteLabel.MaxLines = 3; quoteLabel.TextTrimming = TextTrimming.CharacterEllipsis; quoteRow.Visibility = Visibility.Visible; SaveViewState();
         if (pane == "thread") { DrawDetail(); threadEditor.Focus(FocusState.Programmatic); } else editor.Focus(FocusState.Programmatic);
     }
     private string Quoted(string text)
@@ -38,7 +38,7 @@ public sealed partial class MainWindow
         var lines = quoteText.Split('\n'); lines[0] = T("sel.quote_line", ("who", quoteWho), ("text", lines[0]));
         return string.Join("\n", lines.Select(l => "> " + l)) + "\n\n" + text;
     }
-    private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; }
+    private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; quoteRow.Visibility = Visibility.Collapsed; }
     private async Task PickRecipients()
     {
         var box = new StackPanel { Spacing = 8 };
@@ -58,7 +58,7 @@ public sealed partial class MainWindow
     }
     private void UpdateRecipient()
     {
-        if (recipientButton != null) { recipientButton.Content = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display)))); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed; }
+        if (recipientButton != null) { var label = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display)))); recipientButton.Content = Ellipsis(label + "  ⌄", 12); recipientButton.MaxWidth = 230; ToolTipService.SetToolTip(recipientButton, label); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed; }
     }
     private void MentionMenu()
     {
@@ -135,22 +135,28 @@ public sealed partial class MainWindow
             stream.Children.Add(Button(T("common.new_org"), CreateOrg)); return;
         }
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
+        chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var titles = new StackPanel { Spacing = 3 }; var actions = new ActionRow { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        chatHead.Children.Add(titles); Grid.SetColumn(actions, 1); chatHead.Children.Add(actions);
         if (member.Length == 0)
         {
-            chatHead.Children.Add(Stack(Text(T("common.group_chat") + " · " + T("common.members", ("n", snap.Rows("members").Count)), 20), Text(T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name"))), 12)));
-            var plainButton = Button(plainMode ? T("chat.plain_on") : T("common.plain_words"), TogglePlain); ToolTipService.SetToolTip(plainButton, T("chat.plain_title")); chatHead.Children.Add(plainButton);
-            var digestButton = Button(T("chat.digest"), ToggleDigest); ToolTipService.SetToolTip(digestButton, T("chat.digest_title")); chatHead.Children.Add(digestButton); chatHead.Children.Add(Button(T("common.tasks"), () => Details("tasks")));
-            if (digestOpen) stream.Children.Add(DigestCard());
+            titles.Children.Add(Heading(T("common.group_chat"), 17));
+            titles.Children.Add(Quiet(T("common.members", ("n", snap.Rows("members").Count)) + " · " + T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name"))), 11));
+            actions.Children.Add(IconButton("\uE8D4", plainMode ? "chat.plain_on" : "common.plain_words", TogglePlain, T("chat.plain_title")));
+            actions.Children.Add(IconButton("\uE945", "chat.digest", ToggleDigest, T("chat.digest_title")));
+            actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
+            if (digestOpen) stream.Children.Add(Card(DigestCard()));
         }
         else
         {
-            chatHead.Children.Add(Avatar(m.Text("avatar"), Display(member)));
-            chatHead.Children.Add(Stack(Text(m.Flag("secretary") ? T("chat.secretary_title", ("name", Display(member))) : Display(member), 20), Text(m.Text("harness_label") + " · " + m.Text("surface_label") + " · " + m.Text("model") + " · " + T("state." + m.Text("state")), 12)));
-            if (m.Flag("embedded") && m.Text("state") is "running" or "waiting") chatHead.Children.Add(Button(T("chat.stop_turn"), () => Post("/cancel", new { member })));
-            chatHead.Children.Add(Button(T("chat.card"), () => MemberCard(member))); chatHead.Children.Add(Button(T("common.context_trace"), () => Details("trace", member)));
-            chatHead.Children.Add(Button(T("chat.workspace"), async () => { pane = "workspace"; DrawDetail(); await Workspace(); }));
+            titles.Children.Add(Heading(m.Flag("secretary") ? T("chat.secretary_title", ("name", Display(member))) : Display(member), 17));
+            titles.Children.Add(Quiet(string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label"), m.Text("model"), MemberState(m.Text("state")) }.Where(x => x.Length > 0)), 11));
+            if (m.Flag("embedded") && m.Text("state") is "running" or "waiting") actions.Children.Add(IconButton("\uE71A", "chat.stop_turn", () => Post("/cancel", new { member })));
+            actions.Children.Add(IconButton("\uE77B", "chat.card", () => MemberCard(member)));
+            actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
+            actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
-            stream.Children.Add(Text(banner, 12));
+            stream.Children.Add(Quiet(banner, 11));
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
         if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));
@@ -180,7 +186,7 @@ public sealed partial class MainWindow
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
-        if (item.Text("type") == "notice") return Text(item.Text("text"), 12);
+        if (item.Text("type") == "notice") { var note = Quiet(item.Text("text"), 11); note.TextAlignment = TextAlignment.Center; note.Margin = new Thickness(26, 3, 26, 3); return note; }
         if (item.Text("type") == "acts") return ToolActions(item);
         if (item.Text("type") == "step")
         {
@@ -188,15 +194,14 @@ public sealed partial class MainWindow
             expand.Expanding += async (_, _) => await Run(async () => { if (item.Flag("cut")) content.Text = (await api!.Get(PathFor("/step?member=" + Client.Segment(member) + "&i=" + item.Text("i")))).Text("text"); }); return expand;
         }
         var from = item.Text("from"); var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
+        var mine = from == "human";
         var box = new StackPanel { Spacing = 6 };
         if (!continued)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
-            var avatar = Button("", () => from == "human" ? Settings() : MemberCard(from)); avatar.Content = Avatar(from == "human" ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from)); row.Children.Add(avatar);
-            row.Children.Add(Text((item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from)) + " · " + When(item.Text("at")), 12)); box.Children.Add(row);
+            var time = DateTimeOffset.TryParse(item.Text("at"), out var at) ? at.ToLocalTime().ToString("HH:mm") : "";
+            var label = Quiet((item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from)) + "  " + time, 11); box.Children.Add(label);
         }
-        if (!inThread && member.Length == 0) box.Children.Add(Text(T("msg.to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), 12));
+        if (!inThread && member.Length == 0 && !item.Rows("to").Any(x => x.Text() == "all")) box.Children.Add(Quiet(T("msg.to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), 11));
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
         if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
         else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
@@ -216,13 +221,22 @@ public sealed partial class MainWindow
             box.Children.Add(Text(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 12));
             if (others.Length > 1) box.Children.Add(new Expander { Header = T("msg.read_count", ("read", read), ("total", others.Length)), Content = Text(string.Join("\n", others.Select(name => Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread")))) });
         }
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
-        if (explainable) actions.Children.Add(Button(plainOne.Contains(key) ? T("msg.hide_plain") : T("common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); }));
-        actions.Children.Add(Button(T("common.quote"), () => { Quote(Display(from), body); return Task.CompletedTask; }));
-        if (!inThread && long.TryParse(item.Text("id"), out _)) actions.Children.Add(Button(T("msg.reply_in_thread"), () => OpenThread(item.Text("id"))));
-        actions.Children.Add(Button(T("common.copy"), () => { Copy(body); return Task.CompletedTask; })); box.Children.Add(actions);
+        var actions = new ActionRow { Spacing = 2 };
+        if (explainable) actions.Children.Add(IconButton("\uE8D4", plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words", async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); }));
+        actions.Children.Add(IconButton("\uE8F2", "common.quote", () => { Quote(Display(from), body); return Task.CompletedTask; }));
+        if (!inThread && long.TryParse(item.Text("id"), out _)) actions.Children.Add(IconButton("\uE97A", "msg.reply_in_thread", () => OpenThread(item.Text("id"))));
+        actions.Children.Add(IconButton("\uE8C8", "common.copy", () => { Copy(body); return Task.CompletedTask; }));
         if (!inThread && item["thread"] != null) box.Children.Add(Button(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))));
-        return box;
+        var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = mine ? Paint("EEDDD2", "594033") : Line, BorderThickness = new Thickness(1), MaxWidth = inThread ? 600 : 600, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        var message = new StackPanel { Spacing = 2, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
+        message.Children.Add(bubble); actions.HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left; actions.Opacity = 0; message.Children.Add(actions);
+        message.PointerEntered += (_, _) => actions.Opacity = 1; message.PointerExited += (_, _) => actions.Opacity = 0;
+        message.GotFocus += (_, _) => actions.Opacity = 1;
+        var outer = new Grid { ColumnSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
+        outer.ColumnDefinitions.Add(new() { Width = mine ? new GridLength(1, GridUnitType.Star) : GridLength.Auto }); outer.ColumnDefinitions.Add(new() { Width = mine ? GridLength.Auto : new GridLength(1, GridUnitType.Star) });
+        var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
+        var avatar = QuietButton("", () => mine ? Settings() : MemberCard(from)); avatar.Content = SmallAvatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), size: 30); avatar.Padding = new Thickness(0); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1;
+        Grid.SetColumn(avatar, mine ? 1 : 0); Grid.SetColumn(message, mine ? 0 : 1); outer.Children.Add(avatar); outer.Children.Add(message); return outer;
     }
     private void DrawLive(StackPanel target)
     {

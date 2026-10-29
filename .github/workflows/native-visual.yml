@@ -65,7 +65,12 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - run: swift build --package-path native/macos -c release --arch arm64
-      - run: python3 scripts/visual/capture.py --client macos --exe native/macos/.build/arm64-apple-macosx/release/Relic --matrix ${{ inputs.matrix || 'smoke' }} --output visual/macos
+      - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/visual-macos
+      - shell: bash
+        run: |
+          for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
+            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --output visual/macos
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

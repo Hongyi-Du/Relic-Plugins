@@ -26,6 +26,9 @@ public sealed partial class MainWindow
             if (visibleDialogTask != null) await visibleDialogTask;
         }
         visibleDialog = dialog;
+        dialog.RequestedTheme = root.ActualTheme;
+        dialog.Resources["ContentDialogMaxWidth"] = Math.Min(940d, Math.Max(480d, root.ActualWidth - 96));
+        dialog.Resources["ContentDialogMaxHeight"] = Math.Max(400d, root.ActualHeight - 80);
         visibleDialogTask = dialog.ShowAsync().AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
         if (visibleDialog == dialog) { visibleDialog = null; visibleDialogTask = null; }
@@ -77,15 +80,18 @@ public sealed partial class MainWindow
         var accent = colors.GetValueOrDefault(preferences.Text("accent"), colors["clay"]);
         root.Resources["SystemAccentColor"] = accent;
         root.Resources["AccentFillColorDefaultBrush"] = new SolidColorBrush(accent);
-        stream.Spacing = preferences.Text("density") == "compact" ? 8 : 16;
-        side.Spacing = preferences.Text("density") == "compact" ? 3 : 8;
-        editor.FontSize = preferences.Text("font") switch { "small" => 12, "large" => 17, _ => 14 };
+        stream.Spacing = preferences.Text("density") == "compact" ? 7 : 14;
+        side.Spacing = 2;
+        editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
+        ThemeSurfaces();
+        foreach (var mic in microphoneButtons) { Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); }
     }
     private async Task SettingsScreen(string section = "profile")
     {
-        var body = new StackPanel { Spacing = 12, MinWidth = 520 };
-        var navigation = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        var content = new StackPanel { Spacing = 12 }; body.Children.Add(navigation); body.Children.Add(content);
+        var body = new Grid { Width = Math.Min(860, Math.Max(600, root.ActualWidth - 180)), Height = Math.Min(570, root.ActualHeight - 180), ColumnSpacing = 28 };
+        body.ColumnDefinitions.Add(new() { Width = new GridLength(180) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var navigation = new ListView { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var content = new StackPanel { Spacing = 20, Padding = new Thickness(0, 6, 8, 20) }; body.Children.Add(navigation); var contentScroll = Scroll(content); Grid.SetColumn(contentScroll, 1); body.Children.Add(contentScroll);
         async Task Draw(string key)
         {
             content.Children.Clear(); installViews.Clear();
@@ -141,7 +147,8 @@ public sealed partial class MainWindow
             }
         }
         foreach (var (key, label) in new[] { ("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about") })
-            navigation.Children.Add(Button(T(label), () => Draw(key)));
+            navigation.Items.Add(new ListViewItem { Content = Text(T(label), 13), Tag = key, IsSelected = key == section, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(6) });
+        navigation.SelectionChanged += async (_, _) => { if (navigation.SelectedItem is ListViewItem item) await Run(() => Draw(item.Tag.ToString()!)); };
         await Draw(section); await Show(T("common.settings"), body);
     }
     private async Task HarnessSettings(StackPanel content)
@@ -222,17 +229,18 @@ public sealed partial class MainWindow
         if (who != null) { payload["org"] = org; payload["member"] = who; }
         await api!.Post("/api/avatar", payload); await LoadPreferences(); await Refresh(); Note(T("card.avatar_changed"));
     }
+    private readonly List<Button> microphoneButtons = new();
     private Button Microphone(TextBox target)
     {
         Button? button = null;
-        button = Button(T("common.voice_input"), () => Voice(target, button!));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input")); return button;
+        button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
+        microphoneButtons.Add(button); return button;
     }
     private Task StopVoice()
     {
         var current = speech; speech = null;
         if (current != null) { try { current.RecognizeAsyncCancel(); } catch (InvalidOperationException) { } current.Dispose(); }
-        if (speechButton != null) speechButton.Content = T("common.voice_input"); speechButton = null;
+        if (speechButton != null) { speechButton.Content = Glyph("\uE720"); speechButton.Foreground = Ink; } speechButton = null;
         return Task.CompletedTask;
     }
     private async Task Voice(TextBox target, Button button)
