@@ -25,9 +25,10 @@ struct MentionEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? ComposerTextView else { return }
-        if editor.string != text && !editor.hasMarkedText() { editor.string = text }
+        if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
     }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MentionEditor
         init(_ parent: MentionEditor) { self.parent = parent }
@@ -35,7 +36,7 @@ struct MentionEditor: NSViewRepresentable {
     }
 }
 
-final class ComposerTextView: NSTextView {
+final class ComposerTextView: NSTextView, NSPopoverDelegate {
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
     var members: [Node] = []
@@ -70,7 +71,7 @@ final class ComposerTextView: NSTextView {
         suggestions = Array(members.filter { $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
         guard !suggestions.isEmpty else { closeMentions(); return }
         completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
-        if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; mentionPopover = popover }
+        if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
         renderMentions()
         if mentionPopover?.isShown != true {
             let caret = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
@@ -83,15 +84,19 @@ final class ComposerTextView: NSTextView {
         mentionPopover?.contentViewController = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
     }
     private func chooseMention(_ index: Int) {
+        guard suggestions.indices.contains(index) else { closeMentions(); return }
+        acceptMention(suggestions[index])
+    }
+    func acceptMention(_ member: Node) {
         let range = rangeForUserCompletion
-        guard suggestions.indices.contains(index), range.location != NSNotFound else { closeMentions(); return }
-        let member = suggestions[index]
+        guard range.location != NSNotFound else { closeMentions(); return }
         insertText("@" + member.display + " ", replacementRange: range)
         onMention?(member["name"].text); closeMentions(); window?.makeFirstResponder(self)
     }
     func closeMentions() {
         completing = false; mentionPopover?.close(); mentionPopover = nil; suggestions = []; suggestionIndex = 0
     }
+    func popoverDidClose(_ notification: Notification) { completing = false; mentionPopover = nil; suggestions = []; suggestionIndex = 0 }
 }
 
 private struct MentionSuggestions: View {

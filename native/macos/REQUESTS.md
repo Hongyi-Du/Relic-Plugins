@@ -22,7 +22,7 @@ and the vocabulary XCTest rejects missing source keys in either list.
 The original requests below are addressed by the shared harness; no different
 manifest format is now requested. Further shared failures will be listed here.
 
-### Active shared capture failure — full matrix `40866009267`
+### Shared capture failure resolved in `536d5d9`; native mention fix `44486d8`
 
 Reference job `123420849114` fails at `member-card` before the remaining scenes:
 `Page.evaluate: TypeError: Cannot read properties of null (reading 'getBoundingClientRect')`,
@@ -34,6 +34,13 @@ No production markup replacement is requested.
 The macOS/Windows full captures continue in that run; the seven-scene smoke comparison
 passed at `40865319424`. Native apps build/tests passed at `40866008575` (51 macOS tests).
 The full 504-case comparison must be rerun after this shared fix.
+
+`536d5d9` is merged; the real `#chat-head` anchor is fixed and the reference now
+runs on the Windows runner against its fixture server. macOS independently
+confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote`).
+`44486d8` replaces the blocking OS spell-completion service with a native
+NSPopover/SwiftUI member list, including avatars and keyboard selection. No
+mock screen or screenshot-only UI is used. Full capture is being rerun.
 
 Original shared owner requests (superseded by `docs/native-visual.md`):
 
