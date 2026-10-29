@@ -2,7 +2,7 @@
 
 Baseline: `2007a83` (PR #1 merge, v0.7.0-beta.1 candidate). The executable clients are
 SwiftUI on macOS 14+ arm64 and WinUI 3 / Windows App SDK with .NET 8 on Windows x64.
-`plugins/relic` remains the single engine. Neither client contains a browser,
+`plugins/relic` remains the single engine. Neither client instantiates a browser,
 HTML renderer, JavaScript runtime, WebView2, or WKWebView. Server-side static files
 remain a reference until full native parity is satisfied.
 
@@ -130,7 +130,7 @@ An in-flight response must not overwrite a newly selected chat.
 query values are shown with `?`. Both native clients implement the complete reference surface.
 
 | Route | Request | Response shape / use |
-| --- | --- | --- | --- |
+| --- | --- | --- |
 | `/api/ping` | none | `{app:"relic",version,pid}`; public discovery, not ownership |
 | `/api/lifecycle` | token | `{app,version,pid,port,instance,state:"running" or "stopping"}` |
 | `/api/platform` | none | OS/capability object from `platform_support.capabilities`; desktop delivery flags |
@@ -183,7 +183,7 @@ when editing; do not construct a second engine or implement store mutations in
 either native language.
 
 | Route | Body | Response |
-| --- | --- | --- | --- |
+| --- | --- | --- |
 | `/api/shutdown` | `{instance}` | `{stopping:true,instance}`; mismatch 409 |
 | `/api/platform` | capability settings | updated capabilities |
 | `/api/orgs` | `{name,purpose,governance:"leader" or "peer"}` | `{org_id}` |
@@ -195,7 +195,7 @@ either native language.
 | `/api/cc/id/retire` | `{}` after confirmation | store retirement result; stops inherited rule too |
 | `/api/fs/open` | `{path}` | `{opened:path}` |
 | `/api/open` | `{what:"data" or "logs"}` | `{opened:path}` |
-| `/api/install-window` | `{}` | legacy browser installation action; forbidden in native client |
+| `/api/install-window` | `{}` | 410 with native-package installation guidance; opens no window |
 | `/api/org/O/send` | `{to:["all"] or member names,body,channel:"group" or "private",reply_to?}` | `{id,to:[resolved recipients]}` |
 | `/api/org/O/turn` | `{member,prompt,wake_from?,wake_hop?}` | `{accepted:true}`; runner integration, not normal composer |
 | `/api/org/O/members` | `{name,role,harness,model?,mode?,folder?,secretary?}` | created App-managed member / status |
@@ -310,7 +310,7 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `scheduleRefresh@554` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `notifyChanges@562` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `liveSlot@576` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
-| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | pending |
 | `lastLine@623` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
 | `chatRow@629` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
 | `orgTree@636` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
@@ -470,6 +470,13 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | done | done |
 
 ## Changes for the clients
+
+- 2026-10-29: Shared panel/open_app entry points now use the same native launcher and propagate a missing native installation as an error. Updated English/Chinese README, Windows/macOS guides and source-package README to distinguish native binary installation from shared plugin installation. The WinUI SDK carries its standard optional WebView2 SDK assemblies; Relic never creates that control or starts its browser runtime. All App rendering remains native.
+
+
+- 2026-10-29: Merged native-macos through 73a2c49; REQUESTS.md has no new external requests. Its split form addresses the Swift type-check timeout from run 40833893160. Full Python matrix at 258e3d8 passed (40833893150), as did the Windows build/tests/installer job (123314102495).
+- 2026-10-29: Expanded vocabulary CI found list.pair/list.middle/list.end missing on both clients. Windows now uses Words.List for people, recipients, copy approvals and rule scopes. macOS owner: replace comma joins in those user-visible lists with the same shared list templates; do not exempt these keys.
+
 
 - 2026-10-29: Vocabulary coverage now includes keys in ternaries and data-driven arrays, plus real dynamic translation prefixes; the original literal t(...) scan missed these. CI scanner regressions are in tests/test_native_parity.py. Add actual corresponding controls if new missing keys appear; do not add inert lists.
 - 2026-10-29: Windows voice now uses Microsoft System.Speech 8.0 / desktop SAPI because Windows.Media.SpeechRecognition requires package identity, unavailable in our Inno/ZIP distribution. It uses the installed en-US or zh-CN recognizer and desktop microphone permission, never a browser. native.voice_hint is corrected; native.voice_language_missing explains the OS language-component prerequisite. See https://learn.microsoft.com/en-us/windows/apps/develop/input/speech-recognition and https://www.nuget.org/packages/System.Speech/8.0.0.

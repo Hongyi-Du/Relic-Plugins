@@ -20,6 +20,8 @@ login; it does not include model access or a hosted service.
 
 ## Install
 
+For this branch's native App, download the unsigned Windows installer or macOS .app ZIP from the [Native apps workflow](https://github.com/Hongyi-Du/Relic-Plugins/actions/workflows/native-apps.yml). See [native installation](docs/native-install.md) for the exact steps. Source packages below install the shared plugin/engine; they require the native application separately. These are review candidates, not a published release.
+
 Requires **Python 3.11+** and signed-in Claude Code and/or Codex. App-managed ACP members need **Node.js 22+**
 and npm. Build the candidate with `python -X utf8 scripts/package.py --output dist`, or use the published
 [v0.6.0 Windows release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) for that older version.
@@ -41,7 +43,7 @@ Codex. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
 
 **macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.1-beta.1.tar.gz` (optional ZIP). Use native
 arm64 Python 3.11+ and Node.js 22+, extract it permanently, then run `bash install.command --host none --open`.
-The installer creates `~/Applications/Relic.app`; retain the extracted folder. The source installer is unsigned and
+Copy the native SwiftUI `Relic.app` from the CI artifact to `~/Applications` separately; the plugin installer no longer creates a shell launcher. Retain the extracted plugin folder. The source installer is unsigned and
 not notarized; Intel/Rosetta are unsupported. See the [macOS guide](docs/macos.en.md) for host registration, desktop
 capability checks and the distinction between pre-merge real-Mac observations and merged acceptance.
 
@@ -62,7 +64,7 @@ Open it with the Relic shortcut on the desktop, by asking a Claude Code or Codex
 python -X utf8 scripts/open_app.py
 ```
 
-It runs a local server on 127.0.0.1 and opens a Microsoft Edge (or Chrome) window. Click Install in its window bar to install it as an application with its own window and title bar. Plain words, Digest and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
+Windows uses WinUI 3 and macOS uses SwiftUI, with native menus, controls, keyboard shortcuts and notifications. The App starts the shared local engine on 127.0.0.1 without a console; exit shuts down an engine it owns and preserves an existing engine it borrowed. There is no browser or web view. Plain words, Digest and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
 
 ## Earlier editions
 

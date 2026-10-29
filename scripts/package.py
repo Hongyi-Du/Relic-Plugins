@@ -27,14 +27,14 @@ Windows: `python -X utf8 scripts/install.py`
 
 macOS: `bash install.command`
 
-Then open the Relic App: `python -X utf8 scripts/open_app.py` (on Windows also the Relic shortcut on the desktop). The App runs members on your Claude Code and Codex and brings Relic into their sessions; the installer also adds the plugin to Claude Code and Codex, so your own sessions can join organizations too.
+Install the compiled native App separately using docs/native-install.md. This source package installs the plugin/engine; it contains no compiled WinUI/SwiftUI UI. Then open the Relic App: `python -X utf8 scripts/open_app.py` (on Windows also the Relic shortcut on the desktop). The App runs members on your Claude Code and Codex and brings Relic into their sessions; the installer also adds the plugin to Claude Code and Codex, so your own sessions can join organizations too.
 
 Requires Python 3.11+ and a signed-in Claude Code or Codex; App-managed ACP members need Node.js 22+. Keep this folder after installation.
 
 Back up the data directory before upgrading: the first open adds `activity.paths`. This migration has no automatic downgrade; restore a pre-upgrade backup to roll back.
 升级前备份数据：首次打开旧库会增加 `activity.paths` 列。迁移不可自动撤销，回退需恢复升级前备份。
 
-安装：Windows 运行 `python -X utf8 scripts/install.py`，macOS 运行 `bash install.command`。然后打开 Relic App：`python -X utf8 scripts/open_app.py`（Windows 桌面上也有 Relic 快捷方式）。App 用你的 Claude Code 和 Codex 运行成员，自己把 Relic 带进它们的会话；安装脚本也把插件加到 Claude Code 和 Codex，你自己的会话也能加入组织。需要 Python 3.11+ 和已登录的 Claude Code 或 Codex。安装后保留本目录。
+安装：Windows 运行 `python -X utf8 scripts/install.py`，macOS 运行 `bash install.command`。此源码包只含插件与引擎；请按 docs/native-install.md 另装编译好的原生 App。然后打开 Relic App：`python -X utf8 scripts/open_app.py`（Windows 桌面上也有 Relic 快捷方式）。App 用你的 Claude Code 和 Codex 运行成员，自己把 Relic 带进它们的会话；安装脚本也把插件加到 Claude Code 和 Codex，你自己的会话也能加入组织。需要 Python 3.11+ 和已登录的 Claude Code 或 Codex。安装后保留本目录。
 
 On macOS, check Settings → Harness connections or doctor.py --probe-desktop before using desktop delivery.
 CLI/App-managed members and manual inbox work independently. macOS 桌面投递需先通过能力验证；CLI、App 内成员与手动 inbox 可独立使用。

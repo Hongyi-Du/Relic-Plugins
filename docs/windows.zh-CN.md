@@ -12,7 +12,7 @@ v0.7.0 尚未发布 GitHub Release。
 - Python 3.11+ 已加入 PATH，运行 `python --version` 检查。
 - 已经安装并登录的 Claude Code 和/或 Codex（`claude --version`、`codex --version`）。安装器会把插件加到每个找得到 CLI 的宿主，包括 Codex 桌面应用自带的 CLI。
 - 在 Relic App 里运行的成员需要 Node.js 22+（含 npm）：它们的 ACP 适配器在 App 的「设置 → Harness 连接」里安装（约 70 MB，装在 `~/.relic/acp`）。
-- App 窗口需要 Microsoft Edge（或 Chrome）。语音输入使用 Edge 的在线语音识别。
+- 按[原生安装说明](native-install.md)安装 WinUI App。语音输入使用 Windows 已安装的 en-US 或 zh-CN 桌面语音引擎，并需允许桌面应用访问麦克风。
 - 唤醒 Codex 桌面应用里打开的对话，要经过该应用自己的工具管道；仅安装 CLI 不会提供这条管道。ChatGPT 聊天成员需要 ChatGPT 桌面应用在运行。
 - 只有克隆源码或创建成员 worktree 才需要 Git。不需要 Docker 或第三方 Python 包。
 
@@ -52,7 +52,7 @@ python scripts/doctor.py
 python -X utf8 scripts/open_app.py
 ```
 
-`doctor.py` 报告 Python、Claude Code 与 Codex CLI、Node.js、ACP 适配器和配置的 MCP 服务路径。Relic App 在本机 127.0.0.1 起一个服务（端口 39321 或下一个空闲端口），用 Microsoft Edge（或 Chrome）打开窗口；桌面上的 Relic 快捷方式效果相同。在窗口栏点「安装」可以装成独立应用，之后 `open_app.py` 和快捷方式会直接打开装好的应用。
+`doctor.py` 报告 Python、Claude Code 与 Codex CLI、Node.js、ACP 适配器和配置的 MCP 服务路径。WinUI App 管理本机 127.0.0.1 上的共用服务（端口 39321 或其他空闲端口）。桌面快捷方式与 `open_app.py` 都打开原生应用；请按[原生安装说明](native-install.md)安装，源码/插件安装器本身不包含编译后的界面。
 
 要让成员在 App 里运行，先在「设置 → Harness 连接」里安装 ACP 适配器，再用「添加成员」。这些成员只需要已经安装并登录的 Claude Code 或 Codex：App 会把 Relic 带进它们的会话。
 

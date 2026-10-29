@@ -40,7 +40,8 @@ public sealed class Client : IDisposable
         try
         {
             var record = serverRecord();
-            if (!int.TryParse(record.Text("port"), out var port) || record.Text("token").Length == 0) return false;
+            if (!int.TryParse(record.Text("port"), out var port) || port is < 1 or > 65535 || record.Text("token").Length == 0
+                || !int.TryParse(record.Text("pid"), out var pid) || pid <= 0 || record.Text("instance").Length == 0) return false;
             var next = port + ":" + record.Text("token"); if (next == identity) return false;
             var candidate = Connection(port, record.Text("token"));
             try
@@ -58,16 +59,18 @@ public sealed class Client : IDisposable
     public static string Org(string id, string action = "") => "/api/org/" + Segment(id) + action;
     public async Task<JsonNode> Get(string path, CancellationToken ct = default)
     {
-        try { using var response = await http.GetAsync(path, ct); return await Decode(response, ct); }
-        catch (HttpRequestException) { if (!await RefreshRecord(ct)) throw; using var retry = await http.GetAsync(path, ct); return await Decode(retry, ct); }
+        var connection = http;
+        try { using var response = await connection.GetAsync(path, ct); return await Decode(response, ct); }
+        catch (HttpRequestException) { if (!await RefreshRecord(ct) && ReferenceEquals(connection, http)) throw; using var retry = await http.GetAsync(path, ct); return await Decode(retry, ct); }
     }
     public async Task<JsonNode> Post(string path, object body, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync(path, body, ct);
+        var connection = http;
+        using var response = await connection.PostAsJsonAsync(path, body, ct);
         try { return await Decode(response, ct); }
         catch (HttpRequestException error) when (error.StatusCode == System.Net.HttpStatusCode.Forbidden && error.Message == "missing token")
         {
-            if (!await RefreshRecord(ct)) throw;
+            if (!await RefreshRecord(ct) && ReferenceEquals(connection, http)) throw;
             using var retry = await http.PostAsJsonAsync(path, body, ct); return await Decode(retry, ct);
         }
     }
@@ -126,6 +129,14 @@ public sealed class Words
         var text = value?.ToString() ?? key;
         foreach (var (name, arg) in args) text = text.Replace("{" + name + "}", arg.ToString());
         return text;
+    }
+    public string List(IEnumerable<string> values)
+    {
+        var items = values.ToArray(); if (items.Length == 0) return ""; if (items.Length == 1) return items[0];
+        if (items.Length == 2) return T("list.pair", ("a", items[0]), ("b", items[1]));
+        var joined = items[0];
+        for (int i = 1; i < items.Length; i++) joined = T(i == items.Length - 1 ? "list.end" : "list.middle", ("a", joined), ("b", items[i]));
+        return joined;
     }
 }
 

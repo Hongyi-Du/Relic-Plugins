@@ -95,7 +95,7 @@ public sealed partial class MainWindow
             card.Children.Add(Text((c.Flag("read") ? "" : T("cc.unread") + " · ") + (c.Text("supersedes").Length > 0 ? T("cc.revision") + " · " : "") + CopyState(c!)));
             card.Children.Add(Rich(c.Text("summary")));
             card.Children.Add(Text(T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))), 12));
-            if (c.Rows("approved_display").Count > 0) card.Children.Add(Text(T("cc.approved_by", ("names", string.Join(", ", c.Rows("approved_display").Select(n => n.Text())))), 12));
+            if (c.Rows("approved_display").Count > 0) card.Children.Add(Text(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))), 12));
             if (c.Text("activated_at").Length > 0) card.Children.Add(Text(T("cc.effective", ("when", When(c.Text("activated_at")))), 12));
             if (c.Text("supersedes").Length > 0) card.Children.Add(Text(T("cc.replaces", ("id", c.Text("supersedes"))), 12));
             var stats = c?["stats"];

@@ -18,8 +18,8 @@ Extract into a permanent folder, then run from Terminal:
 bash install.command --host none --open
 ```
 
-安装器会创建 ~/Applications/Relic.app。以后可以从 Finder 打开；请保留解压目录。
-The installer creates ~/Applications/Relic.app and opens Relic; keep the extracted folder in place.
+这是插件与引擎源码包。请另按 [原生安装说明](docs/native-install.md) 安装 SwiftUI Relic.app，再从 Finder 打开；请保留插件解压目录。
+This is the plugin/engine source package. Install the SwiftUI Relic.app separately using [native installation](docs/native-install.md), then open it in Finder. The plugin installer does not create the former shell launcher.
 
 进入 Settings → Harness connections，安装 ACP adapters，再选择 New organization → Add member → Run in the App。
 Install the ACP adapters under Settings → Harness connections, then add members with Run in the App.
@@ -40,8 +40,8 @@ python3 scripts/open_app.py --restart
 python3 scripts/open_app.py --stop
 ```
 
-关闭浏览器不会停止后台服务。组织数据默认保存在 ~/.relic；也可通过 RELIC_HOME 指定目录。
-Closing the browser keeps the background server running. Organization data defaults to ~/.relic or RELIC_HOME.
+原生 App 退出会停止自己启动的服务，保留原先已运行的服务。组织数据默认保存在 ~/.relic；也可通过 RELIC_HOME 指定目录。
+The native App stops its own engine on exit and leaves a borrowed engine running. Organization data defaults to ~/.relic or RELIC_HOME.
 
 此包不含个人聊天、账号凭据、本机 Python 绝对路径或已安装的依赖。桌面投递由本机能力检查控制。
 This source package contains no personal chats, credentials, machine-specific launch paths or installed dependencies.
