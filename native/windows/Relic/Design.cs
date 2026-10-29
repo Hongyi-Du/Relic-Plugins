@@ -92,7 +92,9 @@ public sealed partial class MainWindow
         paneHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         paneHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var tabs = new SelectorBar { Margin = new Thickness(4, 0, 0, 0) };
-        foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") })
+        var choices = new List<(string, string)> { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") };
+        if (pane == "thread") choices = [("overview", "panel.overview"), ("thread", "panel.thread")];
+        foreach (var (id, key) in choices)
             tabs.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = pane == id, FontSize = 12, Padding = new Thickness(6, 8, 6, 8) });
         tabs.SelectionChanged += async (_, _) => { var target = tabs.SelectedItem?.Tag?.ToString(); if (target != null && pane != target) await Run(() => SetPane(target)); };
         paneHeader.Children.Add(tabs);

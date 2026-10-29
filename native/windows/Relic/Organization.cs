@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         var wake = new ToggleSwitch { IsOn = o.Flag("auto_wake"), OnContent = "", OffContent = "", MinWidth = 42 }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(wake, T("org.auto_wake"));
         var wakeRow = new Grid { ColumnSpacing = 8 }; wakeRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); wakeRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); wakeRow.Children.Add(wake); var wakeText = Text(T("org.auto_wake"), 12); Grid.SetColumn(wakeText, 1); wakeText.VerticalAlignment = VerticalAlignment.Center; wakeRow.Children.Add(wakeText); detail.Children.Add(wakeRow);
         wake.Toggled += async (_, _) => await Run(() => Post("/auto_wake", new { on = wake.IsOn }));
-        detail.Children.Add(Heading(T("decision.title")));
+        detail.Children.Add(TwoColumns(Quiet(T("decision.title")), Badge(snap.Rows("decisions").Count.ToString(), true)));
         if (snap.Rows("decisions").Count == 0) detail.Children.Add(Quiet(T("decision.none")));
         foreach (var decision in snap.Rows("decisions")) detail.Children.Add(Decision(decision!));
         var start = detail.Children.Count; Hierarchy(o!); var hierarchy = new StackPanel { Spacing = 10 };
@@ -64,22 +64,24 @@ public sealed partial class MainWindow
     }
     private void Hierarchy(JsonNode o)
     {
-        detail.Children.Add(Button(T("org.hierarchy") + " · " + T("chart.title"), Chart));
+        detail.Children.Add(QuietButton(T("chart.title") + " ›", Chart));
         var descendants = new HashSet<string> { org }; bool added;
         do { added = false; foreach (var child in orgs) if (descendants.Contains(child.Text("parent"))) added |= descendants.Add(child.Text("id")); } while (added);
         var above = o["parent"].Text("id"); var activeOrg = o.Text("status") is "" or "active";
         var parent = Choice(detail, "org.parent_label", new[] { ("", T("org.parent_none")) }.Concat(orgs.Where(x => !descendants.Contains(x.Text("id")) && (x.Text("id") == above || x.Text("status") == "active" && (o.Text("kind") == "subgroup" || x.Text("kind") != "subgroup"))).Select(x => (x.Text("id"), x.Text("name")))));
         SetChoice(parent, above); parent.IsEnabled = activeOrg;
+        CompactHierarchyChoice(parent, "org.parent_label");
         parent.SelectionChanged += async (_, _) => await Run(async () => { try { await Post("/parent", new { parent = Value(parent).Length > 0 ? Value(parent) : null }); } catch (Exception ex) { Note(T("org.parent_failed", ("error", ex.Message))); } });
         if (o.Text("governance") != "peer")
         {
             var leader = Choice(detail, "common.leader", new[] { ("", T("org.leader_unset")) }.Concat(snap.Rows("members").Select(m => (m.Text("name"), Display(m.Text("name")))))); SetChoice(leader, o.Text("leader")); leader.IsEnabled = activeOrg && snap.Rows("members").Count > 0;
+            CompactHierarchyChoice(leader, "common.leader");
             leader.SelectionChanged += async (_, _) => await Run(async () => { var name = Value(leader); if (name.Length == 0 || !await Confirm(T("org.leader_confirm", ("name", Display(name)), ("org", o.Text("name"))))) { DrawDetail(); return; } try { await Post("/leader", new { member = name }); Note(T("org.leader_changed", ("name", Display(name)))); } catch (Exception ex) { Note(T("org.leader_failed", ("error", ex.Message))); } });
         }
         if (o.Text("kind") == "subgroup") detail.Children.Add(Text(T("org.subgroup_note", ("name", orgs.FirstOrDefault(x => x.Text("id") == o.Text("home")).Text("name")))));
         else
         {
-            var cabinet = new ToggleSwitch { Header = Text(T("org.cabinet_toggle"), 12), IsOn = o.Flag("cabinet"), IsEnabled = activeOrg, OnContent = "", OffContent = "" }; detail.Children.Add(cabinet);
+            var cabinet = new ToggleSwitch { IsOn = o.Flag("cabinet"), IsEnabled = activeOrg, OnContent = "", OffContent = "", MinWidth = 42 }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(cabinet, T("org.cabinet_toggle")); detail.Children.Add(TwoColumns(Text(T("org.cabinet_toggle"), 12), cabinet));
             var other = orgs.FirstOrDefault(x => x.Flag("cabinet") && x.Text("id") != org);
             detail.Children.Add(Text(o.Flag("cabinet") ? T("org.cabinet_on_hint") : other != null ? T("org.cabinet_elsewhere", ("name", other.Text("name"))) : T("org.cabinet_hint"), 12));
             cabinet.Toggled += async (_, _) => await Run(async () => { try { await Post("/cabinet", new { on = cabinet.IsOn }); } catch (Exception ex) { Note(T("org.cabinet_failed", ("error", ex.Message))); } });
@@ -91,6 +93,12 @@ public sealed partial class MainWindow
             foreach (var child in o.Rows(key).Where(c => key != "children" || c.Text("kind") != "subgroup")) detail.Children.Add(Button(child.Text("name") + "\n" + (child.Text("status") is "closed" or "dissolved" ? T(child.Text("status") == "closed" ? "org.status_closed" : "org.status_dissolved") : T("org.child_stats", ("decisions", child.Text("decisions")), ("blocked", child.Text("blocked")), ("working", child.Text("working")))), () => Select(child.Text("id"))));
         }
         if (o.Text("kind") == "subgroup" && activeOrg) detail.Children.Add(Button(T("org.close_group"), async () => { if (!await Confirm(T("org.close_group_confirm", ("name", o.Text("name"))))) return; try { await Post("/close", new { }); Note(T("org.group_closed", ("name", o.Text("name")))); } catch (Exception ex) { Note(T("org.close_group_failed", ("error", ex.Message))); } }));
+    }
+    private void CompactHierarchyChoice(ComboBox choice, string label)
+    {
+        detail.Children.Remove(choice); choice.Header = null;
+        var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(58) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var title = Quiet(T(label), 12); title.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(title); Grid.SetColumn(choice, 1); row.Children.Add(choice); detail.Children.Add(row);
     }
     private UIElement Decision(JsonNode d)
     {

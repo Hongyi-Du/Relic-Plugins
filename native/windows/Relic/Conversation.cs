@@ -25,12 +25,14 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<TextBox> composing = new();
+    private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(32) };
+    private void UpdateSendState() { if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .45; } }
     private string PlainKey(string id) => org + "/" + id;
     private void Quote(string who, string body)
     {
         quoteWho = who; quoteText = Regex.Replace(body, @"^(>.*\n?)+\n*", "").Trim();
         if (quoteText.Length > 1200) quoteText = quoteText[..1200] + "…";
-        quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; quoteLabel.MaxLines = 3; quoteLabel.TextTrimming = TextTrimming.CharacterEllipsis; quoteRow.Visibility = Visibility.Visible; SaveViewState();
+        quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; quoteLabel.MaxLines = 3; quoteLabel.TextTrimming = TextTrimming.CharacterEllipsis; quoteRow.Visibility = Visibility.Visible; UpdateSendState(); SaveViewState();
         if (pane == "thread") { DrawDetail(); threadEditor.Focus(FocusState.Programmatic); } else editor.Focus(FocusState.Programmatic);
     }
     private string Quoted(string text)
@@ -39,7 +41,7 @@ public sealed partial class MainWindow
         var lines = quoteText.Split('\n'); lines[0] = T("sel.quote_line", ("who", quoteWho), ("text", lines[0]));
         return string.Join("\n", lines.Select(l => "> " + l)) + "\n\n" + text;
     }
-    private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; quoteRow.Visibility = Visibility.Collapsed; }
+    private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; quoteRow.Visibility = Visibility.Collapsed; UpdateSendState(); }
     private Task PickRecipients()
     {
         var box = new StackPanel { Spacing = 2, Width = 270 };
@@ -135,10 +137,13 @@ public sealed partial class MainWindow
     {
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
         composerSurface.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
-            stream.Children.Add(Text(T("chat.no_orgs"), 24)); stream.Children.Add(Text(T("chat.no_orgs_hint")));
-            stream.Children.Add(Button(T("common.new_org"), CreateOrg)); return;
+            chatHead.Children.Add(Heading(T("page.titlebar"), 17));
+            var title = Heading(T("chat.no_orgs"), 20); title.TextAlignment = TextAlignment.Center;
+            var hint = Quiet(T("chat.no_orgs_hint"), 13); hint.TextAlignment = TextAlignment.Center;
+            var empty = Stack(title, hint); empty.Spacing = 18; empty.MaxWidth = 620; empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center; emptyConversation.Children.Add(empty); return;
         }
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
         chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
