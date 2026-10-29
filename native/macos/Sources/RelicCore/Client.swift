@@ -130,7 +130,8 @@ public struct Words {
     public func t(_ key: String, _ args: [String: String] = [:]) -> String {
         var value = strings[key]
         if value.raw is [String: Any] { value = value[language == "en-US" && args["n"] == "1" ? "one" : "other"] }
-        var result = value.isNull ? key : value.text
+        // Missing vocabulary is a CI failure; never leak an implementation key into UI.
+        var result = value.isNull ? "" : value.text
         for (key, value) in args { result = result.replacingOccurrences(of: "{" + key + "}", with: value) }
         return result
     }

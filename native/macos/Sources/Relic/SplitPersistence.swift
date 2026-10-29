@@ -40,18 +40,18 @@ struct SplitPersistence: NSViewRepresentable {
             restoring = true; defer { restoring = false }
             if hasSidebar, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: "width.sidebar")
-                if saved > 0 { found.setPosition(min(340, max(220, saved)), ofDividerAt: 0) }
+                if saved > 0 { found.setPosition(min(320, max(208, saved)), ofDividerAt: 0) }
             }
             if hasPanel, found.subviews.count >= 2 {
-                let saved = model.defaults.double(forKey: key), width = saved > 0 ? saved : key == "width.files" ? 560 : 380
-                let available = max(320, found.bounds.width - (hasSidebar ? 220 : 0) - 350)
-                found.setPosition(found.bounds.width - min(740, available, max(320, width)) - found.dividerThickness, ofDividerAt: found.subviews.count - 2)
+                let saved = model.defaults.double(forKey: key), width = saved > 0 ? saved : key == "width.files" ? 460 : 320
+                let available = max(280, found.bounds.width - (hasSidebar ? 208 : 0) - 320)
+                found.setPosition(found.bounds.width - min(740, available, max(280, width)) - found.dividerThickness, ofDividerAt: found.subviews.count - 2)
             }
         }
         @objc private func resized() {
             guard !restoring, !signature.isEmpty, let model, let split, split.subviews.count >= 2 else { return }
             if hasSidebar, model.sidebarOpen, let first = split.subviews.first, first.frame.width >= 200 { model.defaults.set(first.frame.width, forKey: "width.sidebar") }
-            if hasPanel, model.panelOpen, let last = split.subviews.last, last.frame.width >= 300 { model.defaults.set(last.frame.width, forKey: panelKey) }
+            if hasPanel, model.panelOpen, let last = split.subviews.last, last.frame.width >= 270 { model.defaults.set(last.frame.width, forKey: panelKey) }
         }
         func detach() { NotificationCenter.default.removeObserver(self); split = nil; signature = "" }
         deinit { NotificationCenter.default.removeObserver(self) }

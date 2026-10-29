@@ -100,7 +100,7 @@ struct CopiesView: View {
                             if !copy["read"].flag { Button(m.t("cc.ack")) { m.run { try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/read", [:]); try await m.refresh() } } }
                             if copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) { Button(m.t("cc.retire"), role: .destructive) { retire = copy } }
                         }
-                    }.padding(12).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    }.relicCard()
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.frame(maxHeight: 600)

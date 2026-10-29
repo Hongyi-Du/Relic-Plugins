@@ -32,8 +32,7 @@ struct MemberForm: View {
         return start ? "member.create_start" : "member.create_seat_only"
     }
     var body: some View {
-        ScrollView {
-            Form {
+        Form {
                 heading
                 if mode == "existing" { existingFields }
                 else {
@@ -42,8 +41,7 @@ struct MemberForm: View {
                     if mode == "app" { appFields } else { hostFields }
                 }
                 SaveButton(labelKey: submitLabel, action: save).disabled(loading)
-            }.formStyle(.grouped)
-        }.frame(maxHeight: 650)
+        }.formStyle(.grouped).frame(minHeight: 420, maxHeight: 550)
         .task {
             m.run {
                 defer { loading = false }
