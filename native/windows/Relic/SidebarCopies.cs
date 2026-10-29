@@ -9,35 +9,86 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
-    private readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 40 };
-    private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 4, 2, 4) };
+    private readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 39, MinHeight = 0, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
+    private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 0, 2, 0), Height = 39, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private HashSet<string>? knownCopies;
     private void DrawToolbar()
     {
         toolbar.PrimaryCommands.Clear();
+        // CommandBar's stock compact presenter is at least 48px tall and keeps
+        // a 6px overflow column even when the overflow button is collapsed.
+        // These resources control its real native template's layout.
+        toolbar.Resources["AppBarThemeCompactHeight"] = 39d;
+        toolbar.Resources["AppBarMoreButtonColumnMinWidth"] = 0d;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
-        void Action(string glyph, string label, string tip, Func<Task> action, bool enabled = true, int badge = 0, bool selected = false, bool alert = false)
+        void AddCommand(UIElement content)
         {
-            var b = QuietButton("", action); var content = new Grid(); content.Children.Add(Glyph(glyph)); b.Content = content; b.IsEnabled = enabled; b.Width = 30; b.Height = 28; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(7); b.Foreground = alert ? Paint("B7791F", "E2B15A") : Paint("5A5853", "B8B5AE");
-            if (selected) b.Background = Paint("E7E5DF", "2F2E2B");
-            if (badge > 0) content.Children.Add(new Border { MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8), Background = Paint("C2412D", "EE8A78"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Child = new TextBlock { Text = badge.ToString(), FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF"), LineHeight = 15, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, HorizontalAlignment = HorizontalAlignment.Center } });
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, tip);
-            ToolTipService.SetToolTip(b, tip); toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = b });
+            toolbar.PrimaryCommands.Add(new AppBarElementContainer
+            {
+                Content = content, Height = 39, MinHeight = 0, Padding = new Thickness(0),
+                Margin = new Thickness(toolbar.PrimaryCommands.Count == 0 ? 0 : 2, 0, 0, 0),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center, UseLayoutRounding = false
+            });
         }
-        navigationButtons.Children.Clear(); var brand = new Border { Width = 20, Height = 20, Margin = new Thickness(5, 0, 7, 0), CornerRadius = new CornerRadius(5), Background = Ink, Child = new TextBlock { Text = "R", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF", "1B1B1A"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; ToolTipService.SetToolTip(brand, T("page.titlebar")); navigationButtons.Children.Add(brand); navigationButtons.Children.Add(IconButton("\uE700", "appmenu.sidebar", ToggleSide, T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar")));
-        var back = IconButton("\uE72B", "appbar.back", () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
-        var forward = IconButton("\uE72A", "appbar.forward", () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
-        appTitle.Text = org.Length == 0 ? "Relic" : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
+        navigationButtons.Children.Clear();
+        navigationButtons.Children.Add(new Image
+        {
+            Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri("ms-appx:///Assets/Relic.svg")),
+            Width = 18, Height = 18, Margin = new Thickness(6, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false
+        });
+        navigationButtons.Children.Add(ToolbarIconButton("\uE700", T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), ToggleSide));
+        var back = ToolbarIconButton("\uE72B", T("appbar.back"), () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
+        var forward = ToolbarIconButton("\uE72A", T("appbar.forward"), () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
+        appTitle.Text = org.Length == 0 ? T("common.app_name") : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
         var count = snap.Rows("decisions").Count;
-        Action("\uE7BA", T("decision.title"), T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0);
+        AddCommand(ToolbarIconButton("\uE7BA", T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0));
         var unread = copies.Count(c => !c.Flag("read"));
-        Action("\uE715", T("cc.title"), T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies, badge: unread);
-        toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0) } });
+        AddCommand(ToolbarIconButton("\uE715", T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies, badge: unread));
+        AddCommand(new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0), UseLayoutRounding = false });
         int i = 1;
         foreach (var (id, key, glyph) in new[] { ("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5") })
-            Action(glyph, T(key), T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id);
+            AddCommand(ToolbarIconButton(glyph, T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id));
+    }
+    private Button ToolbarIconButton(string glyph, string tip, Func<Task> action, int badge = 0, bool selected = false, bool alert = false)
+    {
+        var button = QuietButton("", action);
+        button.Width = 30; button.Height = 28; button.MinWidth = button.MinHeight = 0;
+        button.Padding = new Thickness(0); button.CornerRadius = new CornerRadius(7);
+        button.HorizontalContentAlignment = HorizontalAlignment.Center; button.VerticalContentAlignment = VerticalAlignment.Center;
+        button.VerticalAlignment = VerticalAlignment.Center; button.UseLayoutRounding = false;
+        button.Foreground = alert ? Paint("B7791F", "E2B15A") : selected ? Ink : Paint("5A5853", "B8B5AE");
+        if (selected) button.Background = Paint("E7E5DF", "2F2E2B");
+        var hoverBackground = selected ? "RelicControlPressed" : "RelicControlHover";
+        var hoverForeground = alert ? "" : "<Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlInk}'/>";
+        button.Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+            "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'>" +
+            "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
+            "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlDisabled}'/></VisualState.Setters></VisualState>" +
+            "</VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter></ControlTemplate>");
+        // The badge is positioned in the complete 30x28 button, not in the
+        // icon's 16x16 desired size. It remains an actual, separate badge view.
+        var content = new Grid { Width = 30, Height = 28, UseLayoutRounding = false };
+        var icon = Glyph(glyph); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(icon);
+        if (badge > 0)
+        {
+            var label = SidebarText(badge.ToString(), 10, weight: 700, lineHeight: 15);
+            label.Foreground = Paint("FFFFFF"); label.TextWrapping = TextWrapping.NoWrap; label.TextAlignment = TextAlignment.Center; label.IsTextSelectionEnabled = false;
+            content.Children.Add(new OverviewBadgeView
+            {
+                Content = label, MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8),
+                Background = Paint("C2412D", "EE8A78"), Foreground = label.Foreground, FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false
+            });
+        }
+        button.Content = content; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip); ToolTipService.SetToolTip(button, tip);
+        return button;
     }
     private void DrawSidebar()
     {
@@ -55,7 +106,7 @@ public sealed partial class MainWindow
         searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); searchSurface.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var searchIcon = (ReferenceVectorIcon)Glyph("\uE721", 15); searchIcon.Foreground = Muted; searchIcon.VerticalAlignment = VerticalAlignment.Center; searchIcon.IsHitTestVisible = false; searchSurface.Children.Add(searchIcon);
         search.Margin = new Thickness(0); search.MinHeight = 0; search.Height = 22.4; search.VerticalAlignment = VerticalAlignment.Center; search.FontSize = 14; search.Padding = new Thickness(0); search.BorderThickness = new Thickness(0); search.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); Grid.SetColumn(search, 1); searchSurface.Children.Add(search);
-        var searchMic = Microphone(search); searchMic.Foreground = Paint("5A5853", "B8B5AE"); searchMic.Width = searchMic.Height = 32; searchMic.MinHeight = 0; searchMic.Padding = new Thickness(0); searchMic.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(searchMic, 2); searchSurface.Children.Add(searchMic); sideTools.Children.Add(searchSurface);
+        var searchMic = Microphone(search); searchMic.Foreground = Paint("5A5853", "B8B5AE"); searchMic.Width = searchMic.Height = 32; searchMic.MinHeight = 0; searchMic.Padding = new Thickness(0); searchMic.HorizontalContentAlignment = HorizontalAlignment.Center; searchMic.VerticalContentAlignment = VerticalAlignment.Center; searchMic.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(searchMic, 2); searchSurface.Children.Add(searchMic); sideTools.Children.Add(searchSurface);
         var caption = TwoColumns(SidebarText(T("page.tree"), 12, true), SidebarText(orgs.Count > 0 ? orgs.Count.ToString() : "", 12, true)); caption.UseLayoutRounding = false; caption.Margin = new Thickness(10, 14, 10, 6); side.Children.Add(caption);
         var tree = new StackPanel { UseLayoutRounding = false }; side.Children.Add(tree);
         var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
@@ -148,7 +199,7 @@ public sealed partial class MainWindow
         var profile = QuietButton("", Settings); profile.Padding = new Thickness(8, 6, 8, 6); profile.CornerRadius = new CornerRadius(8); profile.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(profile, T("page.me")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, T("page.me"));
         var identity = new Grid { ColumnSpacing = 10 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); var human = SidebarFace("human", preferences.Text("avatar"), "", false); human.VerticalAlignment = VerticalAlignment.Center; identity.Children.Add(human);
         var labels = new StackPanel { UseLayoutRounding = false }; var nameLabel = SidebarText(Display("human"), 13.3, weight: 600); nameLabel.TextWrapping = TextWrapping.NoWrap; nameLabel.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(nameLabel); var profileLabel = SidebarText(T("side.profile"), 11.5, true); profileLabel.TextWrapping = TextWrapping.NoWrap; profileLabel.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(profileLabel); Grid.SetColumn(labels, 1); identity.Children.Add(labels); profile.Content = identity;
-        var settings = IconButton("\uE713", "common.settings", Settings); settings.Content = ReferenceIcon("gear", 18); settings.VerticalAlignment = VerticalAlignment.Center; var footer = TwoColumns(profile, settings); footer.ColumnSpacing = 4; sidebarFooter.Children.Add(footer);
+        var settings = IconButton("\uE713", "common.settings", Settings); settings.Content = ReferenceIcon("gear", 18); settings.Padding = new Thickness(0); settings.Foreground = Paint("5A5853", "B8B5AE"); settings.HorizontalContentAlignment = HorizontalAlignment.Center; settings.VerticalContentAlignment = VerticalAlignment.Center; settings.VerticalAlignment = VerticalAlignment.Center; var footer = TwoColumns(profile, settings); footer.ColumnSpacing = 4; sidebarFooter.Children.Add(footer);
     }
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
     {

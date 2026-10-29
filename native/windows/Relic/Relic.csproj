@@ -16,4 +16,7 @@
     <PackageReference Include="System.Speech" Version="8.0.0" />
     <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../../plugins/relic/app/static/icon.svg" Link="Assets/Relic.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

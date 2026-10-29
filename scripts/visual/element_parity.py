@@ -7,7 +7,7 @@ missing captures fail the gate. Pixel differences are a second signal only.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 import difflib
 import html
 import json
@@ -34,7 +34,7 @@ STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovere
 LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
 INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link"}
 CATEGORIES = ("missing", "extra", "text_mismatch", "geometry_out_of_tolerance", "style_out_of_tolerance", "state_mismatch", "kind_mismatch", "region_mismatch", "order_mismatch", "layout_mismatch", "icon_mismatch", "extraction_errors")
-SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart")
+SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing")
 TOLERANCES = {"geometry_small_px": 4, "geometry_large_threshold_px": 130, "geometry_large_fraction": .03, "font_size_px": .5, "font_weight": 0, "color_delta_e_76": 3, "alpha": 0, "corner_radius_px": 1, "border_width_px": 0}
 
 
@@ -174,7 +174,8 @@ def rendered_fonts(element: dict) -> dict[str, set[str] | None] | None:
     Glyph counters and custom-font loading flags describe provider accounting,
     not a visible style property, so remain in the copied raw capture only.
     """
-    fonts = element.get("style", {}).get("rendered_fonts")
+    style = element.get("style")
+    fonts = style.get("rendered_fonts") if isinstance(style, dict) else None
     if not isinstance(fonts, list) or not fonts: return None
     families = {}
     for font in fonts:
@@ -254,6 +255,7 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
     if not isinstance(elements, list) or not elements:
         error("Capture has no element array or an empty element array")
         return errors
+    source_ids = Counter(e["id"] for e in elements if isinstance(e, dict) and isinstance(e.get("id"), str))
     coverage = data.get("coverage")
     if not isinstance(coverage, dict):
         error("Missing extraction coverage")
@@ -265,7 +267,15 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         if not isinstance(coverage.get("unmeasured"), list):
             error("coverage.unmeasured must explicitly list measurement gaps")
         else:
-            for gap in coverage["unmeasured"]: error("Unmeasured: " + str(gap))
+            for gap in coverage["unmeasured"]:
+                # Reference names its actual source `element`; XAML uses `id`.
+                # Retain attribution only for one uniquely emitted element.
+                # Unknown raw nodes or ambiguous/global gaps remain global
+                # failures; no projection ownership or parent id is guessed.
+                reported = [gap[key] for key in ("element", "id") if key in gap] if isinstance(gap, dict) else []
+                target = (reported[0] if reported and all(isinstance(value, str) and value == reported[0] for value in reported)
+                          and source_ids[reported[0]] == 1 else None)
+                error("Unmeasured: " + str(gap), target)
     ids = set()
     for index, element in enumerate(elements):
         if not isinstance(element, dict):
@@ -751,7 +761,8 @@ def outlines(elements: list[dict], statuses: dict, viewport: dict, image: str | 
         if not measured:
             # This is a navigation aid only. A clipped CSS layout range cannot
             # establish the actual painted prefix/ellipsis glyph boundaries.
-            box = element.get("evidence", {}).get("clipped_range_envelope")
+            evidence = element.get("evidence")
+            box = evidence.get("clipped_range_envelope") if isinstance(evidence, dict) else None
             if not isinstance(box, dict) or not all(number(box.get(k)) for k in ("x", "y", "width", "height")): continue
         status = statuses.get(element["id"], "mismatch")
         title = html.escape(f"{status}: {element['id']} | {element.get('kind')} | {element.get('text', '')} | {element.get('name', '')}")

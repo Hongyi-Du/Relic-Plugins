@@ -405,6 +405,7 @@ public sealed partial class MainWindow
         Button? button = null;
         button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
         button.Width = button.Height = 32; button.CornerRadius = new CornerRadius(16);
+        button.HorizontalContentAlignment = HorizontalAlignment.Center; button.VerticalContentAlignment = VerticalAlignment.Center; button.Padding = new Thickness(0);
         button.Foreground = Paint("5A5853", "B8B5AE");
         if (button.Content is ReferenceVectorIcon icon) icon.Foreground = button.Foreground;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input"));

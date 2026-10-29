@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: visual-${{ github.ref_name }}
+  group: visual-${{ github.ref_name }}-${{ inputs.matrix || 'full' }}
   cancel-in-progress: false
 jobs:
   element-checker:
