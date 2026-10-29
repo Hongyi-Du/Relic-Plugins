@@ -49,7 +49,7 @@ internal static class Program
             };
         }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-        File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
         // complete parity report rather than silently dropping this scene.
         return result["extraction_errors"]!.AsArray().Count == 0 ? 0 : 1;

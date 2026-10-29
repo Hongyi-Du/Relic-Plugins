@@ -57,7 +57,7 @@ public sealed partial class MainWindow
         Row("card.owns", string.Join("\n", c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).Select(t => t.Text("id") + " " + t.Text("title"))));
         if (c.Rows("tasks").Count > 0 && c.Rows("tasks").All(t => t.Text("status") is "done" or "dropped")) Row("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
         Row("common.session", c.Text("session") + (c.Text("agent").Length > 0 ? " / " + c.Text("agent") : "") + (c.Text("parent").Length > 0 ? T("card.in_parent_session", ("parent", Display(c.Text("parent")))) : ""));
-        Row("card.folder", c.Text("cwd")); Row("card.joined", When(c.Text("joined_at")) + " " + T("card.session_nth", ("n", c.Text("carriers"))));
+        Row("card.folder", c.Text("cwd")); Row("card.joined", c.Text("joined_at").Length > 0 ? When(c.Text("joined_at")) + (int.TryParse(c.Text("carriers"), out var carriers) && carriers > 1 ? " · " + T("card.session_nth", ("n", carriers)) : "") : "");
         Row("card.recent", string.Join("\n", c.Rows("recent").Take(4).Select(r => r.Text("tool") + " " + r.Text("summary"))));
         var actions = new ActionRow(); actions.Children.Add(Button(T("card.message"), async () => { transientFlyout?.Hide(); await Select(id, name); })); actions.Children.Add(Button(T("common.context_trace"), () => Details("trace", name))); box.Children.Add(actions);
         var seatActions = new ActionRow { Spacing = 4 }; box.Children.Add(seatActions);

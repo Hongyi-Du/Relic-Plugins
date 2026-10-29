@@ -183,7 +183,10 @@ public sealed partial class MainWindow
         string day = ""; JsonNode? previous = null;
         foreach (var item in items)
         {
-            var date = item.Text("at").Split('T')[0]; if (date != day && date.Length > 0) { var label = Quiet(Day(item.Text("at")), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); day = date; }
+            var date = DateTimeOffset.TryParse(item.Text("at"), out var parsed) ? parsed.LocalDateTime.Date.ToString("yyyy-MM-dd") : "";
+            if (date != day && date.Length > 0) { var label = Quiet(When(item.Text("at")), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); day = date; previous = null; }
+            else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
+            { var label = Quiet(parsed.ToLocalTime().ToString("HH:mm"), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); previous = null; }
             stream.Children.Add(Message(item!, false, Transcript.SameMessageGroup(previous, item!))); previous = item;
         }
         if (member.Length > 0) DrawLive(stream);
@@ -251,7 +254,7 @@ public sealed partial class MainWindow
         actions.Children.Add(IconButton("\uE8F2", "common.quote", () => { Quote(Display(from), body); return Task.CompletedTask; }));
         if (!inThread && long.TryParse(item.Text("id"), out _)) actions.Children.Add(IconButton("\uE97A", "msg.reply_in_thread", () => OpenThread(item.Text("id"))));
         actions.Children.Add(IconButton("\uE8C8", "common.copy", () => { Copy(body); return Task.CompletedTask; }));
-        if (!inThread && item["thread"] != null) { var replies = QuietButton(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))); replies.Foreground = Accent; after.Children.Add(replies); }
+        if (!inThread && item["thread"] != null) { var replies = QuietButton(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", ShortWhen(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))); replies.Foreground = Accent; after.Children.Add(replies); }
         var secretary = from == snap["org"].Text("secretary");
         var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7660C8", "A899E1") : Line, BorderThickness = new Thickness(secretary ? 3 : 0, 0, 0, 0), MaxWidth = 680, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (showingPlain) { bubble.Background = Paint("F3F0FA", "302A40"); bubble.BorderBrush = Paint("D8CEE9", "4C405E"); bubble.BorderThickness = new Thickness(1); }

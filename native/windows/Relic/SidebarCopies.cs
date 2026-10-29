@@ -17,8 +17,9 @@ public sealed partial class MainWindow
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
         void Action(string glyph, string label, string tip, Func<Task> action, bool enabled = true)
         {
-            var b = new AppBarButton { Icon = Glyph(glyph), Label = label, IsEnabled = enabled, Width = 38, Height = 36, IsCompact = true };
-            ToolTipService.SetToolTip(b, tip); b.Click += async (_, _) => await Run(action); toolbar.PrimaryCommands.Add(b);
+            var b = QuietButton("", action); b.Content = Glyph(glyph); b.IsEnabled = enabled; b.Width = 30; b.Height = 30; b.Padding = new Thickness(6);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, label);
+            ToolTipService.SetToolTip(b, tip); toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = b });
         }
         navigationButtons.Children.Clear(); var brand = new Border { Width = 20, Height = 20, Margin = new Thickness(5, 0, 7, 0), CornerRadius = new CornerRadius(5), Background = Ink, Child = new TextBlock { Text = "R", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF", "1B1B1A"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; ToolTipService.SetToolTip(brand, T("page.titlebar")); navigationButtons.Children.Add(brand); navigationButtons.Children.Add(IconButton("\uE700", "appmenu.sidebar", ToggleSide, T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar")));
         var back = IconButton("\uE72B", "appbar.back", () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);

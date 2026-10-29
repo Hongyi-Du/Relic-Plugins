@@ -85,7 +85,7 @@ public sealed partial class MainWindow
                         case "mention": editor.Text = "@"; editor.SelectionStart = 1; MentionMenu(); break;
                         case "digest": digest = fixture["digest"]!.DeepClone(); digestOpen = true; DrawConversation(); break;
                         case "plain": foreach (var item in messages) plain[PlainKey(item.Text("id"))] = fixture.Text("plain"); plainMode = true; DrawConversation(); plainTimer.Stop(); break;
-                        case "quick-start": org = ""; orgs.Clear(); snap = new JsonObject(); DrawSidebar(); DrawConversation(); DrawDetail(); break;
+                        case "quick-start": org = ""; orgs.Clear(); snap = new JsonObject(); DrawToolbar(); DrawSidebar(); DrawConversation(); DrawDetail(); break;
                         default: throw new InvalidOperationException("Unimplemented visual scene: " + scene);
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
@@ -99,6 +99,7 @@ public sealed partial class MainWindow
                     }
                     if (scene == "copy-rules" && visibleDialog != null) ExpandCaptureRules(visibleDialog);
                     root.UpdateLayout(); await Task.Delay(250);
+                    SetCursorPos(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)

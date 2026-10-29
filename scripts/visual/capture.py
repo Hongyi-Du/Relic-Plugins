@@ -1,5 +1,6 @@
 """Capture the real reference/native UI in CI; no local execution is permitted."""
 import argparse
+import datetime
 import json
 import os
 from pathlib import Path
@@ -50,7 +51,8 @@ def reference(manifest):
         browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
         for case in manifest["cases"]:
             print("Reference capture: " + case["id"], flush=True)
-            page = browser.new_page(viewport={"width": case["width"], "height": case["height"]}, device_scale_factor=1, locale=manifest["lang"], color_scheme=manifest["theme"])
+            page = browser.new_page(viewport={"width": case["width"], "height": case["height"]}, device_scale_factor=1, locale=manifest["lang"], color_scheme=manifest["theme"], timezone_id="UTC")
+            page.clock.set_fixed_time(manifest["fixture"]["clock"])
             page.route("**/app.js", lambda route: route.fulfill(body=source, content_type="application/javascript"))
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -62,13 +64,16 @@ def reference(manifest):
                 page.locator(".details .left .chat-row").first.click()
                 page.locator(".details .doc-body").wait_for(state="visible")
             page.wait_for_timeout(700)
+            page.mouse.move(case["width"] + 20, case["height"] + 20)
             page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
             cdp = page.context.new_cdp_session(page)
             snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
+            ax_tree = cdp.send("Accessibility.getFullAXTree")
             evidence = Path(manifest["output"]) / (case["id"] + ".dom.json")
             evidence.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+            (Path(manifest["output"]) / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
             extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot})
+            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree})
             (Path(manifest["output"]) / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
             cdp.detach()
             if errors:
@@ -78,7 +83,7 @@ def reference(manifest):
 
 
 def native(manifest_path, manifest, exe):
-    environment = dict(os.environ, RELIC_VISUAL_MANIFEST=str(manifest_path), RELIC_VISUAL_OUTPUT=manifest["output"], RELIC_ENGINE_ROOT=str(ROOT), RELIC_PYTHON=sys.executable, RELIC_HOME=manifest["fixture"]["home"])
+    environment = dict(os.environ, RELIC_VISUAL_MANIFEST=str(manifest_path), RELIC_VISUAL_OUTPUT=manifest["output"], RELIC_ENGINE_ROOT=str(ROOT), RELIC_PYTHON=sys.executable, RELIC_HOME=manifest["fixture"]["home"], RELIC_VISUAL_NOW=manifest["fixture"]["clock"], TZ="UTC")
     if manifest["client"] == "windows":
         (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
@@ -155,7 +160,7 @@ def main():
             try:
                 fixture = wait_file(data / "fixture.json", server)
                 zh = lang == "zh-CN"
-                fixture.update(quote="先看页面，再判断是否完成。" if zh else "Look at the screens before calling them done.", plain="请对照截图检查布局与文字，再提交验收。" if zh else "Compare the layout and wording before submitting for review.", digest={"text": "团队正在核对原生界面。设计师整理视觉问题，工程师准备跨平台截图；权限与负责人安排等待您决定。" if zh else "The team is reviewing the native interface. Design is collecting visual issues and engineering is preparing cross-platform screenshots. Permissions and the integration lead await your decision.", "at": time.time(), "count": 5, "last_id": 999})
+                fixture.update(clock="2026-10-29T11:02:00Z", quote="先看页面，再判断是否完成。" if zh else "Look at the screens before calling them done.", plain="请对照截图检查布局与文字，再提交验收。" if zh else "Compare the layout and wording before submitting for review.", digest={"text": "团队正在核对原生界面。设计师整理视觉问题，工程师准备跨平台截图；权限与负责人安排等待您决定。" if zh else "The team is reviewing the native interface. Design is collecting visual issues and engineering is preparing cross-platform screenshots. Permissions and the integration lead await your decision.", "at": datetime.datetime(2026, 10, 29, 11, 2, tzinfo=datetime.timezone.utc).timestamp(), "count": 5, "last_id": 999})
                 for theme in themes:
                     configure(fixture, lang=lang, theme=theme)
                     work = data / theme

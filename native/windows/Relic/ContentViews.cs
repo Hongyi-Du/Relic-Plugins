@@ -14,23 +14,33 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private RichTextBlock? selectedRich;
+    private DateTimeOffset ViewNow => VisualCaptureEnabled && DateTimeOffset.TryParse(Environment.GetEnvironmentVariable("RELIC_VISUAL_NOW"), out var captured) ? captured : DateTimeOffset.Now;
+    private DateTime ViewToday => ViewNow.LocalDateTime.Date;
     private string When(string at)
     {
         if (!DateTimeOffset.TryParse(at, out var date)) { if (double.TryParse(at, out var seconds) && seconds > 0) date = DateTimeOffset.FromUnixTimeSeconds((long)seconds); else return at; }
-        var local = date.ToLocalTime(); var delta = DateTimeOffset.Now - local;
-        return local.ToString("g", System.Globalization.CultureInfo.GetCultureInfo(words.Language));
+        return Day(date.ToString("O")) + " " + date.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
     }
     private string Ago(string at)
     {
         if (!DateTimeOffset.TryParse(at, out var date)) { if (double.TryParse(at, out var seconds)) date = DateTimeOffset.FromUnixTimeSeconds((long)seconds); else return at; }
-        var elapsed = DateTimeOffset.Now - date;
+        var elapsed = ViewNow - date;
         return elapsed.TotalMinutes < 1 ? T("time.just_now") : elapsed.TotalHours < 1 ? T("time.minutes_ago", ("n", (int)elapsed.TotalMinutes)) : elapsed.TotalDays < 1 ? T("time.hours_ago", ("n", (int)elapsed.TotalHours)) : Day(at);
     }
     private string Day(string at)
     {
-        if (!DateTimeOffset.TryParse(at, out var date)) return When(at);
+        if (!DateTimeOffset.TryParse(at, out var date)) return "";
         var day = date.LocalDateTime.Date;
-        return day == DateTime.Today ? T("time.today") : day == DateTime.Today.AddDays(-1) ? T("time.yesterday") : day.ToString("d", System.Globalization.CultureInfo.GetCultureInfo(words.Language));
+        var culture = System.Globalization.CultureInfo.GetCultureInfo(words.Language);
+        return day == ViewToday ? T("time.today") : day == ViewToday.AddDays(-1) ? T("time.yesterday") :
+            day.ToString(day.Year == ViewToday.Year ? culture.DateTimeFormat.MonthDayPattern : words.Language == "zh-CN" ? "yyyy年M月d日" : "MMMM d, yyyy", culture);
+    }
+    private string ShortWhen(string at)
+    {
+        if (!DateTimeOffset.TryParse(at, out var date)) return "";
+        var local = date.LocalDateTime;
+        return local.Date == ViewToday ? local.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture) :
+            local.Date == ViewToday.AddDays(-1) ? T("time.yesterday") : local.ToString("M/d", System.Globalization.CultureInfo.InvariantCulture);
     }
     private void Copy(string value)
     {
@@ -170,7 +180,9 @@ public sealed partial class MainWindow
                         if ((documentList.SelectedItem as ListViewItem)?.Tag?.ToString() != key) return;
                         document.Children.Clear();
                         document.Children.Add(Heading(key + " · " + T("details.revision", ("n", doc.Text("revision"))), 20));
-                        document.Children.Add(Quiet(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12)); document.Children.Add(Rich(doc.Text("body")));
+                        document.Children.Add(Quiet(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12.5));
+                        var source = Text(doc.Text("body"), 12.5); source.FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas"); source.LineHeight = 12.5 * 1.65;
+                        document.Children.Add(new Border { Child = source, Background = Paint("F6F5F2", "232321"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14) });
                     }
                     documentList.SelectionChanged += (_, _) => { if ((documentList.SelectedItem as ListViewItem)?.Tag is string key) documentSelection = Run(() => LoadDocument(key)); };
                     documents.Children.Add(documentList); content.Children.Add(documents); break;
