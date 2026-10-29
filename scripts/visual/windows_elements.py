@@ -22,17 +22,17 @@ CONTROL_KINDS = {
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
-    "ChartNodeButton": "chart-node", "ChartSurface": "region",
+    "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
-TEXT_TYPES = {"TextBlock", "RichTextBlock", "Run"}
+TEXT_TYPES = {"TextBlock", "RichTextBlock", "WorkspaceCodeView", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "current", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
 UIA_KINDS = {"Button": {"button", "icon-button", "chart-node"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
              "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
              "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
              "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
-             "Custom": {"region", "card"}, "Window": {"region"}}
+             "Custom": {"region", "card"}, "Window": {"region"}, "Document": {"code"}}
 INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
 ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
 PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
@@ -322,7 +322,7 @@ def project_text_leaves(raw, unmeasured, pointer):
     for source in raw:
         node = copy.deepcopy(source)
         runs = node.get("layout", {}).get("rich_text_runs")
-        if node["type"] not in {"TextBlock", "RichTextBlock"} or not isinstance(runs, list) or not runs or node.get("hidden_reason"):
+        if node["type"] not in {"TextBlock", "RichTextBlock", "WorkspaceCodeView"} or not isinstance(runs, list) or not runs or node.get("hidden_reason"):
             result.append(node)
             continue
         leaves = [(index, run) for index, run in enumerate(runs) if run.get("type", "Run") != "LineBreak" and run.get("text")]
@@ -387,11 +387,15 @@ def run_font_witnesses(uia_nodes, owner, glyph_boxes):
     """Match actual UIA format ranges to the measured leaf's glyph positions."""
     candidates = []
     original_text = owner.get("text_before_run_projection", owner.get("text", ""))
+    document_evidence = owner.get("layout", {}).get("document_evidence", {})
+    measured_documents = {value for value in (original_text, document_evidence.get("whole_story"),
+                                               document_evidence.get("whole_story_use_lf"))
+                          if isinstance(value, str) and value}
     for candidate in uia_nodes:
         if candidate.get("control_type") not in {"ControlType.Text", "ControlType.Document"} or not positive(owner.get("bounds")):
             continue
         document = (candidate.get("text_pattern") or {}).get("document", {})
-        if not original_text or original_text not in (candidate.get("name"), document.get("text")):
+        if not original_text or not measured_documents.intersection((candidate.get("name"), document.get("text"))):
             continue
         # UIA BoundingRectangle can be the stretched layout slot. Its measured
         # TextPattern ranges describe the actual rendered text inside that slot.
@@ -685,7 +689,9 @@ def project(xaml_path, uia_path, png_path):
         kind = CONTROL_KINDS.get(typ) or PAINT_CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
-            if node.get("text_container_projection"):
+            if typ == "WorkspaceCodeView":
+                kind = "code"
+            elif node.get("text_container_projection"):
                 kind = "card" if painted(style.get("background")) or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0 else None
             else:
                 kind = "text" if text else None

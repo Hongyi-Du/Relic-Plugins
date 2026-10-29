@@ -8,6 +8,42 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (live rendering coverage): Windows now renders current
+turn prompts, tool rows, permission cards, reply bubbles and typing indicators
+with native controls matching the reference structure. The current `private`
+fixture contains transcript history, not embedded live state, so it does not
+verify these branches. `native-windows-live-evidence.md` records the remaining
+fixture/state coverage and actual Hub inputs needed; no runtime coverage is
+claimed from a successful build or the existing private-chat scene.
+
+Changes for the clients (Windows document evidence): the source preview exports
+actual TOM range text, positions, client rectangles, formatting properties and
+the complete native story including its final paragraph marker. Source ranges
+are projected separately from their real document owner; requested font names
+remain provider evidence, with physical face identity still unknown. Native
+ImageBrush evidence retains actual bitmap dimensions, placement transforms and
+the live BGRA8 premultiplied PixelBuffer (base64/zlib), never a reconstructed
+fixture image. Canonical image-pattern paint coverage still fails until those
+independent brush representations can be compared with measured placement.
+
+Changes for the clients (reference reading order): extracted reference elements
+retain their real IDs, text and measurements while traversal follows the actual
+DOM child-node order, with `::marker` / `::before` before children and `::after`
+after them. This corrects code line-number ordering and mixed inline text.
+Unmatched identities are retained with an extraction error. No counterpart,
+measurement, scene or mismatch is removed to correct the traversal.
+
+Changes for the clients (JSON preview and brand vocabulary): `GET /api/fs/read`
+now adds `display_text` for `kind == "json"`, using the existing shared JSON
+display formatter for JavaScript property order, binary64 numbers and two-space
+indentation. Parsing uses only the existing returned text; invalid or truncated
+JSON that cannot be parsed stays verbatim. Raw `text`, `path`, `size`, `mtime`,
+`truncated` and filesystem authorization are unchanged. Native file previews
+consume this additive field instead of platform JSON pretty printers. Both
+word lists now provide `common.app_name: "Relic"`, copied from the reference's
+literal empty-conversation header in `app.js`. Windows uses that key for the
+same header; the reference source and baseline have not been modified.
+
 Changes for the clients (native controls checkpoint): Windows member forms now
 have the reference radio cards, field order, real suggestion inputs and session
 rows. Sidebar name layout uses the actual available width and preserves
