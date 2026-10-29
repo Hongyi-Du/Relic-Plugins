@@ -15,8 +15,10 @@ a running call. A waiting call that the client cancels (notifications/cancelled)
 client goes away (stdin closes), stops without reading anything: its messages stay unread for the member's next call.
 """
 import importlib
+import contextlib
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -115,10 +117,21 @@ def instructions():
     return SEAT_INSTRUCTIONS if os.getenv("RELIC_SEAT") else INSTRUCTIONS
 
 
-def send(message):
+def send(message, stop=None):
     line = json.dumps(message, ensure_ascii=False)
-    with OUT:
-        print(line, flush=True)
+    while stop is None or not stop.is_set():
+        if not OUT.acquire(timeout=0.05):
+            continue
+        try:
+            if stop is not None and stop.is_set():
+                return False
+            print(line, flush=True)
+            return stop is None or not stop.is_set()
+        except (BrokenPipeError, OSError):
+            return False  # a closed output must never acknowledge inbox messages
+        finally:
+            OUT.release()
+    return False
 
 
 def ok_result(data):
@@ -143,32 +156,55 @@ def run_call(plugin, params):
             return error_result(error)
 
 
-def inbox_wait(plugin, params):
-    """Seconds a tools/call will wait in the inbox for a message; 0 for a call answered on the spot."""
+def requested_wait(params):
+    """Requested inbox wait, before applying this client's configured limit."""
     if params.get("name") != "inbox":
         return 0
+    if (params.get("arguments") or {}).get("message_id") is not None:
+        return 0  # rereading a particular message ignores wait, including read messages
     try:
-        wait = int((params.get("arguments") or {}).get("wait") or 0)
+        return max(0, int((params.get("arguments") or {}).get("wait") or 0))
     except (TypeError, ValueError):
         return 0  # answered on the spot, with the error the tool gives for it
+
+
+def inbox_wait(plugin, params):
+    """Seconds a tools/call will wait; 0 for a call answered on the spot."""
     with CODE:
-        limit = plugin.api.max_wait()
-    return max(0, min(wait, limit))
+        return min(requested_wait(params), plugin.api.max_wait())
 
 
 class Waiter(threading.Thread):
     """An inbox call that waits for a message, on a thread of its own so the server keeps answering everyone else."""
 
-    def __init__(self, plugin, rid, params, seconds, done):
+    def __init__(self, plugin, rid, params, seconds, done, stop=None):
         super().__init__(name="relic-inbox-%s" % rid, daemon=True)
         self.plugin, self.rid, self.params, self.seconds, self.done = plugin, rid, params, seconds, done
-        self.stop = threading.Event()  # set when the client cancels the call or goes away
+        self.stop = stop if stop is not None else threading.Event()
+
+    @contextlib.contextmanager
+    def code(self):
+        """Cancellation does not wait for a slow ordinary call or reload to release CODE."""
+        while not self.stop.is_set():
+            if CODE.acquire(timeout=0.05):
+                try:
+                    yield not self.stop.is_set()
+                finally:
+                    CODE.release()
+                return
+        yield False
 
     def run(self):
         try:
-            result = self.wait()
-            if result is not None:
-                send({"jsonrpc": "2.0", "id": self.rid, "result": result})
+            prepared = self.wait()
+            if prepared is not None:
+                result, reads = prepared
+                # Do not hold CODE during pipe I/O. A failed/cancelled write leaves
+                # every message unread; only the exact snapshot sent is acknowledged.
+                if send({"jsonrpc": "2.0", "id": self.rid, "result": result}, self.stop):
+                    with CODE:
+                        for (org_id, member), ids in reads.items():
+                            self.plugin.store.mark_read(org_id, member, ids)
         finally:
             self.done(self.rid)
 
@@ -176,56 +212,110 @@ class Waiter(threading.Thread):
         """The call's result, or None when nobody will read it (then nothing was read or marked read)."""
         args = dict(self.params.get("arguments") or {})
         try:
-            with CODE:
+            with self.code() as active:
+                if not active:
+                    return None
                 actor = self.plugin.api.actor_of(args, self.params.get("_meta"), self.plugin.store)
                 if hasattr(self.plugin.api, "seated"):  # org=<a seat>: that seat's messages only
                     actor = self.plugin.api.seated(self.plugin.store, "inbox", args, actor)
                 self.plugin.store.require(actor)  # outside an organization the error comes at once, as before
             deadline = time.monotonic() + self.seconds
             while True:
-                with CODE:
-                    if self.stop.is_set():
+                with self.code() as active:
+                    if not active:
                         return None
                     if self.plugin.store.unread(actor, mark=False, limit=1):
                         break
                 left = deadline - time.monotonic()
                 if left <= 0 or self.stop.wait(min(POLL, left)):
                     break
-            with CODE:
-                if self.stop.is_set():
+            with self.code() as active:
+                if not active:
                     return None
-                return ok_result(self.plugin.api.inbox(self.plugin.store, actor))  # reads, marks read
+                main_org = self.plugin.store.require(actor)[0]["id"]
+                data = self.plugin.api.inbox(self.plugin.store, actor, mark=False)
+                reads = {}
+                for message in data["messages"]:
+                    seat = (message.get("org_id", main_org), message["seat"])
+                    reads.setdefault(seat, []).append(message["id"])
+                return ok_result(data), reads
         except Exception as error:
-            return error_result(error)
+            return error_result(error), {}
+
+
+class Requests:
+    """Read stdio independently of tool execution, including on Windows pipes.
+
+    EOF and cancellation set request events without acquiring CODE or waiting for
+    the dispatcher. Register events before queuing so cancellation can also win
+    before a waiter starts. No socket select/peek is used for this stdio transport.
+    """
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.queue = queue.Queue()
+        self.closed = threading.Event()
+        self.pending = {}
+        self.guard = threading.Lock()
+        self.reader = threading.Thread(target=self.read, name="relic-stdin", daemon=True)
+
+    def finish(self, rid):
+        with self.guard:
+            self.pending.pop(rid, None)
+
+    def read(self):
+        try:
+            for line in self.stream:
+                try:
+                    req = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(req, dict):
+                    continue
+                if "id" not in req:
+                    if req.get("method") == "notifications/cancelled":
+                        with self.guard:
+                            pending = self.pending.get((req.get("params") or {}).get("requestId"))
+                            if pending is not None:
+                                pending[0].set()
+                    continue
+                stop = threading.Event()
+                with self.guard:
+                    waits = req.get("method") == "tools/call" and requested_wait(req.get("params") or {}) > 0
+                    self.pending[req["id"]] = (stop, waits)
+                self.queue.put((req, stop))
+        finally:
+            self.closed.set()
+            with self.guard:
+                for stop, waits in self.pending.values():
+                    if waits:
+                        stop.set()
+            self.queue.put(None)
 
 
 def main():
     plugin = Plugin()
     desktop.remember_env()  # inside a Codex desktop chat: the app's tool pipe, for waking chats the app has open
     waiting, guard = {}, threading.Lock()  # request id -> Waiter still waiting
+    requests = Requests(sys.stdin)
 
     def finished(rid):
+        requests.finish(rid)
         with guard:
             waiting.pop(rid, None)
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(req, dict):
+    requests.reader.start()
+    while True:
+        item = requests.queue.get()
+        # Finish buffered ordinary calls, as before (one-shot clients can close
+        # their input while still reading output). EOF cancels waiting inboxes.
+        if item is None:
+            break
+        req, stop = item
+        if stop.is_set():
+            requests.finish(req["id"])
             continue
         method, params = req.get("method"), req.get("params") or {}
-        if "id" not in req:  # notifications
-            if method == "notifications/cancelled":
-                with guard:
-                    waiter = waiting.get(params.get("requestId"))
-                if waiter:
-                    waiter.stop.set()
-            continue
         if method == "initialize":
             result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
                       "capabilities": {"tools": {"listChanged": True}},
@@ -242,16 +332,18 @@ def main():
                 send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
             seconds = inbox_wait(plugin, params)
             if seconds:
-                waiter = Waiter(plugin, req["id"], params, seconds, finished)
+                waiter = Waiter(plugin, req["id"], params, seconds, finished, stop)
                 with guard:
                     waiting[req["id"]] = waiter
                 waiter.start()
                 continue
             result = run_call(plugin, params)
         else:
-            send({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32601, "message": "Method not found"}})
+            send({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32601, "message": "Method not found"}}, stop)
+            requests.finish(req["id"])
             continue
-        send({"jsonrpc": "2.0", "id": req["id"], "result": result})
+        send({"jsonrpc": "2.0", "id": req["id"], "result": result}, stop)
+        requests.finish(req["id"])
     # stdin closed: the client is gone, so nobody reads what the calls still waiting would answer
     with guard:
         pending = list(waiting.values())

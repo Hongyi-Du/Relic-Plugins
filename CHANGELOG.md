@@ -8,6 +8,9 @@ Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.
   A preview or omitted message stays unread, with its id and an inbox recovery notice.
 - `inbox message_id=<id>` rereads any message addressed to the session's selected seats, including read messages.
   An empty inbox lists open assigned tasks across those seats and points to `status`.
+- Waiting stdio inbox calls observe cancellation and EOF on an independent input thread, including while an
+  ordinary call holds the code lock. Messages are acknowledged only after a successful response write; cancelled
+  or broken-pipe replies leave them unread. Transport tests synchronize waiter lifecycle events instead of sleeps.
 - Auto-wake prompts name the context/inbox and status task list. Wake turns cannot take the manual `--open` path.
 - Windows subprocess creation uses one no-console flag helper, including App-owned jobs and probes. Explicit
   manual CLI opening uses Windows Terminal without a separate launcher console. Tests mock that UI action and
