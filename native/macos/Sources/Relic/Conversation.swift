@@ -7,6 +7,9 @@ struct Avatar: View {
     let member: String
     var size: CGFloat = 30
     @State private var image: NSImage?
+    @Environment(\.colorScheme) private var scheme
+    private var secretary: Bool { m.members.first(where: { $0["name"].text == member })?["secretary"].flag ?? false }
+    private var hue: Double { Double(member.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % 360 }) / 360 }
     private var cacheKey: String {
         let avatar = m.members.first(where: { $0["name"].text == member })?["avatar"].text ?? ""
         return [m.organization, member, m.preferences["avatar"].text, avatar].joined(separator: "/")
@@ -14,7 +17,9 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else { Text(String(m.name(member).prefix(1))).font(.system(size: size * 0.45)).frame(maxWidth: .infinity, maxHeight: .infinity).background(.tint.opacity(0.15)) }
+            else { Text(String(m.name(member).prefix(1))).font(.system(size: size * 0.43, weight: .semibold)).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(member == "human" ? RelicStyle.background : secretary ? RelicStyle.violet : Color(hue: hue, saturation: 0.38, brightness: scheme == .dark ? 0.85 : 0.45))
+                .background(member == "human" ? RelicStyle.ink : secretary ? RelicStyle.violetSoft : Color(hue: hue, saturation: scheme == .dark ? 0.18 : 0.12, brightness: scheme == .dark ? 0.27 : 0.94)) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.25))
             .task(id: cacheKey) {
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)

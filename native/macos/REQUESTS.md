@@ -10,7 +10,19 @@ app.css, then capturing the actual native window in CI at all three requested
 sizes, both languages and both themes. STATUS.md's earlier completion describes
 implementation/contract coverage only; visual acceptance is now outstanding.
 
-Shared owner requests (please publish the harness early):
+Shared integration update: `f4fa186` is merged. macOS now consumes the documented
+`fixture`/`cases`/`output` manifest, emits the exact shared filenames and
+`complete.json`, and captures real NSHostingView/AppKit controls at one pixel per
+point. All 42 scene names are dispatched, including dialogs, native toolbar menu
+popovers, recipient picker and mention completion. Smoke capture starts with the
+next push; screenshots have not yet been accepted. `composer.voice_title` is
+confirmed present in both lists; its pre-load fallback is now blank on macOS,
+and the vocabulary XCTest rejects missing source keys in either list.
+
+The original requests below are addressed by the shared harness; no different
+manifest format is now requested. Further shared failures will be listed here.
+
+Original shared owner requests (superseded by `docs/native-visual.md`):
 
 1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
    capture entry point from the visual workflow. Proposed interface:

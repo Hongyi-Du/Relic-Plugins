@@ -7,6 +7,7 @@ import RelicCore
 // harness owns fixture creation, reference captures and side-by-side composition.
 @MainActor enum VisualCapture {
     private static var started = false
+    private static var captureWindow: NSWindow?
     static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_VISUAL_MANIFEST"] != nil }
     static func run(_ model: Model) async {
         guard !started else { return }; started = true
@@ -23,7 +24,13 @@ import RelicCore
             model.client = try Client(port: fixture["port"].integer, token: fixture["token"].text)
             await model.start()
             guard model.ready else { throw RelicError.message(model.error) }
-            guard let window = NSApp.windows.first(where: { $0.contentView != nil && $0.styleMask.contains(.titled) }) else { throw RelicError.message("No native application window") }
+            // Standard NSWindow clamps oversized windows to the runner display.
+            // This CI window renders the production view at the requested bounds.
+            for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
+            let window = CaptureWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let hosting = NSHostingView(rootView: MainView().environmentObject(model))
+            hosting.sizingOptions = []; window.contentView = hosting; captureWindow = window
+            window.isReleasedWhenClosed = false
             try await model.savePreferences(["lang": language, "theme": theme, "font": "medium", "density": "comfortable", "accent": "clay", "notify": false])
             NSApp.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
             for item in manifest["cases"].rows {
@@ -37,7 +44,9 @@ import RelicCore
                 model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(320.0, forKey: "width.panel")
                 try await model.select(fixture["org"].text)
                 model.pane = "overview"; model.detailMember = fixture["member"].text; model.cardMember = fixture["member"].text
-                window.setContentSize(NSSize(width: CGFloat(width), height: CGFloat(height)))
+                model.windowSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+                window.setContentSize(model.windowSize)
+                hosting.setFrameSize(model.windowSize)
                 window.setFrameOrigin(NSPoint(x: 0, y: 0)); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 try await Task.sleep(for: .milliseconds(400))
                 if scene.hasPrefix("settings-") { model.settingsSection = String(scene.dropFirst(9)); model.sheet = .settings }
@@ -101,6 +110,8 @@ import RelicCore
         // ImageRenderer alone omits. Sheet windows are composited in native bounds.
         guard let view = window.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw RelicError.message("Cannot allocate native capture") }
         view.layoutSubtreeIfNeeded(); view.displayIfNeeded(); CATransaction.flush()
+        print("Capture geometry: window=\(window.frame), view=\(view.bounds), bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
+        guard abs(view.bounds.width - CGFloat(width)) < 1 && abs(view.bounds.height - CGFloat(height)) < 1 else { throw RelicError.message("Native view size differs from capture matrix: \(view.bounds)") }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let result = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32), let context = NSGraphicsContext(bitmapImageRep: result) else { throw RelicError.message("Cannot allocate PNG canvas") }
         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
@@ -119,4 +130,8 @@ import RelicCore
         guard let png = result.representation(using: .png, properties: [:]) else { throw RelicError.message("Cannot encode native PNG") }
         try png.write(to: path)
     }
+}
+
+private final class CaptureWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }

@@ -30,6 +30,7 @@ import RelicCore
     @Published var threadSending = false
     weak var activeSpeech: SpeechInput?
     @Published var moreChat = false
+    @Published var windowSize = CGSize(width: 1440, height: 900)
     @Published var expandRules = false
     @Published var recipientPicker = false
     @Published var appMenu: String?
