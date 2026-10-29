@@ -137,3 +137,71 @@ range metrics and API-shaped inputs. New checks cover null ellipsis geometry,
 preserved control boxes, known line-count evidence, ancestor ellipsis, and zero
 gutter uncertainty. Fixtures run only in CI. No local application, browser,
 server or test process was launched for this checkpoint.
+
+## Independent paint-trace diagnostic (2026-10-29)
+
+`scripts/visual/paint_trace.py` adds a CI-only experiment without changing the
+main capture order, the 528-case matrix, or canonical unknown measurements. It
+reads an existing capture manifest and selects `group` and `file-code` at
+1440x900 by default. Each requested case must already exist in that manifest.
+It starts an independent fixture through the same `serve.py`, preserves the
+manifest's language, theme and fixed clock, and calls the existing production
+`reference-hook.js`. The original fixture/server is not reused or restarted.
+
+Tracing starts before navigation, with the actual Chromium categories
+`disabled-by-default-devtools.timeline.picture`, `cc.debug.picture` and
+`cc.debug.display_items` (the latter two also use the
+`disabled-by-default-` prefix). The browser-level CDP session requests a JSON
+stream. The script preserves every byte returned by `IO.read`, plus the
+`Tracing.tracingComplete` receipt. Every actual `skp64` value is decoded to a
+separate `.skp` file with its exact JSON pointer, event metadata and any actual
+event `layer_id` in `pictures.json`. Invalid payloads, absent payloads and trace
+data loss are diagnostic failures. No picture is selected merely because it
+resembles the expected screen.
+
+Per-scene evidence also includes `Browser.getVersion`, Playwright's browser
+version, available trace categories, original `LayerTree` events, trace clock
+markers around the screenshot, page layout/viewport metrics, all DOM scroll
+metrics, `DOMSnapshot`, AX, the existing UA input evidence and platform fonts.
+The scene screenshot accompanies these records. DOM metrics are explicitly
+layout evidence; they do not certify scrollbar visibility or glyph ink.
+
+The newly identified upstream path is
+[`DisplayItemList::EmitTraceSnapshot` / `AddToValue`](https://github.com/chromium/chromium/blob/main/cc/paint/display_item_list.cc),
+which serializes real paint records, including individual operations when the
+display-items category is enabled. Skia's
+[`DrawTextBlobCommand::toJSON`](https://github.com/google/skia/blob/main/tools/debugger/DrawCommand.cpp)
+can expose glyph IDs, positions, fonts and clusters from a text blob. This is
+different evidence from layout ranges or the incomplete LoggingCanvas export.
+These upstream sources establish an experiment to attempt; the checked-in
+script does not yet parse SKP or prove that the CI Chromium build emits it.
+
+Several attribution requirements remain. Traces contain navigation and earlier
+frames as well as the final frame. DisplayItemList serialization uses zero
+scroll offsets, so layer transforms, real scroll offsets, clipping and final
+paint timing must be reconciled from original evidence. Current
+[`PictureDebugUtil`](https://github.com/chromium/chromium/blob/main/cc/debug/picture_debug_util.cc)
+serializes typeface descriptors without embedding font data; no substitute font
+can be used to claim original glyph bounds. Scrollbars may use independent
+compositor resources or solid-color thumbs absent from a content SKP. Their
+absence from a picture cannot establish absence from the screenshot.
+
+`summary.json` therefore distinguishes `raw_records_collected` from `failed`,
+while `measurement_status` always remains `unresolved`. Per-scene `glyph_bounds`
+and `scrollbar_parts`, and each picture's parsed status and final-scene
+attribution, remain null. The strict parity gate continues to fail for its
+existing coverage gaps regardless of the diagnostic's exit status.
+
+The minimum additional CI step, after an existing full Windows capture, is:
+
+```powershell
+python -X utf8 scripts/visual/paint_trace.py --manifest visual/windows/data/en-US/light/manifest.json --output visual/paint-trace-windows-en-US-light
+```
+
+Upload `visual/paint-trace-windows-en-US-light` with `if: always()`, separately
+from the canonical reference/native artifacts. The same command can use a
+macOS manifest and separate output directory. A smoke manifest lacks
+`file-code`; explicitly pass `--scene group` for that diagnostic. Pure mock
+tests in `test_paint_trace.py` are covered by the existing CI unittest discovery.
+No local browser, server, test or Skia tool is launched or installed for this
+experiment. Only Python compilation and whitespace checks are local checks.

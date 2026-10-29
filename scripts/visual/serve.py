@@ -8,11 +8,194 @@ import datetime
 import json
 import os
 from pathlib import Path
+import secrets
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins/relic"))
+
+LIVE_SCENES = frozenset(("live-busy", "live-tool-output", "live-typing"))
+SCENE_ENDPOINT = "/api/visual/scene"
+
+
+class SceneFixture:
+    """Switch CI-only live inputs without changing the existing stored fixture.
+
+    This owns a real Hub.Live and feeds the same ACP callbacks as a provider.
+    There is deliberately no agent, start(), prompt(), runner, or provider. The
+    permission worker only waits on the real Hub permission event; decide() or
+    stop() releases it. Existing CLI seat config and transcript files stay intact:
+    member_view already marks a member embedded when its Hub status exists.
+    """
+
+    def __init__(self, app, fixture, lang):
+        from app import hub
+
+        self.app, self.fixture, self.lang = app, fixture, lang
+        self.hub, self.module = app.hub, hub
+        self.key = (fixture["org"], fixture["member"])
+        self.scenes = set(json.loads((Path(__file__).with_name("scenes.json")).read_text(encoding="utf-8"))["scenes"]) | LIVE_SCENES
+        self.lock = threading.RLock()
+        self.live = None
+        self.worker = None
+        self.permission_ready = threading.Event()
+        self.permission_result = None
+        self.permission_error = None
+        self.clock = "2026-10-29T11:01:00Z"
+        self.original_now, self.original_publish = hub.now, self.hub.publish
+        # The real Hub event producer reads this clock; no returned record or
+        # frontend payload is rewritten after publication.
+        hub.now = lambda: self.clock
+        self.hub.publish = self._publish
+        self.closed = False
+
+    def _word(self, zh, en):
+        return zh if self.lang == "zh-CN" else en
+
+    def _publish(self, event):
+        self.original_publish(event)
+        # _request publishes its decision only after both the permission store
+        # entry and the waiting status have been created.
+        if event.get("type") == "decision" and event.get("org") == self.key[0]:
+            self.permission_ready.set()
+
+    def _clear(self):
+        if self.live is not None:
+            if self.hub._live.get(self.key) is not self.live:
+                raise RuntimeError("The visual fixture no longer owns its live session.")
+            if self.live.agent is not None:
+                raise RuntimeError("A visual fixture must never own a provider process.")
+            self.hub.stop(*self.key)
+            self.live = None
+        if self.worker is not None:
+            self.worker.join(timeout=5)
+            if self.worker.is_alive():
+                raise RuntimeError("The fixture permission worker did not stop.")
+            self.worker = None
+
+    def close(self):
+        with self.lock:
+            if self.closed:
+                return
+            self._clear()
+            self.hub.publish, self.module.now = self.original_publish, self.original_now
+            self.closed = True
+
+    def _update(self, **update):
+        self.hub._update(self.key, "session/update", {"update": update})
+
+    def _permission(self, params):
+        try:
+            self.permission_result = self.hub._request(self.key, "session/request_permission", params)
+        except BaseException as error:
+            self.permission_error = error
+        finally:
+            # Also unblock configure() if the request fails before publication.
+            self.permission_ready.set()
+
+    def configure(self, scene):
+        if not isinstance(scene, str) or scene not in self.scenes:
+            raise ValueError("Unknown visual fixture scene.")
+        with self.lock:
+            if self.closed or self.app.stopping.is_set():
+                raise RuntimeError("The visual fixture is stopping.")
+            self._clear()
+            result = {"scene": scene, "org": self.key[0], "member": self.key[1], "live": False}
+            if scene not in LIVE_SCENES:
+                return result
+            if not self.module.harnesses.has_hooks("claude-code"):
+                raise RuntimeError("The live fixture requires the hooked Claude Code harness; no protocol program may run.")
+            with self.hub._lock:
+                if self.key in self.hub._live:
+                    raise RuntimeError("The fixture member already has a live session.")
+                live = self.module.Live(*self.key, "claude-code")
+                live.cwd, live.session_id, live.model = self.fixture["workspace"], "visual-lead-session", "Claude"
+                self.hub._live[self.key] = self.live = live
+            try:
+                # Retain an older turn so the screen must really apply the last
+                # start marker, rather than receiving only prefiltered items.
+                self.clock = "2026-10-29T11:00:30Z"
+                self.hub._add(live, {"type": "prompt", "from": "human", "start": True,
+                                     "text": self._word("请列出上一轮的验收项目。", "List the previous review items.")})
+                self.hub._append_text(live, self._word("上一轮清单已经整理完毕。", "The previous checklist is complete."))
+                self.clock = "2026-10-29T11:01:00Z"
+                prompt = self._word("请检查本轮页面，并把需要我确认的工具操作列出来。",
+                                    "Review these screens and show the tool actions that need my approval.")
+                live.turn = {"origin": {"kind": "human", "text": prompt},
+                             "started": datetime.datetime(2026, 10, 29, 11, 1, tzinfo=datetime.timezone.utc).timestamp(),
+                             "after": self.module._last_id(self.app.store, self.key[0]), "reply": []}
+                self.hub._add(live, {"type": "prompt", "from": "human", "text": prompt, "start": True})
+                self.hub._set(live, "running", self.module._t("hub.replying"))
+                if scene == "live-typing":
+                    return dict(result, live=True, state="running", sequence=live.seq, tool=None, permission=None)
+
+                output = self._word("已读取 README.md\n\t布局：三栏\n\t检查：文字、间距与状态\n等待逐元素比较。",
+                                    "Read README.md\n\tLayout: three columns\n\tChecks: wording, spacing, and state\nWaiting for element comparison.")
+                tool_title = self._word("读取 README.md", "Read README.md")
+                tools = [
+                    ("visual-live-read", tool_title, "read", "completed", output),
+                    ("visual-live-compare", self._word("比较当前页面", "Compare current screens"), "read", "in_progress", ""),
+                    ("visual-live-approval", self._word("读取设计说明", "Read the design notes"), "read", "pending", ""),
+                    ("visual-live-image", self._word("读取图像预览", "Read the image preview"), "read", "failed",
+                     self._word("图像预览暂不可用。", "The image preview is unavailable.")),
+                ]
+                for call_id, title, kind, status, text in tools:
+                    self._update(sessionUpdate="tool_call", toolCallId=call_id, title=title, kind=kind, status="pending")
+                    self._update(sessionUpdate="tool_call_update", toolCallId=call_id, status=status,
+                                 content=[{"type": "content", "content": {"type": "text", "text": text}}] if text else [])
+                self.hub._add(live, {"type": "error", "text": self._word(
+                    "图像预览读取失败；其余检查仍可继续。", "The image preview could not be read; the remaining checks can continue.")})
+                for chunk in [self._word("我已经读完 **验收计划**。", "I've read the **review plan**."),
+                              self._word(" 接下来会核对三个窗口尺寸；读取设计说明需要您的确认。",
+                                         " Next I'll check all three window sizes; reading the design notes needs your approval.")]:
+                    self._update(sessionUpdate="agent_message_chunk", content={"type": "text", "text": chunk})
+                params = {"toolCall": {"toolCallId": "visual-live-approval", "title": tools[2][1], "kind": "read"},
+                          "options": [
+                              {"optionId": "visual-allow-once", "name": self._word("允许一次", "Allow once"), "kind": "allow_once"},
+                              {"optionId": "visual-reject-once", "name": self._word("拒绝", "Deny"), "kind": "reject_once"},
+                          ]}
+                self.permission_ready.clear()
+                self.permission_result = self.permission_error = None
+                self.worker = threading.Thread(target=self._permission, args=(params,), name="visual-permission", daemon=True)
+                self.worker.start()
+                if not self.permission_ready.wait(timeout=5):
+                    raise RuntimeError("The fixture permission request was not published.")
+                if self.permission_error is not None:
+                    raise RuntimeError("The fixture permission request failed.") from self.permission_error
+                with self.hub._lock:
+                    pending = [entry for entry in self.hub.permissions(self.key[0]) if entry["member"] == self.key[1]]
+                if len(pending) != 1 or self.hub.status(*self.key)["state"] != "waiting":
+                    raise RuntimeError("The fixture did not create one real waiting permission.")
+                return dict(result, live=True, state="waiting", sequence=live.seq, permission=pending[0],
+                            tool={"id": "visual-live-read", "title": tool_title, "open": scene == "live-tool-output"})
+            except BaseException:
+                self._clear()
+                raise
+
+
+def scene_handler(base_handler, fixture):
+    """Add only the CI fixture route; all real app routes retain their handler."""
+    class VisualHandler(base_handler):
+        def do_POST(self):
+            parts, _ = self._route()
+            if parts != ["api", "visual", "scene"]:
+                return super().do_POST()
+            body = self._body()
+            if body is None:
+                return self._error(413, "request too large")
+            if not self._host_ok():
+                return self._error(403, "wrong host")
+            if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                return self._error(403, "missing token")
+            try:
+                return self._json(fixture.configure(body.get("scene")))
+            except ValueError as error:
+                return self._error(400, str(error))
+            except RuntimeError as error:
+                return self._error(409, str(error))
+    return VisualHandler
 
 
 def seed(folder, lang):
@@ -121,13 +304,19 @@ def main():
     from app import web
     store, fixture = seed(folder, args.lang)
     app, server = web.serve(0, store)
+    scenes = SceneFixture(app, fixture, args.lang)
+    server.RequestHandlerClass = scene_handler(server.RequestHandlerClass, scenes)
     fixture.update(port=app.port, token=app.token, instance=app.instance, pid=os.getpid(), lang=args.lang, home=os.environ["RELIC_HOME"])
+    fixture.update(scene_endpoint=SCENE_ENDPOINT, live_scenes=sorted(LIVE_SCENES))
     (folder / "fixture.json").write_text(json.dumps(fixture, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
         server.serve_forever(poll_interval=0.1)
     finally:
         app.stopping.set()
-        server.server_close()
+        try:
+            scenes.close()
+        finally:
+            server.server_close()
 
 
 if __name__ == "__main__":

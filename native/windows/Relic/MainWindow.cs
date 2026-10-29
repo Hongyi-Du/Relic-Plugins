@@ -327,19 +327,31 @@ public sealed partial class MainWindow : Window
     private static string Value(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
     private async Task CreateOrg()
     {
-        var form = new StackPanel { Spacing = 10 };
-        var name = Field(form, "common.name"); var purpose = Field(form, "neworg.purpose", true);
-        name.PlaceholderText = T("neworg.name_placeholder"); purpose.PlaceholderText = T("neworg.purpose_placeholder");
-        var governance = Choice(form, "neworg.governance", [("leader", T("neworg.gov_leader")), ("peer", T("neworg.gov_peer"))]);
-        var created = false;
-        await Form(T("common.new_org"), form, async () =>
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel();
+        body.Children.Add(OverviewText(T("common.new_org"), 17, weight: 650));
+        var form = new StackPanel { Spacing = 12 };
+        var name = FormInput("", T("neworg.name_placeholder")); var purpose = FormInput("", T("neworg.purpose_placeholder"), multiline: true);
+        form.Children.Add(FormLabel("common.name", SettingsVoiceField(name, double.NaN)));
+        form.Children.Add(FormLabel("neworg.purpose", SettingsVoiceField(purpose, double.NaN)));
+        var governance = FormSelect([("leader", T("neworg.gov_leader")), ("peer", T("neworg.gov_peer"))], "leader");
+        form.Children.Add(FormLabel("neworg.governance", governance)); body.Children.Add(form);
+        var message = OverviewText("", 12.5); message.Foreground = Paint("C2412D", "EE8A78");
+        var errorBox = new Border { Child = message, Height = 0 }; body.Children.Add(errorBox);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; }));
+        string? created = null;
+        footer.Children.Add(FormAction(T("neworg.create"), async () =>
         {
-            if (string.IsNullOrWhiteSpace(name.Text)) throw new ArgumentException(T("neworg.need_name"));
-            var result = await api!.Post("/api/orgs", new { name = name.Text.Trim(), purpose = purpose.Text, governance = Value(governance) });
-            await Select(result.Text("org_id"));
-            created = true;
-        }, T("neworg.create"));
-        if (created) await MemberDialog(secretary: true);
+            try
+            {
+                if (string.IsNullOrWhiteSpace(name.Text)) throw new ArgumentException(T("neworg.need_name"));
+                var result = await api!.Post("/api/orgs", new { name = name.Text.Trim(), purpose = purpose.Text.Trim(), governance = Value(governance) });
+                created = result.Text("org_id"); dialog.Hide();
+            }
+            catch (Exception ex) { message.Text = ex.Message; errorBox.Height = double.NaN; }
+        }, true)); body.Children.Add(footer);
+        await FormDialog(dialog, body, 520, name);
+        if (created != null) { await Select(created); await MemberDialog(secretary: true); }
     }
     private Task AddMember() => MemberDialog();
     private async Task IssueProtocol()

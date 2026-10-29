@@ -68,6 +68,14 @@ jobs:
         with:
           name: reference-windows-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/reference
+      - name: Collect actual browser paint records for unresolved glyph evidence
+        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
+        run: python -X utf8 scripts/visual/paint_trace.py --manifest visual/windows/data/en-US/light/manifest.json --output visual/paint-trace-windows-en-US-light
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
+        with:
+          name: paint-trace-windows-en-US-light
+          path: visual/paint-trace-windows-en-US-light
   macos:
     runs-on: macos-15
     timeout-minutes: 45
@@ -99,6 +107,14 @@ jobs:
         with:
           name: reference-macos-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/reference-macos
+      - name: Collect actual browser paint records for unresolved glyph evidence
+        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
+        run: python3 scripts/visual/paint_trace.py --manifest visual/macos/data/en-US/light/manifest.json --output visual/paint-trace-macos-en-US-light
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
+        with:
+          name: paint-trace-macos-en-US-light
+          path: visual/paint-trace-macos-en-US-light
   compare:
     needs: [windows, macos, element-checker]
     if: always()

@@ -168,16 +168,33 @@ public sealed partial class MainWindow
     }
     private async Task Forward(string who)
     {
-        var info = await api!.Get(PathFor("/waiting") + "?member=" + Client.Segment(who)); var first = info.Rows("waiting").FirstOrDefault();
-        var form = Stack(Text(first == null ? T("forward.how", ("name", Display(who))) : T("forward.waiting", ("name", Display(who)), ("n", info.Rows("waiting").Count), ("ids", string.Join(",", first.Rows("ids").Select(x => x.Text()))))));
-        var to = Field(form, "forward.to"); to.PlaceholderText = T("forward.to_placeholder"); to.Text = string.Join(",", (first?.Rows("to") ?? info.Rows("members")).Select(x => x.Text()));
-        var body = Field(form, "common.reply", true); body.MinHeight = 150; body.PlaceholderText = T("forward.body_placeholder"); bool acknowledged = false;
-        await Form(T("forward.title", ("name", Display(who))), form, async () =>
+        var target = org; JsonNode info;
+        try { info = await api!.Get(Client.Org(target, "/waiting") + "?member=" + Client.Segment(who)); }
+        catch { info = new JsonObject(); }
+        var first = info.Rows("waiting").FirstOrDefault();
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var panel = new StackPanel();
+        panel.Children.Add(OverviewText(T("forward.title", ("name", Display(who))), 17, weight: 650));
+        panel.Children.Add(OverviewText(first == null ? T("forward.how", ("name", Display(who))) : T("forward.waiting", ("name", Display(who)), ("n", info.Rows("waiting").Count), ("ids", string.Join(",", first.Rows("ids").Select(x => x.Text())))), 12.5, true));
+        var form = new StackPanel { Spacing = 12 };
+        var to = FormInput(string.Join(",", (first?.Rows("to") ?? info.Rows("members")).Select(x => x.Text())), T("forward.to_placeholder"));
+        var body = FormInput("", T("forward.body_placeholder"), multiline: true); body.Height = 216;
+        form.Children.Add(FormLabel("forward.to", SettingsVoiceField(to, double.NaN))); form.Children.Add(FormLabel("common.reply", body)); panel.Children.Add(form);
+        var message = OverviewText("", 12.5); message.Foreground = Paint("C2412D", "EE8A78"); var errorBox = new Border { Child = message, Height = 0 }; panel.Children.Add(errorBox);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; }));
+        bool acknowledged = false, sent = false;
+        footer.Children.Add(FormAction(T("common.send"), async () =>
         {
-            if (string.IsNullOrWhiteSpace(body.Text)) throw new ArgumentException(T("forward.need_body"));
-            if (body.Text.TrimStart().StartsWith("【Relic") && !acknowledged) { acknowledged = true; throw new ArgumentException(T("forward.not_reply", ("prefix", "【Relic"))); }
-            await Post("/forward", new { member = who, to = to.Text, body = body.Text.Trim() }); Note(T("forward.sent", ("name", Display(who))));
-        }, T("common.send"));
+            try
+            {
+                if (string.IsNullOrWhiteSpace(body.Text)) throw new ArgumentException(T("forward.need_body"));
+                if (body.Text.TrimStart().StartsWith("【Relic") && !acknowledged) { acknowledged = true; throw new ArgumentException(T("forward.not_reply", ("prefix", "【Relic"))); }
+                await api!.Post(Client.Org(target, "/forward"), new { member = who, to = to.Text, body = body.Text.Trim() }); sent = true; dialog.Hide();
+            }
+            catch (Exception ex) { message.Text = ex.Message; errorBox.Height = double.NaN; }
+        }, true)); panel.Children.Add(footer);
+        await FormDialog(dialog, panel, 620, body);
+        if (sent) { Note(T("forward.sent", ("name", Display(who)))); await Refresh(); }
     }
     private async Task SecretarySetup()
     {
