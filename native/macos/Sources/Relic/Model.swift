@@ -4,10 +4,20 @@ import UserNotifications
 import RelicCore
 
 @MainActor final class Model: ObservableObject {
-    @Published var organizations: [Node] = [], messages: [Node] = [], copies: [Node] = []
-    @Published var snapshot = Node(), preferences = Node(), words = Words()
-    @Published var organization = "", member = "", draft = "", recipient = "all", pane = "overview"
-    @Published var error = "", ready = false, sheet: Sheet?
+    @Published var organizations: [Node] = []
+    @Published var messages: [Node] = []
+    @Published var copies: [Node] = []
+    @Published var snapshot = Node()
+    @Published var preferences = Node()
+    @Published var words = Words()
+    @Published var organization = ""
+    @Published var member = ""
+    @Published var draft = ""
+    @Published var recipient = "all"
+    @Published var pane = "overview"
+    @Published var error = ""
+    @Published var ready = false
+    @Published var sheet: Sheet?
     @Published var folded: Set<String> = []
     private var drafts: [String: String] = [:]
     private var client: Client?

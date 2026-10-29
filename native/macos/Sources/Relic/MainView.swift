@@ -219,7 +219,9 @@ struct DecisionView: View {
 
 struct WorkspaceView: View {
     @EnvironmentObject var m: Model
-    @State private var workspace = Node(), entries: [Node] = [], preview = ""
+    @State private var workspace = Node()
+    @State private var entries: [Node] = []
+    @State private var preview = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(workspace["folder"].text).textSelection(.enabled)

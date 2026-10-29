@@ -19,7 +19,9 @@ struct SaveButton: View {
 
 struct CreateOrgView: View {
     @EnvironmentObject var m: Model
-    @State private var name = "", purpose = "", governance = "leader"
+    @State private var name = ""
+    @State private var purpose = ""
+    @State private var governance = "leader"
     var body: some View {
         Form {
             Text(m.t("common.new_org")).font(.title2)
@@ -37,9 +39,24 @@ struct CreateOrgView: View {
 
 struct MemberForm: View {
     @EnvironmentObject var m: Model
-    @State private var mode = "app", name = "", role = "", harness = "", hostHarness = "claude-code", model = "", folder = "", effort = "", environment = "local", permission = "", env = "", sessionIndex = ""
-    @State private var secretary = false, start = true
-    @State private var harnesses: [Node] = [], sessions: [Node] = [], options = Node(), problems: [Node] = []
+    @State private var mode = "app"
+    @State private var name = ""
+    @State private var role = ""
+    @State private var harness = ""
+    @State private var hostHarness = "claude-code"
+    @State private var model = ""
+    @State private var folder = ""
+    @State private var effort = ""
+    @State private var environment = "local"
+    @State private var permission = ""
+    @State private var env = ""
+    @State private var sessionIndex = ""
+    @State private var secretary = false
+    @State private var start = true
+    @State private var harnesses: [Node] = []
+    @State private var sessions: [Node] = []
+    @State private var options = Node()
+    @State private var problems: [Node] = []
     var body: some View {
         ScrollView {
             Form {
@@ -99,7 +116,8 @@ struct MemberForm: View {
 
 struct SettingsView: View {
     @EnvironmentObject var m: Model
-    @State private var language = "en-US", notify = false
+    @State private var language = "en-US"
+    @State private var notify = false
     var body: some View {
         Form {
             Text(m.t("common.settings")).font(.title2)
@@ -112,7 +130,8 @@ struct SettingsView: View {
 
 struct ProtocolForm: View {
     @EnvironmentObject var m: Model
-    @State private var title = "", guidance = ""
+    @State private var title = ""
+    @State private var guidance = ""
     var body: some View {
         Form {
             Text(m.t("org.protocols")).font(.title2)

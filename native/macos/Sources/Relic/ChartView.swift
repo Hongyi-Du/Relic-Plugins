@@ -4,8 +4,10 @@ import RelicCore
 struct ChartView: View {
     @EnvironmentObject var m: Model
     @State private var chart = Node()
-    @State private var zoom: CGFloat = 1, lastZoom: CGFloat = 1
-    @State private var offset = CGSize.zero, baseOffset = CGSize.zero
+    @State private var zoom: CGFloat = 1
+    @State private var lastZoom: CGFloat = 1
+    @State private var offset = CGSize.zero
+    @State private var baseOffset = CGSize.zero
     private var nodes: [Node] { chart["orgs"].rows }
     private func point(_ node: Node, _ index: Int) -> CGPoint {
         var parent = node["parent"].text, visited: Set<String> = [], depth = 0
