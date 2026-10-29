@@ -192,7 +192,12 @@ public sealed partial class MainWindow
     private Task Shortcuts()
     {
         var box = new StackPanel { Spacing = 12 };
-        foreach (var (key, text) in new[] { ("Ctrl+B", "shortcuts.toggle_sidebar"), ("Ctrl+Alt+B", "shortcuts.toggle_panel"), ("Alt+1 / 2 / 3", "shortcuts.panes"), ("Alt+← / Alt+→", "shortcuts.back_forward"), ("Ctrl+K", "page.search"), ("Ctrl+Shift+L", "appmenu.plain_group"), ("Ctrl+,", "common.settings"), ("Enter / Shift+Enter", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close") }) box.Children.Add(Text(key + "   " + T(text)));
+        foreach (var (key, text) in new[] { ("Ctrl+B", "shortcuts.toggle_sidebar"), ("Ctrl+Alt+B", "shortcuts.toggle_panel"), ("Alt+1 / 2 / 3", "shortcuts.panes"), ("Alt+← / Alt+→", "shortcuts.back_forward"), ("Ctrl+K", "page.search"), ("Ctrl+Shift+L", "appmenu.plain_group"), ("Ctrl+,", "common.settings"), ("Enter / Shift+Enter", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close") })
+        {
+            var row = new Grid { ColumnSpacing = 20 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(170) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var cap = Badge(key); cap.HorizontalAlignment = HorizontalAlignment.Right; ((TextBlock)cap.Child).FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"); row.Children.Add(cap);
+            var label = Text(T(text), 13); label.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(label, 1); row.Children.Add(label); box.Children.Add(row);
+        }
         box.Children.Add(Button(T("shortcuts.ok"), () => { visibleDialog?.Hide(); return Task.CompletedTask; })); return Show(T("shortcuts.title"), box);
     }
 }

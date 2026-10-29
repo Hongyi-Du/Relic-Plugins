@@ -147,7 +147,7 @@ public sealed partial class MainWindow
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
-            chatHead.Children.Add(Heading(T("page.titlebar"), 17));
+            chatHead.Children.Add(Heading(Title, 17));
             var title = Heading(T("chat.no_orgs"), 20); title.TextAlignment = TextAlignment.Center;
             var hint = Quiet(T("chat.no_orgs_hint"), 13); hint.TextAlignment = TextAlignment.Center;
             var empty = Stack(title, hint); empty.Spacing = 18; empty.MaxWidth = 620; empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center; emptyConversation.Children.Add(empty); return;
@@ -163,7 +163,7 @@ public sealed partial class MainWindow
             actions.Children.Add(IconButton("\uE8D4", plainMode ? "chat.plain_on" : "common.plain_words", TogglePlain, T("chat.plain_title")));
             actions.Children.Add(IconButton("\uE945", "chat.digest", ToggleDigest, T("chat.digest_title")));
             actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
-            if (digestOpen) { var digestScroll = Scroll(DigestCard()); digestScroll.MaxHeight = Math.Min(230, root.ActualHeight * .3); conversationBanner.Child = Card(digestScroll); conversationBanner.Visibility = Visibility.Visible; }
+            if (digestOpen) { var digestScroll = Scroll(DigestCard()); digestScroll.MaxHeight = Math.Min(230, root.ActualHeight * .3); var summary = Card(digestScroll); summary.Background = Paint("F3F0FA", "302A40"); summary.BorderBrush = Paint("D8CEE9", "4C405E"); conversationBanner.Child = summary; conversationBanner.Visibility = Visibility.Visible; }
         }
         else
         {
@@ -225,9 +225,10 @@ public sealed partial class MainWindow
             label.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = to + "  " + time, Foreground = Muted }); column.Children.Add(label);
         }
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
+        var showingPlain = explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.ContainsKey(key);
         if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
         else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
-        { box.Children.Add(Text(T("msg.plain"), 12)); box.Children.Add(Rich(explained)); box.Children.Add(new Expander { Header = T("msg.original"), Content = Rich(body) }); }
+        { var title = Heading(T("msg.plain"), 12); title.Foreground = Paint("7660C8", "BDB0EC"); box.Children.Add(title); box.Children.Add(Rich(explained)); box.Children.Add(new Expander { Header = T("msg.original"), Content = Rich(body), MinHeight = 28, Padding = new Thickness(8), HorizontalContentAlignment = HorizontalAlignment.Stretch }); }
         else
         {
             box.Children.Add(Rich(body));
@@ -253,6 +254,7 @@ public sealed partial class MainWindow
         if (!inThread && item["thread"] != null) { var replies = QuietButton(T("thread.replies", ("n", item["thread"].Text("count"))) + " · " + T("thread.last_reply", ("when", When(item["thread"].Text("last_at")))), () => OpenThread(item.Text("id"))); replies.Foreground = Accent; after.Children.Add(replies); }
         var secretary = from == snap["org"].Text("secretary");
         var bubble = new Border { Child = box, Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(11), Background = mine ? Paint("F8ECE6", "453027") : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7660C8", "A899E1") : Line, BorderThickness = new Thickness(secretary ? 3 : 0, 0, 0, 0), MaxWidth = 680, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        if (showingPlain) { bubble.Background = Paint("F3F0FA", "302A40"); bubble.BorderBrush = Paint("D8CEE9", "4C405E"); bubble.BorderThickness = new Thickness(1); }
         column.Children.Add(bubble); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
         message.Children.Add(column); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
