@@ -32,16 +32,18 @@ struct MemberForm: View {
         return start ? "member.create_start" : "member.create_seat_only"
     }
     var body: some View {
-        Form {
-                heading
+        VStack(alignment: .leading, spacing: 12) {
+            heading
+            Form {
                 if mode == "existing" { existingFields }
                 else {
                     TextField(m.t("member.name_label"), text: $name, prompt: Text(m.t("member.name_placeholder"))).dictation($name).disabled(!m.editMember.isEmpty)
                     TextField(m.t("common.role"), text: $role, prompt: Text(m.t(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder"))).dictation($role)
                     if mode == "app" { appFields } else { hostFields }
                 }
-                SaveButton(labelKey: submitLabel, action: save).disabled(loading)
-        }.formStyle(.grouped).frame(minHeight: 420, maxHeight: 550)
+            }.formStyle(.grouped)
+            SaveButton(labelKey: submitLabel, action: save).disabled(loading)
+        }.frame(maxHeight: .infinity, alignment: .top)
         .task {
             m.run {
                 defer { loading = false }
@@ -66,7 +68,7 @@ struct MemberForm: View {
         Text(m.editMember.isEmpty ? m.t("common.add_member") : m.t("member.edit_title", ["name": m.name(m.editMember)])).font(.title2)
         Picker(m.t("member.where_run"), selection: $mode) {
             Text(m.t("member.run_app")).tag("app"); Text(m.t(Capabilities.hostKinds(m.platform).contains(where: { $0.hasSuffix("/gui") }) ? "member.run_host" : "member.run_host_mac")).tag("host"); Text(m.t("member.run_existing")).tag("existing")
-        }.pickerStyle(.segmented).disabled(!m.editMember.isEmpty || m.newSecretary)
+        }.pickerStyle(.segmented).labelsHidden().disabled(!m.editMember.isEmpty || m.newSecretary)
         Text(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app")).font(.caption)
     }
 
