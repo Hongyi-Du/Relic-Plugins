@@ -2,16 +2,20 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
-## Resolved handoff (2026-10-29, shared `028e270`)
+## Resolved handoff (2026-10-29, shared `4c26286`)
 
 All shared requests are resolved and merged. The shared owner reviewed all 34
 screen/flow rows and 214 named reference functions as implemented. The local
 static gate now reports zero missing keys/routes, zero incomplete flows and no
-browser UI uses. `327ccdf` passed the macOS Release build, **47 tests**, and app
-packaging: https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40835781285/job/123320115882.
-This final integration uses `native.episodes` and includes shared icon/language
-metadata. No further shared changes are requested. Latest-head CI remains the
-release-candidate validation gate; the person's real-Mac review remains separate.
+browser UI uses. `fe5c5a3` passed the complete Native apps workflow (parity,
+macOS and Windows): https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40837118720.
+The macOS Release build, **49 tests**, and unsigned app packaging passed in job
+https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40837118720/job/123324399176.
+This integration includes `native.episodes`, icon/language metadata, and the final
+dictation-at-selection correction (original suffix preserved, interim results
+replaced, UTF-16 caret, focus restored). No shared changes are requested.
+`STATUS.md` contains all 34 screen/flow rows, 214 function mappings, test evidence
+and the separate real-Mac acceptance checklist. No PR was opened by this session.
 
 `Words.list` now uses `list.pair`, `list.middle`, `list.end` for recipient/member/
 approver/rule-scope lists, with English and Simplified Chinese tests. Native
