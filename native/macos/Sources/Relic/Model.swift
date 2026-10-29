@@ -97,6 +97,7 @@ import RelicCore
     var secretary: String { snapshot["org"]["secretary"].text }
     func name(_ who: String) -> String { who == "human" ? (preferences["name"].text.isEmpty ? t("common.you") : preferences["name"].text) : members.first { $0["name"].text == who }?.display ?? who }
     func t(_ key: String, _ args: [String: String] = [:]) -> String { words.t(key, args) }
+    func list(_ values: [String]) -> String { words.list(values) }
     func path(_ action: String = "") -> String { selection.path(action) }
     func run(_ action: @escaping () async throws -> Void) { Task { do { try await action() } catch is CancellationError {} catch { self.error = error.localizedDescription } } }
     func get(_ path: String) async throws -> Node { guard let client else { throw RelicError.message(t("common.loading")) }; return try await client.get(path) }

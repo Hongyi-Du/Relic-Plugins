@@ -89,7 +89,7 @@ struct CopiesView: View {
                         if !copy["supersedes"].text.isEmpty { Text(m.t("cc.revision")).font(.caption) }
                         Text(copy["summary"].text).textSelection(.enabled)
                         Text(m.t("cc.proposed_by", ["name": copy["author_display"].text]))
-                        Text(m.t("cc.approved_by", ["names": copy["approved_display"].rows.map(\.text).joined(separator: ", ")]))
+                        Text(m.t("cc.approved_by", ["names": m.list(copy["approved_display"].rows.map(\.text))]))
                         Text(m.copyLabel(copy))
                         Text(m.t("cc.effective", ["when": copy["activated_at"].text])).font(.caption)
                         if !copy["supersedes"].text.isEmpty { Text(m.t("cc.replaces", ["id": copy["supersedes"].text])) }

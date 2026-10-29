@@ -72,9 +72,9 @@ extension Model {
         let tools = rule["tools"].rows.map(\.text)
         var parts = [tools == ["Reply"] ? t("cc.scope_reply") : tools.joined(separator: " / ")]
         if !rule["path_glob"].text.isEmpty { parts.append(t("cc.scope_path", ["glob": rule["path_glob"].text])) }
-        if !rule["input_contains"].rows.isEmpty { parts.append(t("cc.scope_contains", ["words": rule["input_contains"].rows.map(\.text).joined(separator: ", ")])) }
+        if !rule["input_contains"].rows.isEmpty { parts.append(t("cc.scope_contains", ["words": list(rule["input_contains"].rows.map(\.text))])) }
         let who = (rule["roles"].rows + rule["members"].rows).map(\.text), except = (rule["except_roles"].rows + rule["except_members"].rows).map(\.text)
-        if !who.isEmpty { parts.append(t("cc.scope_who", ["names": who.joined(separator: ", ")])) }; if !except.isEmpty { parts.append(t("cc.scope_except", ["names": except.joined(separator: ", ")])) }
+        if !who.isEmpty { parts.append(t("cc.scope_who", ["names": list(who)])) }; if !except.isEmpty { parts.append(t("cc.scope_except", ["names": list(except)])) }
         return parts.joined(separator: " · ")
     }
     func protocolReference(_ reference: String) -> String {

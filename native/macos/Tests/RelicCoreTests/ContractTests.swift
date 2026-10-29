@@ -53,6 +53,12 @@ final class ContractTests: XCTestCase {
         var words = Words(); words.load(Node(["lang": "en-US", "strings": ["count": ["one": "{n} item", "other": "{n} items"]]]))
         XCTAssertEqual(words.t("count", ["n": "1"]), "1 item"); XCTAssertEqual(words.t("count", ["n": "2"]), "2 items")
     }
+    func testSharedListTemplatesUseBothLanguagesAndAllLengths() {
+        var words = Words(); words.load(Node(["lang": "en-US", "strings": ["list.pair": "{a} and {b}", "list.middle": "{a}, {b}", "list.end": "{a}, and {b}"]]))
+        XCTAssertEqual(words.list([]), ""); XCTAssertEqual(words.list(["A"]), "A"); XCTAssertEqual(words.list(["A", "B"]), "A and B"); XCTAssertEqual(words.list(["A", "B", "C"]), "A, B, and C")
+        words.load(Node(["lang": "zh-CN", "strings": ["list.pair": "{a}、{b}", "list.middle": "{a}、{b}", "list.end": "{a}、{b}"]]))
+        XCTAssertEqual(words.list(["甲", "乙", "丙", "丁"]), "甲、乙、丙、丁")
+    }
     func testHTTP200FailedRequestRemainsFailure() async throws {
         Stub.handle = { _ in (200, #"{"status":"failed","error":"parent would form a cycle"}"#) }
         do { _ = try await client().post("/api/org/o/request", ["request_id": "R1", "decision": "approve"]); XCTFail("Business error must be surfaced") }

@@ -105,7 +105,7 @@ struct ChartView: View {
     private func sharedTip(_ node: Node) -> String {
         chart["shared"].rows.filter { $0["seats"].rows.contains { $0["org"].text == node["id"].text } }.map { shared in
             let seats = shared["seats"].rows
-            return m.t("chart.shared_tip", ["member": seats.first { $0["org"].text == node["id"].text }?["member"].text ?? "", "orgs": seats.filter { $0["org"].text != node["id"].text }.map { orgName($0["org"].text) }.joined(separator: ", ")])
+            return m.t("chart.shared_tip", ["member": seats.first { $0["org"].text == node["id"].text }?["member"].text ?? "", "orgs": m.list(seats.filter { $0["org"].text != node["id"].text }.map { orgName($0["org"].text) })])
         }.joined(separator: "\n")
     }
     private func fit(focus: String = "") {
