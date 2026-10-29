@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Require complete reference route, vocabulary and flow coverage
-        run: python scripts/check_native_parity.py
+        run: python scripts/check_native_parity.py ${{ github.ref_name == 'native-macos' && '--platform macos' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

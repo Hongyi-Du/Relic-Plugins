@@ -42,23 +42,23 @@ of actions and server payloads below. Every row is required; there are no deferr
 | Reference screen / action | Native controls and location | Windows | macOS |
 | --- | --- | --- | --- |
 | `appbar`, `menus`, `appMenu`, `shortcut`: New org, add existing/member, secretary, history, sidebar/panel, pane selection, font/density/theme, about, help | macOS menu bar/Commands; Windows MenuBar/KeyboardAccelerator; native standard edit menu for cut/copy/paste/select/undo | pending | pending |
-| `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations; selected group and member rows | pending | pending |
+| `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations and current members; unread/recent chat previews; selected group and member rows | pending | pending |
 | `openOrg`, `go`, `renderHead`, `renderBanner` | Shared selection state; native conversation title, member state and permission/waiting banner | pending | pending |
-| `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read indicators, tool/activity disclosure and live session items | pending | pending |
-| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; drafts per chat; Send/Command-Enter/Ctrl-Enter | pending | pending |
+| `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read-by disclosure, history pagination, tool/activity disclosure and live session items | pending | pending |
+| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | pending | pending |
 | `permissionCard`, `decisionCard` | Native action cards; use exact permission option IDs; approve/deny structural requests; open blocked member/task | pending | pending |
 | `renderOrgPane`, `hierarchyBlock` | Native Overview: goal, status, members, tasks/reports, protocol origins and inherited/replaced rules; parent/leader/secretariat/auto-wake and subgroup controls | pending | pending |
 | `drawCopies`, `copyCard`, `checkRulesView`, `ackCopy`, `retireCopy` | Copies sheet, summary/author/status/statistics, expandable code/examples; Got it and confirmed Retire | pending | pending |
-| `orgDialog` | Name → purpose → governance → create; navigate to created organization | pending | pending |
+| `orgDialog` | Name → purpose → governance → create; navigate to created organization, then secretary/member setup | pending | pending |
 | `memberDialog` App mode | Name → role → available harness → model → folder → secretary → create; open member conversation | pending | pending |
 | `memberDialog` host mode | Name → role → Claude Code/Codex and supported surface → model/effort → folder/environment → permissions/env → start now or seat only | pending | pending |
-| `memberDialog` existing mode | Existing session selection → seat → role → bind; preserve the complete session object | pending | pending |
+| `memberDialog` existing mode | Search existing sessions by title/folder/id → session selection → seat → role → bind; preserve the complete session object | pending | pending |
 | `openCard`, `seatAction`, `forwardDialog` | Native member detail: rename, avatar, model/effort, edit configuration, fresh/unbind/open session, forwarding, also-in memberships | pending | pending |
 | `openSecretarySetup`, quick-start empty state | Native introductory sheet guiding organization → secretary/member → conversation | pending | pending |
 | `openChart`, `drawChart`, `wireChart` | Native vector edges/cards with pan/zoom/fit; parent and shared-seat relationships, navigate to organization | pending | pending |
 | `openThread`, `renderThread` | Right-pane thread with root/replies and reply composer; preserve `reply_to` | pending | pending |
 | `renderWork`, `fileTree` | Workspace pane: member folder, branch/changes, recent edits, nested file list, system folder opener | pending | pending |
-| `openFile`, `renderFile`, `codeView` | Native text/code/Markdown/image preview, line navigation, truncation/binary state, default-app opener | pending | pending |
+| `openFile`, `renderFile`, `codeView` | Native text/code/Markdown/image preview, clickable Markdown/local paths and line navigation, truncation/binary state, default-app opener | pending | pending |
 | `requestPlain`, `togglePlainOne`, `toggleDigest`, `askSecretary` | Native plain-words toggle and digest card; async completion updates | pending | pending |
 | `Voice`, `micButton` | Native OS speech input; explicit microphone permission on user action | pending | pending |
 | `openDetails`, `traceView`, `reportBlock` | Native task filters/reports, documents/revisions, protocols/rules, context/trajectory pagination and requests | pending | pending |
@@ -126,7 +126,7 @@ query values are shown with `?`. Both native clients implement the complete refe
 | `/api/org/O/convo` | `?member=M` | `{steps:[…],total,…}` summarized context; missing session yields `{steps:[],total:0,missing:true}` |
 | `/api/org/O/step` | `?member=M&i=index` | one full trajectory step |
 | `/api/org/O/transcript` | `?member=M&limit=300&before=index&full=1` | `{steps:[…],total,…}` paged transcript or missing marker |
-| `/api/org/O/document` | `?key=` | `{key,text,revision,author,at,…}` or `{missing:true}` |
+| `/api/org/O/document` | `?key=` | `{key,body,revision,author,at,…}` or `{missing:true}` |
 | `/api/org/O/live` | `?member=M&after=seq` | `{items:[{seq,type,text,id?,title?,status?,options?,…}],status:{state,…} or null}` |
 | `/api/org/O/waiting` | `?member=M` | `{waiting:[…],members:[name]}` manual reply forwarding |
 | `/api/org/O/workspace` | `?member=M` | `{folder,git:{branch,root,changes},recent:[{path,tool,at}],…}` |
@@ -443,6 +443,10 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 | `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | pending | pending |
 
 ## Changes for the clients
+
+- 2026-10-29: Merged native-macos through 4f95775. Its speech request is implemented: native.speech, native.speech_permission, native.microphone_permission, native.speech_unavailable are shared /api/i18n keys. Packaging writes both macOS usage-description keys and en.lproj/zh-Hans.lproj/InfoPlist.strings from those lists; native.voice_hint and native.voice_system describe Windows speech. No browser speech implementation is used.
+- 2026-10-29: Applied REQUESTS.md inventory corrections: session search, unread/recent chat, persisted drafts/recipients/quotes, read-by disclosure, history paging, Markdown file/line links, rule examples and task evidence. Document payload is body. CI already runs every push; native-macos now gets its own --platform macos parity output, while native-apps requires both.
+- 2026-10-29: The parity inventory gate now also rejects pending screen rows in addition to named app.js functions. No row is promoted based on key presence alone.
 
 - 2026-10-29: Full parity replaces phased delivery. `scripts/check_native_parity.py` fails on missing reference routes, literal i18n keys, or pending function rows. Only native implementation source counts. `native/parity-allowlist.json` initially exempts only browser installation. macOS owns `native/macos/**`; requests go in its `REQUESTS.md`; report completed inventory mappings in its `STATUS.md`.
 - 2026-10-29: Existing `/api/i18n` remains the vocabulary contract. Person-issued weak protocol form now sends required `rationale` and `trigger`, plus `inherit`. Four `native.protocol_*` labels were added to the shared en-US and zh-CN files.

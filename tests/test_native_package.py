@@ -1,6 +1,7 @@
 """Native package inspection: dummy executables are bytes, never executed."""
 from pathlib import Path
 import plistlib
+import json
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,14 @@ class NativePackages(unittest.TestCase):
                 info = plistlib.loads(package.read(prefix + "Info.plist"))
                 self.assertEqual(info["LSMinimumSystemVersion"], "14.0")
                 self.assertNotIn("LSUIElement", info)
+                en = json.loads((ROOT / "plugins/relic/relic_core/locales/en-US.json").read_text(encoding="utf-8"))
+                self.assertEqual(info["NSSpeechRecognitionUsageDescription"], en["native.speech_permission"])
+                self.assertEqual(info["NSMicrophoneUsageDescription"], en["native.microphone_permission"])
+                for code, language in (("en-US", "en"), ("zh-CN", "zh-Hans")):
+                    words = json.loads((ROOT / "plugins/relic/relic_core/locales" / (code + ".json")).read_text(encoding="utf-8"))
+                    text = package.read(prefix + "Resources/" + language + ".lproj/InfoPlist.strings").decode("utf-8")
+                    self.assertIn(words["native.speech_permission"], text)
+                    self.assertIn(words["native.microphone_permission"], text)
                 self.assertEqual(package.getinfo(prefix + "MacOS/Relic").external_attr >> 16 & 0o111, 0o111)
                 for name, data in files.items():
                     self.assertEqual(package.read(prefix + "Resources/engine/" + name), data)

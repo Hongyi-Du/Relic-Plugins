@@ -1,4 +1,10 @@
 {
+ "native.speech": "System speech recognition",
+ "native.speech_permission": "Relic transcribes speech into the message you are composing when you click the microphone.",
+ "native.microphone_permission": "Relic uses the microphone for voice input only when you start recording.",
+ "native.speech_unavailable": "Speech recognition is unavailable. Check the system speech settings and microphone permission.",
+ "native.voice_hint": "Dictate into the focused field using the system speech recognizer. Microphone access is requested when you start recording.",
+ "native.voice_system": "System speech recognition",
  "native.protocol_title": "Title",
  "native.protocol_rationale": "Why this protocol is needed",
  "native.protocol_trigger": "When it applies",
