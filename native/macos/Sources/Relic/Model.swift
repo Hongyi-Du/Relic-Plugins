@@ -33,6 +33,12 @@ import RelicCore
     @Published var windowSize = CGSize(width: 1440, height: 900)
     @Published var expandRules = false
     @Published var recipientPicker = false
+    @Published var mentionItems: [Node] = []
+    @Published var mentionIndex = 0
+    @Published var mentionAnchor = CGRect.zero
+    var mentionMenuBounds = CGRect.zero
+    var mentionVisible = false
+    weak var mentionEditor: ComposerTextView?
     @Published var recipientAnchor = CGRect.zero
     @Published var appMenu: String?
     @Published var sheet: Sheet?
@@ -229,6 +235,7 @@ import RelicCore
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        mentionEditor?.closeMentions()
         activeSpeech?.stop()
         plainTask?.cancel(); plainTask = nil; plainQueue = []
         persistDraft(); organization = next.org; member = next.member

@@ -31,11 +31,14 @@ struct MainView: View {
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
-        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size }
+        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.recipientPicker = false; m.appMenu = nil }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
-        .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false } }
+        .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }
+        .onChange(of: m.focusSearch) { if m.focusSearch { m.mentionEditor?.closeMentions() } }
+        .onChange(of: m.appMenu) { if m.appMenu != nil { m.mentionEditor?.closeMentions() } }
         .onChange(of: m.pane) { resizingPanel = nil; resizeStart = nil }
+        .overlay { if !m.mentionItems.isEmpty { MentionSuggestions() } }
         .overlay { if m.recipientPicker { RecipientLayer() } }
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)

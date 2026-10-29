@@ -175,14 +175,16 @@ struct NativeMenuRow: View {
 }
 
 struct MenuItemStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { StyledContent(configuration: configuration) }
+    var selected = false
+    func makeBody(configuration: Configuration) -> some View { StyledContent(configuration: configuration, selected: selected) }
     private struct StyledContent: View {
         let configuration: Configuration
+        let selected: Bool
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: 8))
-                .modifier(RecordedSurface(background: enabled && (hovered || configuration.isPressed) ? RelicStyle.hover : .clear, radius: 8, hovered: hovered))
+                .modifier(RecordedSurface(background: enabled && (selected || hovered || configuration.isPressed) ? RelicStyle.hover : .clear, radius: 8, hovered: hovered))
                 .onHover { hovered = $0 }
         }
     }

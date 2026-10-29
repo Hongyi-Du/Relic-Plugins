@@ -4,6 +4,17 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
+    func testCompletionUsesPrefixAndWrapsKeyboardSelection() {
+        let editor = ComposerTextView()
+        editor.members = [Node(["name": "engineer", "display": "Engineer"]), Node(["name": "reviewer", "display": "Engineering review"])]
+        editor.string = "@gine"; editor.setSelectedRange(NSRange(location: 5, length: 0))
+        XCTAssertTrue(editor.mentionCandidates().isEmpty)
+        editor.string = "@eng"; editor.setSelectedRange(NSRange(location: 4, length: 0))
+        XCTAssertEqual(editor.mentionCandidates().count, 2)
+        XCTAssertEqual(ComposerTextView.nextSuggestion(0, direction: -1, count: 5), 4)
+        XCTAssertEqual(ComposerTextView.nextSuggestion(4, direction: 1, count: 5), 0)
+        XCTAssertEqual(ComposerTextView.nextSuggestion(0, direction: 1, count: 0), 0)
+    }
     func testMentionAnchorStaysInTextCoordinatesAfterMovingEditor() {
         let editor = ComposerTextView(frame: NSRect(x: 400, y: 500, width: 600, height: 100))
         editor.font = .systemFont(ofSize: 14)
