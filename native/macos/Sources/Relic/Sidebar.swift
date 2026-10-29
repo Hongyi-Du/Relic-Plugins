@@ -113,7 +113,7 @@ struct SidebarChatRow: View {
     @EnvironmentObject var m: Model
     let who: Node?
     let group: Bool
-    private var owner: String { "relic-row/" + m.organization + "/" + (group ? "group" : name) }
+    private var owner: String { "relic-list-row/" + m.organization + "/" + (group ? "group" : name) }
     private var secretary: Bool { !group && (who == nil || who?["secretary"].flag == true) }
     private var name: String { who?["name"].text ?? "" }
     private var selected: Bool { group ? m.member.isEmpty : !name.isEmpty && m.member == name }
@@ -146,7 +146,7 @@ struct SidebarChatRow: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     let date = head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"]
                     if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, owner: owner) }
-                    if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(RelicStyle.font(11, weight: 700)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
+                    if unread > 0 { NativeCountBadge(text: unread > 99 ? "99+" : String(unread)) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)

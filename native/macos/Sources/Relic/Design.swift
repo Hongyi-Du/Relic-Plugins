@@ -113,12 +113,25 @@ struct IconButton: View {
     var width: CGFloat = 30
     @Environment(\.isEnabled) private var enabled
     @State private var identity = "relic-icon-button/" + UUID().uuidString
+    private var controlIdentity: String { badge > 0 ? identity.replacingOccurrences(of: "relic-icon-button/", with: "relic-badged-button/") : identity }
     let action: () -> Void
     var body: some View {
-        Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: identity).frame(width: width, height: height) }
+        Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : selected ? RelicStyle.ink : RelicStyle.secondary, owner: controlIdentity).frame(width: width, height: height) }
             .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
-            .help(title).accessibilityLabel(title).accessibilityIdentifier(identity)
-            .overlay(alignment: .topTrailing) { if badge > 0 { Text(String(badge)).font(RelicStyle.font(10, weight: 700)).foregroundStyle(.white).padding(.horizontal, 4).frame(minWidth: 15, minHeight: 15).background(RelicStyle.red, in: RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false) } }
+            .help(title).accessibilityLabel(title).accessibilityIdentifier(controlIdentity)
+            .overlay(alignment: .topTrailing) { if badge > 0 { NativeCountBadge(text: String(badge), toolbar: true).allowsHitTesting(false) } }
+    }
+}
+
+struct NativeCountBadge: View {
+    let text: String
+    var toolbar = false
+    @State private var identity = "relic-badge/" + UUID().uuidString
+    var body: some View {
+        ReferenceLabel(text, size: toolbar ? 10 : 11, weight: 700, color: .white, lineHeight: toolbar ? 15 : 11, owner: identity)
+            .padding(.horizontal, toolbar ? 4 : 5).frame(minWidth: toolbar ? 15 : 18).frame(height: toolbar ? 15 : 18)
+            .modifier(RecordedSurface(background: toolbar ? RelicStyle.red : RelicStyle.accent, radius: toolbar ? 8 : 9, kind: "badge", owner: identity))
+            .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity)
     }
 }
 

@@ -212,9 +212,9 @@ import CoreText
             let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
@@ -276,7 +276,7 @@ import CoreText
         for var label in ownedLabels.reversed() {
             if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
                 let identifier = label["production_owner"] as! String
-                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/")
+                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/") || identifier.hasPrefix("relic-chip/") || identifier.hasPrefix("relic-badge/") || identifier.hasPrefix("relic-tab/")
                 if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
                     var style = elements[owner]["style"] as! [String: Any]
                     let textStyle = label["style"] as! [String: Any]
@@ -306,7 +306,7 @@ import CoreText
             let candidates = elements.indices.filter { index in
                 if let owner { return elements[index]["identifier"] as? String == owner }
                 let other = bounds(elements[index])
-                return ["button", "icon-button", "tab", "menu-item", "region", "card", "list-row"].contains(elements[index]["kind"] as? String ?? "") &&
+                return ["button", "icon-button", "tab", "menu-item", "region", "card", "list-row", "chip", "badge", "avatar"].contains(elements[index]["kind"] as? String ?? "") &&
                     abs(rect.minX - other.minX) < 0.5 && abs(rect.minY - other.minY) < 0.5 &&
                     abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
             }
