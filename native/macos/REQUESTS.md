@@ -1,5 +1,15 @@
 ## 2026-10-29: literal Harness label in the reference member form
 
+Font evidence update: `67dae7b` macOS build and 97 tests pass in
+https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40970989476 . CI resolves
+PingFangSC-Regular to the variable PingFangUI.ttc font. Public CoreText
+`kCTFontOpticalSizeAttribute = "auto"` changes the actual shaping from
+401.766371 px to 419.406371 px for the measured reference sentence (419.4375 px).
+Four independent reference-width assertions now pass without changing any gate
+tolerance. Native render-run evidence also retains actual variation coordinates,
+optical-size attributes and ascent/descent/leading. This does not resolve the
+separate requested-CSS-weight versus actual-font-weight comparison question.
+
 Resolved by `5ff6706`: macOS now consumes `member.harness_label` and handles
 both additional suggestion scenes through actual input/keyboard events. The
 original request below is retained for audit; popup parity is still unverified.
