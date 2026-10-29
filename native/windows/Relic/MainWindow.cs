@@ -284,8 +284,9 @@ public sealed partial class MainWindow : Window
     private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null)
     {
         form.Width = Math.Min(572, Math.Max(400, root.ActualWidth - 160));
+        form.Padding = new Thickness(0, 0, 16, 4);
         var message = Text(""); form.Children.Add(message);
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel") };
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel"), DefaultButton = ContentDialogButton.Primary };
         dialog.PrimaryButtonClick += async (_, e) =>
         {
             var hold = e.GetDeferral();
