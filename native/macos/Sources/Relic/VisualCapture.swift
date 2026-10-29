@@ -32,7 +32,8 @@ import RelicAX
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let window = CaptureWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             let hosting = NSHostingView(rootView: MainView().environmentObject(model))
-            hosting.sizingOptions = []; window.contentView = hosting; captureWindow = window
+            hosting.sizingOptions = []; hosting.autoresizingMask = [.width, .height]
+            window.contentView = hosting; captureWindow = window
             window.isReleasedWhenClosed = false
             // Ask the public AX client API for our own application's windows.
             // The main actor remains available to service the accessibility IPC.
@@ -58,9 +59,13 @@ import RelicAX
                 model.defaults.set(276.0, forKey: "width.sidebar"); model.defaults.set(340.0, forKey: "width.panel"); model.defaults.set(520.0, forKey: "width.files")
                 try await model.select(fixture["org"].text)
                 model.pane = "overview"; model.detailMember = fixture["member"].text; model.cardMember = fixture["member"].text
-                model.windowSize = CGSize(width: CGFloat(width), height: CGFloat(height))
-                window.setContentSize(model.windowSize)
-                hosting.setFrameSize(model.windowSize)
+                // A resize synchronously invokes GeometryReader callbacks. They
+                // publish the previous/transitional size back into the model;
+                // never read that mutable value to size the next native view.
+                let targetSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+                window.setContentSize(targetSize)
+                hosting.setFrameSize(targetSize)
+                model.windowSize = targetSize
                 window.setFrameOrigin(NSPoint(x: 0, y: 0)); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 try await Task.sleep(for: .milliseconds(400))
                 if scene.hasPrefix("settings-") { model.settingsSection = String(scene.dropFirst(9)); model.sheet = .settings }
@@ -165,10 +170,11 @@ import RelicAX
     private static func capture(_ window: NSWindow, to path: URL, width: Int, height: Int) throws {
         // Cache the actual NSHostingView/AppKit tree (including NSTextView), which
         // ImageRenderer alone omits. Sheet windows are composited in native bounds.
-        guard let view = window.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw RelicError.message("Cannot allocate native capture") }
+        guard let view = window.contentView else { throw RelicError.message("Cannot allocate native capture") }
         view.layoutSubtreeIfNeeded(); view.displayIfNeeded(); CATransaction.flush()
-        print("Capture geometry: window=\(window.frame), view=\(view.bounds), bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
         guard abs(view.bounds.width - CGFloat(width)) < 1 && abs(view.bounds.height - CGFloat(height)) < 1 else { throw RelicError.message("Native view size differs from capture matrix: \(view.bounds)") }
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw RelicError.message("Cannot allocate native capture") }
+        print("Capture geometry: window=\(window.frame), view=\(view.bounds), bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let result = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32), let context = NSGraphicsContext(bitmapImageRep: result) else { throw RelicError.message("Cannot allocate PNG canvas") }
         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context

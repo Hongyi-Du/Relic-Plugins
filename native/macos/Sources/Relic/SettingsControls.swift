@@ -33,6 +33,26 @@ struct NativeRadio: NSViewRepresentable {
     }
 }
 
+struct NativeCheck: NSViewRepresentable {
+    @Binding var checked: Bool
+    @Environment(\.isEnabled) private var enabled
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(checkboxWithTitle: "", target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        button.contentTintColor = NSColor(RelicStyle.accent)
+        updateNSView(button, context: context); return button
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.parent = self; button.state = checked ? .on : .off; button.isEnabled = enabled
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? { CGSize(width: 13, height: 13) }
+    final class Coordinator: NSObject {
+        var parent: NativeCheck
+        init(_ parent: NativeCheck) { self.parent = parent }
+        @objc func changed(_ sender: NSButton) { parent.checked = sender.state == .on }
+    }
+}
+
 struct SettingsNavigationButton: View {
     let title: String, icon: String
     let selected: Bool

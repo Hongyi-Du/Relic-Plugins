@@ -455,7 +455,8 @@ struct ComposerView: View {
                         }.padding(.horizontal, 10).frame(height: 28)
                             .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 9, owner: recipientIdentity))
                     }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
-                        .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
+                        .background(GeometryReader { proxy in Color.clear.preference(key: RecipientAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
+                        .onPreferenceChange(RecipientAnchor.self) { m.recipientAnchor = $0 }
                 }
                 Spacer(minLength: 0)
                 VoiceButton(text: $m.draft, size: 32)
@@ -467,6 +468,11 @@ struct ComposerView: View {
             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)
             .onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
+}
+
+private struct RecipientAnchor: PreferenceKey {
+    static var defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 struct ComposerSendButton: View {

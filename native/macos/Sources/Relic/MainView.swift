@@ -34,8 +34,9 @@ struct MainView: View {
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
-        .onChange(of: m.sheet) { m.activeSpeech?.stop() }
+        .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false } }
         .onChange(of: m.pane) { resizingPanel = nil; resizeStart = nil }
+        .overlay { if m.recipientPicker { RecipientLayer() } }
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))

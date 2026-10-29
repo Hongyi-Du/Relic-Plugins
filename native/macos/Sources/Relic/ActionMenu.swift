@@ -85,20 +85,63 @@ struct ActionMenu: View {
     }
 }
 
+struct RecipientLayer: View {
+    @EnvironmentObject var m: Model
+    @State private var height: CGFloat = 0
+    private var width: CGFloat {
+        max(220, m.members.map { who in
+            let name = (who.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400)]).width
+            let sub = who.display == who["name"].text ? 0 : (who["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96)]).width + 10
+            return 14 + 20 + 20 + 20 + 20 + name + sub
+        }.max() ?? 220)
+    }
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear.contentShape(Rectangle()).onTapGesture { m.recipientPicker = false }
+            FittingScroll(maxHeight: m.windowSize.height * 0.6) {
+                RecipientPicker().padding(7)
+            }.frame(width: width)
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
+                .background(GeometryReader { proxy in Color.clear.preference(key: RecipientHeight.self, value: proxy.size.height) })
+                .onPreferenceChange(RecipientHeight.self) { height = $0 }
+                .offset(x: min(m.recipientAnchor.minX, m.windowSize.width - 260), y: m.recipientAnchor.minY - 6 - height)
+                .measuredRegion("menu")
+        }.onExitCommand { m.recipientPicker = false }
+    }
+}
+private struct RecipientHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct RecipientPicker: View {
     @EnvironmentObject var m: Model
+    private func select(_ who: String) {
+        if who == "all" { m.recipients = ["all"] }
+        else {
+            let selected = m.recipients.contains(who)
+            m.recipients.removeAll { $0 == "all" || $0 == who }
+            if !selected { m.recipients.append(who) }
+            if m.recipients.isEmpty { m.recipients = ["all"] }
+        }
+        m.persistDraft(); m.recipientPicker = false
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).font(.headline).lineLimit(2)
-            Button(m.t("composer.all_members")) { m.recipients = ["all"]; m.persistDraft() }.buttonStyle(.borderless)
-            Divider()
-            ScrollView { VStack(alignment: .leading, spacing: 10) {
-                Rows(m.members) { who in
-                    Toggle(isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in
-                        m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft()
-                    })) { HStack { Avatar(member: who["name"].text, size: 22); Text(who.display).lineLimit(1).help(who.display) } }.toggleStyle(.checkbox)
-                }
-            } }
-        }.padding(14).frame(width: 270, height: 260).background(RelicStyle.card).foregroundStyle(RelicStyle.ink)
+        VStack(alignment: .leading, spacing: 0) {
+            row("all", title: m.t("composer.all_members"))
+            Rows(m.members) { row($0["name"].text, title: $0.display) }
+        }
+    }
+    private func row(_ who: String, title: String) -> some View {
+        Button { select(who) } label: {
+            HStack(spacing: 10) {
+                NativeCheck(checked: Binding(get: { m.recipients.contains(who) && (who == "all" || !m.recipients.contains("all")) }, set: { _ in select(who) })).frame(width: 20, height: 20).allowsHitTesting(false)
+                if who == "all" { ReferenceIcon(name: "hash", size: 17, color: RelicStyle.secondary).frame(width: 20, height: 20).modifier(RecordedSurface(background: RelicStyle.hover, radius: 6, kind: "avatar")) }
+                else { Avatar(member: who, size: 20) }
+                ReferenceLabel(title, size: 13)
+                if who != "all" && who != title { ReferenceLabel(who, size: 11.96, color: RelicStyle.muted, monospaced: true) }
+                Spacer(minLength: 0)
+            }.padding(.horizontal, 10).frame(height: 34.8)
+        }.buttonStyle(QuietButtonStyle())
     }
 }
