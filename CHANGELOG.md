@@ -12,8 +12,8 @@ Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.
 - Windows subprocess creation uses one no-console flag helper, including App-owned jobs and probes. Explicit
   manual CLI opening uses Windows Terminal without a separate launcher console. Tests mock that UI action and
   hide the checker fixture's child process. Release-layout App tests skip when `scripts/open_app.py` is absent.
-- Regression coverage includes replying from a seat above the main organization: an explicit held seat takes
-  precedence over upward reporting, regardless of hierarchy.
+- An explicit held seat takes precedence over upward reporting and qualified recipients, regardless of hierarchy.
+  Threaded replies remain in the receiving seat's organization and deliver a copy to cross-organization participants.
 - The installer gives Codex a Windows PowerShell command with the call operator for quoted Python paths;
   Claude's shell command stays separate. Codex receives the hook's already-capped additional context without
   a second host preview truncation (`additionalContextLimit: 0`).

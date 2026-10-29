@@ -1887,8 +1887,8 @@ class Store:
                     (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)""")
                 parameters = (message_id,) if message_id is not None else (member, member)
                 rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
-                    FROM messages m WHERE m.org_id=? AND """ + condition + " ORDER BY m.id",
-                                  (org["id"],) + parameters).fetchall()
+                    FROM messages m WHERE m.org_id=? AND m.recipients LIKE ? AND """ + condition + " ORDER BY m.id",
+                                  (org["id"], "%" + json.dumps(member) + "%") + parameters).fetchall()
                 found = 0
                 for mid, sender, recipients, body, ep, at, reply_to in rows:
                     rec = json.loads(recipients)

@@ -37,7 +37,9 @@ jobs:
         run: python -X utf8 scripts/check.py --timeout 900
       - name: Export shipped tool schemas
         if: always()
-        run: python -X utf8 scripts/export_api.py
+        run: |
+          python -X utf8 scripts/export_api.py
+          git diff --exit-code -- docs/api/relic.json
       - name: Verify release contents
         run: python -X utf8 scripts/package.py --macos-format both --output dist
       - uses: actions/upload-artifact@v4

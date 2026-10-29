@@ -34,6 +34,12 @@ addressed to the session's seat there. Without `org`, every held seat is eligibl
 an error. An empty inbox is not an empty task list: check `status`. Hook output is limited to 9500 characters;
 only whole delivered messages are marked read, and previews/omissions remain available through `inbox`.
 An explicit `org` that names a held seat selects that identity even above the main organization, including replies.
+Replies to cross-organization participants remain in that seat's thread and also reach those participants in their
+own organizations; omitting `to` includes them along with local thread participants.
+
+Codex's hook configuration is separate from Claude's: the installer supplies `commandWindows` with PowerShell's
+call operator for quoted interpreter paths. The hook caps output at 9500 characters; Codex uses
+`additionalContextLimit: 0` to deliver that already-bounded context without another preview cut.
 
 Example shared document:
 
