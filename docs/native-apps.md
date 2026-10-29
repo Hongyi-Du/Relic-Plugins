@@ -8,6 +8,13 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (Amendment 4): [native-elements.md](native-elements.md)
+defines version 1 per-scene element JSON, visibility/counting rules, UIA/AX and
+render evidence, and the strict 504-case machine gate. The `native-macos`
+`43bb8e1` shared contract request is addressed there. Prior native-control/date/
+menu/document differences are required fixes, not accepted exceptions. No
+exception has been approved; earlier `done` rows remain function inventory only.
+
 Changes for the clients: copies and owned/inherited snapshot protocols now always
 include the effective `on_error` for check rules (`allow` when omitted, matching
 the engine; explicit `deny` preserved). This removes different client defaults
