@@ -166,12 +166,16 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                     "--exe", "Relic.exe", "--uia-exe", "reader.exe", "--output", str(output)]
             with patch("sys.argv", args), patch.object(capture.subprocess, "Popen", return_value=server), \
                     patch.object(capture, "wait_file", return_value=fixture), patch.object(capture, "configure"), \
-                    patch.object(capture, "native", return_value={"count": 6, "errors": ["copies: actual crash"]}):
+                    patch.object(capture, "native", return_value={"count": 6, "errors": ["copies: actual crash"]}) as native_runner:
                 with self.assertRaisesRegex(RuntimeError, "Windows capture failed"):
                     capture.main()
             receipt = json.loads((output / "capture-complete-en-US-light.json").read_text())
+            cases = native_runner.call_args.args[1]["cases"]
+            self.assertTrue({"copies", "menu-file", "file-code", "live-tool-output", "live-typing"}
+                            <= {case["scene"] for case in cases})
             self.assertEqual(receipt["count"], 6)
-            self.assertEqual(receipt["expected_count"], 7)
+            self.assertEqual(receipt["expected_count"], len(cases))
+            self.assertGreater(receipt["expected_count"], receipt["count"])
             self.assertEqual(receipt["errors"], ["copies: actual crash"])
             server.terminate.assert_called_once()
             server.wait.assert_called_once_with(timeout=20)
