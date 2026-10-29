@@ -34,17 +34,23 @@ struct SplitPersistence: NSViewRepresentable {
                 NotificationCenter.default.addObserver(self, selector: #selector(resized), name: NSSplitView.didResizeSubviewsNotification, object: found)
             }
             let key = model.pane == "files" ? "width.files" : "width.panel"
-            let next = "\(model.sidebarOpen)/\(model.panelOpen)/" + key
+            let next = "\(model.sidebarOpen)/\(model.panelOpen)/\(Int(found.bounds.width))/" + key
             guard signature != next, found.bounds.width > 0 else { return }
             signature = next; panelKey = key; hasSidebar = model.sidebarOpen; hasPanel = model.panelOpen
             restoring = true; defer { restoring = false }
+            if let controller = found.delegate as? NSSplitViewController {
+                for (index, item) in controller.splitViewItems.enumerated() {
+                    let flexible = index == (hasSidebar ? 1 : 0)
+                    item.holdingPriority = NSLayoutConstraint.Priority(flexible ? 250 : 750)
+                }
+            }
             if hasSidebar, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: "width.sidebar")
-                found.setPosition(min(320, max(208, saved > 0 ? saved : 276)), ofDividerAt: 0)
+                found.setPosition(min(340, max(276, saved > 0 ? saved : 276)), ofDividerAt: 0)
             }
             if hasPanel, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: key), width = saved > 0 ? saved : key == "width.files" ? 460 : 320
-                let available = max(280, found.bounds.width - (hasSidebar ? 208 : 0) - 320)
+                let available = max(280, found.bounds.width - (hasSidebar ? 276 : 0) - 320)
                 found.setPosition(found.bounds.width - min(740, available, max(280, width)) - found.dividerThickness, ofDividerAt: found.subviews.count - 2)
             }
         }

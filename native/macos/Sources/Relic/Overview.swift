@@ -4,15 +4,26 @@ import RelicCore
 struct Overview: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(m.t("org.heading")).font(.caption)
-            Text(m.snapshot["org"]["name"].text).font(.title3)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(m.t("org.heading")).font(.system(size: 12)).foregroundStyle(RelicStyle.muted); Spacer(minLength: 4)
+                Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(Choices.modes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.labelsHidden().pickerStyle(.segmented).frame(maxWidth: 190)
+                    .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
+            }
+            Text(m.snapshot["org"]["name"].text).font(.system(size: 15, weight: .semibold))
             Text(m.snapshot["org"]["purpose"].text.isEmpty ? m.t("org.no_purpose") : m.snapshot["org"]["purpose"].text).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
-            Text(m.t(m.snapshot["org"]["kind"].text == "subgroup" ? "org.kind_subgroup" : "org.kind_formal") + " · " + m.t(m.snapshot["org"]["governance"].text == "peer" ? "org.gov_peer" : "org.gov_leader")).font(.caption)
-            if !m.snapshot["org"]["leader"].text.isEmpty { Text(m.t(m.snapshot["org"]["cabinet"].flag ? "org.secretary_general_chip" : "org.leader_chip", ["name": m.name(m.snapshot["org"]["leader"].text)])).font(.caption) }
-            Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(Choices.modes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
-                .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
-            Toggle(m.t("org.auto_wake"), isOn: Binding(get: { m.snapshot["org"]["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
+            HStack(spacing: 5) {
+                SmallBadge(text: m.t(m.snapshot["org"]["kind"].text == "subgroup" ? "org.kind_subgroup" : "org.kind_formal"))
+                SmallBadge(text: m.t(m.snapshot["org"]["governance"].text == "peer" ? "org.gov_peer" : "org.gov_leader"))
+                SmallBadge(text: m.t("common.members", ["n": String(m.members.count)]))
+            }
+            if !m.snapshot["org"]["leader"].text.isEmpty { SmallBadge(text: m.t(m.snapshot["org"]["cabinet"].flag ? "org.secretary_general_chip" : "org.leader_chip", ["name": m.name(m.snapshot["org"]["leader"].text)])) }
+            if !m.secretary.isEmpty { Button { m.run { try await m.select(m.organization, m.secretary) } } label: { SmallBadge(text: m.t("org.secretary_chip", ["name": m.name(m.secretary)]), color: RelicStyle.violet) }.buttonStyle(.plain) }
+            HStack(alignment: .top, spacing: 7) {
+                Toggle("", isOn: Binding(get: { m.snapshot["org"]["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } })).labelsHidden().toggleStyle(.switch).controlSize(.mini).accessibilityLabel(m.t("org.auto_wake"))
+                Text(m.t("org.auto_wake")).font(.system(size: 12)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Divider().padding(.vertical, 4)
             Text(m.t("decision.title")).font(.headline)
             if m.snapshot["decisions"].rows.isEmpty { Text(m.t("decision.none")).foregroundStyle(.secondary) }
             Rows(m.snapshot["decisions"].rows) { DecisionView(decision: $0) }
@@ -71,10 +82,11 @@ struct HierarchyView: View {
     @EnvironmentObject var m: Model
     @State private var leader = ""
     @State private var close = false
+    @State private var expanded = true
     private var org: Node { m.snapshot["org"] }
     private var active: Bool { org["status"].text.isEmpty || org["status"].text == "active" }
     var body: some View {
-        DisclosureGroup(m.t("org.hierarchy")) {
+        DisclosureGroup(m.t("org.hierarchy"), isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 8) {
                 Picker(m.t("org.parent_label"), selection: Binding(get: { org["parent"]["id"].text.isEmpty ? (org["parent"].raw as? String ?? "") : org["parent"]["id"].text }, set: { value in m.run { do { try await m.post(m.path("/parent"), ["parent": value]); try await m.refresh() } catch { throw RelicError.message(m.t("org.parent_failed", ["error": error.localizedDescription])) } } })) {
                     Text(m.t("org.parent_none")).tag("")
@@ -136,12 +148,12 @@ struct DecisionView: View {
                 Rows(decision["options"].rows) { option in Button(option["name"].text) { sending = true; m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(decision["id"].text), ["option": option["id"].text]); try await m.refresh() } } }
             } else if ["approval", "trajectory"].contains(decision["kind"].text) {
                 TextField(m.t("decision.reason", ["reason": ""]), text: $note)
-                HStack { Button(m.t("decision.approve")) { act("approve") }; Button(m.t("decision.deny")) { act("deny") } }
+                HStack { Button(m.t("decision.approve")) { act("approve") }.buttonStyle(.borderedProminent); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(.bordered) }
                 if decision["kind"].text == "trajectory" { Button(m.t("decision.approve_redacted")) { act("approve", redact: true) } }
             }
-            if decision["kind"].text == "task" { Text(m.t("decision.task_owner", ["name": m.name(decision["member"].text)])); Button(m.t("decision.view_task")) { m.openDetails("tasks", task: decision["id"].text) } }
+            if decision["kind"].text == "task" { Text(m.t("decision.task_owner", ["name": m.name(decision["member"].text)])).font(.system(size: 12)).foregroundStyle(RelicStyle.muted); Button(m.t("decision.view_task")) { m.openDetails("tasks", task: decision["id"].text) }.buttonStyle(.bordered) }
             if !decision["member"].text.isEmpty { Button(m.t(decision["kind"].text == "task" ? "decision.ask" : "decision.open_chat", ["name": m.name(decision["member"].text)])) { m.run { try await m.select(m.organization, decision["member"].text) } } }
-        }.relicCard(RelicStyle.amberSoft).controlSize(.small).disabled(sending)
+        }.relicCard(RelicStyle.amberSoft).font(.system(size: 13)).controlSize(.small).disabled(sending)
     }
 }
 
@@ -162,11 +174,11 @@ struct TaskCard: View {
             }.padding(8)
         } label: {
             VStack(alignment: .leading) {
-                Text(task["id"].text + " " + task["title"].text)
+                HStack(alignment: .top) { Text(task["id"].text + " " + task["title"].text).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 4); SmallBadge(text: m.taskLabel(task["status"].text), color: task["status"].text == "blocked" ? RelicStyle.amber : task["status"].text == "done" ? RelicStyle.green : RelicStyle.violet) }
                 Text((task["owner"].text.isEmpty ? m.t(m.sheet == .details ? "details.no_owner" : "org.no_owner") : m.name(task["owner"].text)) + " · " + m.taskLabel(task["status"].text)).font(.caption).foregroundStyle(.secondary)
                 if !task["report"].text.isEmpty { Text(m.t("details.has_report")).font(.caption).help(m.t("org.report")) }
             }
-        }
+        }.relicCard()
     }
 }
 
@@ -178,8 +190,20 @@ struct ProtocolList: View {
             ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { key in
                 if !m.snapshot[key].rows.isEmpty {
                     if key != "protocols" { Text(m.t(key == "inherited_protocols" ? "details.inherited_title" : "details.replaced_title")).bold() }
-                    Rows(m.snapshot[key].rows) { p in
-                        DisclosureGroup(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])) {
+                    Rows(m.snapshot[key].rows) { p in ProtocolCard(protocolItem: p) }
+                }
+            }
+        }
+    }
+}
+
+struct ProtocolCard: View {
+    @EnvironmentObject var m: Model
+    let protocolItem: Node
+    @State private var expanded = false
+    private var p: Node { protocolItem }
+    var body: some View {
+                        DisclosureGroup(isExpanded: $expanded) {
                             VStack(alignment: .leading, spacing: 6) {
                                 if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])) }
                                 if !p["issued_by"].isNull { Text(m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text])) }
@@ -197,11 +221,15 @@ struct ProtocolList: View {
                                 if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
                                 Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
                             }.padding(6)
-                        }
-                    }
-                }
-            }
-        }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                                if !expanded {
+                                    if !p["issued_by"].isNull { SmallBadge(text: m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text]), color: RelicStyle.violet) }
+                                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(.caption).foregroundStyle(RelicStyle.muted) }
+                                }
+                            }
+                        }.relicCard().onAppear { expanded = m.sheet == .details }
     }
 }
 

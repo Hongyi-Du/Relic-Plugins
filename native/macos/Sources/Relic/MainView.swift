@@ -17,9 +17,9 @@ struct MainView: View {
             if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HSplitView {
-                if m.sidebarOpen { Sidebar().frame(minWidth: 208, idealWidth: 276, maxWidth: 320) }
+                if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340) }
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: 280, idealWidth: 320, maxWidth: 740) }
+                if m.panelOpen { RightPane().frame(minWidth: 320, idealWidth: 320, maxWidth: 740) }
             }
         }.background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
         .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
@@ -39,6 +39,7 @@ struct AppToolbar: View {
     @EnvironmentObject var m: Model
     var body: some View {
         HStack(spacing: 3) {
+            Image(systemName: "r.square.fill").font(.system(size: 18)).foregroundStyle(RelicStyle.ink).padding(.horizontal, 6).accessibilityLabel("Relic")
             IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar.left") { m.sidebarOpen.toggle() }
             IconButton(title: m.t("appbar.back"), icon: "chevron.left") { m.navigate(-1) }.disabled(!m.history.canBack)
             IconButton(title: m.t("appbar.forward"), icon: "chevron.right") { m.navigate(1) }.disabled(!m.history.canForward)
@@ -50,7 +51,7 @@ struct AppToolbar: View {
             IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count) { m.setPane("overview") }
             IconButton(title: m.t("chart.title"), icon: "point.3.connected.trianglepath.dotted") { m.sheet = .chart }
             IconButton(title: m.t("cc.title") + " · " + m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "doc.on.doc", badge: m.copies.filter { !$0["read"].flag }.count) { m.sheet = .copies }
-            IconButton(title: m.t(m.panelOpen ? "panel.hide_title" : "page.panel"), icon: "sidebar.right", selected: m.panelOpen) { m.panelOpen.toggle() }
+            IconButton(title: m.t(m.panelOpen ? "panel.hide_title" : "page.panel"), icon: "sidebar.right", selected: m.panelOpen) { m.panelOpen.toggle() }.accessibilityLabel(m.t(m.panelOpen ? "panel.hide" : "page.panel"))
         }.padding(.horizontal, 8).frame(height: 40).background(RelicStyle.sidebar).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
     }
 }
@@ -62,11 +63,10 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
-    private var width: CGFloat { min([Model.Sheet.settings, .chart, .details].contains(sheet) ? 920 : sheet == .forward ? 720 : 620, max(560, m.windowSize.width - 80)) }
-    private var height: CGFloat { min(sheet == .create ? 420 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 80)) }
+    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .copies ? 760 : sheet == .forward ? 720 : sheet == .create ? 520 : 620, max(480, m.windowSize.width - 40)) }
+    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 400 : sheet == .copies ? (m.expandRules ? 640 : 460) : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
         VStack(spacing: 12) {
-            HStack { Spacer(); IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction) }
             switch sheet {
             case .create: CreateOrgView()
             case .member: MemberForm()
@@ -80,8 +80,9 @@ struct SheetContent: View {
             case .details: DetailsView()
             case .shortcuts: ShortcutsView()
             }
-        }.padding(20).frame(width: width, height: height)
-            .background(RelicStyle.background).buttonStyle(.bordered).controlSize(.regular)
+        }.padding(20).frame(width: width, height: height).overlay(alignment: .topTrailing) { IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction).padding(10) }
+            .background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).background(SheetSurface()).buttonStyle(.bordered).controlSize(.regular)
+            .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil).environment(\.locale, Locale(identifier: m.words.language))
     }
 }
 
@@ -90,11 +91,6 @@ struct Sidebar: View {
     @FocusState private var focused: Bool
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: "r.square.fill").font(.system(size: 25)).foregroundStyle(RelicStyle.accent)
-                Text("Relic").font(.system(size: 16, weight: .semibold)); Spacer()
-                IconButton(title: m.t("common.new_org"), icon: "square.and.pencil") { m.sheet = .create }
-            }.padding(.horizontal, 14).frame(height: 50)
             VStack(spacing: 5) {
                 Button { m.sheet = .create } label: { Label(m.t("common.new_org"), systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 34) }.buttonStyle(QuietButtonStyle())
                 HStack(spacing: 7) {
@@ -202,11 +198,11 @@ struct RightPane: View {
             Divider().overlay(RelicStyle.line)
             switch m.pane {
             case "workspace": WorkspaceView()
-            case "files": FilePreview()
+            case "files": FilePreview().padding(14)
             case "thread": ThreadView()
             default: ScrollView { Overview().padding(16) }
             }
-        }.frame(maxHeight: .infinity, alignment: .top).background(RelicStyle.background).help(m.t("panel.resize"))
+        }.frame(maxHeight: .infinity, alignment: .top).background(RelicStyle.sidebar).help(m.t("panel.resize"))
     }
 }
 
