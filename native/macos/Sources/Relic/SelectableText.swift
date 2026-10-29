@@ -22,7 +22,11 @@ struct SelectableText: NSViewRepresentable {
     var monospaced = false
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
-        let view = QuoteTextView()
+        let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
+        let view = QuoteTextView(frame: .zero, textContainer: container)
+        view.sourceStorage = storage
         view.isEditable = false; view.isSelectable = true; view.drawsBackground = false
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = true
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
@@ -71,7 +75,7 @@ struct SelectableText: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
             if view.selectedRange().length > 0 {
-                parent.m.selectedText = (view.string as NSString).substring(with: view.selectedRange()); parent.m.selectedAuthor = parent.author; parent.m.selectedTextView = view
+                parent.m.selectedText = NativeInlineCode.source(view.attributedString().attributedSubstring(from: view.selectedRange())); parent.m.selectedAuthor = parent.author; parent.m.selectedTextView = view
             } else if parent.m.selectedTextView === view { parent.m.selectedText = ""; parent.m.selectedAuthor = ""; parent.m.selectedTextView = nil }
         }
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -82,6 +86,7 @@ struct SelectableText: NSViewRepresentable {
 }
 
 final class QuoteTextView: NSTextView {
+    var sourceStorage: NSTextStorage?
     var measuredOpacity: Double = 1
     var productionRegion = "window"
     var quoteTitle = ""
@@ -94,7 +99,12 @@ final class QuoteTextView: NSTextView {
         }
         return menu
     }
-    @objc private func quoteSelection() { guard selectedRange().length > 0 else { return }; quote?((string as NSString).substring(with: selectedRange())); setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
+    override func copy(_ sender: Any?) {
+        guard selectedRange().length > 0 else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(NativeInlineCode.source(attributedString().attributedSubstring(from: selectedRange())), forType: .string)
+    }
+    @objc private func quoteSelection() { guard selectedRange().length > 0 else { return }; quote?(NativeInlineCode.source(attributedString().attributedSubstring(from: selectedRange()))); setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
 }
 
 // One attributed-text builder is used for native drawing and intrinsic sizing.
@@ -111,16 +121,18 @@ enum NativeTextStyle {
         // The CI advance regression separately checks the resolved font metrics.
         rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0], range: range)
         // Preserve inline Markdown emphasis/code traits after applying the base font.
+        var codeRanges: [NSRange] = []
         for run in value.runs {
             guard let intent = run.inlinePresentationIntent else { continue }
             let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
             let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
             var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
-            if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9) }
+            if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9); codeRanges.append(nsRange) }
             if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             rendered.addAttribute(.font, value: font, range: nsRange)
         }
+        NativeInlineCode.decorate(rendered, ranges: codeRanges)
         return rendered
     }
     static func preferredWidth(_ value: NSAttributedString) -> CGFloat {

@@ -135,7 +135,22 @@ import CoreText
         guard let manager = view.layoutManager, let container = view.textContainer, let storage = view.textStorage else { return [] }
         manager.ensureLayout(for: container)
         var rows: [[String: Any]] = []
+        var codeParents: [String: Int] = [:]
+        let codeManager = manager as? InlineCodeLayoutManager
+        let codeFragments = codeManager?.codeFragments(in: container) ?? []
         storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length), options: []) { attributes, range, _ in
+            if let group = attributes[.relicCodeGroup] as? String, codeParents[group] == nil {
+                codeParents[group] = rows.count
+                for fragment in codeFragments.filter({ $0.group == group }) {
+                    let rect = fragment.rect.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+                    rows.append(["text": "", "range": ["location": fragment.range.location, "length": fragment.range.length], "local_rect": NSValue(rect: rect), "lines": [box(rect)], "kind": "card",
+                                 "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()],
+                                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": rgba(codeManager?.fill), "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 5,
+                                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [5,5,5,5], "opacity": (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue), "background_image": "none", "shadow": []],
+                                 "attributes": ["source": "InlineCodeLayoutManager.drawBackground", "group": group, "horizontal_padding": 5, "vertical_padding": 1]])
+                }
+            }
+            if attributes[.relicCodePadding] as? Bool == true { return }
             let text = (storage.string as NSString).substring(with: range)
             guard !text.isEmpty else { return }
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -165,6 +180,7 @@ import CoreText
                           "opacity": (view as? ReferenceLabelView)?.measuredOpacity ?? (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue),
                           "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull()],
                 "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
+            if let group = attributes[.relicCodeGroup] as? String, let parent = codeParents[group] { rows[rows.count - 1]["parent_run"] = parent }
         }
         return rows
     }
@@ -226,6 +242,7 @@ import CoreText
                         "state": ["enabled": textView.isSelectable, "focused": false, "selected": NSNull(), "expanded": NSNull(), "checked": NSNull()],
                         "visible": !visible.isNull && visible.width > 0 && visible.height > 0,
                         "pixelSamples": samples(visible, bitmap: bitmap)]
+                    if let parent = run["parent_run"] as? Int { projected["parent"] = path + "/text-" + String(parent) }
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
                     projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in

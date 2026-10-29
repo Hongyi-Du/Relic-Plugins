@@ -20,6 +20,44 @@ macOS 对这两个场景通过实际 AX 输入框位置点击，再向真实窗�
 候选弹出框未出现在实际 AX 树中会使捕获失败，不注入替代菜单。
 模型/席位原生候选弹出框的外观仍待同场景比较；没有增加任何例外。
 
+### 8fbed05：504 个 macOS 捕获完成，严格门禁仍失败
+
+[完整视觉运行 40966815307](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40966815307)
+四个 macOS 分片全部成功，各 126 张，包含三个窗口尺寸。
+Windows 四个捕获分片失败，比较仍生成完整的失败报告，缺失捕获计入门禁。
+已下载的 HTML、JSON 和热图位于
+`S:\Codex\Outputs\Relic-native-visual\parity-8fbed05\report\`。
+以下数字直接来自该报告的 `summary.json`，不是当前 HEAD 的结果。
+
+| 8fbed05 严格报告 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 504 | 504 |
+| scenes_checked / scenes_passed | 0 / 0 | 0 / 0 |
+| raw_native_elements | 31,888 | 119,340 |
+| valid_native_elements | 31,888 | 116,435 |
+| invalid_native_elements | 0 | 2,905 |
+| reference_elements | 93,032 | 92,536 |
+| paired_elements / matched_elements | 28,255 / 0 | 59,602 / 0 |
+| missing | 64,777 | 32,934 |
+| extra | 3,633 | 56,833 |
+| text_mismatch | 7,976 | 33,569 |
+| geometry_out_of_tolerance | 40,387 | 144,984 |
+| style_out_of_tolerance | 100,736 | 210,053 |
+| state_mismatch | 7,820 | 35,139 |
+| kind_mismatch | 340 | 5,157 |
+| region_mismatch | 152 | 627 |
+| order_mismatch | 4,756 | 6,997 |
+| layout_mismatch | 11,708 | 88,383 |
+| icon_mismatch | 532 | 1,871 |
+| extraction_errors | 78,676 | 923,141 |
+
+例外表和批准的图标映射表为空。`scenes_checked=0` 表示提取仍不完整，
+不能把 504 张成功截图当作元素通过。随后已合入 `cd6c840`，新增场景矩阵为 528。
+后续修复包括每场景清空客户端状态、初始画布焦点、原生裁剪、成员名片及 Markdown。
+字体 CI 证明自动光学字号会改变同名 PingFangUI 字体的字形 advance：
+代表段落默认 401.766 px，自动光学字号 419.406 px，参考 419.438 px。
+`67dae7b` 已使用公开 CoreText 自动光学字号属性；严格回归断言保留，待 CI 验证。
+
 ### 38526b3：最新完整矩阵失败报告及后续捕获回归
 
 [完整视觉运行 40958568166](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40958568166)
