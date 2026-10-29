@@ -80,8 +80,13 @@ public enum Timeline {
         if let date = iso.date(from: node.text) { return date }
         iso.formatOptions = [.withInternetDateTime]; return iso.date(from: node.text)
     }
+    public static func activeLive(_ items: [Node], status: Node, decisions: [Node]) -> [Node] {
+        let sorted = items.sorted { $0["seq"].integer < $1["seq"].integer }
+        if ["running", "waiting", "starting"].contains(status["state"].text) { return Array(sorted.suffix(from: sorted.lastIndex(where: { $0["start"].flag }) ?? 0)) }
+        return sorted.filter { item in item["type"].text == "permission" && decisions.contains { $0["kind"].text == "permission" && $0["id"].text == item["id"].text } }
+    }
     public static func conversation(steps: [Node], chat: [Node], member: Node, live: [Node], words: Words) -> [Node] {
-        let name = member["name"].text, start = live.first.flatMap { date($0["at"]) }
+        let name = member["name"].text, start = live.last(where: { $0["start"].flag }).flatMap { date($0["at"]) }
         var items: [Node] = [], actions: [Node] = []
         func flush() { if !actions.isEmpty { items.append(Node(["type": "acts", "steps": actions.map(\.raw), "member": name, "at": actions[0]["at"].raw])); actions = [] } }
         for step in steps {

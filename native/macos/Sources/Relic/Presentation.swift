@@ -84,6 +84,37 @@ extension Model {
     }
     var displayMessages: [Node] {
         guard !member.isEmpty else { return messages }
-        return Timeline.conversation(steps: conversation["steps"].rows, chat: messages, member: selectedMember, live: liveItems, words: words)
+        return Timeline.conversation(steps: conversation["steps"].rows, chat: messages, member: selectedMember, live: displayLiveItems, words: words)
+    }
+    var displayLiveItems: [Node] { Timeline.activeLive(liveItems, status: liveStatus, decisions: snapshot["decisions"].rows) }
+    func unread(_ member: String = "") -> Int {
+        let key = member.isEmpty ? "group" : "member:" + member, since = defaults.integer(forKey: "seen." + organization + "/" + key)
+        return snapshot["chats"][key]["ids"].rows.filter { $0.rows.count > 1 && $0.rows[0].integer > since && $0.rows[1].text != "human" }.count
+    }
+    func lastLine(_ member: String = "") -> String {
+        let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
+        if last["body"].text.isEmpty { return member.isEmpty ? t("side.group_sub") : "" }
+        return t(last["type"].text == "receipt" ? "side.last_receipt" : "side.last_line", ["name": name(last["from"].text), "text": String(last["body"].text.prefix(70))])
+    }
+    func decisionTitle(_ decision: Node) -> String {
+        let id = decision["id"].text, who = name(decision["member"].text)
+        switch decision["kind"].text {
+        case "permission": return t("decision.permission", ["name": who, "what": decision["title"].text])
+        case "approval":
+            let requester = decision["requester_org"].text.isEmpty || decision["requester_org"].text == organization ? name(decision["requester"].text) : t("common.member_of_org", ["member": decision["requester"].text, "org": decision["requester_org_name"].text])
+            return t("decision.approval", ["requester": requester, "what": decision["label"].text.isEmpty ? decision["text"].text : decision["label"].text, "id": id])
+        case "trajectory":
+            let whose = decision["member"].text == decision["requester"].text ? t("decision.own_seat") : t("decision.member_seat", ["name": who])
+            let which = decision["carrier"].integer > 0 ? t("decision.earlier_session", ["n": decision["carrier"].text]) : t("decision.current_session")
+            return t("decision.trajectory", ["requester": name(decision["requester"].text), "whose": whose, "which": which])
+        case "wake": return t("decision.wake_failed", ["name": who])
+        case "task": return t("decision.task_blocked", ["id": id, "title": decision["title"].text])
+        default: return decision["title"].text
+        }
+    }
+    func approvalNote(_ decision: Node) -> String {
+        if decision["approver"].text == "human" { return t("decision.approval_human") }
+        if decision["approver"].text == "secretary-general", let cabinet = organizations.first(where: { $0["cabinet"].flag }), !cabinet["leader"].text.isEmpty { return t("decision.approval_sg", ["name": cabinet["leader"].text]) }
+        return ""
     }
 }

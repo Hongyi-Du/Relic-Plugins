@@ -167,6 +167,8 @@ import RelicCore
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
         guard selected == selection else { pending = true; return }
         snapshot = snap; messages = Timeline.merge(messages, chat["items"].rows); moreChat = chat["more"].flag
+        let chatKey = member.isEmpty ? "group" : "member:" + member
+        if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
         liveItems = live["items"].rows; liveStatus = live["status"]; conversation = convo; revision += 1
         let ids = Set(snap["decisions"].rows.map { $0["kind"].text + ":" + $0["id"].text + ":" + $0["member"].text })
         if let previous = previousDecisions[organization], !ids.subtracting(previous).isEmpty { backgroundNotify(t("notify.decisions", ["n": String(ids.count), "org": snap["org"]["name"].text])) }
@@ -187,6 +189,7 @@ import RelicCore
         plainMode = defaults.bool(forKey: "plain." + next.org); digestOpen = defaults.bool(forKey: "digest." + next.org)
         overviewMode = defaults.string(forKey: "mode." + next.org) ?? "transparent"
         if record { history.visit(next) }
+        if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: "selection") }
         recent.removeAll { $0 == next }; recent.insert(next, at: 0); recent = Array(recent.prefix(12))
         if let data = try? JSONEncoder().encode(recent) { defaults.set(data, forKey: "recent") }
         var ancestor = next.org, seen: Set<String> = []

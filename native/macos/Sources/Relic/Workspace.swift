@@ -19,6 +19,7 @@ struct WorkspaceView: View {
                     if !workspace["exists"].flag { Text(m.t("work.folder_missing")) }
                     else {
                         Text(m.t("work.git_changes") + " · " + workspace["git"]["branch"].text).font(.headline)
+                        Text(m.t("work.file_count", ["n": String(workspace["git"]["changes"].rows.count)])).font(.caption)
                         if workspace["git"]["changes"].rows.isEmpty { Text(m.t("work.no_changes")) }
                         Rows(workspace["git"]["changes"].rows) { file in Button(file["status"].text + " " + file["path"].text) { m.run { try await m.openFile(file["path"].text) } }.disabled(file["status"].text.contains("D")) }
                         Text(m.t("work.recent_files")).font(.headline)
@@ -97,12 +98,13 @@ struct FilePreview: View {
                             HStack { TextField("#", text: $jump).frame(width: 70).onSubmit { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } }; Button(m.t("common.open")) { if let line = Int(jump) { m.fileLine = line; proxy.scrollTo(line, anchor: .center) } } }
                             ScrollView([.vertical, .horizontal]) {
                                 LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                    ForEach(Array(lines.prefix(6000).enumerated()), id: \.offset) { index, line in
                                         HStack(alignment: .top) { Text(String(index + 1)).foregroundStyle(.secondary).frame(width: 50, alignment: .trailing); Text(line.isEmpty ? " " : line).textSelection(.enabled) }
                                             .font(.system(.caption, design: .monospaced)).padding(.vertical, 2).background(m.fileLine == index + 1 ? Color.accentColor.opacity(0.15) : .clear).id(index + 1)
                                     }
                                 }
                             }.onAppear { proxy.scrollTo(m.fileLine, anchor: .center) }.onChange(of: m.fileLine) { proxy.scrollTo(m.fileLine, anchor: .center) }
+                            if lines.count > 6000 { Text(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)])).font(.caption) }
                         }
                     }
                 }

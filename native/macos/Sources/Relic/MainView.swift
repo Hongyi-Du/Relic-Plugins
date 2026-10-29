@@ -117,7 +117,7 @@ struct OrgTree: View {
             if !m.folded.contains(id) {
                 if m.organization == id {
                     VStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 4 : 10) {
-                        Button("# " + m.t("common.group_chat")) { m.run { try await m.select(id) } }
+                        Button("# " + m.t("common.group_chat") + (m.unread() > 0 ? " · " + String(m.unread()) : "")) { m.run { try await m.select(id) } }.help(m.lastLine())
                         Rows(m.members.sorted { $0["secretary"].flag && !$1["secretary"].flag }) { who in
                             HStack {
                                 Button { m.run { try await m.select(id, who["name"].text) } } label: {
@@ -128,9 +128,10 @@ struct OrgTree: View {
                                             if who["secretary"].flag { Text(m.t("common.secretary")).font(.caption) }
                                             if who["leader"].flag { Text(m.t("common.leader")).font(.caption) }
                                             Text(m.stateLabel(who["state"].text) + " · " + who["role"].text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                            if !who["doing"].text.isEmpty { Text(who["doing"].text).font(.caption).lineLimit(1) }
+                                            if !who["doing"].text.isEmpty { Text(m.t("side.doing", ["doing": who["doing"].text])).font(.caption).lineLimit(1) }
+                                            Text(m.lastLine(who["name"].text)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         }
-                                        if who["unread"].integer > 0 { Text(who["unread"].text).font(.caption).padding(4).background(.tint.opacity(0.15), in: Capsule()) }
+                                        if m.unread(who["name"].text) > 0 { Text(String(m.unread(who["name"].text))).font(.caption).padding(4).background(.tint.opacity(0.15), in: Capsule()) }
                                     }
                                 }
                             }.contextMenu { Button(m.t("chat.card")) { m.openCard(who["name"].text) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: who["name"].text) } }
