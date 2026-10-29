@@ -416,28 +416,6 @@ struct ActivityRow: View {
     }
 }
 
-struct LiveTurnView: View {
-    @EnvironmentObject var m: Model
-    @State private var expanded = true
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if m.selectedMember["embedded"].flag, m.selectedMember["has_transcript"].flag, let prompt = m.displayLiveItems.first(where: { $0["type"].text == "prompt" }) {
-                HStack(alignment: .top) { Avatar(member: "human"); RichText(prompt["text"].text) }.environment(\.selectedAuthor, "human")
-            }
-            HStack(alignment: .top) {
-                Avatar(member: m.member)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text(m.name(m.member)).bold(); Text(m.liveStatus["state"].text == "running" ? m.t("live.replying") : m.stateLabel(m.liveStatus["state"].text)).foregroundStyle(.secondary) }.font(RelicStyle.font(12, weight: 400))
-                    let actions = m.displayLiveItems.filter { ["tool", "tool_call", "tool_result", "permission", "error"].contains($0["type"].text) }
-                    if !actions.isEmpty { DisclosureGroup(m.t("live.turn_actions"), isExpanded: $expanded) { Rows(actions) { LiveItem(item: $0) } } }
-                    if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) }
-                    else if m.liveStatus["state"].text == "running" { ProgressView().controlSize(.small) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.environment(\.selectedAuthor, m.member)
-        }
-    }
-}
-
 struct StepView: View {
     @EnvironmentObject var m: Model
     let step: Node
@@ -470,34 +448,23 @@ struct StepView: View {
     }
 }
 
-struct LiveItem: View {
-    @EnvironmentObject var m: Model
-    let item: Node
-    var body: some View {
-        if item["type"].text == "permission" { PermissionCard(item: item) }
-        else if ["tool", "tool_call", "tool_result"].contains(item["type"].text) {
-            DisclosureGroup(item["title"].text + " · " + m.t(item["status"].text == "pending" ? "live.pending" : item["status"].text == "completed" ? "task.done" : item["status"].text == "failed" ? "common.failed" : "task.working")) { Text(item["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-        } else { RichText(item["text"].text).foregroundStyle(item["type"].text == "error" ? .red : .primary) }
-    }
-}
-
 struct PermissionCard: View {
     @EnvironmentObject var m: Model
     let item: Node
     @State private var sending = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) { ReferenceIcon(name: "bell", size: 14, color: RelicStyle.amber); Text(m.t("perm.ask")).font(RelicStyle.font(12, weight: 700)) }.foregroundStyle(RelicStyle.amber)
-            Text(item["title"].text).fixedSize(horizontal: false, vertical: true)
-            FlowLayout {
+            HStack(spacing: 6) { ReferenceIcon(name: "bell", size: 14, color: RelicStyle.amber); ReferenceLabel(m.t("perm.ask"), size: 12, weight: 700, color: RelicStyle.amber, lineHeight: 19.2) }
+            ReferenceLabel(item["title"].text, size: 12.5, lineHeight: 20, lines: 0)
+            FlowLayout(spacing: 6) {
                 Rows(item["options"].rows) { option in
-                    Button(option["name"].text.isEmpty ? option["kind"].text : option["name"].text) {
+                    TextButton(option["name"].text.isEmpty ? option["kind"].text : option["name"].text, size: 12, color: option["kind"].text.hasPrefix("allow") ? RelicStyle.background : RelicStyle.ink) {
                         sending = true
                         m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(item["id"].text), ["option": option["id"].text]); try await m.refresh() }
                     }.buttonStyle(ReferenceButtonStyle(primary: option["kind"].text.hasPrefix("allow"), small: true))
                 }
             }
-        }.padding(.vertical, 10).padding(.horizontal, 12).frame(maxWidth: 620, alignment: .leading)
+        }.padding(.vertical, 11).padding(.horizontal, 13).frame(maxWidth: 620, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.amberSoft, border: RelicStyle.amber.opacity(0.45), borderWidth: 1, radius: 12, kind: "card")).disabled(sending)
     }
 }
