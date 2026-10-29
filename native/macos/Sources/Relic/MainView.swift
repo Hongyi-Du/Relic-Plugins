@@ -57,7 +57,7 @@ struct AppToolbar: View {
 }
 
 func accent(_ name: String) -> Color {
-    switch name { case "ink": return RelicStyle.ink; case "indigo": return Color(red: 0.36, green: 0.38, blue: 0.84); case "rose": return .pink; case "amber": return .orange; case "blue": return .blue; default: return RelicStyle.accent }
+    switch name { case "ink": return RelicStyle.color(0x3A3936, 0xD9D6CF); case "indigo": return RelicStyle.color(0x5B61D6, 0x5B61D6); case "rose": return RelicStyle.color(0xC4456C, 0xC4456C); case "amber": return RelicStyle.color(0xB9821D, 0xB9821D); case "blue": return RelicStyle.color(0x2F6BD8, 0x2F6BD8); default: return RelicStyle.accent }
 }
 
 struct SheetContent: View {

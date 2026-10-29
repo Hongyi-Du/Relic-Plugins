@@ -49,11 +49,14 @@ struct RichText: View {
         })
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: (try? AttributedString(markdown: NativeLinks.markdown(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).frame(maxWidth: .infinity, alignment: .leading).help(m.t("chat.path_preview"))
+        SelectableText(value: (try? AttributedString(markdown: NativeLinks.markdown(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
-        case "code": ScrollView(.horizontal) { Text(block.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(8) }.background(.quaternary.opacity(0.4))
+        case "code": ViewThatFits(in: .horizontal) {
+            Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10)
+            ScrollView(.horizontal) { Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10) }
+        }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line))
         case "head": inline("**" + block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression) + "**").padding(.top, 6)
         case "quote":
             HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(quoteText(block)) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))

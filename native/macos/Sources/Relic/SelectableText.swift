@@ -49,7 +49,9 @@ struct SelectableText: NSViewRepresentable {
         }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
-        let width = max(1, proposal.width ?? 400)
+        let available = max(1, proposal.width ?? 400)
+        let measured = nsView.attributedString().boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).width
+        let width = max(1, min(available, ceil(measured)))
         guard let container = nsView.textContainer, let layout = nsView.layoutManager else { return nil }
         container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
