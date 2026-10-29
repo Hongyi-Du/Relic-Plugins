@@ -45,11 +45,14 @@ struct RichText: View {
     init(_ text: String, pointSize: CGFloat? = nil, document: Bool = false) { self.text = text; self.pointSize = pointSize; self.document = document }
     private var baseSize: CGFloat { pointSize ?? (document ? 13.5 : m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) }
     private var textLineHeight: CGFloat { baseSize * (document ? 1.7 : 1.65) }
+    private var blocks: [MarkdownBlock] { NativeMarkdown.blocks(text) }
     var body: some View {
         IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in blockView(block) }
-            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                    blockView(block).padding(.top, blockGap(index))
+                }
+            }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         }.environment(\.openURL, OpenURLAction { url in
             if url.scheme == "relic-file", let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let path = parts.queryItems?.first(where: { $0.name == "path" })?.value {
                 let line = Int(parts.queryItems?.first(where: { $0.name == "line" })?.value ?? "") ?? 0
@@ -61,15 +64,29 @@ struct RichText: View {
             return .systemAction
         })
     }
+    private func blockMargins(_ block: MarkdownBlock, last: Bool) -> (top: CGFloat, bottom: CGFloat) {
+        switch block.kind {
+        case "head": return (document ? 10 : 8, 4)
+        case "code": return (document ? 12 : 6, document ? 12 : 6)
+        case "list": return (2, 8)
+        case "quote": return (0, 8)
+        case "table": return (0, 0) // Table margins remain inside its overflow container.
+        default: return (0, last ? 0 : 8)
+        }
+    }
+    private func blockGap(_ index: Int) -> CGFloat {
+        let top = blockMargins(blocks[index], last: index == blocks.count - 1).top
+        return index == 0 ? top : max(top, blockMargins(blocks[index - 1], last: false).bottom)
+    }
     private var preferredWidth: CGFloat {
         let size = baseSize
         return NativeMarkdown.blocks(text).map { block -> CGFloat in
             switch block.kind {
-            case "code": return NativeTextStyle.preferredWidth(NativeTextStyle.render(AttributedString(block.text), size: 11.25, monospaced: true)) + 24
-            case "head": return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), size: size, weight: .bold))
+            case "code": return NativeTextStyle.preferredWidth(NativeTextStyle.render(AttributedString(block.text), size: document ? 10.8 : 11.25, monospaced: true)) + 24
+            case "head": return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), size: document ? size * 1.02 : size, weight: .bold))
             case "quote": return NativeTextStyle.preferredWidth(NativeTextStyle.render(quoteText(block), size: size * 0.92)) + 13
-            case "list": return NativeMarkdown.list(block).map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0.text), size: size)) + ($0.indented ? 42 : 22) }.max() ?? 0
-            case "table": return NativeMarkdown.table(block).map { row in row.map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0), size: size * 0.93)) + 17 }.reduce(0,+) }.max() ?? 0
+            case "list": return NativeMarkdown.list(block).map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0.text), size: size)) + ($0.indented ? 40 : 22) }.max() ?? 0
+            case "table": return tableWidths(block).reduce(0,+)
             default: return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text), size: size))
             }
         }.max() ?? 0
@@ -83,25 +100,39 @@ struct RichText: View {
             SelectableText(value: AttributedString(block.text), pointSize: document ? 10.8 : 11.25, lineHeight: document ? 18.6 : 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
         }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
-        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight).padding(.top, document ? 10 : 8).padding(.bottom, 4)
+        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight * (document ? 1.02 : 1))
         case "quote":
-            SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary)
+            SelectableText(value: quoteText(block), color: RelicStyle.secondary, pointSize: baseSize * 0.92, lineHeight: textLineHeight * 0.92)
                 .padding(.leading, 13).padding(.vertical, 2)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "card"))
-                .padding(.bottom, 8).fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: true)
         case "list":
-            VStack(alignment: .leading, spacing: 3) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
+            VStack(alignment: .leading, spacing: 0) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top, spacing: 8) {
+                    ReferenceLabel(item.marker, size: baseSize, lineHeight: textLineHeight, alignment: .right).frame(width: 14, alignment: .trailing)
+                    inline(item.text)
+                }.padding(.leading, item.indented ? 18 : 0)
             } }
         case "table":
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                        Text(NativeMarkdown.attributed(cell)).fontWeight(index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).frame(minWidth: 70, alignment: .leading).padding(.horizontal, 8).padding(.vertical, 3).background(index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear).overlay(Rectangle().stroke(RelicStyle.border, lineWidth: 1))
+                    ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                        SelectableText(value: NativeMarkdown.attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
+                            .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: tableWidths(block)[column], alignment: .leading)
+                            .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == NativeMarkdown.table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
                     }
                 } }
-            }.padding(4) }
+            }.padding(.vertical, 6) }.fixedSize(horizontal: false, vertical: true)
         default: inline(block.text)
+        }
+    }
+    private func tableWidths(_ block: MarkdownBlock) -> [CGFloat] {
+        let rows = NativeMarkdown.table(block), count = rows.map(\.count).max() ?? 0
+        return (0..<count).map { column in
+            rows.enumerated().map { index, row in
+                guard row.indices.contains(column) else { return CGFloat.zero }
+                return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(row[column]), size: baseSize * 0.93, weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular)) + 17
+            }.max() ?? 0
         }
     }
     private func quoteText(_ block: MarkdownBlock) -> AttributedString {
