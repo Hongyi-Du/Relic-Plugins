@@ -81,8 +81,11 @@ import CoreText
             let attributes = CTRunGetAttributes(run) as NSDictionary
             guard let rawFont = attributes[kCTFontAttributeName] else { return nil }
             let font = rawFont as! CTFont
+            let variations = (CTFontCopyVariation(font) as? [NSNumber: NSNumber]).map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.stringValue, $0.value.doubleValue) }) }
             return ["family_name": CTFontCopyFamilyName(font) as String, "postscript_name": CTFontCopyPostScriptName(font) as String,
-                    "glyph_count": CTRunGetGlyphCount(run), "provider": "CoreText shaping of the native attributed text"]
+                    "glyph_count": CTRunGetGlyphCount(run), "provider": "CoreText shaping of the native attributed text",
+                    "actual_variations": variations as Any? ?? NSNull(), "optical_size_attribute": CTFontCopyAttribute(font, kCTFontOpticalSizeAttribute).map { String(describing: $0) } as Any? ?? NSNull(),
+                    "ascent": CTFontGetAscent(font), "descent": CTFontGetDescent(font), "leading": CTFontGetLeading(font)]
         }
     }
     private static func style(_ object: AnyObject, text: String) -> [String: Any] {
