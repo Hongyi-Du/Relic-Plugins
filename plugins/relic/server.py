@@ -156,19 +156,22 @@ def run_call(plugin, params):
             return error_result(error)
 
 
-def inbox_wait(plugin, params):
-    """Seconds a tools/call will wait in the inbox for a message; 0 for a call answered on the spot."""
+def requested_wait(params):
+    """Requested inbox wait, before applying this client's configured limit."""
     if params.get("name") != "inbox":
         return 0
     if (params.get("arguments") or {}).get("message_id") is not None:
         return 0  # rereading a particular message ignores wait, including read messages
     try:
-        wait = int((params.get("arguments") or {}).get("wait") or 0)
+        return max(0, int((params.get("arguments") or {}).get("wait") or 0))
     except (TypeError, ValueError):
         return 0  # answered on the spot, with the error the tool gives for it
+
+
+def inbox_wait(plugin, params):
+    """Seconds a tools/call will wait; 0 for a call answered on the spot."""
     with CODE:
-        limit = plugin.api.max_wait()
-    return max(0, min(wait, limit))
+        return min(requested_wait(params), plugin.api.max_wait())
 
 
 class Waiter(threading.Thread):
@@ -272,19 +275,21 @@ class Requests:
                 if "id" not in req:
                     if req.get("method") == "notifications/cancelled":
                         with self.guard:
-                            stop = self.pending.get((req.get("params") or {}).get("requestId"))
-                            if stop is not None:
-                                stop.set()
+                            pending = self.pending.get((req.get("params") or {}).get("requestId"))
+                            if pending is not None:
+                                pending[0].set()
                     continue
                 stop = threading.Event()
                 with self.guard:
-                    self.pending[req["id"]] = stop
+                    waits = req.get("method") == "tools/call" and requested_wait(req.get("params") or {}) > 0
+                    self.pending[req["id"]] = (stop, waits)
                 self.queue.put((req, stop))
         finally:
             self.closed.set()
             with self.guard:
-                for stop in self.pending.values():
-                    stop.set()
+                for stop, waits in self.pending.values():
+                    if waits:
+                        stop.set()
             self.queue.put(None)
 
 
@@ -302,7 +307,9 @@ def main():
     requests.reader.start()
     while True:
         item = requests.queue.get()
-        if item is None or requests.closed.is_set():
+        # Finish buffered ordinary calls, as before (one-shot clients can close
+        # their input while still reading output). EOF cancels waiting inboxes.
+        if item is None:
             break
         req, stop = item
         if stop.is_set():
