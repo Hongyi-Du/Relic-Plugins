@@ -25,8 +25,10 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 14, Padding = new Thickness(24, 16, 24, 16) }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
-    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 60, MaxHeight = 180, BorderThickness = new Thickness(0), Padding = new Thickness(2, 4, 2, 8) };
+    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 34, MaxHeight = 180, BorderThickness = new Thickness(0), Padding = new Thickness(2, 4, 2, 4) };
     private readonly TextBox search = new();
+    private readonly Grid searchSurface = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, Grid> fieldSurfaces = new();
 
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ScrollViewer chatScroll;
@@ -250,6 +252,8 @@ public sealed partial class MainWindow : Window
     private void DrawDetail()
     {
         detail.Children.Clear();
+        paneHeader.Visibility = org.Length == 0 && pane != "files" ? Visibility.Collapsed : Visibility.Visible;
+        if (paneHeader.Visibility == Visibility.Collapsed) return;
         DrawPaneHeader();
         if (pane == "thread") detail.Children.Add(Text(T("panel.thread"), 18));
         switch (pane)
@@ -288,8 +292,9 @@ public sealed partial class MainWindow : Window
         var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap, FontSize = 13, MinHeight = multiline ? 100 : 32, MaxHeight = multiline ? 220 : double.PositiveInfinity };
         var row = new Grid { ColumnSpacing = 4 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.Children.Add(field);
         if (preferences.Text("voice") != "off") { var mic = Microphone(field); mic.VerticalAlignment = VerticalAlignment.Bottom; Grid.SetColumn(mic, 1); row.Children.Add(mic); }
-        form.Children.Add(row); return field;
+        fieldSurfaces.Add(field, row); form.Children.Add(row); return field;
     }
+    private FrameworkElement FieldSurface(TextBox field) => fieldSurfaces.TryGetValue(field, out var row) ? row : field;
     private ComboBox Choice(StackPanel form, string label, IEnumerable<(string, string)> options)
     {
         var box = new ComboBox { Header = T(label), HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, MinHeight = 32 };

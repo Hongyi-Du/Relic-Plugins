@@ -115,9 +115,10 @@ public sealed class Client : IDisposable
 public sealed class Words
 {
     public string Language { get; private set; } = "en-US";
+    public JsonArray Languages { get; private set; } = new();
     private JsonNode strings = new JsonObject();
     public static string Normalize(string? language) => (language ?? "").StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "zh-CN" : "en-US";
-    public void Load(JsonNode response) { Language = Normalize(response.Text("lang")); strings = response["strings"]?.DeepClone() ?? new JsonObject(); }
+    public void Load(JsonNode response) { Language = Normalize(response.Text("lang")); strings = response["strings"]?.DeepClone() ?? new JsonObject(); Languages = response["languages"]?.DeepClone() as JsonArray ?? new JsonArray(); }
     public string T(string key, params (string, object)[] args)
     {
         var value = strings[key];

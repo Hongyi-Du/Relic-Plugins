@@ -114,7 +114,7 @@ public sealed partial class MainWindow
         var note = Text(""); form.Children.Add(note);
         var name = Field(form, "member.name_label"); name.Text = edit ?? (secretary ? "secretary" : ""); name.IsReadOnly = edit != null; name.PlaceholderText = T("member.name_placeholder");
         var role = Field(form, "common.role"); role.Text = card.Text("role"); role.PlaceholderText = secretary ? T("member.role_placeholder_secretary") : T("member.role_placeholder");
-        var nameSurface = (FrameworkElement)name.Parent; var roleSurface = (FrameworkElement)role.Parent;
+        var nameSurface = FieldSurface(name); var roleSurface = FieldSurface(role);
         var appFields = new StackPanel { Spacing = 8 }; form.Children.Add(appFields);
         var harness = Choice(appFields, "common.harness", harnesses.Rows().Where(h => h.Flag("available") && !h.Flag("later")).Select(h => (h.Text("id"), h.Text("title"))));
         foreach (var h in harnesses.Rows().Where(h => !h.Flag("later"))) appFields.Children.Add(Text(h.Text("title") + " · " + (h.Flag("available") ? T("member.connected", ("program", h.Text("program"))) : h.Text("problem")), 12));

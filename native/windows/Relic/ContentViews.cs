@@ -48,9 +48,11 @@ public sealed partial class MainWindow
             {
                 var code = new List<string>(); var language = line.Trim()[3..];
                 while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                var source = string.Join("\n", code); var block = Stack(Text(language, 12));
-                block.Children.Add(new TextBox { Text = source, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.NoWrap, FontFamily = new FontFamily("Consolas"), MaxHeight = 400 });
-                block.Children.Add(Button(T("common.copy"), () => { Copy(source); return Task.CompletedTask; })); content.Children.Add(block); continue;
+                var source = string.Join("\n", code); var codeText = Text(source, 12); codeText.FontFamily = new FontFamily("Consolas");
+                var block = new Grid(); var codeScroll = Scroll(codeText); codeScroll.MaxHeight = 400; block.Children.Add(new Border { Child = codeScroll, Padding = new Thickness(12), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) });
+                var copy = IconButton("\uE8C8", "common.copy", () => { Copy(source); return Task.CompletedTask; }); copy.HorizontalAlignment = HorizontalAlignment.Right; copy.VerticalAlignment = VerticalAlignment.Top; copy.Opacity = 0; block.Children.Add(copy);
+                block.PointerEntered += (_, _) => copy.Opacity = 1; block.PointerExited += (_, _) => copy.Opacity = 0; block.GotFocus += (_, _) => copy.Opacity = 1;
+                content.Children.Add(block); continue;
             }
             if (i + 1 < lines.Length && line.Contains('|') && Regex.IsMatch(lines[i + 1], @"^\s*\|?\s*:?-{3,}"))
             {
@@ -69,7 +71,8 @@ public sealed partial class MainWindow
                 content.Children.Add(table); continue;
             }
             var heading = Regex.Match(line, @"^(#{1,6})\s+(.+)");
-            if (heading.Success) { content.Children.Add(InlineText(heading.Groups[2].Value, 25 - heading.Groups[1].Length * 2)); continue; }
+            if (heading.Success) { content.Children.Add(InlineText(heading.Groups[2].Value, Math.Max(14, 20 - heading.Groups[1].Length * 2))); continue; }
+            if (string.IsNullOrWhiteSpace(line)) continue;
             if (Regex.IsMatch(line.Trim(), @"^(-{3,}|\*{3,}|_{3,})$")) { content.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.Gray) }); continue; }
             if (line.StartsWith(">"))
             {
