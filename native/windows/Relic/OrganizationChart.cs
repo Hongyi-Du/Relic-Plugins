@@ -20,7 +20,7 @@ public sealed partial class MainWindow
         try { data = await api!.Get("/api/orgchart"); } catch (Exception ex) { Note(T("chart.load_failed", ("error", ex.Message))); return; }
         var content = new StackPanel { Spacing = 10 }; var bar = new ActionRow { Spacing = 6 }; content.Children.Add(bar);
         var closed = new CheckBox { Content = T("chart.show_closed"), IsChecked = chartClosed }; var links = new CheckBox { Content = T("chart.show_links"), IsChecked = chartLinks };
-        var scroll = new ScrollViewer { ZoomMode = ZoomMode.Enabled, MinZoomFactor = .15f, MaxZoomFactor = 2, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = Math.Max(320, root.ActualHeight - 260), Width = Math.Min(1280, root.ActualWidth - 96), IsTabStop = true };
+        var scroll = new ScrollViewer { ZoomMode = ZoomMode.Enabled, MinZoomFactor = .15f, MaxZoomFactor = 2, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = Math.Max(300, root.ActualHeight - 280), Width = Math.Min(1280, root.ActualWidth - 96), IsTabStop = true };
         var canvas = new Canvas { Background = Paint("F8F7F5", "191918"), ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY }; scroll.Background = canvas.Background; scroll.Content = canvas;
         content.Width = scroll.Width;
         var positions = new Dictionary<string, (double X, double Y)>();
@@ -104,7 +104,9 @@ public sealed partial class MainWindow
                 ToolTipService.SetToolTip(button, T("chart.open_hint", ("name", node.Text("name"))) + "\n" + node.Text("purpose") + "\n" + string.Join("\n", tips.GetValueOrDefault(id, [])));
                 void Highlight(bool on) { foreach (var (a, b, line) in sharedLines) { line.Opacity = on && a != id && b != id ? .15 : 1; line.StrokeThickness = on && (a == id || b == id) ? 2 : 1; } }
                 button.PointerEntered += (_, _) => Highlight(true); button.PointerExited += (_, _) => Highlight(false); button.GotFocus += (_, _) => Highlight(true); button.LostFocus += (_, _) => Highlight(false);
-                Canvas.SetLeft(button, point.X); Canvas.SetTop(button, point.Y); canvas.Children.Add(button);
+                var nodeSurface = new Grid { Width = 236, Height = 94 }; nodeSurface.Children.Add(button);
+                if (node.Text("kind") == "subgroup") { button.BorderThickness = new Thickness(0); nodeSurface.Children.Add(new Rectangle { RadiusX = 11, RadiusY = 11, Stroke = id == org ? Accent : Paint("D2CEC6", "514E48"), StrokeThickness = id == org ? 2 : 1, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false }); }
+                Canvas.SetLeft(nodeSurface, point.X); Canvas.SetTop(nodeSurface, point.Y); canvas.Children.Add(nodeSurface);
             }
         }
         closed.Checked += (_, _) => { chartClosed = true; Draw(); }; closed.Unchecked += (_, _) => { chartClosed = false; Draw(); };

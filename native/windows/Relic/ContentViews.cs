@@ -168,6 +168,7 @@ public sealed partial class MainWindow
                 if (task.Rows("evidence").Count == 0) detail.Children.Add(Text(T("details.no_evidence"))); else foreach (var ev in task.Rows("evidence")) detail.Children.Add(Rich(ev.Text()));
                 if (task.Text("owner").Length > 0) detail.Children.Add(Button(T("details.ask", ("name", Display(task.Text("owner")))), async () => { visibleDialog?.Hide(); await Select(org, task.Text("owner")); }));
                 var header = Stack(Heading(task.Text("id") + " " + task.Text("title")), Quiet((task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("task." + task.Text("status"))), Quiet(T("details.updated", ("when", When(task.Text("at")))) + (task.Text("report").Length > 0 ? " · " + T("details.has_report") : ""), 11)); header.Spacing = 4; header.MaxWidth = Math.Min(600, root.ActualWidth - 280);
+                header.HorizontalAlignment = HorizontalAlignment.Left;
                 list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Header = header, Content = detail });
             }
         }

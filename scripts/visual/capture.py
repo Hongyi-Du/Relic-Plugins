@@ -14,11 +14,20 @@ ROOT = HERE.parents[1]
 
 def wait_file(path, process, timeout=60):
     end = time.monotonic() + timeout
+    progress_file = path.parent / "current-case.txt" if path.name == "complete.json" else None
+    current_case, last_progress = "", time.monotonic()
     while time.monotonic() < end:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8-sig"))
         if process.poll() is not None:
             raise RuntimeError(f"Process exited {process.returncode}; missing {path}")
+        if progress_file and progress_file.exists():
+            case = progress_file.read_text(encoding="utf-8-sig").strip()
+            if case and case != current_case:
+                current_case, last_progress = case, time.monotonic()
+                print("Native capture: " + case, flush=True)
+            elif current_case and time.monotonic() - last_progress > 90:
+                raise TimeoutError("Native capture did not advance for 90 seconds: " + current_case)
         time.sleep(.2)
     raise TimeoutError(str(path))
 

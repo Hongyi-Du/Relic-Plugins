@@ -43,7 +43,7 @@ public sealed partial class MainWindow
         }
         if (c.Rows("also_in").Count > 0) box.Children.Add(Quiet(T("card.also_in"), 12));
         foreach (var seat in c.Rows("also_in")) box.Children.Add(QuietButton(T("card.also_in_item", ("org", seat.Text("org_name")), ("member", seat.Text("member"))) + (seat.Flag("main") ? " · " + T("card.main_seat") : ""), async () => { transientFlyout?.Hide(); await Select(seat.Text("org"), seat.Text("member")); }));
-        Row("common.model", (c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + " · " + c.Text("effort"));
+        Row("common.model", (c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + (c.Text("effort").Length > 0 ? " · " + c.Text("effort") : ""));
         if (c.Flag("model_editable"))
         {
             var modelFields = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; box.Children.Add(QuietButton(T("common.change") + " · " + T("common.model"), () => { modelFields.Visibility = modelFields.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; return Task.CompletedTask; })); box.Children.Add(modelFields);
@@ -52,7 +52,7 @@ public sealed partial class MainWindow
             modelFields.Children.Add(Button(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); await Refresh(); }));
         }
         if (c.Text("model_note").Length > 0) box.Children.Add(Quiet(c.Text("model_note"), 11));
-        Row("common.status", T("state." + c.Text("state")) + " " + c.Text("detail"));
+        var state = MemberState(c.Text("state")); Row("common.status", state + (c.Text("detail").Length > 0 && c.Text("detail") != state ? " · " + c.Text("detail") : ""));
         Row("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", Ago(c.Text("doing_at")))) : c.Text("doing"));
         Row("card.owns", string.Join("\n", c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).Select(t => t.Text("id") + " " + t.Text("title"))));
         if (c.Rows("tasks").Count > 0 && c.Rows("tasks").All(t => t.Text("status") is "done" or "dropped")) Row("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
@@ -91,19 +91,22 @@ public sealed partial class MainWindow
         var info = await api!.Get(PathFor("/waiting") + "?member=" + Client.Segment(who)); var first = info.Rows("waiting").FirstOrDefault();
         var form = Stack(Text(first == null ? T("forward.how", ("name", Display(who))) : T("forward.waiting", ("name", Display(who)), ("n", info.Rows("waiting").Count), ("ids", string.Join(",", first.Rows("ids").Select(x => x.Text()))))));
         var to = Field(form, "forward.to"); to.PlaceholderText = T("forward.to_placeholder"); to.Text = string.Join(",", (first?.Rows("to") ?? info.Rows("members")).Select(x => x.Text()));
-        var body = Field(form, "common.reply", true); body.PlaceholderText = T("forward.body_placeholder"); bool acknowledged = false;
+        var body = Field(form, "common.reply", true); body.MinHeight = 150; body.PlaceholderText = T("forward.body_placeholder"); bool acknowledged = false;
         await Form(T("forward.title", ("name", Display(who))), form, async () =>
         {
             if (string.IsNullOrWhiteSpace(body.Text)) throw new ArgumentException(T("forward.need_body"));
             if (body.Text.TrimStart().StartsWith("【Relic") && !acknowledged) { acknowledged = true; throw new ArgumentException(T("forward.not_reply", ("prefix", "【Relic"))); }
             await Post("/forward", new { member = who, to = to.Text, body = body.Text.Trim() }); Note(T("forward.sent", ("name", Display(who))));
-        });
+        }, T("common.send"));
     }
     private async Task SecretarySetup()
     {
-        var content = Stack(Text(T("secretary.setup_intro")));
+        var content = Stack(Quiet(T("secretary.setup_intro"), 12)); content.Width = Math.Min(572, root.ActualWidth - 160);
         foreach (var m in snap.Rows("members").Where(m => m.Text("state") != "vacant" && m.Text("surface") is not ("subagent" or "chat")))
-            content.Children.Add(Button(T("secretary.make", ("name", m.Text("display"))), async () => { await Post("/secretary", new { member = m.Text("name") }); visibleDialog?.Hide(); await Select(org, m.Text("name")); }));
+        {
+            var choice = Button("", async () => { await Post("/secretary", new { member = m.Text("name") }); visibleDialog?.Hide(); await Select(org, m.Text("name")); }); choice.HorizontalAlignment = HorizontalAlignment.Stretch; choice.Padding = new Thickness(12);
+            var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(SmallAvatar(m.Text("avatar"), Display(m.Text("name")), m.Text("state"), 32)); var labels = Stack(Heading(T("secretary.make", ("name", m.Text("display"))), 13), Quiet(m.Text("harness_label") + " · " + m.Text("surface_label"), 11)); labels.Spacing = 4; Grid.SetColumn(labels, 1); row.Children.Add(labels); choice.Content = row; content.Children.Add(choice);
+        }
         content.Children.Add(Button(T("secretary.new_embedded"), () => MemberDialog(secretary: true)));
         await Show(T("secretary.setup_title"), content);
     }
@@ -154,8 +157,7 @@ public sealed partial class MainWindow
             empty.Text = list.Items.Count == 0 ? T(find.Text.Trim().Length > 0 ? "member.no_match" : "member.no_sessions") : "";
         }
         FindSessions(); find.TextChanged += (_, _) => FindSessions();
-        existing.Children.Add(Text(found.Length == 0 ? T("member.no_sessions") : T("member.which_seat"), 12));
-        existing.Children.Add(Text(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(p => p.Text())), 12));
+        if (sessions.Rows("problems").Count > 0) existing.Children.Add(Quiet(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(p => p.Text())), 12));
         var modes = new SelectorBar { Visibility = run.Visibility };
         foreach (var (id, label) in new[] { ("app", "member.run_app"), ("host", "member.run_host"), ("existing", "member.run_existing") }) modes.Items.Add(new SelectorBarItem { Text = T(label), Tag = id, IsSelected = Value(run) == id, FontSize = 13 });
         modes.SelectionChanged += (_, _) => { if (modes.SelectedItem?.Tag is string value) SetChoice(run, value); };
