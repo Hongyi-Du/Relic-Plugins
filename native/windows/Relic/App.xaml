@@ -13,6 +13,7 @@
           <SolidColorBrush x:Key="RelicControlPressed" Color="#E7E5DF" />
           <SolidColorBrush x:Key="RelicControlDisabled" Color="#B8B5AF" />
           <SolidColorBrush x:Key="RelicControlMuted" Color="#8F8C86" />
+          <SolidColorBrush x:Key="RelicControlSecondary" Color="#5A5853" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Default">
           <SolidColorBrush x:Key="RelicControlInk" Color="#ECEAE5" />
@@ -22,6 +23,7 @@
           <SolidColorBrush x:Key="RelicControlPressed" Color="#2F2E2B" />
           <SolidColorBrush x:Key="RelicControlDisabled" Color="#5F5D58" />
           <SolidColorBrush x:Key="RelicControlMuted" Color="#8A877F" />
+          <SolidColorBrush x:Key="RelicControlSecondary" Color="#B8B5AE" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
       <!-- Native template: retain Button/UIA/keyboard semantics while matching

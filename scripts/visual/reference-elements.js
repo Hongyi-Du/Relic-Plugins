@@ -146,12 +146,12 @@
     if (el.closest('.chat')) return 'conversation';
     return 'window';
   };
-  const visibleRect = (el, inputRect) => {
+  const visibleRect = (el, inputRect, clipOwnContent = false) => {
     let clipped = intersect(inputRect, { x: 0, y: 0, width: innerWidth, height: innerHeight });
     for (let p = el; p; p = p.parentElement) {
       const s = styleOf(p);
       if (s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) === 0 || p.hidden) return null;
-      if (p !== el && (/(hidden|clip|scroll|auto)/.test(s.overflowX) || /(hidden|clip|scroll|auto)/.test(s.overflowY))) {
+      if ((p !== el || clipOwnContent) && (/(hidden|clip|scroll|auto)/.test(s.overflowX) || /(hidden|clip|scroll|auto)/.test(s.overflowY))) {
         const b = p.getBoundingClientRect();
         const limit = { x: /(hidden|clip|scroll|auto)/.test(s.overflowX) ? b.x + p.clientLeft : clipped.x,
           y: /(hidden|clip|scroll|auto)/.test(s.overflowY) ? b.y + p.clientTop : clipped.y,
@@ -168,20 +168,43 @@
     const text = node.nodeValue || '';
     return text;
   };
+  // A text Range belongs to its parent's content, so the parent's own overflow
+  // clip applies. Element borders/backgrounds do not clip themselves. Keep both
+  // the original DOMRange and the measured content clip; never call the long
+  // offscreen layout string a painted text rectangle.
+  const measuredText = new WeakMap();
+  const textMeasurement = node => {
+    if (measuredText.has(node)) return measuredText.get(node);
+    const owner = node.parentElement, s = styleOf(owner), range = document.createRange();
+    range.selectNodeContents(node);
+    const original = rect(range.getBoundingClientRect());
+    const ranges = Array.from(range.getClientRects()).map(rect);
+    const ownBox = owner.getBoundingClientRect();
+    const ownClip = { x: /hidden|clip|scroll|auto/.test(s.overflowX) ? ownBox.x + owner.clientLeft : original.x,
+      y: /hidden|clip|scroll|auto/.test(s.overflowY) ? ownBox.y + owner.clientTop : original.y,
+      width: /hidden|clip|scroll|auto/.test(s.overflowX) ? owner.clientWidth : original.width,
+      height: /hidden|clip|scroll|auto/.test(s.overflowY) ? owner.clientHeight : original.height };
+    const ownBounds = intersect(original, ownClip);
+    const boxes = ranges.map(box => visibleRect(owner, box, true)).filter(Boolean);
+    const ellipsis = s.textOverflow === 'ellipsis' && owner.scrollWidth > owner.clientWidth || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 && owner.scrollHeight > owner.clientHeight;
+    const data = { bounds: ownBounds, visible_bounds: visibleRect(owner, original, true), boxes,
+      evidence: { source: 'DOMRange + actual owner content/ancestor overflow clips', backend_node_id: snapshotBackend.get(node) ?? null,
+        source_text: node.nodeValue, raw_bounds: original, raw_rectangles: ranges, owner_content_clip: ownClip,
+        owner_selector: pathOf(owner), overflow_x: s.overflowX, overflow_y: s.overflowY, text_overflow: s.textOverflow,
+        scroll_width: owner.scrollWidth, client_width: owner.clientWidth, scroll_height: owner.scrollHeight, client_height: owner.clientHeight,
+        css_ellipsis_active: ellipsis, geometry_kind: ellipsis ? 'clipped-range-envelope-with-unresolved-ellipsis-ink' : 'clipped-dom-range' } };
+    measuredText.set(node, data); return data;
+  };
   const textNodes = el => {
     const output = [], walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       if (n.parentElement.closest('svg,script,style,option')) continue;
       const s = styleOf(n.parentElement), text = visibleText(n, s);
-      const range = document.createRange(); range.selectNodeContents(n);
-      if (text.trim() && visibleRect(n.parentElement, rect(range.getBoundingClientRect()))) output.push(n);
+      if (text.trim() && textMeasurement(n).visible_bounds) output.push(n);
     }
     return output;
   };
-  const textRects = nodes => nodes.flatMap(n => {
-    const range = document.createRange(); range.selectNodeContents(n);
-    return Array.from(range.getClientRects()).map(rect).map(r => visibleRect(n.parentElement, r)).filter(Boolean);
-  });
+  const textRects = nodes => nodes.flatMap(n => textMeasurement(n).boxes);
   const lineCount = boxes => new Set(boxes.filter(b => b.width >= 0 && b.height > 0).map(b => Math.round(b.y * 2) / 2)).size;
   const inputTextMeasurement = el => {
     const backend = snapshotBackend.get(el), primary = snapshotInputBoxes.get(el) || [];
@@ -468,13 +491,21 @@
     const accessibility = accessibilityOf(options.textNode || el, options.axBackend);
     const actualFonts = platformFonts(el, text, id, options);
     paintStyle.rendered_fonts = actualFonts.fonts;
+    const textMeasurements = (options.ownedTextNodes || (options.textNode ? [options.textNode] : [])).map(n => textMeasurement(n).evidence);
+    for (const measurement of textMeasurements.filter(value => value.css_ellipsis_active))
+      unmeasured.push({ element: id, property: 'text.ellipsis_glyph_geometry', evidence: measurement,
+        reason: 'DOMRange exposes original and clipped text advances, but not the generated ellipsis glyph bounds. The clipped envelope is retained; no inferred ellipsis width or hidden suffix is claimed as painted glyph evidence.' });
     const item = { id, parent, region, order: regionOrders.get(region) || 0, kind, text,
       name: accessibility.name, bounds: options.unclippedBounds || rect(el.getBoundingClientRect()), visible_bounds: bounds, style: paintStyle,
       state: stateOf(el), layout: { wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
         truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : boxes.length ? lineCount(boxes) : null },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
-        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el),
+        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
+        font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
+          resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
+          source: 'getComputedStyle request + CSS.getPlatformFontsForNode resolved identity',
+          reason: 'CDP reports actual face identity but not OpenType weight/variation axes; requested CSS weight is not substituted for resolved face weight.' } : null,
         occlusion_masks: occlusionMasks.get(el) || [], css_paint: { font_family: s.fontFamily, own_opacity: s.opacity, box_shadow: s.boxShadow, background_image: s.backgroundImage,
           background_size: s.backgroundSize, background_position: s.backgroundPosition, background_repeat: s.backgroundRepeat, background_origin: s.backgroundOrigin, background_clip: s.backgroundClip }, ...options.evidence } };
     regionOrders.set(region, item.order + 1);
@@ -588,6 +619,27 @@
     const dy = layout.height === 0 || capped && layout.width === 0 ? strokeWidth * sy / 2 : 0;
     return { x: layout.x - dx, y: layout.y - dy, width: layout.width + 2 * dx, height: layout.height + 2 * dy };
   };
+  const scrollbarEvidence = el => {
+    const s = styleOf(el), axes = [];
+    if (s.scrollbarWidth === 'none') return null;
+    if (s.overflowX === 'scroll' || s.overflowX === 'auto' && el.scrollWidth > el.clientWidth) axes.push('horizontal');
+    if (s.overflowY === 'scroll' || s.overflowY === 'auto' && el.scrollHeight > el.clientHeight) axes.push('vertical');
+    if (!axes.length) return null;
+    const parts = ['::-webkit-scrollbar', '::-webkit-scrollbar-track', '::-webkit-scrollbar-thumb', '::-webkit-scrollbar-corner'].map(pseudo => {
+      const p = getComputedStyle(el, pseudo);
+      return { pseudo, display: p.display, visibility: p.visibility, opacity: p.opacity,
+        width: p.width, height: p.height, background: p.backgroundColor, background_clip: p.backgroundClip,
+        border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Width']),
+        border_colors: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Color']),
+        corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => p['border' + corner + 'Radius']) };
+    });
+    if (parts[0].display === 'none' || parts[0].visibility === 'hidden' || Number(parts[0].opacity) === 0) return null;
+    return { source: 'actual scroll metrics + getComputedStyle UA pseudo styles', axes, owner_bounds: rect(el.getBoundingClientRect()),
+      client_width: el.clientWidth, client_height: el.clientHeight, client_left: el.clientLeft, client_top: el.clientTop,
+      offset_width: el.offsetWidth, offset_height: el.offsetHeight, scroll_width: el.scrollWidth, scroll_height: el.scrollHeight,
+      scroll_left: el.scrollLeft, scroll_top: el.scrollTop, scrollbar_width: s.scrollbarWidth, parts,
+      measured_part_bounds: null, measured_part_pixels: null };
+  };
   const all = Array.from(document.body.querySelectorAll('*'));
   all.unshift(document.body);
   all.forEach((el, index) => nodeIds.set(el, 'dom-' + index));
@@ -602,6 +654,12 @@
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue, owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
     if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
+    const scrollbar = scrollbarEvidence(el);
+    if (scrollbar) {
+      raw.scrollbar = scrollbar;
+      unmeasured.push({ element: id, property: 'scrollbar.rendered_parts', evidence: scrollbar,
+        reason: 'This visible scroll container can paint native UA scrollbar parts. DOM/DOMSnapshot do not expose their actual thumb/track paint bounds; overlay visibility and pixels require independent evidence. No scrollbar is silently declared absent or synthesized from scroll ratios.' });
+    }
     if (s.clipPath !== 'none' || s.maskImage !== 'none') unmeasured.push({ element: id, property: 'visibility.shape_clip', reason: 'Nonrectangular CSS clip/mask requires pixel-mask visibility evidence.', clip_path: s.clipPath, mask_image: s.maskImage });
     if (el instanceof SVGElement && el.localName !== 'svg' && !el.matches('.oc-lines .edge,.oc-lines .link')) { raw.projection_reason = 'vector-owned-by-svg-icon'; continue; }
     let parent = null;
@@ -620,12 +678,11 @@
       const n = childText[i], text = visibleText(n, s);
       if (!text.trim() || suppressedText.has(n)) continue;
       if (!snapshotRenderedText.has(n)) unmeasured.push({ element: id + ':text-' + i, property: 'text.rendered_whitespace', reason: 'No CDP LayoutText string; raw text is preserved without whitespace substitutions.' });
-      const range = document.createRange(); range.selectNodeContents(n);
-      const textBounds = visibleRect(el, rect(range.getBoundingClientRect()));
+      const measurement = textMeasurement(n), textBounds = measurement.visible_bounds;
       if (!textBounds) continue;
       const visible = fragmentsOf(el, textBounds);
       if (!visible.length) continue;
-      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { textNode: n, unclippedBounds: rect(range.getBoundingClientRect()), textBoxes: textRects([n]), evidence: { source_text: n.nodeValue, visible_fragments: visible } });
+      const emitted = emit(el, 'text', text, textBounds, parent, ':text-' + i, { textNode: n, unclippedBounds: measurement.bounds, textBoxes: measurement.boxes, evidence: { source_text: n.nodeValue, visible_fragments: visible } });
       raw.emitted.push(emitted);
     }
     for (const pseudo of ['::before', '::after', '::marker']) {

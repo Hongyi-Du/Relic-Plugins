@@ -7,7 +7,7 @@ import unittest
 
 from PIL import Image
 
-from windows_elements import host_container_ownership, project
+from windows_elements import host_container_ownership, project, transformed_box_edges
 
 
 SCENE = "zh-CN-light-1024x700-group"
@@ -148,6 +148,66 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(style["background"], [200, 100, 63, 255])
         self.assertEqual(style["border_color"], [160, 80, 50, 255])
         self.assertEqual(style["corner_radius"], 7)
+
+    def test_background_corner_radius_is_measured_without_requiring_a_border(self):
+        control = xaml_node("button", "Button")
+        paint = xaml_node("paint", "ContentPresenter", parent="button")
+        paint["style"].update(background=[40, 50, 60, 255], border_width=0, corner_radius=9)
+        result = self.capture(measured([control, paint]), [uia_node("uia-button", "Button")])
+        self.assertEqual(self.by_id(result)["button"]["style"]["corner_radius"], 9)
+
+    def test_quarter_turn_maps_actual_individual_edges_and_corner_radii(self):
+        surface = measured([xaml_node("surface", "Border")])[0]
+        surface["transform"].update(m11=0, m12=2, m21=-3, m22=0)
+        surface["style"]["corner_radii"] = [1, 2, 3, 4]
+        radii, widths = transformed_box_edges(surface, [1, 2, 3, 4])
+        self.assertEqual(widths, [8, 3, 4, 9])
+        self.assertEqual(radii, [{"x": 12, "y": 8}, {"x": 3, "y": 2}, {"x": 6, "y": 4}, {"x": 9, "y": 6}])
+
+    def test_axis_swapped_reflection_and_diagonal_reflection_keep_corner_identity(self):
+        surface = measured([xaml_node("surface", "Border")])[0]
+        surface["style"]["corner_radii"] = [1, 2, 3, 4]
+        surface["transform"].update(m11=0, m12=1, m21=1, m22=0)
+        radii, widths = transformed_box_edges(surface, [1, 2, 3, 4])
+        self.assertEqual(widths, [4, 3, 2, 1])
+        self.assertEqual([r["x"] for r in radii], [1, 4, 3, 2])
+        surface["transform"].update(m11=-1, m12=0, m21=0, m22=1)
+        radii, widths = transformed_box_edges(surface, [1, 2, 3, 4])
+        self.assertEqual(widths, [1, 4, 3, 2])
+        self.assertEqual([r["x"] for r in radii], [2, 1, 4, 3])
+
+    def test_non_axis_rotation_is_not_treated_as_a_quarter_turn(self):
+        surface = measured([xaml_node("surface", "Border")])[0]
+        surface["transform"].update(m11=.707, m12=.707, m21=-.707, m22=.707)
+        self.assertIsNone(transformed_box_edges(surface, [1, 1, 1, 1]))
+
+    def test_avatar_owns_one_letter_background_but_keeps_image_icon_and_state_dot(self):
+        face = xaml_node("face", "PersonPicture", bounds=box(10, 20, 28, 28))
+        paint = xaml_node("paint", "Border", parent="face", bounds=face["bounds"])
+        paint["style"].update(background=[230, 200, 210, 255], corner_radius=8)
+        initial = xaml_node("initial", text="R", parent="paint", bounds=box(18, 25, 10, 18))
+        dot = xaml_node("dot", "Ellipse", bounds=box(32, 42, 10, 10))
+        dot["style"]["background"] = [0, 120, 0, 255]
+        result = self.capture(measured([face, paint, initial, dot]), [uia_node("uia-face", "Image", bounds=face["bounds"])])
+        elements = self.by_id(result)
+        self.assertEqual((elements["face"]["kind"], elements["face"]["text"]), ("avatar", "R"))
+        self.assertEqual(elements["face"]["style"]["corner_radius"], 8)
+        self.assertNotIn("paint", elements)
+        self.assertNotIn("initial", elements)
+        self.assertIn("dot", elements)
+        photo = xaml_node("photo", "Image", parent="face", bounds=face["bounds"])
+        photo["icon"] = {"source": "image", "glyph": "http://127.0.0.1:39321/api/avatar/member.png"}
+        result = self.capture(measured([face, photo]), [uia_node("uia-face", "Image", bounds=face["bounds"])])
+        self.assertIn("photo", self.by_id(result))
+
+    def test_avatar_decorative_border_ring_is_not_silently_discarded(self):
+        face = xaml_node("face", "PersonPicture", bounds=box(10, 20, 28, 28))
+        paint = xaml_node("paint", "Border", parent="face", bounds=face["bounds"])
+        paint["style"]["background"] = [230, 200, 210, 255]
+        ring = xaml_node("ring", "Border", parent="face", bounds=face["bounds"])
+        ring["style"].update(border_color=[150, 50, 50, 255], border_width=2)
+        result = self.capture(measured([face, paint, ring]), [uia_node("uia-face", "Image", bounds=face["bounds"])])
+        self.assertIn("ring", self.by_id(result))
 
     def test_toggle_button_and_switch_keep_real_button_uia_witness(self):
         # These native peers expose ControlType.Button plus TogglePattern,

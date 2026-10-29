@@ -39,6 +39,12 @@ public sealed partial class MainWindow
                 {
                     if (visibleDialog != null) { visibleDialog.Hide(); if (visibleDialogTask != null) await visibleDialogTask; }
                     transientFlyout?.Hide(); foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot)) popup.IsOpen = false;
+                    // Complete the prior native overlay's queued unload/layout
+                    // before resizing and selecting the next real scene.
+                    var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => { root.UpdateLayout(); settled.SetResult(); }))
+                        throw new InvalidOperationException("Window dispatcher closed before the next capture scene");
+                    await settled.Task;
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
                     SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));

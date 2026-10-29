@@ -208,7 +208,13 @@ public sealed partial class MainWindow
             if (date != day && date.Length > 0) { var label = Quiet(Day(item.Text("at")), 11.5); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); day = date; previous = null; }
             else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
             { var label = Quiet(parsed.ToLocalTime().ToString("HH:mm"), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); previous = null; }
-            stream.Children.Add(Message(item!, false, Transcript.SameMessageGroup(previous, item!))); previous = item;
+            var rendered = Message(item!, false, Transcript.SameMessageGroup(previous, item!));
+            try { stream.Children.Add(rendered); }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                throw new InvalidOperationException($"Could not attach rendered conversation item: type={item.Text("type")}, id={item.Text("id")}, control={rendered.GetType().Name}, parent={Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(rendered)?.GetType().Name ?? "none"}, dialogOpen={visibleDialog != null}", ex);
+            }
+            previous = item;
         }
         if (member.Length > 0) DrawLive(stream);
         if (atBottom) ScrollToLatest();

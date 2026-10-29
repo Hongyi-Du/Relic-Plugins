@@ -30,12 +30,56 @@ public sealed partial class MainWindow
         visibleDialog = dialog;
         dialog.RequestedTheme = root.ActualTheme;
         foreach (var resource in root.Resources) dialog.Resources[resource.Key] = resource.Value;
-        dialog.Resources["ContentDialogMaxWidth"] = Math.Max(480d, root.ActualWidth - 48);
-        dialog.Resources["ContentDialogMaxHeight"] = Math.Max(400d, root.ActualHeight - 80);
+        dialog.Background = Paint("FFFFFF", "252523"); dialog.Foreground = Ink;
+        dialog.BorderThickness = new Thickness(0); dialog.CornerRadius = new CornerRadius(16);
+        dialog.Resources["ContentDialogMinWidth"] = 0d; dialog.Resources["ContentDialogMinHeight"] = 0d;
+        dialog.Resources["ContentDialogMaxWidth"] = Math.Max(0d, root.ActualWidth - 32);
+        dialog.Resources["ContentDialogMaxHeight"] = Math.Max(0d, root.ActualHeight - 60);
+        dialog.Resources["ContentDialogPadding"] = new Thickness(22);
+        dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0, 0, 0, 14);
+        dialog.Resources["ContentDialogSeparatorThickness"] = new Thickness(0);
+        dialog.Resources["ContentDialogTopOverlay"] = dialog.Background;
+        dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(82, 15, 14, 12));
+        dialog.Opened += (_, _) => StyleDialogParts(dialog);
         visibleDialogTask = dialog.ShowAsync().AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
         if (visibleDialog == dialog) { visibleDialog = null; visibleDialogTask = null; }
         await StopVoice();
+    }
+    private static T? DialogPart<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        if (parent is T current && current.Name == name) return current;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            if (DialogPart<T>(VisualTreeHelper.GetChild(parent, i), name) is { } child) return child;
+        return null;
+    }
+    private void StyleDialogParts(ContentDialog dialog)
+    {
+        // Retain ContentDialog's native modal focus, validation deferrals and
+        // button commands; restyle the actual template parts after realization.
+        if (DialogPart<ContentControl>(dialog, "Title") is { } title)
+        {
+            title.FontSize = 17; title.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
+            title.FontFamily = new FontFamily("Segoe UI Variable Text");
+        }
+        if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands)
+        {
+            commands.Background = dialog.Background; commands.Padding = new Thickness(22, 6, 22, 22);
+            commands.ColumnSpacing = 0; commands.ColumnDefinitions.Clear();
+            commands.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var hasButton = false;
+            foreach (var (name, text, primary) in new[] { ("CloseButton", dialog.CloseButtonText, false), ("SecondaryButton", dialog.SecondaryButtonText, false), ("PrimaryButton", dialog.PrimaryButtonText, true) })
+            {
+                if (DialogPart<Button>(commands, name) is not { } button) continue;
+                if (string.IsNullOrEmpty(text)) { button.Visibility = Visibility.Collapsed; continue; }
+                if (hasButton) commands.ColumnDefinitions.Add(new() { Width = new GridLength(8) });
+                commands.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); hasButton = true;
+                Grid.SetColumn(button, commands.ColumnDefinitions.Count - 1); button.MinWidth = 0; button.Height = 32; button.MinHeight = 0; button.Padding = new Thickness(13, 0, 13, 0);
+                button.HorizontalAlignment = HorizontalAlignment.Right; button.CornerRadius = new CornerRadius(9); button.FontSize = 13; button.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                button.Background = primary ? Ink : Paint("FFFFFF", "252523"); button.Foreground = primary ? Paint("FFFFFF", "1F1F1E") : Ink;
+                button.BorderBrush = primary ? Ink : Paint("DEDBD4", "3A3936"); button.BorderThickness = new Thickness(1);
+            }
+        }
     }
     private async Task<bool> Confirm(string message)
     {

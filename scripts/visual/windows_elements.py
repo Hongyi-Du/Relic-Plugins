@@ -23,7 +23,7 @@ CONTROL_KINDS = {
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
 }
-PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge"}
+PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
 TEXT_TYPES = {"TextBlock", "RichTextBlock", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
@@ -110,6 +110,47 @@ def rounded_contains_rect(mask, box):
     return all(rounded_contains_point(mask, x, y) for x, y in corners(box))
 
 
+def transformed_box_edges(node, widths):
+    """Transform actual local edges/corners, including 90-degree turns."""
+    matrix = node.get("transform") or {}
+    straight = abs(matrix["m12"]) < 1e-8 and abs(matrix["m21"]) < 1e-8
+    swapped = abs(matrix["m11"]) < 1e-8 and abs(matrix["m22"]) < 1e-8
+    if not straight and not swapped:
+        return None
+    sx = math.hypot(matrix["m11"], matrix["m12"])
+    sy = math.hypot(matrix["m21"], matrix["m22"])
+    if sx == 0 or sy == 0:
+        return None
+    if node.get("paint_kind") == "rectangle":
+        local_radii = [{"x": 0, "y": 0} for _ in range(4)]
+    elif node["type"] == "Rectangle":
+        radius = node.get("shape_corner_radius") or {}
+        if not all(finite(radius.get(k)) and radius[k] >= 0 for k in ("x", "y")):
+            return None
+        local_radii = [dict(radius) for _ in range(4)]
+    else:
+        actual = node.get("style", {}).get("corner_radii")
+        if not isinstance(actual, list) or len(actual) != 4 or not all(finite(r) and r >= 0 for r in actual):
+            return None
+        local_radii = [{"x": r, "y": r} for r in actual]
+    screen_corner = {(False, False): 0, (True, False): 1, (True, True): 2, (False, True): 3}
+    mapping = []
+    for x, y in ((0, 0), (1, 0), (1, 1), (0, 1)):
+        right = (x == 1) == (matrix["m11"] > 0) if straight else (y == 1) == (matrix["m21"] > 0)
+        bottom = (y == 1) == (matrix["m22"] > 0) if straight else (x == 1) == (matrix["m12"] > 0)
+        mapping.append(screen_corner[(right, bottom)])
+    radii = [None] * 4
+    for index, radius in enumerate(local_radii):
+        radii[mapping[index]] = {"x": radius["x"] * sx, "y": radius["y"] * sy} if straight else {
+            "x": radius["y"] * sy, "y": radius["x"] * sx}
+    screen_edge = {frozenset((0, 1)): 0, frozenset((1, 2)): 1, frozenset((2, 3)): 2, frozenset((3, 0)): 3}
+    transformed_widths = [None] * 4
+    for index, width in enumerate(widths):
+        edge = screen_edge[frozenset((mapping[index], mapping[(index + 1) % 4]))]
+        transformed_widths[edge] = width * (sy if index in (0, 2) else sx)
+    return radii, transformed_widths
+
+
 def measured_occlusion(raw, by_id):
     """Subtract only measured opaque paint, retaining exact curved masks.
 
@@ -168,29 +209,13 @@ def measured_occlusion(raw, by_id):
         if not isinstance(widths, list) or len(widths) != 4 or not all(finite(w) and w >= 0 for w in widths):
             unknown.append(node)
             continue
-        sx, sy = abs(matrix["m11"]), abs(matrix["m22"])
-        if kind == "rectangle":
-            radii = [{"x": 0, "y": 0} for _ in range(4)]
-        elif node["type"] == "Rectangle":
-            radius = node.get("shape_corner_radius") or {}
-            if not all(finite(radius.get(k)) and radius[k] >= 0 for k in ("x", "y")):
-                unknown.append(node)
-                continue
-            radii = [{"x": radius["x"] * sx, "y": radius["y"] * sy} for _ in range(4)]
-        else:
-            actual = style.get("corner_radii")
-            if not isinstance(actual, list) or len(actual) != 4 or not all(finite(r) and r >= 0 for r in actual):
-                unknown.append(node)
-                continue
-            radii = [{"x": r * sx, "y": r * sy} for r in actual]
-        if matrix["m11"] < 0:
-            radii = [radii[1], radii[0], radii[3], radii[2]]
-            widths = [widths[0], widths[3], widths[2], widths[1]]
-        if matrix["m22"] < 0:
-            radii = [radii[3], radii[2], radii[1], radii[0]]
-            widths = [widths[2], widths[1], widths[0], widths[3]]
-        if node["type"] == "Border" and node.get("background_sizing") == "InnerBorderEdge" and not (has_stroke and border[3] == 255):
-            top, right, bottom, left = widths[0] * sy, widths[1] * sx, widths[2] * sy, widths[3] * sx
+        transformed = transformed_box_edges(node, widths)
+        if transformed is None:
+            unknown.append(node)
+            continue
+        radii, widths = transformed
+        if node["type"] in {"Border", "ContentPresenter"} and node.get("background_sizing") == "InnerBorderEdge" and not (has_stroke and border[3] == 255):
+            top, right, bottom, left = widths
             b = {"x": b["x"] + left, "y": b["y"] + top, "width": b["width"] - left - right, "height": b["height"] - top - bottom}
             radii = [{"x": max(0, r["x"] - (left if i in (0, 3) else right)),
                       "y": max(0, r["y"] - (top if i in (0, 1) else bottom))} for i, r in enumerate(radii)]
@@ -538,6 +563,7 @@ def project(xaml_path, uia_path, png_path):
         if node["id"] not in semantic or not visible(node):
             continue
         labels = []
+        avatar_backgrounds = []
         for child in descendants(node):
             nearest = ancestor(child, semantic)
             if not nearest or nearest["id"] != node["id"] or not visible(child):
@@ -545,8 +571,22 @@ def project(xaml_path, uia_path, png_path):
             if child["type"] in TEXT_TYPES and child.get("text") and not ancestor(child, {n["id"] for n in raw if n["type"] in ICON_TYPES}):
                 labels.append(child)
             if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"} and not user_content(child, node["id"]):
+                if node["type"] == "PersonPicture":
+                    # A letter/avatar background is one semantic surface. Its
+                    # decorative rings, image and icon content remain separate.
+                    if distance(child["bounds"], node["bounds"]) <= 1e-6 and painted(child.get("style", {}).get("background")):
+                        avatar_backgrounds.append(child)
+                    continue
                 control_paint[node["id"]].append(child)
                 owned[child["id"]] = (node["id"], "semantic control template paint")
+        if len(avatar_backgrounds) == 1:
+            child = avatar_backgrounds[0]
+            control_paint[node["id"]].append(child)
+            owned[child["id"]] = (node["id"], "single measured avatar background at the actual avatar bounds")
+        elif len(avatar_backgrounds) > 1:
+            unmeasured.append({"id": node["id"], "property": "avatar.paint_ownership",
+                               "reason": "Multiple actual avatar background layers require independent paint composition",
+                               "sources": [child["id"] for child in avatar_backgrounds]})
         if len(labels) == 1 and (CONTROL_KINDS.get(node["type"]) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
@@ -637,6 +677,8 @@ def project(xaml_path, uia_path, png_path):
                 continue
             if painted(ps.get("background")):
                 style["background"] = ps["background"]
+                style["corner_radius"] = ps.get("corner_radius")
+                style["corner_radii"] = ps.get("corner_radii")
             if painted(ps.get("border_color")) and finite(ps.get("border_width")) and ps["border_width"] > 0:
                 for key in ("border_color", "border_width", "border_widths", "border_colors", "corner_radius", "corner_radii"):
                     style[key] = ps.get(key)
@@ -754,6 +796,9 @@ def project(xaml_path, uia_path, png_path):
                                                              "status": "reported" if isinstance(reported_name, str) else "not-provided",
                                                              "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
+                                "brush_evidence": copy.deepcopy(node.get("style", {}).get("brush_evidence")),
+                                "animated_icon_evidence": copy.deepcopy(node.get("animated_icon_evidence")),
+                                "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
         order[region] += 1

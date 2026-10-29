@@ -88,7 +88,10 @@ public sealed partial class MainWindow
                     var m21 = unitY.X - zero.X; var m22 = unitY.Y - zero.Y;
                     node["transform"] = new JsonObject { ["m11"] = m11, ["m12"] = m12, ["m21"] = m21, ["m22"] = m22, ["offset_x"] = zero.X, ["offset_y"] = zero.Y };
                     var finiteTransform = double.IsFinite(m11) && double.IsFinite(m12) && double.IsFinite(m21) && double.IsFinite(m22) && double.IsFinite(zero.X) && double.IsFinite(zero.Y);
-                    node["axis_aligned_transform"] = finiteTransform ? Math.Abs(m12) < 1e-8 && Math.Abs(m21) < 1e-8 : null;
+                    var straightAxes = Math.Abs(m12) < 1e-8 && Math.Abs(m21) < 1e-8;
+                    var swappedAxes = Math.Abs(m11) < 1e-8 && Math.Abs(m22) < 1e-8;
+                    node["axis_aligned_transform"] = finiteTransform ? straightAxes || swappedAxes : null;
+                    node["axis_alignment"] = !finiteTransform ? null : straightAxes ? "diagonal" : swappedAxes ? "quarter-turn-or-swapped-reflection" : "non-axis-aligned";
                     var corners = new JsonArray();
                     foreach (var local in new[] { new Point(0, 0), new Point(element.ActualWidth, 0), new Point(element.ActualWidth, element.ActualHeight), new Point(0, element.ActualHeight) })
                     {
@@ -101,14 +104,15 @@ public sealed partial class MainWindow
                     if (box.Width <= 0 || box.Height <= 0 || visible.Width <= 0 || visible.Height <= 0) hidden ??= "zero area or ancestor clip";
                     node["hidden_reason"] = hidden;
                     if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
-                    node["style"] = CaptureStyle(element, opacity, id, errors);
+                    node["style"] = CaptureStyle(element, opacity, id, errors, hidden == null);
                     node["paint_kind"] = element switch
                     {
-                        Border => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
+                        Border or ContentPresenter => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
                         Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or IconElement => "glyphs",
                         Control => "template", _ => "none"
                     };
                     if (element is Border borderElement) node["background_sizing"] = borderElement.BackgroundSizing.ToString();
+                    if (element is ContentPresenter presenterElement) node["background_sizing"] = presenterElement.BackgroundSizing.ToString();
                     if (element is Rectangle rectangle) node["shape_corner_radius"] = new JsonObject { ["x"] = rectangle.RadiusX, ["y"] = rectangle.RadiusY };
                     node["text"] = CaptureText(element);
                     node["interaction_evidence"] = new JsonObject
@@ -139,6 +143,18 @@ public sealed partial class MainWindow
                         CaptureStrokeEvidence(vectorIcon.VectorPath, root, node, id, errors);
                     }
                     else if (element is SymbolIcon symbolIcon) node["icon"] = new JsonObject { ["source"] = "Segoe MDL2 Assets", ["glyph"] = ((int)symbolIcon.Symbol).ToString("X") };
+                    else if (element is AnimatedIcon animatedIcon)
+                        node["animated_icon_evidence"] = new JsonObject { ["source_type"] = animatedIcon.Source?.GetType().FullName,
+                            ["state"] = AnimatedIcon.GetState(animatedIcon), ["fallback_type"] = animatedIcon.FallbackIconSource?.GetType().FullName,
+                            ["frame_geometry"] = null, ["reason"] = "Animated source and current state are retained; fallback artwork is not substituted for the active frame" };
+                    else if (element is Image renderedImage)
+                    {
+                        var bitmap = renderedImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage;
+                        node["image_source_evidence"] = new JsonObject { ["type"] = renderedImage.Source?.GetType().FullName,
+                            ["uri"] = bitmap?.UriSource?.ToString(), ["pixel_width"] = bitmap?.PixelWidth, ["pixel_height"] = bitmap?.PixelHeight,
+                            ["stretch"] = renderedImage.Stretch.ToString() };
+                        if (bitmap?.UriSource is { } sourceUri) node["icon"] = new JsonObject { ["source"] = "image", ["glyph"] = sourceUri.ToString() };
+                    }
                     else if (element is Microsoft.UI.Xaml.Shapes.Path path) node["icon"] = new JsonObject { ["source"] = "xaml-path", ["glyph"] = path.Data?.ToString() };
                     if (element is Shape renderedShape && renderedShape.Stroke != null) CaptureStrokeEvidence(renderedShape, root, node, id, errors);
                     if (element is TextBlock block) node["font_family"] = block.FontFamily.Source;
@@ -242,6 +258,23 @@ public sealed partial class MainWindow
         return null;
     }
     private static JsonArray? CaptureColor(Brush? brush) => brush is SolidColorBrush solid ? new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, Math.Round(solid.Color.A * solid.Opacity)) : brush == null ? new JsonArray(0, 0, 0, 0) : null;
+    private static JsonObject CaptureBrushEvidence(Brush? brush)
+    {
+        var result = new JsonObject { ["type"] = brush?.GetType().FullName, ["opacity"] = brush?.Opacity, ["solid_rgba"] = CaptureColor(brush) };
+        if (brush is GradientBrush gradient)
+        {
+            result["mapping_mode"] = gradient.MappingMode.ToString(); result["spread_method"] = gradient.SpreadMethod.ToString();
+            result["color_interpolation"] = gradient.ColorInterpolationMode.ToString();
+            result["stops"] = new JsonArray(gradient.GradientStops.Select(stop => (JsonNode)new JsonObject
+                { ["offset"] = stop.Offset, ["rgba"] = new JsonArray(stop.Color.R, stop.Color.G, stop.Color.B, stop.Color.A) }).ToArray());
+        }
+        if (brush is LinearGradientBrush linear)
+        {
+            result["start"] = new JsonObject { ["x"] = linear.StartPoint.X, ["y"] = linear.StartPoint.Y };
+            result["end"] = new JsonObject { ["x"] = linear.EndPoint.X, ["y"] = linear.EndPoint.Y };
+        }
+        return result;
+    }
     private static string CaptureText(FrameworkElement element) => element switch
     {
         TextBlock text => text.Text,
@@ -256,7 +289,7 @@ public sealed partial class MainWindow
         _ => ""
     };
     private static string CaptureInlines(InlineCollection inlines) => string.Concat(inlines.Select(i => i switch { Run run => run.Text, LineBreak => "\n", Span span => CaptureInlines(span.Inlines), _ => "" }));
-    private static JsonObject CaptureStyle(FrameworkElement element, double opacity, string id, JsonArray errors)
+    private static JsonObject CaptureStyle(FrameworkElement element, double opacity, string id, JsonArray errors, bool visible)
     {
         Brush? foreground = null, background = null, border = null; double? size = null, weight = null; var thickness = new Thickness(); var radius = new CornerRadius();
         switch (element)
@@ -266,27 +299,39 @@ public sealed partial class MainWindow
             case TextBlock t: foreground = t.Foreground; size = t.FontSize; weight = t.FontWeight.Weight; break;
             case RichTextBlock t: foreground = t.Foreground; size = t.FontSize; weight = t.FontWeight.Weight; break;
             case Border b: background = b.Background; border = b.BorderBrush; thickness = b.BorderThickness; radius = b.CornerRadius; break;
+            case ContentPresenter p: foreground = p.Foreground; background = p.Background; border = p.BorderBrush; thickness = p.BorderThickness; radius = p.CornerRadius; size = p.FontSize; weight = p.FontWeight.Weight; break;
             case Panel p: background = p.Background; break;
             case FontIcon i: foreground = i.Foreground; size = i.FontSize; weight = i.FontWeight.Weight; break;
             case IconElement i: foreground = i.Foreground; break;
             case Shape s: foreground = s.Stroke; background = s.Fill; break;
         }
-        if (element.Shadow != null) errors.Add(id + ": actual " + element.Shadow.GetType().Name + " shadow needs paint measurement");
-        if (background != null && background is not SolidColorBrush) errors.Add(id + ": actual " + background.GetType().Name + " background brush needs gradient/image measurement");
+        var paintDiagnostics = new JsonArray();
+        void PaintGap(string reason)
+        {
+            paintDiagnostics.Add(reason);
+            if (visible) errors.Add(id + ": " + reason);
+        }
+        if (element.Shadow != null) PaintGap("actual " + element.Shadow.GetType().Name + " shadow needs paint measurement");
+        if (background != null && background is not SolidColorBrush) PaintGap("actual " + background.GetType().Name + " background brush needs gradient/image measurement");
+        var borderWidth = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom));
+        if (borderWidth > 0 && border != null && border is not SolidColorBrush) PaintGap("actual " + border.GetType().Name + " visible border brush needs directional gradient/image measurement");
+        JsonArray? BorderColor(double width) => width > 0 ? CaptureColor(border) : new JsonArray(0, 0, 0, 0);
         return new JsonObject
         {
             ["font_size"] = size, ["font_weight"] = weight, ["foreground"] = foreground == null && size == null ? null : CaptureColor(foreground),
-            ["background"] = CaptureColor(background), ["border_color"] = CaptureColor(border),
+            ["background"] = CaptureColor(background), ["border_color"] = BorderColor(borderWidth),
+            ["brush_evidence"] = new JsonObject { ["foreground"] = CaptureBrushEvidence(foreground), ["background"] = CaptureBrushEvidence(background), ["border"] = CaptureBrushEvidence(border) },
+            ["paint_diagnostics"] = paintDiagnostics, ["paint_diagnostics_applicability"] = visible ? "visible" : "not-visible",
             ["background_image"] = background == null || background is SolidColorBrush ? "none" : null,
             ["background_brush_type"] = background?.GetType().Name,
             ["opacity"] = opacity,
             ["shadow"] = element.Shadow == null ? new JsonArray() : null,
             ["shadow_type"] = element.Shadow?.GetType().Name,
-            ["border_width"] = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom)),
-            ["corner_radius"] = radius.TopLeft,
+            ["border_width"] = borderWidth,
+            ["corner_radius"] = Math.Max(Math.Max(radius.TopLeft, radius.TopRight), Math.Max(radius.BottomRight, radius.BottomLeft)),
             ["border_widths"] = new JsonArray(thickness.Top, thickness.Right, thickness.Bottom, thickness.Left),
             ["border_widths_order"] = "top,right,bottom,left",
-            ["border_colors"] = new JsonArray(CaptureColor(border), CaptureColor(border), CaptureColor(border), CaptureColor(border)),
+            ["border_colors"] = new JsonArray(BorderColor(thickness.Top), BorderColor(thickness.Right), BorderColor(thickness.Bottom), BorderColor(thickness.Left)),
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
     }

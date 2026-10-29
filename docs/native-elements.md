@@ -77,7 +77,6 @@ apply actual scale (or vector-effect non-scaling-stroke) before comparing.
 Nonuniform transforms need their actual directional stroke geometry or an
 explicit coverage gap; do not assume every transform has one scalar scale.
 
-Actual text fonts are recorded in `style.rendered_fonts` as records with
 Windows TextPattern document/range bounds can prove a font witness even when
 the UIA control's outer layout slot is stretched. Match the actual text and
 measured range geometry unambiguously; do not replace a missing measurement
@@ -85,6 +84,16 @@ with the configured font family. WinUI TextPointer character rectangles are
 caret positions, not glyph ink: preserve their raw positions and derive text
 advance bounds only from measured monotonic start/end positions. Nonmonotonic
 or unresolved ranges remain coverage failures requiring disjoint measurements.
+
+For reference text, `bounds` is the DOMRange envelope after its own text
+container's content clipping; `visible_bounds` additionally applies ancestor
+and window clips. Preserve unmodified ranges in `evidence.text_measurements`
+(`raw_bounds`, `raw_rectangles`). CSS ellipsis-generated glyph geometry remains
+an explicit coverage error until independently measured. Raw scrollbar records
+retain actual scroll metrics and UA styles; unknown thumb/track paint geometry
+cannot be replaced with scroll-ratio estimates. Requested/computed CSS font
+weight and actually resolved font-face evidence are separate quantities. The
+new evidence fields do not waive existing weight differences or unknowns.
 
 Actual text fonts are recorded in `style.rendered_fonts` as records with
 `family_name`, optional `postscript_name`, and provider evidence. A configured
