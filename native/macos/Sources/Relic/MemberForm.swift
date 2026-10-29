@@ -98,13 +98,13 @@ struct MemberForm: View {
                 }
             }.frame(height: CGFloat(min(180, max(60, sessions.count * 66))))
         }.accessibilityLabel(m.t("member.pick_session"))
-        Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary)
+        if !problems.isEmpty { Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary) }
         HStack {
-            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name)
+            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name).help(name.isEmpty ? m.t("member.seat_placeholder") : name)
             Menu { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } } label: { Image(systemName: "chevron.down") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("member.which_seat")).accessibilityLabel(m.t("member.which_seat"))
         }
-        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role)
+        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role).help(role.isEmpty ? m.t("member.role_placeholder") : role)
     }
 
     @ViewBuilder private var appFields: some View {
@@ -113,7 +113,7 @@ struct MemberForm: View {
         if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(.caption) }
         DisclosureGroup(m.t("member.later_acp")) { Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text) } }
         TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
-        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder)
+        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.folder_placeholder") : folder)
         Toggle(m.t("member.make_secretary"), isOn: $secretary)
     }
 
@@ -132,7 +132,7 @@ struct MemberForm: View {
             }
         }
         Picker(m.t("member.effort"), selection: $effort) { Rows(options["efforts"].rows) { Text($0.text.isEmpty ? m.t("common.default_effort") : $0.text).tag($0.text) } }
-        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder)
+        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.host_folder_placeholder") : folder)
         Picker(m.t("member.environment"), selection: $environment) { Text(m.t("member.env_local")).tag("local"); Text(m.t("member.env_worktree")).tag("worktree") }
         Picker(m.t("member.permission"), selection: $permission) { Rows(options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows) { Text($0.text).tag($0.text) } }
         TextField(m.t("member.env_vars"), text: $env, prompt: Text(m.t("member.env_placeholder")), axis: .vertical)

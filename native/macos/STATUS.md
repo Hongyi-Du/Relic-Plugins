@@ -1,32 +1,48 @@
 # macOS 原生 Relic App：功能记录与视觉重做
 
-## Amendment 3：视觉验收重新打开
+## Amendment 3：当前视觉证据
 
-用户已拒绝 Windows 候选的视觉质量。以下旧记录中的“完成”仅指功能/契约实现，
-不代表页面可用性或视觉验收。macOS 正在按参考 `app.css` 重做样式，并使用共享
-`scripts/visual/scenes.json` 的 42 场景、双语言、双主题、三尺寸矩阵进行 CI 截图。
-当前视觉验收未完成；最终结论必须以实际查看三方对比图为准。
+更新：2026-10-29。本会话只修改 `native/macos/**`，继续使用共享 Python 引擎、
+HTTP/SSE 契约与 `/api/i18n` 词库。以下功能清单的“完成”表示实现覆盖；
+**最终三方全矩阵与真 Mac 的交互验收尚未全部完成，PR #4 仍不应据此合并。**
 
-已改动：参考色板/密度、紧凑组织树、图标工具栏、气泡和静默事件、收件人标签、
-原生弹出菜单、分栏宽度及可缩放对话框。新增词条完整性 XCTest；原始键不再作为
-显示文本回退。截图入口 `VisualCapture.swift` 仅在 GitHub Actions 使用共享 fixture。
+已按参考重做：紧凑组织树及头像/状态点、图标工具栏、消息气泡/安静事件行、
+收件人标签/引用/@ 候选、三栏及原生分页、决策和协议卡片、文件与轨迹、
+成员表单/秘书选择、全部七节设置。采用参考色板、头像哈希、密度与层次；
+长文字换行或省略并提供 tooltip，输入框的麦克风和发送按钮保持紧凑。
+原始词条键不再作为显示回退，双语言词条完整性由 XCTest 验证。
 
-当前证据（仍在迭代）：
+已验证的证据：
 
-- `09008fb` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40876824239)
-  构建、测试、打包和 parity 全部通过，macOS 为 **56 个 XCTest，0 失败**。
-- `fdee097` 的 [完整截图运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40873502291)
-  macOS 四个作业全部成功，覆盖 **42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
-  该轮 Windows 菜单自动化崩溃，三方合成未通过，不能作为最终视觉验收。
-- 本地各轮真实截图在 `S:\Codex\Outputs\Relic-native-visual\iteration-04` 至
-  `iteration-10`。已按图修复弹出候选缺失、长摘要越界、空组织页尺寸、文件和表格布局、
-  表单提交按钮、成员名片操作隐藏、详情对齐、轨迹样式及取消加载错误。
-- `09008fb` 重排全部七节设置：标签和说明在左、原生控件在右；头像、姓名、语音、通知、
-  路径和适配器卡片不再拆成一列默认表单行。其截图仍待完整矩阵确认。
-- 分栏只在实际拖动时保存宽度；头像已采用参考的 UInt32/Unicode 哈希和 HSL 色板。
-- 已合入共享 `612e97c`：平台诊断翻译、真实轨迹与已有会话 fixture、参考白话偏好、
-  Windows 菜单和捕获诊断修复。各项请求与实现说明见 `REQUESTS.md`。
-- **尚未声称 504 组三方对比完成，尚未将 PR #4 标为可合并。**
+- `072c9de` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880036877)
+  构建、测试、打包和 parity 全部通过，macOS **56 个 XCTest，0 失败**。
+  [共享 Python/package CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880036630)
+  也全部通过；本机没有运行这些测试或启动应用。
+- `fc4fd58` 的 [完整截图运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40877623363)
+  macOS 四个作业全部成功：**42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
+  Windows 三个变体成功，中文深色在启动 HTTP 请求中失败，三方合成被跳过。
+- 已实际查看 42 场景英文深色的三方对照，并复核新版七节设置、中文群聊、
+  中英明暗主题和三种尺寸的重点页面。按图修复了摘要越界、文件预览居中、
+  轨迹和报告层次、成员空选项、已有会话列表、协议规则重复显示、引用标记、
+  表单按钮/说明排列和浮层缺失。局部对照位于本地 `iteration-10/review-contacts`
+  和 `iteration-11/review-contacts`，这些是诊断图，尚非最终完整交付集。
+- 当前完整运行：[40880037477](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880037477)。
+  同样的 Windows 中文深色 HTTP 错误再次出现；已在 `REQUESTS.md` 提交
+  Content-Length / chunked 请求体的具体诊断与 CI 回归建议。
+- 本地真实截图总目录：`S:\Codex\Outputs\Relic-native-visual\`。
+  没有在本机启动应用、浏览器、编辑器或可见终端；所有窗口捕获发生在 CI。
+
+与参考仍有的差别：
+
+- macOS 使用系统菜单和 SF Symbols 工具栏；网页中的 File/Edit/View/Help
+  横排入口在应用内收进紧凑菜单，完整快捷键同时保留在系统菜单栏。
+- 成员卡片使用居中原生 sheet，设置、下拉框、开关及日期格式遵循 macOS 控件。
+  组织图的节点图标、任务元数据的排布和部分行高仍与网页存在视觉差别。
+- 适配器诊断包含原生桌面连接能力；平台路径、可用工具和系统语音提示会因
+  操作系统不同而不同。文档场景的参考/Windows 先前未选中正文，已请求统一。
+- CI 捕获真实 NSHostingView/AppKit 内容及 sheet/popover，输出一像素/点；
+  不包含 Dock、系统菜单栏和原生标题栏，也不能验证权限提示、真实麦克风、
+  通知投递、输入法、VoiceOver 或实际提供方会话。这些留给本人/HaochenGu 的 Mac。
 
 ## 先前功能/契约验证记录
 
