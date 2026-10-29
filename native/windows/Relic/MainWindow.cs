@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
     private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 26, MaxHeight = 260, BorderThickness = new Thickness(0), Padding = new Thickness(0, 2, 0, 2), FontSize = 14 };
     private readonly TextBox search = new();
+    private readonly StackPanel sideTools = new() { Padding = new Thickness(8, 10, 8, 6) };
     private readonly Grid searchSurface = new();
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, Grid> fieldSurfaces = new();
 
@@ -82,8 +83,8 @@ public sealed partial class MainWindow : Window
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
-        var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        sideLayout.Children.Add(Scroll(side)); Grid.SetRow(sidebarFooter, 1); sideLayout.Children.Add(sidebarFooter);
+        var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto }); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        sideLayout.Children.Add(sideTools); var treeScroll = Scroll(side); Grid.SetRow(treeScroll, 1); sideLayout.Children.Add(treeScroll); Grid.SetRow(sidebarFooter, 2); sideLayout.Children.Add(sidebarFooter);
         sidebarSurface.Child = sideLayout; sidebarSurface.BorderThickness = new Thickness(0, 0, 1, 0); columns.Children.Add(sidebarSurface);
         var chat = new Grid();
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -288,26 +289,32 @@ public sealed partial class MainWindow : Window
         var scroll = Scroll(content); scroll.MaxHeight = Math.Max(320, root.ActualHeight - 180); Grid.SetRow(scroll, 1); layout.Children.Add(scroll); dialog.Content = layout;
         await Dialog(dialog);
     }
-    private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null)
+    private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null, double width = 520)
     {
-        form.Width = Math.Min(572, Math.Max(400, root.ActualWidth - 160));
-        form.Padding = new Thickness(0, 0, 16, 4);
-        var message = Text(""); form.Children.Add(message);
+        form.Width = Math.Max(0, Math.Min(width, root.ActualWidth - 32) - 44);
+        form.Padding = new Thickness(0); form.Spacing = 12;
+        var message = Text("", 12.5); message.Foreground = Paint("C2412D", "EE8A78"); message.Visibility = Visibility.Collapsed; form.Children.Add(message);
         var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel"), DefaultButton = ContentDialogButton.Primary };
         dialog.PrimaryButtonClick += async (_, e) =>
         {
             var hold = e.GetDeferral();
             try { await submit(); }
-            catch (Exception ex) { message.Text = ex.Message; e.Cancel = true; }
+            catch (Exception ex) { message.Text = ex.Message; message.Visibility = Visibility.Visible; e.Cancel = true; }
             finally { hold.Complete(); }
         };
         await Dialog(dialog);
     }
     private TextBox Field(StackPanel form, string key, bool multiline = false)
     {
-        var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap, FontSize = 13, MinHeight = multiline ? 100 : 32, MaxHeight = multiline ? 220 : double.PositiveInfinity };
-        var row = new Grid { ColumnSpacing = 4 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.Children.Add(field);
-        if (preferences.Text("voice") != "off") { var mic = Microphone(field); mic.VerticalAlignment = VerticalAlignment.Bottom; Grid.SetColumn(mic, 1); row.Children.Add(mic); }
+        var voice = preferences.Text("voice") != "off";
+        var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap, FontSize = 13,
+            Height = multiline ? 101 : 61, MinHeight = 0, BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"),
+            CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, voice ? 34 : 10, 7) };
+        field.HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding}' FontSize='12.5' LineHeight='20' LineStackingStrategy='BlockLineHeight' Foreground='{ThemeResource RelicControlSecondary}'/></DataTemplate>");
+        field.Resources["TextControlHeaderMargin"] = new Thickness(0, 0, 0, 5);
+        field.Resources["TextControlBorderThicknessFocused"] = new Thickness(1);
+        var row = new Grid(); row.Children.Add(field);
+        if (voice) { var mic = Microphone(field); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5); mic.VerticalAlignment = VerticalAlignment.Bottom; mic.HorizontalAlignment = HorizontalAlignment.Right; mic.Margin = new Thickness(0, 0, 4, multiline ? 25 : 5); row.Children.Add(mic); }
         fieldSurfaces.Add(field, row); form.Children.Add(row); return field;
     }
     private FrameworkElement FieldSurface(TextBox field) => fieldSurfaces.TryGetValue(field, out var row) ? row : field;

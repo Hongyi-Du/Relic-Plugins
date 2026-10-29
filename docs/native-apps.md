@@ -8,6 +8,21 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (verified CI): `ca175df` Native apps run 40954033551
+passes Windows Release build and 19 core tests, macOS Release build and 73
+XCTest cases, both unsigned native package assemblies, and the static route /
+vocabulary / flow gate. This is build/contract evidence, not element acceptance.
+The earlier `1c3b037` visual run exposed a tuple-versus-dict mistake in the new
+activity fixture test; that test is corrected in `a3d4417` without changing data.
+
+Changes for the clients (`0c93bac` measurement follow-up): reference text
+clipping now includes the text's own overflow container and preserves raw
+DOMRange geometry separately. Unknown ellipsis-glyph and UA scrollbar paint
+geometry is explicitly reported as coverage failure; no missing element is
+accepted. CSS requested weight and resolved font-face evidence are recorded
+separately. The visual CI adds pure Node fixtures for these production functions.
+The exact existing tolerance table and all 504 cases remain unchanged.
+
 Changes for the clients (restart integration): `dffd7c4` full strict evidence is
 downloaded to `S:\Codex\Outputs\Relic-native-visual\parity-dffd7c4\`, including
 all per-scene JSON, HTML, raw trees and pixel heatmaps. Both platforms still have

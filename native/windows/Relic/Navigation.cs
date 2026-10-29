@@ -139,9 +139,10 @@ public sealed partial class MainWindow
     }
     private string LastLine(string key)
     {
-        var last = snap["chats"]?[key]?["last"]; var body = last.Text("body"); if (body.Length == 0) body = last.Text("text");
-        if (body.Length == 0) return "";
-        return T(body.StartsWith("[Relic auto-receipt]") ? "side.last_receipt" : "side.last_line", ("name", Display(last.Text("from"))), ("text", body.Replace("[Relic auto-receipt]", "").Replace('\n', ' ')[..Math.Min(90, body.Replace("[Relic auto-receipt]", "").Length)]));
+        var last = snap["chats"]?[key]?["last"]; if (last == null) return "";
+        var body = System.Text.RegularExpressions.Regex.Replace(last.Text("body"), @"^\[Relic auto-receipt\]\s*", "");
+        body = System.Text.RegularExpressions.Regex.Replace(body, @"^>.*\n+", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+        return T(last.Text("type") == "receipt" ? "side.last_receipt" : "side.last_line", ("name", Display(last.Text("from"))), ("text", OverviewClip(body, 70)));
     }
     private Task FocusSearch() { sideOpen = true; LayoutColumns(); search.Focus(FocusState.Keyboard); search.SelectAll(); return Task.CompletedTask; }
     private void NavigationShortcuts()

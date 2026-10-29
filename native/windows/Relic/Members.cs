@@ -196,7 +196,7 @@ public sealed partial class MainWindow
                     Note(edit != null ? T("member.edit_saved") : start.IsChecked == true ? T("member.starting_first", ("name", seat)) : T("member.seat_created")); break;
             }
             await Select(target, seat);
-        }, SubmitLabel());
+        }, SubmitLabel(), width: 620);
     }
     private static void PairFields(StackPanel container, FrameworkElement first, FrameworkElement second)
     {

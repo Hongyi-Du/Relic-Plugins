@@ -30,6 +30,8 @@ jobs:
       - run: pip install pillow
       - name: Check reference extractor syntax without opening a browser
         run: node --check scripts/visual/reference-elements.js
+      - name: Test actual reference clipping functions with recorded DOM fixtures
+        run: node --test scripts/visual/test_reference_elements.mjs
       - name: Test strict matcher thresholds and failure coverage
         run: python -m unittest discover -s scripts/visual -p 'test_*.py' -v
   windows:
