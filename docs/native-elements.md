@@ -71,6 +71,22 @@ RGBA has no visible RGB; compare its alpha exactly, and compare every nonzero
 alpha color using the unchanged DeltaE bound. A zero-width border has no visible
 border color; positive-width edges still require their actual color.
 
+Actual text fonts are recorded in `style.rendered_fonts` as records with
+`family_name`, optional `postscript_name`, and provider evidence. A configured
+fallback list is not an actual rendered-font measurement. Compare measured
+family identity, font size and weight; compare PostScript identity when both
+providers expose it. Provider glyph counts and custom-font loading flags remain
+audit evidence, since providers can report different text-range subdivisions.
+Missing actual family evidence remains a coverage error. Reference captures use
+`CSS.getPlatformFontsForNode`, while native captures use actual UIA/AX text runs.
+
+The reference is captured separately on Windows and macOS with the same source,
+scene definition and local server as that platform's native client. This retains
+the reference's real `isMac()` shortcut behavior and actual available fonts.
+Reports preserve `reference_environment` with browser/platform/font evidence.
+Missing platform-specific reference evidence fails; no string normalization or
+cross-platform baseline fallback is permitted.
+
 Regions: `window`, `header`, `sidebar`, `conversation`, `composer`, `right-pane`,
 `dialog`, `menu`. Reading `order` starts at zero within each region. Kinds:
 `region`, `text`, `button`, `icon-button`, `input`, `toggle`, `checkbox`, `tab`,

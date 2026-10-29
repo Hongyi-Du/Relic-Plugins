@@ -20,6 +20,7 @@ public sealed partial class MainWindow
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Element capture is CI-only");
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
         var declaredContent = new Dictionary<DependencyObject, string>();
+        var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
         var hovered = new HashSet<UIElement>(VisualTreeHelper.FindElementsInHostCoordinates(new Point(cursor.x - clientOrigin.x, cursor.y - clientOrigin.y), root, true));
@@ -42,6 +43,7 @@ public sealed partial class MainWindow
             if (value is UIElement ordered) node["canvas_z_index"] = Canvas.GetZIndex(ordered);
             node["render_sibling_order"] = siblingOrder;
             node["paint_order"] = nodes.Count;
+            node["paint_layer"] = paintLayer;
             if (declaredContent.TryGetValue(value, out var contentOwner)) node["declared_content_owner"] = contentOwner;
             if (value is ContentControl contentControl && contentControl.Content is DependencyObject controlContent) declaredContent[controlContent] = id;
             if (value is Expander contentExpander && contentExpander.Content is DependencyObject expanderContent) declaredContent[expanderContent] = id;
@@ -99,7 +101,15 @@ public sealed partial class MainWindow
                     if (box.Width <= 0 || box.Height <= 0 || visible.Width <= 0 || visible.Height <= 0) hidden ??= "zero area or ancestor clip";
                     node["hidden_reason"] = hidden;
                     if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
-                    node["style"] = CaptureStyle(element);
+                    node["style"] = CaptureStyle(element, opacity, id, errors);
+                    node["paint_kind"] = element switch
+                    {
+                        Border => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
+                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or IconElement => "glyphs",
+                        Control => "template", _ => "none"
+                    };
+                    if (element is Border borderElement) node["background_sizing"] = borderElement.BackgroundSizing.ToString();
+                    if (element is Rectangle rectangle) node["shape_corner_radius"] = new JsonObject { ["x"] = rectangle.RadiusX, ["y"] = rectangle.RadiusY };
                     node["text"] = CaptureText(element);
                     node["state"] = new JsonObject
                     {
@@ -110,7 +120,7 @@ public sealed partial class MainWindow
                         ["expanded"] = element is Expander expander ? expander.IsExpanded : null,
                         ["hovered"] = hovered.Contains(element), ["unread"] = null
                     };
-                    node["layout"] = CaptureTextLayout(element, id, errors);
+                    node["layout"] = CaptureTextLayout(element, id, errors, root, hidden == null);
                     if (element is FontIcon fontIcon) node["icon"] = new JsonObject { ["source"] = fontIcon.FontFamily.Source, ["glyph"] = fontIcon.Glyph };
                     else if (element is ReferenceVectorIcon vectorIcon)
                     {
@@ -133,13 +143,20 @@ public sealed partial class MainWindow
             foreach (var child in renderedChildren) Walk(child.child, id, region, clip, opacity, hidden, child.index);
         }
         Walk(root, null, "window", viewport, 1, null);
-        foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
-            if (popup.IsOpen && popup.Child != null) Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter ? "menu" : "dialog", viewport, 1, null);
+        var popups = VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Where(p => p.IsOpen && p.Child != null).ToArray();
+        foreach (var popup in popups)
+        {
+            paintLayer++;
+            Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter ? "menu" : "dialog", viewport, 1, null);
+        }
+        if (popups.Length > 1) errors.Add("Multiple popup roots: their collection order requires independent HWND/compositor z-order verification.");
         var result = new JsonObject
         {
             ["schema_version"] = 1, ["scene_id"] = caseId, ["client"] = "windows",
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
-            ["raw_nodes"] = nodes, ["extraction_errors"] = errors
+            ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
+            ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
+            ["popup_roots"] = popups.Length
         };
         CaptureFiniteMeasurements(result, errors);
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"), result.ToJsonString());
@@ -228,7 +245,7 @@ public sealed partial class MainWindow
         _ => ""
     };
     private static string CaptureInlines(InlineCollection inlines) => string.Concat(inlines.Select(i => i switch { Run run => run.Text, LineBreak => "\n", Span span => CaptureInlines(span.Inlines), _ => "" }));
-    private static JsonObject CaptureStyle(FrameworkElement element)
+    private static JsonObject CaptureStyle(FrameworkElement element, double opacity, string id, JsonArray errors)
     {
         Brush? foreground = null, background = null, border = null; double? size = null, weight = null; var thickness = new Thickness(); var radius = new CornerRadius();
         switch (element)
@@ -243,10 +260,17 @@ public sealed partial class MainWindow
             case IconElement i: foreground = i.Foreground; break;
             case Shape s: background = s.Fill; border = s.Stroke; thickness = new Thickness(s.StrokeThickness); break;
         }
+        if (element.Shadow != null) errors.Add(id + ": actual " + element.Shadow.GetType().Name + " shadow needs paint measurement");
+        if (background != null && background is not SolidColorBrush) errors.Add(id + ": actual " + background.GetType().Name + " background brush needs gradient/image measurement");
         return new JsonObject
         {
             ["font_size"] = size, ["font_weight"] = weight, ["foreground"] = foreground == null && size == null ? null : CaptureColor(foreground),
             ["background"] = CaptureColor(background), ["border_color"] = CaptureColor(border),
+            ["background_image"] = background == null || background is SolidColorBrush ? "none" : null,
+            ["background_brush_type"] = background?.GetType().Name,
+            ["opacity"] = opacity,
+            ["shadow"] = element.Shadow == null ? new JsonArray() : null,
+            ["shadow_type"] = element.Shadow?.GetType().Name,
             ["border_width"] = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom)),
             ["corner_radius"] = radius.TopLeft,
             ["border_widths"] = new JsonArray(thickness.Top, thickness.Right, thickness.Bottom, thickness.Left),
@@ -255,30 +279,65 @@ public sealed partial class MainWindow
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
     }
-    private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors)
+    private static IEnumerable<TextElement> CaptureTextLeaves(InlineCollection inlines)
+    {
+        foreach (var inline in inlines)
+        {
+            if (inline is Microsoft.UI.Xaml.Documents.Run or LineBreak) yield return inline;
+            else if (inline is Span span) foreach (var leaf in CaptureTextLeaves(span.Inlines)) yield return leaf;
+        }
+    }
+    private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors, UIElement captureRoot, bool visible)
     {
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
-        int? lines = null; var boxes = new JsonArray();
+        int? lines = null; var boxes = new JsonArray(); var localBoxes = new JsonArray(); var runs = new JsonArray();
         TextPointer? start = element switch { TextBlock t => t.ContentStart, RichTextBlock t => t.ContentStart, _ => null };
         TextPointer? end = element switch { TextBlock t => t.ContentEnd, RichTextBlock t => t.ContentEnd, _ => null };
-        if (start != null && end != null)
+        if (visible && start != null && end != null)
         {
             var ys = new HashSet<double>(); var incomplete = false;
-            for (var offset = 0; offset < end.Offset - start.Offset; offset++)
+            var leaves = element switch
             {
-                var pointer = start.GetPositionAtOffset(offset, LogicalDirection.Forward);
-                if (pointer == null) { incomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
-                var box = pointer.GetCharacterRect(LogicalDirection.Forward);
-                if (!double.IsFinite(box.X) || !double.IsFinite(box.Y) || !double.IsFinite(box.Width) || !double.IsFinite(box.Height))
+                TextBlock plainText => CaptureTextLeaves(plainText.Inlines).ToArray(),
+                RichTextBlock rich => rich.Blocks.OfType<Paragraph>().SelectMany(p => CaptureTextLeaves(p.Inlines)).ToArray(),
+                _ => Array.Empty<TextElement>()
+            };
+            var ranges = leaves.Length > 0
+                ? leaves.Select(leaf => (start: leaf.ContentStart, end: leaf.ContentEnd, leaf: (TextElement?)leaf)).ToArray()
+                : new[] { (start, end, leaf: (TextElement?)null) };
+            var transform = element.TransformToVisual(captureRoot);
+            foreach (var range in ranges)
+            {
+                var runBoxes = new JsonArray();
+                for (var offset = 0; offset < range.end.Offset - range.start.Offset; offset++)
                 {
-                    incomplete = true;
-                    // Retain the raw rectangle. The final numeric audit writes
-                    // null and the exact nonfinite value for each invalid field.
-                    boxes.Add(CaptureBox(box));
-                    errors.Add(id + ": non-finite TextPointer rectangle at offset " + offset);
+                    var pointer = range.start.GetPositionAtOffset(offset, LogicalDirection.Forward);
+                    if (pointer == null) { incomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
+                    var box = pointer.GetCharacterRect(LogicalDirection.Forward);
+                    localBoxes.Add(CaptureBox(box));
+                    if (!CaptureRectFinite(box))
+                    {
+                        incomplete = true;
+                        errors.Add(id + ": non-finite TextPointer rectangle at content offset " + pointer.Offset);
+                    }
+                    else if (box.Height > 0)
+                    {
+                        var actual = transform.TransformBounds(box);
+                        boxes.Add(CaptureBox(actual)); runBoxes.Add(CaptureBox(actual));
+                        if (CaptureRectFinite(actual)) ys.Add(Math.Round(actual.Y, 2));
+                        else incomplete = true;
+                    }
                 }
-                else if (box.Height > 0) { ys.Add(Math.Round(box.Y, 2)); boxes.Add(CaptureBox(box)); }
+                if (range.leaf != null) runs.Add(new JsonObject
+                {
+                    ["type"] = range.leaf.GetType().Name,
+                    ["text"] = range.leaf is Run run ? run.Text : "\n",
+                    ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
+                    ["font_size"] = range.leaf.FontSize, ["font_weight"] = range.leaf.FontWeight.Weight,
+                    ["foreground"] = CaptureColor(range.leaf.Foreground), ["font_family"] = range.leaf.FontFamily.Source,
+                    ["bounds"] = runBoxes
+                });
             }
             lines = incomplete ? null : ys.Count;
         }
@@ -287,6 +346,9 @@ public sealed partial class MainWindow
             ["wrap"] = wrap.Length == 0 ? null : wrap == "NoWrap" ? "none" : wrap == "WrapWholeWords" ? "word" : "character",
             ["truncation"] = trim.Length == 0 ? null : trim.Contains("Ellipsis") ? "ellipsis" : trim == "Clip" ? "clip" : "none",
             ["line_count"] = lines, ["character_boxes"] = boxes,
+            ["character_boxes_coordinate_space"] = "content-window", ["local_character_boxes"] = localBoxes,
+            ["text_geometry_status"] = visible ? "measured-or-explicit-error" : "not-visible",
+            ["rich_text_runs"] = runs,
             ["placeholder"] = element is TextBox text ? text.PlaceholderText : null
         };
     }

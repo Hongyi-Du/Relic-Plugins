@@ -14,7 +14,8 @@ public sealed partial class MainWindow
 {
     private readonly Grid columns = new();
     private bool sideOpen = true, panelOpen = true;
-    private double sideWidth = 276, panelWidth = 320, fileWidth = 460;
+    private double sideWidth = 276, panelWidth = 340, fileWidth = 520;
+    private Thumb? panelResize;
     private string viewMode = "direct";
     private readonly List<(string Org, string Member)> history = new();
     private int historyIndex = -1;
@@ -72,11 +73,26 @@ public sealed partial class MainWindow
         if (columns.ColumnDefinitions.Count < 3) return;
         var available = root.ActualWidth > 0 ? root.ActualWidth : 1440;
         var leftWidth = sideOpen ? Math.Clamp(sideWidth, 200, Math.Max(200, available - 620)) : 0;
+        var overlay = available <= 1180;
+        var desiredPaneWidth = pane == "files" ? fileWidth : panelWidth;
+        var actualPaneWidth = overlay ? Math.Min(desiredPaneWidth, available - 48) : Math.Clamp(desiredPaneWidth, 280, Math.Max(280, available - leftWidth - 320));
         columns.ColumnDefinitions[0].Width = new GridLength(leftWidth);
-        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen ? Math.Clamp(pane == "files" ? fileWidth : panelWidth, 280, Math.Max(280, available - leftWidth - 320)) : 0);
+        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen && !overlay ? actualPaneWidth : 0);
+        Grid.SetColumn(inspectorSurface, overlay ? 0 : 2); Grid.SetColumnSpan(inspectorSurface, overlay ? 3 : 1);
+        inspectorSurface.Width = overlay ? actualPaneWidth : double.NaN; inspectorSurface.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        Canvas.SetZIndex(inspectorSurface, overlay ? 25 : 0);
+        if (panelResize != null)
+        {
+            Grid.SetColumn(panelResize, overlay ? 0 : 2); Grid.SetColumnSpan(panelResize, overlay ? 3 : 1);
+            panelResize.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+            panelResize.Margin = overlay ? new Thickness(0, 0, actualPaneWidth - 3, 0) : new Thickness(0);
+            Canvas.SetZIndex(panelResize, 26); panelResize.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
+        }
         foreach (var child in columns.Children.OfType<FrameworkElement>())
-            if (Grid.GetColumn(child) == 0) child.Visibility = sideOpen ? Visibility.Visible : Visibility.Collapsed;
+            if (ReferenceEquals(child, inspectorSurface) || ReferenceEquals(child, panelResize)) continue;
+            else if (Grid.GetColumn(child) == 0) child.Visibility = sideOpen ? Visibility.Visible : Visibility.Collapsed;
             else if (Grid.GetColumn(child) == 2) child.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
+        inspectorSurface.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
     }
     private Task ToggleSide() { sideOpen = !sideOpen; LayoutColumns(); SaveViewState(); return Task.CompletedTask; }
     private Task TogglePanel() { panelOpen = !panelOpen; LayoutColumns(); SaveViewState(); return Task.CompletedTask; }
@@ -90,6 +106,7 @@ public sealed partial class MainWindow
         for (int i = 0; i < 2; i++)
         {
             var left = i == 0; var thumb = new Thumb { Width = 6, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left, Opacity = .3 };
+            if (!left) panelResize = thumb;
             thumb.Loaded += (_, _) => ToolTipService.SetToolTip(thumb, T("panel.resize"));
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
             thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else if (pane == "files") fileWidth = Math.Clamp(fileWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
@@ -113,12 +130,12 @@ public sealed partial class MainWindow
         var key = member.Length == 0 ? "group" : "member:" + member;
         seenMessages[org + "/" + key] = snap["chats"]?[key]?["last"].Text("id") ?? "";
     }
-    private string Unread(string key)
+    private int Unread(string key)
     {
         var id = snap["chats"]?[key]?["last"].Text("id") ?? "";
         if (!long.TryParse(seenMessages.GetValueOrDefault(org + "/" + key), out var seen)) seen = 0;
         var count = snap["chats"]?[key].Rows("ids").Count(row => row is JsonArray ids && ids.Count > 1 && ids[1].Text() != "human" && long.TryParse(ids[0].Text(), out var number) && number > seen) ?? 0;
-        return count > 0 ? " · " + count : "";
+        return count;
     }
     private string LastLine(string key)
     {
@@ -144,7 +161,7 @@ public sealed partial class MainWindow
     {
         menu.Items.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
-        MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title) }; menu.Items.Add(group); return group; }
+        MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title), Height = 28, Padding = new Thickness(9, 0, 9, 0), FontSize = 13, MinWidth = 0, CornerRadius = new CornerRadius(7) }; menu.Items.Add(group); return group; }
         void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "") { var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut }; item.Click += async (_, _) => await Run(action); group.Items.Add(item); }
         var file = Group("common.file");
         Item(file, T("appmenu.new_org"), CreateOrg); Item(file, T("appmenu.add_member"), AddMember, org.Length > 0);

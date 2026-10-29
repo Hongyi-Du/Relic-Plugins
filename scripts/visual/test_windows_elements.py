@@ -48,6 +48,23 @@ def uia_node(eid, control_type="Text", name="", parent=None, bounds=None, **chan
     return node
 
 
+def measured(nodes):
+    """Add actual-style render evidence to a synthetic view-tree fixture."""
+    result = deepcopy(nodes)
+    for order, node in enumerate(result):
+        node.update(paint_order=order, canvas_z_index=0, render_sibling_order=order,
+                    opacity=1, axis_aligned_transform=True, clip=None,
+                    transform={"m11": 1, "m12": 0, "m21": 0, "m22": 1,
+                               "offset_x": node["bounds"]["x"], "offset_y": node["bounds"]["y"]},
+                    background_sizing="OuterBorderEdge")
+        node["paint_kind"] = {"Border": "rounded-rectangle", "Grid": "rectangle", "StackPanel": "rectangle",
+                              "TextBlock": "glyphs", "RichTextBlock": "glyphs", "Button": "template"}.get(node["type"], "none")
+        node["style"].update(opacity=1, shadow=[], background_image="none",
+                              border_widths=[node["style"]["border_width"]] * 4,
+                              corner_radii=[node["style"]["corner_radius"]] * 4)
+    return result
+
+
 class ProjectionTests(unittest.TestCase):
     def capture(self, nodes, uia_nodes=None, *, xaml_changes=None, uia_changes=None,
                 image_size=None):
@@ -229,6 +246,131 @@ class ProjectionTests(unittest.TestCase):
                               xaml_changes={"extraction_errors": ["xaml-3: unsupported brush"]})
         self.assertIn("uia-2: provider unavailable", result["extraction_errors"])
         self.assertIn("xaml-3: unsupported brush", result["extraction_errors"])
+
+    def test_nullable_real_uia_control_type_is_a_gap_not_an_exception(self):
+        unknown = uia_node("uia-unknown", name="内容")
+        unknown["control_type"] = None
+        result = self.capture([xaml_node("text", text="内容")], [unknown])
+        self.assertTrue(any(issue.get("id") == "uia-unknown" and issue.get("property") == "UIA control_type"
+                            for issue in result["coverage"]["unmeasured"]))
+
+    def test_null_measured_rectangle_keeps_diagnostic_without_crashing(self):
+        invalid = xaml_node("text", text="内容")
+        invalid["bounds"]["x"] = None
+        invalid["visible_bounds"]["x"] = None
+        result = self.capture([invalid], [uia_node("uia-text", name="内容")],
+                              xaml_changes={"extraction_errors": ["raw_nodes/0/bounds/x: Infinity"]})
+        self.assertEqual(result["elements"], [])
+        self.assertIn("raw_nodes/0/bounds/x: Infinity", result["extraction_errors"])
+
+    def test_real_text_rectangles_and_uia_font_are_not_declared_font_fallback(self):
+        text = xaml_node("text", text="内容")
+        rectangles = [box(10, 20, 13, 18), box(23, 20, 13, 18)]
+        text["layout"].update(character_boxes=rectangles, character_boxes_coordinate_space="content-window")
+        witness = uia_node("uia-text", name="内容")
+        witness["text_pattern"] = {"visible_ranges": [{
+            "attributes": {"font_family": "Microsoft YaHei UI"},
+            "attribute_status": {"font_family": "measured"}, "bounds": [box(10, 20, 26, 18)],
+        }]}
+        result = self.capture(measured([text]), [witness])
+        element = self.by_id(result)["text"]
+        self.assertEqual(element["evidence"]["text_bounds"], rectangles)
+        self.assertEqual(element["style"]["rendered_fonts"][0]["family_name"], "Microsoft YaHei UI")
+        self.assertIsNone(element["style"]["rendered_fonts"][0]["postscript_name"])
+        self.assertNotEqual(element["style"]["rendered_fonts"][0]["family_name"], text["font_family"])
+
+    def test_mixed_rich_run_typography_cannot_pass_as_one_uniform_font(self):
+        text = xaml_node("text", text="标题正文")
+        text["layout"]["rich_text_runs"] = [
+            {"text": "标题", "font_size": 14, "font_weight": 700, "foreground": [27, 27, 26, 255]},
+            {"text": "正文", "font_size": 13, "font_weight": 400, "foreground": [27, 27, 26, 255]},
+        ]
+        result = self.capture(measured([text]), [uia_node("uia-text", name="标题正文")])
+        self.assertTrue(any(issue.get("property") == "rich_text_runs" for issue in result["coverage"]["unmeasured"]))
+
+    @staticmethod
+    def opaque(eid="cover", bounds=None, radius=0):
+        cover = xaml_node(eid, "Border", bounds=bounds or box(0, 0, 200, 150))
+        cover["style"].update(background=[255, 255, 255, 255], corner_radius=radius)
+        return cover
+
+    @staticmethod
+    def occlusion_issues(result):
+        return [issue for issue in result["coverage"]["unmeasured"]
+                if "occlusion" in issue.get("property", "") or "curved_mask" in issue.get("property", "")]
+
+    def test_opaque_later_rectangle_hides_element_and_its_uia_box(self):
+        text = xaml_node("text", text="内容")
+        nodes = measured([text, self.opaque()])
+        result = self.capture(nodes, [uia_node("uia-text", name="内容")])
+        self.assertNotIn("text", self.by_id(result))
+        hidden = next(p for p in result["projection"] if p["source"] == "text")
+        self.assertEqual(hidden["reason"], "fully occluded by measured opaque paint")
+        self.assertEqual(hidden["occlusion_masks"][0]["source"], "cover")
+        self.assertTrue(any(p["source"] == "uia-text" and "fully occluded" in p["reason"] for p in result["projection"]))
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_partial_occlusion_retains_element_and_remaining_fragment(self):
+        text = xaml_node("text", text="内容", bounds=box(0, 10, 100, 20))
+        result = self.capture(measured([text, self.opaque(bounds=box(50, 0, 100, 100))]),
+                              [uia_node("uia-text", name="内容", bounds=text["bounds"])])
+        actual = self.by_id(result)["text"]
+        self.assertEqual(actual["bounds"], text["bounds"])
+        self.assertEqual(actual["evidence"]["visible_fragments"], [box(0, 10, 50, 20)])
+        self.assertTrue(actual["evidence"]["visible_fragments_are_envelopes"])
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_translucent_modal_dimmer_does_not_hide_underlying_content(self):
+        nodes = measured([xaml_node("text", text="内容"), self.opaque()])
+        nodes[1]["opacity"] = nodes[1]["style"]["opacity"] = .5
+        result = self.capture(nodes, [uia_node("uia-text", name="内容")])
+        self.assertIn("text", self.by_id(result))
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_paint_order_not_tree_array_order_decides_coverage(self):
+        nodes = measured([xaml_node("text", text="内容"), self.opaque()])
+        nodes[0]["paint_order"], nodes[1]["paint_order"] = 10, 2
+        result = self.capture(nodes, [uia_node("uia-text", name="内容")])
+        self.assertIn("text", self.by_id(result))
+
+    def test_ancestor_background_does_not_occlude_own_descendant(self):
+        surface = self.opaque()
+        child = xaml_node("text", text="内容", parent="cover")
+        result = self.capture(measured([surface, child]), [uia_node("uia-text", name="内容")])
+        self.assertIn("text", self.by_id(result))
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_rounded_corner_keeps_visible_corner_and_exact_mask(self):
+        text = xaml_node("text", text="角", bounds=box(0, 0, 3, 3))
+        result = self.capture(measured([text, self.opaque(bounds=box(0, 0, 100, 100), radius=20)]),
+                              [uia_node("uia-text", name="角", bounds=text["bounds"])])
+        actual = self.by_id(result)["text"]
+        self.assertEqual(actual["evidence"]["occlusion_masks"][0]["radii"][0], {"x": 20, "y": 20})
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_rounded_corner_containment_proves_hidden_rectangle(self):
+        text = xaml_node("text", text="内", bounds=box(6, 10, 4, 4))
+        result = self.capture(measured([text, self.opaque(bounds=box(0, 0, 100, 100), radius=20)]),
+                              [uia_node("uia-text", name="内", bounds=text["bounds"])])
+        self.assertNotIn("text", self.by_id(result))
+        self.assertFalse(self.occlusion_issues(result))
+
+    def test_curved_union_without_visibility_proof_keeps_gap(self):
+        text = xaml_node("text", text="部分可见", bounds=box(0, 0, 100, 100))
+        left = self.opaque("left", box(-50, 0, 100, 100), 50)
+        right = self.opaque("right", box(50, 0, 100, 100), 50)
+        left["visible_bounds"], right["visible_bounds"] = box(0, 0, 50, 100), box(50, 0, 50, 100)
+        result = self.capture(measured([text, left, right]), [uia_node("uia-text", name="部分可见", bounds=text["bounds"])])
+        self.assertIn("text", self.by_id(result))
+        self.assertTrue(any(issue.get("property") == "visibility.curved_mask_union" and issue.get("id") == "text"
+                            for issue in self.occlusion_issues(result)))
+
+    def test_rotated_opaque_paint_is_not_treated_as_its_bounding_box(self):
+        nodes = measured([xaml_node("text", text="内容"), self.opaque()])
+        nodes[1]["axis_aligned_transform"] = False
+        result = self.capture(nodes, [uia_node("uia-text", name="内容")])
+        self.assertIn("text", self.by_id(result))
+        self.assertTrue(self.occlusion_issues(result))
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ public sealed partial class MainWindow
                     // toolbar. Move it off-window so hover tooltips cannot mask
                     // an unrelated screen in the next capture.
                     SetCursorPos(1900, 1040);
-                    sideWidth = 276; panelWidth = 320; fileWidth = 460; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
+                    sideWidth = 276; panelWidth = 340; fileWidth = 520; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     await Select(fixture.Text("org")); LayoutColumns();
                     var scene = shot.Text("scene"); Task? dialog = null;
