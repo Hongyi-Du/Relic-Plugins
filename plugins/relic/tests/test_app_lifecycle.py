@@ -151,6 +151,15 @@ class Isolated(unittest.TestCase):
 
 
 class RecordsAndLocks(Isolated):
+    def test_empty_file_owned_by_another_handle_is_not_written_before_locking(self):
+        with web.LifecycleLock("app-control.lock", timeout=0) as owner:
+            owner.handle.seek(0)
+            owner.handle.truncate()
+            owner.handle.flush()
+            with self.assertRaisesRegex(RuntimeError, "owns app-control.lock"):
+                with web.LifecycleLock("app-control.lock", timeout=0.05):
+                    self.fail("a second handle acquired the owner's lock")
+
     def test_stale_owner_record_is_not_a_live_lock(self):
         path = Path(self.env["RELIC_HOME"]) / "app-server.lock"
         path.parent.mkdir(parents=True)

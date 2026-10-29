@@ -17,3 +17,24 @@ python scripts/export_api.py
 Tests use isolated temporary data and fake hosts. Do not add test dependencies on a maintainer's logged-in application or live conversations. Include Windows/macOS checks when changing paths, subprocesses, hooks or installers. Desktop acceptance and real model behavior require separate evidence. Keep English and Chinese docs aligned.
 
 测试使用临时隔离数据与宿主替身，不得依赖维护者已登录应用或真实对话。修改路径、子进程、hooks 和安装器时覆盖 Windows/macOS；桌面验收与真实模型表现需另外提供证据。同步更新中英文文档。
+
+## Unified Windows/macOS candidate packages
+
+Both platforms use `plugins/relic` and the version in `release.json`. Keep OS integration in
+`relic_core/platform_support.py` or explicit OS branches; shared feature fixes must work on Windows too.
+Preserve contributor commits when integrating a port. There is no separate v0.4.1-macos release line.
+
+```sh
+python -X utf8 scripts/check.py
+python -X utf8 scripts/package.py --platform all --macos-format both --output dist
+```
+
+Build from a clean committed tree. `release-manifest.json` records the source commit, dirty state, plugin version
+and each archive checksum; compare it with `SHA256SUMS.txt`. ZIP/tar macOS archives carry the same logical contents,
+executable `install.command`, the macOS README and `scripts/macos_app.py`. Windows keeps its launch templates and
+installer. Packaging normalizes archive configuration without modifying source launch files. Do not include a live
+store, installed adapters or local runtime paths. Record automated CI separately from signed-in real-Mac acceptance.
+Creating a tag, GitHub Release or website deployment is a separate publication action.
+
+Windows/macOS 使用同一源码和版本；操作系统适配放在平台层或显式系统分支中。干净提交构建后的来源清单、
+校验文件和两种 macOS 归档需相符。自动化 CI 与已登录真机验收分别记录；打标签、发 Release 与网站部署另行进行。

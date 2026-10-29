@@ -28,7 +28,8 @@ from relic_core import api, desktop  # noqa: E402
 from relic_core.store import Store  # noqa: E402
 
 # reload order: every module after the modules it takes names from
-MODULES = ("relic_core", "relic_core.platform_support", "relic_core.paths", "relic_core.store", "relic_core.context", "relic_core.trajectory", "relic_core.sessions",
+MODULES = ("relic_core", "relic_core.platform_support", "relic_core.paths", "relic_core.checker",
+           "relic_core.store", "relic_core.context", "relic_core.trajectory", "relic_core.sessions",
            "relic_core.runner", "relic_core.desktop", "relic_core.wake", "relic_core.api")
 
 CODE = threading.RLock()  # relic_core runs under it and a reload takes it, so modules never change under a call

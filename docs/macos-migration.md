@@ -1,10 +1,10 @@
 # macOS arm64 migration tracker
 
-**v0.4.1-macos-beta.1 is an unsigned Apple silicon prerelease candidate awaiting approval to publish.** It preserves
-the tested v0.4.1-beta.1 baseline; newer upstream v0.6.0-beta.1 changes are outside this release. Intel and Rosetta are
-out of scope. Installation, server lifecycle and a signed-in Claude Code/Codex organization workflow have passed
-local checks. Browser and native desktop acceptance remain limited as recorded below and in
-[validation.md](validation.md). No Git push or GitHub publication is part of the local preparation.
+This tracker describes HaochenGu's macOS port, now integrated with v0.6.0 in the unified v0.7.0-beta.1 candidate
+(plugin 0.18.0-beta.1). Runtime features are shared with Windows. The real-Mac observations below refer to the
+pre-merge v0.4.1 port; merged fixture/CI evidence is recorded separately in [validation](validation.md).
+The source installer is unsigned and not notarized; Intel/Rosetta and merged signed-in acceptance remain outside
+the completed validation. Opening an old store adds `activity.paths` irreversibly; back up before upgrading.
 
 ## Step 1 — Platform and filesystem behavior
 
@@ -36,7 +36,7 @@ and Windows/macOS Python coverage.
 **Validation:** all 15 packaging/installer tests passed. The final local ZIP was extracted with macOS `ditto` and
 passed installation, diagnostics, launcher execution, status, authenticated restart and stop in an isolated home.
 Portable archive launch configurations are checked without changing the live install. The source package and locally
-generated Finder launcher are unsigned and not notarized. Updated Windows CI has not run.
+generated Finder launcher are unsigned and not notarized. See the merged section of validation.md for current CI results.
 
 ## Step 4 — Desktop transport implementation
 
@@ -53,9 +53,9 @@ conditions remain unverified on this machine, and native desktop delivery is out
 ## Step 5 — Tests, documentation and prerelease packaging
 
 **Prepared:** focused regression suites, bilingual macOS instructions, environment/lifecycle reference and release
-metadata for v0.4.1-macos-beta.1. The Mac package is supplied as ZIP and tar.gz with checksums and a source manifest.
+metadata for the unified v0.7.0-beta.1. The Mac package is supplied as ZIP and tar.gz with checksums and a source manifest.
 It contains source and a launcher installer; Python, Node.js, host CLIs and account access are supplied by the user.
-GitHub publication awaits approval.
+No separate macOS release is planned; public release publication is outside this merge.
 
 **Validation:** see [validation.md](validation.md) for current counts, runtime versions, adapter observations and
 archive checks. Fixture, real adapter and signed-in model results must remain distinguishable. Local Mac success does
@@ -77,7 +77,7 @@ not demonstrate autonomous startup. Prompt design remains separate research work
 - Safari/Chromium, Finder/Terminal, clipboard, English/Chinese IME, trackpad and permission-denial interaction.
   Chrome automation was unavailable, the in-app browser timed out, and a Safari attempt hung and was aborted.
 - Codex and Claude native desktop gates, exact delivery receipts and duplicate-send behavior against real hosts.
-- The updated Windows CI matrix. No new Windows artifact is offered by this Mac prerelease.
+- Merged signed-in Mac acceptance; the current Windows/macOS fixture matrix is recorded in validation.md.
 
-The release scope is an unsigned Apple silicon prerelease with these limitations disclosed. The remaining publication
-step is approval of the prepared source, documentation and artifacts before any Git push or GitHub release creation.
+The unified candidate builds Windows and unsigned Apple silicon packages from the merged source. Publication
+as a GitHub Release or on the website is separate from this integration and its automated validation.

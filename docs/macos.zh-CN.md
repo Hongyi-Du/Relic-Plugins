@@ -1,10 +1,9 @@
-# macOS Apple silicon 使用指南
+# macOS Apple silicon 使用指南 — v0.7.0-beta.1
 
-**v0.4.1-macos-beta.1 是 Apple silicon 预发布版，未经签名或公证。**
-它基于已测试的 v0.4.1-beta.1，不包含后来上游 v0.6.0-beta.1 的变化。包内提供 Relic App 与 Claude
-Code/Codex 插件源码，Python、Node.js 和已登录的宿主 CLI 需要另行准备。真实 Claude Code 写作者与
-Codex 审阅者已在这台 Mac 上完成组织协作流程。已测试范围和剩余限制见 [迁移步骤](macos-migration.md)
-与 [验证记录](validation.md)。
+**v0.7.0-beta.1（插件 0.18.0-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
+共用功能源码和版本号。这个未签名的源码候选包包含 Relic App 与 Claude Code/Codex 插件，Python、Node.js
+和已登录宿主需要另行准备。HaochenGu 的真机观察针对合并前的 v0.4.1 基础移植；合并版自动测试及尚待完成的
+真机验收见[验证记录](validation.md)。不再单独发布 v0.4.1-macos。
 
 [English](macos.en.md) · [完整使用指南](guide.zh-CN.md)
 
@@ -25,7 +24,7 @@ macOS 目标平台是 **Apple silicon**，需要原生 **arm64 Python 3.11+**。
 
 ## 安装与服务管理
 
-将 `relic-macos-v0.4.1-macos-beta.1.zip`（或同名 `.tar.gz`）解压到准备长期保留的目录，在该目录运行：
+将 `relic-macos-v0.7.0-beta.1.zip`（或同名 `.tar.gz`）解压到准备长期保留的目录，在该目录运行：
 
 ```sh
 bash install.command --host none --open
@@ -59,12 +58,20 @@ python3 -X utf8 scripts/open_app.py --no-window
 时会在缺失的情况下补充活动路径字段，并保留已有记录；没有结构化路径的历史记录继续使用旧解析方式。
 宿主插件移除、marketplace 路径和回滚见 [完整指南](guide.zh-CN.md) 第 9 节。
 
+**`activity.paths` 是不可逆的自动数据库迁移，没有自动降级。**换回旧代码不会撤销它；回退时恢复升级前备份。
+
+## 与 Windows 共享的 v0.6.0 功能
+
+检查程序、给人的抄送、Stop hook 的 `Reply` 规则、人下发协议（`POST /api/org/<id>/protocols`）都在共同源码中。
+侧栏折叠整个组织子树，组织关系图支持拖动、缩放和适应窗口。Reply 约束需要宿主加载 Stop hook；
+规则与 API 细节见[参考](reference.zh-CN.md)。
+
 ## 当前能力
 
 | 功能 | 预发布行为与验证情况 |
 | --- | --- |
 | CLI 工具和 hooks | 组织、消息、文档、任务与治理共享本地数据库；执行约束需要宿主加载 hooks |
-| App 内的 ACP 成员 | 已登录的 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档修订；启动等待指令之后需要明确的任务提示 |
+| App 内的 ACP 成员 | HaochenGu 合并前 v0.4.1 测试中，已登录的 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档修订；启动等待指令之后需要明确的任务提示 |
 | 浏览器 App | 查找 Edge/Chrome app 包或打开默认浏览器；Safari/Chromium 交互、剪贴板、输入法和触控板验收尚未完成 |
 | Finder 与 Terminal | 已实现原生文件/目录打开及交互会话启动器，失败会报告；交互验收尚未完成 |
 | 协议路径 | 记录绝对与解析后的路径，使用 NUL 分隔的 Git 路径，按 macOS Unicode 与目标卷的大小写行为匹配；检查符号链接别名并保留 Windows 匹配语义 |
@@ -81,7 +88,7 @@ python3 -X utf8 scripts/open_app.py --no-window
 
 **Codex/ChatGPT：**通信只接受宿主提供的端点或其已记录副本，并验证 socket 私有且属于当前用户。
 成功的所需工具握手与 socket 身份绑定，替换 socket 后原验证失效。已从安装的 macOS 宿主确认消息分帧
-格式，但本次实测中真实宿主关闭了握手，因此当前测试环境仍无法投递。需要打开已加载 Relic 的聊天，
+格式，但 HaochenGu 合并前实测中真实宿主关闭了握手，因此当前测试环境仍无法投递。需要打开已加载 Relic 的聊天，
 并获准使用宿主通信；app-server 连接不能替代该接口。
 
 **Claude Desktop：**先在 Relic 设置中显式启用（尚无保存的设置时也可设
@@ -94,13 +101,13 @@ python3 -X utf8 scripts/open_app.py --no-window
 
 ## 已测试范围与已知限制
 
-已登录组织测试完成了写作者和审阅者任务、双向消息、共享文档修订与过期修订号写入拒绝。启动等待指令
+HaochenGu 合并前 v0.4.1 的已登录组织测试完成了写作者和审阅者任务、双向消息、共享文档修订与过期修订号写入拒绝。启动等待指令
 之后需要显式的人类任务提示，因此不能据此宣称完全自主启动、上下级或全部治理约束已通过验收。解压 ZIP
 还单独在隔离数据目录中通过了安装、诊断、服务状态、重启和停止检查。
 
 真实浏览器验收尚未完成：Chrome 自动化不可用，内置浏览器超时，Safari 尝试挂起后被中止。这些尝试
 不计为成功的 UI 验证。Finder/Terminal 交互、剪贴板、中英文输入、触控板和拒绝权限流程尚未全部进行
 交互实测。真实宿主的取消/续接/睡眠以及完整治理和上下级流程也超出本次已完成的测试范围。桌面投递须
-通过上述宿主检查，当前环境尚未验证。更新后的 Windows CI 矩阵尚未运行。
+通过上述宿主检查，当前环境尚未验证。合并版 Windows/macOS CI 结果见[验证记录](validation.md)。
 
 本版提供源码安装包和本地生成的启动器，未经签名或公证。

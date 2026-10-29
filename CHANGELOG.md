@@ -1,32 +1,99 @@
 # Changelog / 更新记录
 
-## v0.4.1-macos-beta.1 — 2026-10-28
+## v0.7.0-beta.1 — 2026-10-28
 
-First macOS Apple silicon prerelease, based on the tested v0.4.1-beta.1 codebase. Plugin
-0.15.1-macos-beta.1; the plugin id stays `relic@relic-bridge`. The newer Windows v0.6.0-beta.1
-release remains separate; this release does not include its newer protocol and reply-check features.
+One Relic version for Windows and macOS on Apple silicon, plugin **0.18.0-beta.1**. The macOS port contributed by
+**HaochenGu** is merged with v0.6.0; its original commits and authorship are retained. This is a release candidate in
+source, with locally buildable packages; no separate v0.4.1-macos release is planned.
 
-- **Native Apple silicon installation.** arm64 Python 3.11+ and Node.js 22+ checks; PATH, Homebrew,
-  nvm and Volta executable discovery; a Finder launcher at `~/Applications/Relic.app`.
-- **App and member lifecycle.** One server per data directory, authenticated status/stop/restart,
-  port reuse and cleanup of owned adapter processes. Locked Claude/Codex ACP dependencies.
-- **macOS files and interaction.** Finder/Terminal launching, Command-key shortcuts and POSIX file
-  links; volume-aware case matching, Unicode/symlink handling and structured activity paths.
-- **Desktop connections.** Codex/ChatGPT Unix sockets and Claude Desktop delivery are conditional
-  on local capability and host authorization checks. App-managed and CLI members work independently.
-- **Distribution.** ZIP and tar.gz source installers, SHA256 checksums and a manifest recording the
-  source commit. Packages and committed launch templates contain no installation-specific paths.
-- **Validation.** A real signed-in Claude writer/Codex reviewer organization completed tasks,
-  shared document revision and message round trips. Local Python 3.11 and 3.13 suites each passed
-  406 tests with two Windows-only skips. Extracted ZIP installation and server lifecycle passed.
-  See [validation](docs/validation.md) for scope and remaining interactive coverage.
+- **Shared features.** Both systems keep check programs, Copies to the person, Stop-hook rules on `Reply`, protocols
+  issued by the person, sidebar subtree folding and the draggable/zoomable organization chart. Platform differences
+  are limited to runtime discovery, native launchers, paths, process ownership and desktop transports.
+- **macOS Apple silicon.** Native arm64 Python 3.11+, Node.js 22+ for ACP members, Finder launcher, Command shortcuts,
+  Unicode/volume-aware file matching and conditional Codex/Claude desktop connections. Intel and Rosetta are outside
+  the target; the source installer is unsigned and not notarized.
+- **Common runtime improvements.** Locked ACP adapters (Node.js 22+ on both systems), isolated session identity,
+  authenticated App lifecycle, numeric-loopback startup and owned-child cleanup. Check-rule reviews now retain the
+  same working-directory and resolved-path binding as ordinary review rules.
+- **Upgrade and rollback.** Back up the data directory before upgrading. First opening an older store automatically
+  adds the `paths` column to `activity`, on Windows as well as macOS. This schema migration is irreversible by Relic:
+  there is no automatic downgrade, and replacing code does not remove the column. Restore a pre-upgrade backup to
+  roll back. Existing rows are preserved; older writers leave `paths` null and retain the legacy interpretation.
+- **Validation.** HaochenGu recorded a real Apple silicon v0.4.1-based installation/lifecycle check and signed-in
+  Claude writer/Codex reviewer workflow (tasks, messages and document revision). Those observations precede this
+  merge. Merged-version automated Windows/macOS results are recorded in [validation](docs/validation.md); the merged
+  version has not been accepted with signed-in hosts on a real Mac. Native desktop delivery, full browser interaction,
+  all governance/hook cases and cancellation/resume/sleep still need that acceptance.
+- **Packages.** One source produces `relic-windows-v0.7.0-beta.1.zip` and `relic-macos-v0.7.0-beta.1.tar.gz` (optional
+  macOS ZIP), with platform-specific installation instructions, executable launchers, checksums and source manifests.
 
-首个 macOS Apple silicon 测试版，基于已验证的 v0.4.1-beta.1，插件版本为
-0.15.1-macos-beta.1。Windows v0.6.0-beta.1 独立保留，本版不包含其新增的协议与回复检查功能。
-新增原生 arm64 环境检测、Finder 启动器、进程与服务生命周期管理、锁定版本的 ACP 适配器、
-macOS 文件路径处理及快捷键。真实 Claude/Codex 成员已完成任务、共享文档修订与消息往返；
-ZIP 解压安装及启动、状态、重启、停止检查通过。桌面自动投递仍需通过本机宿主能力验证。
-提供 ZIP、tar.gz、SHA256 校验及来源清单；属于未签名的源码安装包，面向 Apple silicon。
+Windows 与 Apple silicon macOS 统一为 **v0.7.0-beta.1**，插件 **0.18.0-beta.1**。
+**HaochenGu** 贡献的 macOS 移植与 v0.6.0 合并，保留原始提交和作者；不再另发 v0.4.1-macos。
+当前为源码候选版，可本地构建检查包。
+
+- **共同功能。**两端都保留检查程序、给人的抄送、Stop hook 的 `Reply` 规则、人下发协议、侧栏子树折叠及
+  可拖动缩放的组织关系图。系统差异只在运行环境查找、原生启动器、路径、进程管理和桌面通信层。
+- **Mac 适配。**支持原生 arm64 Python 3.11+、Finder 启动器、Command 快捷键、Unicode 与卷大小写匹配，
+  桌面连接按本机能力启用。Intel/Rosetta 不在目标内；源码安装包未经签名或公证。
+- **共同运行时。**锁定 ACP 适配器，两端 App 内成员均需 Node.js 22+；隔离会话身份，认证服务启停，避免
+  回环 DNS 阻塞，并清理自己启动的进程。检查程序返回审核时也绑定工作目录与解析后的文件路径。
+- **升级与回退。**升级前备份数据目录。两端首次打开旧库都会给 `activity` 增加 `paths` 列；这是不可逆的
+  自动迁移，没有自动降级，换回旧代码不会撤销它。回退需恢复升级前备份。已有记录保留，旧写入方留下的
+  空字段继续按旧方式读取。
+- **验证范围。**HaochenGu 在真实 Apple silicon Mac 上记录了 v0.4.1 基础版的安装、生命周期和已登录
+  Claude/Codex 成员的任务、消息与文档修订。这些是合并前证据。合并版 Windows/macOS 自动测试见
+  [验证记录](docs/validation.md)；合并版尚未完成已登录真机验收，桌面投递、完整浏览器交互、全部治理与
+  hooks、取消/恢复/休眠仍待验证。
+- **打包。**同一源码生成 Windows ZIP 与 macOS tar.gz（可选 ZIP），提供对应系统的安装说明、启动器、
+  校验文件与来源清单。
+
+## v0.6.0-beta.1 — 2026-10-28
+
+Sixth public beta. A strong protocol can judge the reply that ends a member's turn, and a protocol the person issues takes effect at once, with no vote. Plugin 0.17.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **Rules on the reply that ends a turn.** A rule can name `Reply` instead of tools (`tools: ["Reply"]`, effect `check` or `deny`, no other tool and no `path_glob`). It judges the reply that ends a member's turn, the text the person reads, when the turn ends: the Stop hook gives the rule `{"tool": "Reply", "input": {"text": ...}}` (Claude Code and Codex both pass that reply to the hook). When the reply breaks the rule, the member is sent back once with the reason and writes the whole reply again. A program on Reply answers allow or deny; a subagent's reply is not judged. "Reports to the person in Simplified Chinese" is such a rule.
+- **Protocols the person issues.** The person puts a protocol into effect in any organization at once, with no vote: what the person asks for is final. With `inherit`, every organization below is bound too. No member and no organization can revise, override or retire it; only the person retires it. The Relic App's server takes it at `POST /api/org/<org id>/protocols` with the App's token, so a session working for the person can issue what the person asked for. The group chat says that you issued it and that it is in effect, and the organization's protocols show it as issued by you.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer; nothing in the store changes. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex. Rules on Reply need 0.17.0 wherever Relic's hooks run: older versions ignore them.
+- **Release and checks.** `relic-windows-v0.6.0-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` lists 12 tools; a rule takes `Reply`.
+
+第六个公开内测版。强协议可以检查成员每轮最后给人的回复；人下发的协议立即生效，不需要表决。插件 0.17.0-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **检查每轮最后的回复。**规则可以写 `Reply` 代替工具名（`tools: ["Reply"]`，`effect` 是 `check` 或 `deny`，不能再写别的工具，也不能用 `path_glob`）。它管的是成员每轮结束时给人的那段回复：一轮结束时，Stop hook 把 `{"tool": "Reply", "input": {"text": ...}}` 交给规则（Claude Code 和 Codex 都会把这段回复交给 hook）。回复不合格时，成员会带着原因被打回一次，重写整段回复。Reply 上的判断程序只回答放行或拦下；子代理的回复不检查。「给人汇报一律用简体中文」就是这样一条规则。
+- **人下发的协议。**人可以在任何组织直接下发协议，立即生效，不需要表决：人的要求就是最终决定。带上 `inherit`，下面所有组织一起受约束。成员和任何组织都不能修订、覆盖或废除它，只有人能废除。Relic App 的服务在 `POST /api/org/<组织 id>/protocols` 接收（要带 App 的口令），所以替人干活的会话可以按人的要求下发。群聊里写明是你下发的、已经生效，组织的协议列表里标着「由你下发」。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器；数据库不变。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。Reply 规则要求所有跑 Relic hooks 的地方都用 0.17.0，旧版本会忽略它。
+- **发布与检查。**`relic-windows-v0.6.0-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 列出 12 个工具；规则多了 `Reply`。
+
+## v0.5.1-beta.1 — 2026-10-28
+
+A small update to v0.5.0-beta.1. Plugin 0.16.1-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **Folding in the sidebar.** Folding an organization now hides everything under it: its group chat, its members and every organization below it, at any depth. The arrow in front of an organization folds and unfolds it; its name opens it, or folds and unfolds it when it is already open. Folding is kept across a reload. Opening an organization from elsewhere (the organization chart, a link, a name card) unfolds the organizations above it so that it shows; a search shows every match, folded or not.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer; nothing in the store changes. Reload the Relic App's window. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex.
+- **Release and checks.** `relic-windows-v0.5.1-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` is unchanged: 12 tools.
+
+v0.5.0-beta.1 的小更新。插件 0.16.1-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **侧栏折叠。**折叠一个组织时，它下面的所有东西一起收起：群聊、成员，以及它下面各层的组织。组织前面的箭头负责折叠和展开；点组织名打开它，已经打开的组织再点名字就折叠或展开。折叠状态刷新后保留。从别处打开一个组织（组织关系图、链接、成员名片）时，它上面的组织自动展开，让它露出来；搜索时不论是否折叠，所有匹配都显示。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器；数据库不变。刷新 Relic App 的窗口。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。
+- **发布与检查。**`relic-windows-v0.5.1-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 没有变化，仍是 12 个工具。
+
+## v0.5.0-beta.1 — 2026-10-28
+
+Fifth public beta. A strong protocol can now run a check program its members wrote, and a protocol with one is copied to you when it takes effect. Plugin 0.16.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **Check rules.** A strong protocol's rule can have the effect `check`: a Python program its members wrote (standard library only) that answers `allow`, `deny` or `review`, with a reason, for each tool call the rule covers. It is for problems the other rules cannot express: what a member did before, in what order, how long ago. The rule names its tools (not every tool) and carries `code`, 2 to 12 `examples` (calls the rule covers, at least one allowed and one denied or sent for review) and `on_error` (`allow`, the default, or `deny`). When the protocol is proposed, the code is compiled, its imports are checked, and every example runs and has to come out as expected; the code's sha256 is recorded and compared before every run. Members read a proposal's code and examples with `protocol op=list protocol_id=<P#>` before they vote. A program gets the call (tool, input, member, role, harness, organization, protocol), the member's latest 20 tool calls in the organization, the time of its latest edit and the current time.
+- **How a program runs.** In a process of its own: the same Python with `-I -S -X utf8`, at most 3 seconds and 8 KB of answer, a temporary folder and almost no environment; on Windows a job object ends whatever the program starts and caps its memory at 512 MB. Several programs on one call run side by side. A timeout, an exception, an invalid answer or a crash follows `on_error`, is recorded, and is announced in the group chat of the protocol's organization, once a day per protocol and kind of failure; members see it in `status`. Allowed calls are only counted; blocks, reviews and failures go to the organization's event log. This is not a security sandbox: members review the code, and you can retire the protocol at once.
+- **Copies to you.** A protocol with a check rule takes effect by the organization's vote (or as issued from above) without waiting for you, and a copy reaches you with `summary_for_person`, a description in your language that the proposal must include. Revisions are copied too. In the Relic App, Copies next to the notification bell shows how many are unread. Each card has the organization, the protocol, the description, who proposed it and who voted for it, when it took effect and how often its program allowed, blocked, sent for review or failed; the code and examples are folded below. Got it marks a copy read. Retire this protocol, after a confirmation, retires it at once, here and in the organizations below that inherit it, with no vote; their group chats get a notice and members see it in `status`.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer. On first use the store adds the tables `cc`, `check_counts` and `check_alerts`; nothing else changes. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex. Every place that runs Relic's hooks needs 0.16.0: older versions treat a `check` rule as `require_review` and ask for a review on every call it covers. Installed with the same Python as before, the Relic hooks keep the trust you gave them in Codex.
+- **Release and checks.** `relic-windows-v0.5.0-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` lists 12 tools; `protocol` takes `summary_for_person`, and its rules take `check`.
+
+第五个公开内测版。强协议可以运行成员自己写的判断程序；带判断程序的协议生效时抄送给你。插件 0.16.0-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **check 规则。**强协议的规则多了一种 `effect`：`check`，一段成员自己写的 Python 程序（只用标准库），对规则管的每次工具调用回答 `allow`、`deny` 或 `review`，并给出原因。它用来处理其他规则表达不了的问题：成员之前做过什么、先后顺序、隔了多久。规则要写明管哪些工具（不能是全部工具），并带 `code`、2 到 12 个 `examples`（这条规则管得到的调用，至少一个放行、一个拦下或送审）和 `on_error`（默认 `allow`，或 `deny`）。提交协议时编译代码、检查 import，逐个运行例子，结果必须和预期一致；同时记下代码的 sha256，每次运行前核对。成员投票前用 `protocol op=list protocol_id=<P#>` 读提案的代码和例子。程序拿到的是这次调用（工具、输入、成员、角色、宿主、组织、协议）、这个成员在本组织最近 20 次工具调用、最近一次改文件的时间和当前时间。
+- **程序怎么运行。**在单独的进程里：同一个 Python 加 `-I -S -X utf8`，最多 3 秒、回答最多 8 KB，临时目录，几乎不带环境变量；Windows 上用 job object 结束程序启动的所有进程，内存上限 512 MB。同一个调用碰上几个程序时并行跑。超时、抛异常、返回不合法或崩溃都按 `on_error` 处理，记一条事件，并在协议所属组织的群聊里提示，同一协议同一类错误一天只提示一次；成员的 `status` 里也看得到。放行只计数；拦下、送审和出错记进组织的事件日志。这不是安全沙箱：靠成员互审代码，你也可以随时废除。
+- **抄送给你。**带 check 规则的协议由组织投票通过（或由上级下发）即生效，不等你批，同时抄送一份给你，附 `summary_for_person`：提案必须带的、用你的语言写的说明。修订版生效时也抄送。Relic App 铃铛旁边的「抄送」显示未读数；每张卡片写明组织、协议、说明、谁提的、谁投票通过、何时生效，以及程序放行、拦下、送审、出错各多少次；代码和例子折叠在下面。「知道了」标为已读；「废除这条协议」确认后立即废除，本组织和继承它的下级组织一起失效，不需要投票；群聊里有通知，成员在 `status` 里也看得到。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器。第一次使用时数据库加上 `cc`、`check_counts`、`check_alerts` 三张表，别的不变。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。所有跑 Relic hooks 的地方都要用 0.16.0：旧版本把 `check` 规则当成 `require_review`，它管的每次调用都要求别人审核。用和上次相同的 Python 安装时，Codex 里对 Relic hooks 的信任会保留。
+- **发布与检查。**`relic-windows-v0.5.0-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 列出 12 个工具；`protocol` 多了 `summary_for_person`，规则多了 `check`。
 
 ## v0.4.1-beta.1 — 2026-10-28
 

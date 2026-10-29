@@ -1,17 +1,17 @@
 {
-  "description": "Claude Code only: failed tool calls count as friction.",
-  "hooks": {
-    "PostToolUseFailure": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ['PLUGIN_ROOT'],'hooks','relic_hook.py'),run_name='__main__')\"",
-            "timeout": 20
-          }
-        ],
-        "matcher": "*"
-      }
-    ]
-  }
+ "description": "Claude Code only: failed tool calls count as friction.",
+ "hooks": {
+  "PostToolUseFailure": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ['PLUGIN_ROOT'],'hooks','relic_hook.py'),run_name='__main__')\"",
+      "timeout": 20
+     }
+    ],
+    "matcher": "*"
+   }
+  ]
+ }
 }

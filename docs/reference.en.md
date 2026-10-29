@@ -1,5 +1,9 @@
 # Tools and configuration reference
 
+v0.7.0-beta.1 (plugin 0.18.0-beta.1) shares check/Reply rules, Copies and person-issued protocols across Windows
+and macOS Apple silicon. Opening an older store adds `activity.paths`: an irreversible automatic schema migration
+with no automatic downgrade. Back up before upgrading; restore that backup to roll back.
+
 [中文](reference.zh-CN.md) · [User guide](guide.en.md)
 
 The exact MCP schemas are exported from the shipped code in [docs/api/relic.json](api/relic.json) (12 tools). Required fields, enums and descriptions in that file are authoritative. The host supplies session identity; never imitate another member by passing an actor override.
@@ -37,7 +41,11 @@ Example message:
 {"to":["reviewer"],"body":"Please review the interface document and return your findings."}
 ```
 
-A strong rule's `effect` is `deny`, `require_review`, or `require_before`. Selectors include `tools`, `input_contains`, `path_glob`, `members`, `roles`, `except_members`, and `except_roles`. A `require_before` rule uses `before:{tools,input_contains}`. A proposal uses a closed episode on which its author reflected. Under leader governance, adoption normally needs the leader and another member; peer governance uses majority approval. Read actual current governance in `status`.
+A strong rule's `effect` is `deny`, `require_review`, `require_before`, or `check`. Selectors include `tools`, `input_contains`, `path_glob`, `members`, `roles`, `except_members`, and `except_roles`. A `require_before` rule uses `before:{tools,input_contains}`. A proposal uses a closed episode on which its author reflected. Under leader governance, adoption normally needs the leader and another member; peer governance uses majority approval. Read actual current governance in `status`.
+
+A `check` rule runs a program its members wrote before every call it covers. It must name its `tools` (not every tool) and carries `code` (Python using the standard library only, defining `check(call)` that returns `{"decision": "allow" | "deny" | "review", "reason": "..."}`; a deny or a review needs a reason), `examples` (2 to 12 `{call, expect, note?}` the rule covers, at least one `allow` and one `deny` or `review`; every one runs when the protocol is proposed and has to come out as expected) and `on_error` (`allow`, the default, or `deny`: what happens to the call when the program times out, raises, answers something invalid or crashes). A protocol with a check rule needs `summary_for_person`, a description in the person's language. `call` holds `tool`, `input`, `member`, `role`, `harness`, `org_id`, `org_name`, `protocol_id`, `protocol_title`, `recent` (the member's latest 20 tool calls in the organization, newest first), `last_edit_at`/`last_edit_ts` and `now`/`now_ts`. The program runs in a process of its own (`-I -S -X utf8`, 3 seconds, 8 KB of answer, a temporary folder, almost no environment; on Windows a job object ends what it starts and caps its memory at 512 MB). That is not a security boundary: members read the code with `protocol op=list protocol_id=<P#>` before they vote, the code's sha256 recorded at proposal is compared before every run, and the person can retire the protocol at once from the Relic App. Such a protocol takes effect by the organization's vote and is copied to the person (see the [guide](guide.en.md), section 5). Plugin versions before 0.16.0 treat `check` as `require_review`.
+
+A rule may name `Reply` instead of tools (`tools: ["Reply"]`, effect `check` or `deny`, no other tool and no `path_glob`): it judges the reply that ends a member's turn, the text the person reads, when the turn ends. Its call is `{"tool": "Reply", "input": {"text": ...}}`, and a program on it answers allow or deny. A reply that breaks it sends the member back once to write it again. The person can also issue a protocol in any organization directly (the Relic App's `POST /api/org/<org id>/protocols`): it takes effect at once with no vote, binds the organizations below when inherited, and only the person can retire it.
 
 ```json
 {"effect":"deny","tools":["Edit","Write"],"path_glob":"src/api/*","except_roles":["api-owner"],"reason":"Coordinate API changes with its owner."}

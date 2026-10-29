@@ -29,6 +29,7 @@ class PackageTests(unittest.TestCase):
             for line in sums.decode('ascii').splitlines():
                 digest,name=line.split('  ')
                 self.assertEqual(hashlib.sha256((target/name).read_bytes()).hexdigest(),digest)
+            plugin_sources = []
             for item in manifest['assets']:
                 with self.subTest(asset=item['name']):
                     if item['platform'] == 'macos':
@@ -59,17 +60,22 @@ class PackageTests(unittest.TestCase):
                         self.assertEqual(server['args'], ['-X', 'utf8', './server.py'])
                         self.assertNotIn('env', server)
                     claude=json.loads((plugin/'.claude-plugin/plugin.json').read_text(encoding='utf-8'))
+                    interpreter = 'python3' if item['platform'] == 'macos' else 'python'
                     self.assertEqual(claude['mcpServers']['org'],
-                                     {'command': 'python3', 'args': ['-X', 'utf8', '${CLAUDE_PLUGIN_ROOT}/server.py']})
+                                     {'command': interpreter, 'args': ['-X', 'utf8', '${CLAUDE_PLUGIN_ROOT}/server.py']})
                     for hooks_file in (plugin/'hooks').glob('*.json'):
                         hooks=json.loads(hooks_file.read_text(encoding='utf-8'))
                         for groups in hooks.get('hooks', {}).values():
                             for group in groups:
                                 for hook in group.get('hooks', []):
                                     if hook.get('type') == 'command':
-                                        self.assertTrue(hook['command'].startswith('python3 -X utf8 -c '))
+                                        self.assertTrue(hook['command'].startswith(interpreter + ' -X utf8 -c '))
                                         self.assertNotIn(str(ROOT), hook['command'])
                                         self.assertNotIn('args', hook)
+                    platform_templates = {'.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/claude-extra.json'}
+                    plugin_sources.append({p.relative_to(plugin).as_posix(): p.read_bytes()
+                                           for p in plugin.rglob('*') if p.is_file()
+                                           and p.relative_to(plugin).as_posix() not in platform_templates})
                     command=[sys.executable,'-X','utf8',str(extracted/'scripts/install.py'),'--configure-only']
                     result=subprocess.run(command,capture_output=True,text=True,encoding='utf-8',timeout=20)
                     self.assertEqual(result.returncode,0,result.stderr)
@@ -79,10 +85,20 @@ class PackageTests(unittest.TestCase):
                         self.assertEqual(server['command'], str(Path(sys.executable).resolve()))
                         self.assertEqual(server['args'], ['-X', 'utf8', str((plugin/'server.py').resolve())])
                     self.assertTrue((extracted/'scripts/open_app.py').is_file())
+                    self.assertEqual((extracted/'scripts/macos_app.py').is_file(), item['platform'] == 'macos')
+                    readme = (extracted/'README.md').read_text(encoding='utf-8')
+                    self.assertIn(manifest['release'], readme)
+                    self.assertIn('activity.paths', readme)
+                    self.assertNotIn('maintained separately', readme)
+                    if item['platform'] == 'macos':
+                        self.assertIn('Finder', readme)
+                        self.assertIn('HaochenGu', readme)
                     self.assertTrue((extracted/'plugins/relic/app/static/index.html').is_file())
                     self.assertTrue((extracted/'.claude-plugin/marketplace.json').is_file())
                     self.assertFalse((extracted/'scripts/open_panel.py').exists())
                     self.assertNotIn(b'\r', (extracted/'install.command').read_bytes())
+            self.assertEqual(plugin_sources[0], plugin_sources[1])
+            self.assertEqual(plugin_sources[0], plugin_sources[2])
 
 
 if __name__=='__main__':

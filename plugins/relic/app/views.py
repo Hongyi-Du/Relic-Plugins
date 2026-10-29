@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from relic_core import i18n, runner, trajectory
-from relic_core.store import inherits, kind_of
+from relic_core.store import has_check, inherits, kind_of
 
 from . import harness as harnesses
 from . import naming, prefs
@@ -410,6 +410,24 @@ def approval_item(store, org, r, lang=None):
             "error": r.get("error")}
 
 
+def copies(store, lang=None):
+    """What was copied to the person (GET /api/cc): protocols with a check program, each with its note for the person,
+    who proposed it (author_display, by display name) and how it stands now; unread counts every unread copy."""
+    items = store.copies()
+    orgs = {o["id"]: o for o in store.list_orgs()}
+    for c in items:
+        seats = (orgs.get(c.get("org")) or {}).get("members") or {}
+        shown = lambda m, seats=seats: naming.display(seats[m], m, lang) if m in seats else m  # noqa: E731
+        issued = c.get("issued_by") or {}
+        if issued.get("member"):  # issued from an organization above
+            c["author_display"] = i18n.t("common.member_of_org", lang, member=issued["member"],
+                                         org=issued.get("name") or issued.get("org") or "")
+        else:
+            c["author_display"] = shown(c.get("author") or "")
+        c["approved_display"] = [shown(m) for m in c.get("approved_by") or []]
+    return {"items": items, "unread": store.unread_copies()}
+
+
 def snapshot(store, org_id, hub=None, lang=None):
     org = store.get(org_id)
     now = time.time()
@@ -424,7 +442,9 @@ def snapshot(store, org_id, hub=None, lang=None):
                   "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
                   "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target"),
                   "issued_by": p.get("issued_by"), "downward": bool(p.get("downward")), "inherit": inherits(p),
-                  "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or "")}
+                  "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or ""),
+                  "check": has_check(p), "summary_for_person": p.get("summary_for_person", ""),
+                  "retired_by_person": p.get("retired_by") == HUMAN}
                  for p in sorted((org.get("protocols") or {}).values(), key=lambda p: int(p["id"][1:]))]
     episodes = [{"id": e["id"], "title": e["title"], "status": e["status"], "outcome": e.get("outcome"),
                  "owner": e.get("owner"), "reflections": len(e.get("reflections") or {}),
@@ -448,7 +468,8 @@ def snapshot(store, org_id, hub=None, lang=None):
     inherited = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
                   "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
                   "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
-                  "from_id": a["id"], "issued_by": p.get("issued_by")} for a, p in lineage["inherited"]]
+                  "from_id": a["id"], "issued_by": p.get("issued_by"), "check": has_check(p),
+                  "summary_for_person": p.get("summary_for_person", "")} for a, p in lineage["inherited"]]
     # protocols of the organizations above that this organization or one between overrode or stopped
     replaced = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "from": a["name"], "from_id": a["id"],
                  "how": how, "by": by, "at": level["name"], "at_id": level["id"]}
@@ -585,7 +606,12 @@ NOTICE_KINDS = ("organization.created", "member.joined", "member.prepared", "mem
                 "organization.cabinet_set", "organization.cabinet_unset", "organization.leader_set",
                 "organization.group_created", "organization.closed", "organization.dissolved",
                 "organization.child_closed", "organization.child_dissolved", "member.office_ended", "request.filed",
-                "request.approved", "request.denied", "request.failed")
+                "request.approved", "request.denied", "request.failed", "protocol.copied", "protocol.retired_by_person",
+                "protocol.check_alert")
+# how a check program failed (protocol.check_alert), in the person's words
+CHECK_ERRORS = {"timeout": "view.check.timeout", "raised": "view.check.raised", "load": "view.check.load",
+                "invalid": "view.check.invalid", "crashed": "view.check.crashed",
+                "unavailable": "view.check.unavailable", "tampered": "view.check.tampered"}
 TASK_KEYS = {"open": "task.open", "working": "task.working", "blocked": "task.blocked", "done": "task.done",
              "dropped": "task.dropped"}
 
@@ -646,12 +672,28 @@ def notice_text(org, e, lang=None, store=None):
         return None
     if k == "protocol.activated" and b.get("issued_by"):  # issued by an organization above: in effect directly
         protocols = org.get("protocols") or {}
+        if b["issued_by"].get("person"):  # issued by the person: in effect at once, with no vote
+            return i18n.t("view.notice.protocol_issued_by_person", lang, id=b.get("id"),
+                          title=(protocols.get(b.get("id")) or {}).get("title") or b.get("id"))
         if b.get("retire_target"):
             gone = protocols.get(b["retire_target"]) or {}
             return i18n.t("view.notice.protocol_retired_by", lang, who=who, id=b["retire_target"],
                           title=gone.get("title") or b["retire_target"])
         return i18n.t("view.notice.protocol_issued", lang, who=who, id=b.get("id"),
                       title=(protocols.get(b.get("id")) or {}).get("title") or b.get("id"))
+    if k == "protocol.copied":  # a protocol with a check program took effect: the person has a copy with a note
+        title = ((org.get("protocols") or {}).get(b.get("id")) or {}).get("title") or b.get("id")
+        return i18n.t("view.notice.copied", lang, id=b.get("id"), title=title)
+    if k == "protocol.retired_by_person":
+        if b.get("from"):  # inherited from an organization above, which the notice names ("<org id>/P3" -> P3)
+            return i18n.t("view.notice.retired_by_person_above", lang, id=str(b.get("id") or "").rsplit("/", 1)[-1],
+                          title=b.get("title") or "", org=b.get("from_name") or b.get("from"))
+        return i18n.t("view.notice.retired_by_person", lang, id=b.get("id"), title=b.get("title") or "")
+    if k == "protocol.check_alert":  # announced once a day per protocol and kind of failure
+        outcome = "view.check.blocked" if b.get("on_error") == "deny" else "view.check.allowed"
+        return i18n.t("view.notice.check_alert", lang, id=b.get("id"), title=b.get("title") or "",
+                      kind=i18n.t(CHECK_ERRORS.get(b.get("kind"), "view.check.failed"), lang),
+                      outcome=i18n.t(outcome, lang))
     if k == "organization.created":
         return i18n.t("view.notice.created", lang, who=who, name=b.get("name") or org["name"])
     if k in ("member.joined", "member.prepared"):

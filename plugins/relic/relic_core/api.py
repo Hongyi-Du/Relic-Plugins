@@ -37,9 +37,22 @@ def tool(name, description, props, required=()):
 
 
 RULE = {"type": "object", "description": (
-    "effect: deny | require_review | require_before. tools: tool-name globs such as Bash, Edit, Write. "
+    "effect: deny | require_review | require_before | check. tools: tool-name globs such as Bash, Edit, Write. "
     "Optional: input_contains [substrings of the tool input], path_glob (file path pattern), members/roles it applies to, "
-    "except_members/except_roles (e.g. the owner), before {tools, input_contains} for require_before, reason.")}
+    "except_members/except_roles (e.g. the owner), before {tools, input_contains} for require_before, reason. "
+    "check runs a judgment program of yours on the calls the rule covers, for what the other effects cannot express: "
+    "tools must name the tools it judges (not every tool); code: Python, standard library only, defining check(call) "
+    "that returns {decision: allow|deny|review, reason} (review: another member approves the exact action; deny and "
+    "review need a reason, which the member reads). call: tool and input (Bash for shell commands, Edit for patches), "
+    "member, role, harness, org_id, org_name, protocol_id, protocol_title, recent (the member's latest 20 tool calls "
+    "here, newest first: tool, kind edit|run|other, summary, failed, at, ts), last_edit_at/last_edit_ts (its latest "
+    "edit, or null), now/now_ts (times are ISO UTC text and seconds; use now_ts, not the clock, so examples hold). "
+    "examples: 2-12 {call, expect, note?}, calls the rule covers (fields left out get defaults), at least one allow and "
+    "one deny or review; all run when you propose and must come out as expected. on_error: allow (default) or deny, "
+    "for a program that fails (timeout 3 s, an exception, an answer that is not a decision) or whose code changed "
+    "after it was proposed. A rule on Reply (tools [\"Reply\"], effect check or deny) judges the reply that ends a "
+    "member's turn, the text the person reads, when the turn ends: call.input is {text}; a deny sends the member back "
+    "once to write the reply again (a program on Reply answers allow or deny).")}
 
 TOOLS = [
     tool("create", "Create a new Relic organization and join it as its first member. Use when the human asks for an "
@@ -97,16 +110,27 @@ TOOLS = [
           "outcome": S, "summary": S, "evidence": SL, "body": S, "org": SEAT}, ["op"]),
     tool("protocol", "Organization protocols. op=propose: weak {title, rationale, guidance, trigger, scope?, evidence} is "
          "shared guidance; strong {title, rationale, episode_id (closed, reflected), rules: [rule]} is enforced on tool "
-         "calls by the hook. Revise with supersedes, retire with retire_target. A proposal becomes active when the "
+         "calls by the hook. A strong protocol with a check rule (a judgment program of yours) also needs "
+         "summary_for_person; it takes effect by the organization's vote alone and is then copied to the person, who "
+         "can retire it at once. Revise with supersedes, retire with retire_target. A proposal becomes active when the "
          "organization's approval threshold is reached. A protocol binds its own organization only, unless inherit is "
          "true: then the organizations below inherit it, like a class, and each can override one (supersedes="
          "<org id>/<P#>) or stop it for itself and those below (retire_target=<org id>/<P#>) by its own vote; one "
          "issued from above stays as issued. Say in trigger when it applies (e.g. when reporting to the person). "
-         "op=vote {protocol_id, vote: approve|reject, reason}. "
-         "op=use {protocol_id, outcome: followed|deviated|inapplicable, note} reports actual use. op=list.",
+         "op=vote {protocol_id, vote: approve|reject, reason}: before voting on a check rule, read its code and "
+         "examples and say what you checked. "
+         "op=use {protocol_id, outcome: followed|deviated|inapplicable, note} reports actual use. op=list; with "
+         "protocol_id (P3, or <org id>/P3 from above), that protocol in full: its rules' code and examples, its note "
+         "for the person, votes.",
          {"op": {"enum": ["propose", "vote", "use", "list"]}, "title": S, "rationale": S,
           "strength": {"enum": ["weak", "strong"]}, "guidance": S, "trigger": S, "scope": S, "evidence": SL,
-          "episode_id": S, "rules": {"type": "array", "items": RULE}, "supersedes": S, "retire_target": S,
+          "episode_id": S, "rules": {"type": "array", "items": RULE},
+          "summary_for_person": dict(S, description="Needed with a check rule: a short note for the person, in the "
+                                                    "person's language (your context names it), on what the protocol "
+                                                    "is for, what its check program judges and when it blocks or sends "
+                                                    "a call for review. It is copied to the person when the protocol "
+                                                    "takes effect."),
+          "supersedes": S, "retire_target": S,
           "protocol_id": S, "vote": {"enum": ["approve", "reject"]}, "reason": S, "outcome": S, "note": S,
           "inherit": {"type": "boolean", "description": "The organizations below this protocol's organization "
                                                         "inherit it too (default: it binds its own organization only)."},

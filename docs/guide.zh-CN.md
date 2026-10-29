@@ -1,6 +1,6 @@
 # Relic 完整使用指南
 
-**当前公开版本仅支持 Windows；macOS 尚未发布，等待真实 Mac 测试。**
+**v0.7.0-beta.1 候选版：Windows 与 Apple silicon macOS 共享功能源码，插件为 0.18.0-beta.1。**已发布的 v0.6.0 仍仅面向 Windows；合并版已登录 Mac 验收尚待完成，见[验证记录](validation.md)。
 
 [English](guide.en.md) · [Windows](windows.zh-CN.md) · [macOS](macos.zh-CN.md) · [工具参考](reference.zh-CN.md)
 
@@ -14,7 +14,7 @@ v0.2.0-beta.1 有三个版本：Relic Claude、Relic Codex / GPT 和 Relic Bridg
 
 ## 2. 安装与检查
 
-按 [Windows 安装指南](windows.zh-CN.md) 安装；[macOS 文档](macos.zh-CN.md) 暂为未发布的开发草稿。安装器会在使用者电脑上解析 Python 和服务器路径，让插件的 MCP 服务和 shell hooks 使用同一个解释器，然后对每个宿主调用官方插件 CLI：先 `<cli> plugin marketplace add <目录>`，再 `claude plugin install relic@relic-bridge` 或 `codex plugin add relic@relic-bridge`。在 Claude Code 里，它会先尽力停用注册了相同工具名的旧版本（`relic@relic-claude`、`relic@relic-local`）。在 Windows 上，它会在桌面建一个名为 Relic 的快捷方式来打开 App。安装器不会替你登录、购买额度、下载任何东西、调用模型、批准 hooks 或修改组织数据。
+按 [Windows 安装指南](windows.zh-CN.md) 安装；[macOS 文档](macos.zh-CN.md) 说明 Apple silicon 候选版。安装器会在使用者电脑上解析 Python 和服务器路径，让插件的 MCP 服务和 shell hooks 使用同一个解释器，然后对每个宿主调用官方插件 CLI：先 `<cli> plugin marketplace add <目录>`，再 `claude plugin install relic@relic-bridge` 或 `codex plugin add relic@relic-bridge`。在 Claude Code 里，它会先尽力停用注册了相同工具名的旧版本（`relic@relic-claude`、`relic@relic-local`）。在 Windows 上，它会在桌面建一个名为 Relic 的快捷方式来打开 App。安装器不会替你登录、购买额度、下载任何东西、调用模型、批准 hooks 或修改组织数据。
 
 解压目录需要长期保留：插件的 MCP 配置和快捷方式都指向其中的文件。移动后要从新位置重新运行安装器。`--host` 选择宿主：`auto`（默认）安装到所有找得到 CLI 的宿主；`claude`、`codex` 或 `both` 指定宿主，指定的宿主没装时安装器报错停止；`none` 不改任何宿主，只用 App。`--configure-only` 只准备目录，不改宿主，也不建快捷方式；`--no-shortcut` 不建快捷方式；`--open` 在安装完成后打开 App。
 
@@ -56,7 +56,7 @@ Claude Code 的负责人加子智能体模式可以使用包内的 `relic:member
 
 成员卡片（点它的头像）管理席位：「开新会话」换一个新会话（职责、任务和协议留下，旧会话的私人笔记不带过去）；「打开会话」在终端或桌面版里打开它的会话；「改配置」修改它的配置；「离开席位」让会话离开、席位留着（它在别的组织里的席位也留着）；ChatGPT 聊天还有「转发回复」，用来提交你从 ChatGPT 窗口复制的回复（见第 8 节）。「也在」列出这个会话在别的组织里的席位。
 
-在 App 里运行的成员是 Agent Client Protocol（ACP）会话，通过官方适配器 `@agentclientprotocol/claude-agent-acp@0.97.0` 和 `@agentclientprotocol/codex-acp@2.3.0` 启动。在「设置 → Harness 连接」里安装它们：npm 把它们装在 `~/.relic/acp`（约 70 MB），所以需要 Node.js。适配器驱动这台电脑上已有的 Claude Code 和 Codex。App 这样把 Relic 带进它运行的每个会话：
+在 App 里运行的成员是 Agent Client Protocol（ACP）会话，通过官方适配器 `@agentclientprotocol/claude-agent-acp@0.97.0` 和 `@agentclientprotocol/codex-acp@2.3.0` 启动。在「设置 → Harness 连接」里安装它们：npm 把它们装在 `~/.relic/acp/adapters/<锁文件哈希>`（约 70 MB），所以需要 Node.js 22+。适配器驱动这台电脑上已有的 Claude Code 和 Codex。App 这样把 Relic 带进它运行的每个会话：
 
 - Claude Code 会话从 App 自己的目录加载插件。Claude Code 里已安装的 Relic 插件在这个会话里被关掉，工具和 hooks 只运行一份。
 - Codex 会话在 Codex 里启用了 Relic 插件时用 Codex 自己的插件；否则由 App 给这个会话 Relic MCP 服务。
@@ -80,9 +80,13 @@ Relic 区分三类状态：
 
 为一个有意义的协作单元打开 episode，以真实结果结束，再由每位参与者反思实际遇到的协调问题。同类问题反复出现时可以提议组织协议。插件不会预置业务协议，也不要求组织达到某个协议数量。
 
-**弱协议**是共享指导。**强协议**额外提供明确可执行条件，作用于支持的工具调用：`deny`、`require_review`、`require_before`。详见 [工具参考](reference.zh-CN.md)。协议默认只约束本组织；带 `inherit: true` 提出的协议也约束下面的组织（见第 6 节）。
+**弱协议**是共享指导。**强协议**额外提供明确可执行条件，作用于支持的工具调用：`deny`、`require_review`、`require_before`，以及成员自己写的判断程序 `check`。详见 [工具参考](reference.zh-CN.md)。协议默认只约束本组织；带 `inherit: true` 提出的协议也约束下面的组织（见第 6 节）。
 
 协议例子包括按职责限制目录写入、对准确的发布命令要求同伴审核、要求最后一次修改后先通过测试。成员用 `protocol` 工具提案、讨论和批准。提案不等于已生效的强制规则。修订和废止保留历史；使用记录应区分遵循、偏离和不适用。
+
+**判断程序和抄送给你。**这些条件不够用时（要看成员之前做过什么、先后顺序、隔了多久），成员可以写一条 `check` 规则：一段简短的 Python 程序，对规则管的每次调用决定放行、拦下或送审。成员投票前互相看代码和例子，提交时例子会逐个运行。你不用看代码：协议由组织投票通过即生效，同时抄送一份给你，附一段用你的语言写的说明。Relic App 铃铛旁边的「抄送」显示未读数；每张卡片写明协议在做什么、谁提的、谁投票通过、程序放行 / 拦下 / 送审了多少次，代码折叠在下面。可以点「知道了」，也可以不管；觉得不行就点「废除这条协议」，它马上失效，下级组织里继承的也一起失效，不需要投票。
+
+**检查回复的规则，和你下发的规则。**规则还可以检查成员每轮最后给你的回复（`Reply`）：回复不合格，成员会被打回一次重写。「给我的汇报一律用简体中文」就是这样一条规则。你自己下发的协议，在你选的组织里立即生效，带继承时下面所有组织一起生效，不需要表决：你的要求就是最终决定，也只有你能废除。
 
 hooks 只约束实际经过它的动作，不能当作操作系统隔离或对所有托管工具的全面控制。宿主沙箱和正常权限仍然适用。遇到不合理规则时，通过保持可达的治理工具缩小范围、修订或废止。
 
@@ -122,13 +126,13 @@ hooks 只约束实际经过它的动作，不能当作操作系统隔离或对�
 
 配置过的席位，在组织启用自动唤醒后可因新消息启动额外回合。当前限制包括最多六跳自动消息链、编程席位两分钟间隔、每组织每小时最多三十次唤醒。回执不会递归唤醒发送者。在「概况」面板关掉「自动唤醒」开关即可停止这种行为。未配置的席位通过显式工具、hooks 或 `inbox` 接收消息。坐在几个组织里的会话一次只跑一个回合：发给它别的席位的消息，等这一轮结束再处理。
 
-在 Windows 上，Codex 桌面应用里打开的 Codex 对话通过应用自己的工具管道唤醒。请求可能已经送达但未确认时保留 uncertain，不盲目重发。macOS 上没有这条通路：使用 CLI 持有的会话和显式 `inbox`；不要通过另一个写入者恢复已被桌面锁住的会话。成员卡片上的「打开会话」在 macOS 上尚未认证，请自行在 Terminal 打开会话。
+Windows 上通过宿主工具管道唤醒已打开的 Codex 桌面对话；macOS 上需要宿主提供的私有 Unix socket 通过能力握手和宿主授权，见[macOS 指南](macos.zh-CN.md)。可能已投递的请求保留 uncertain，不盲目重发。GUI 席位不会悄悄退回第二个 CLI 写入者；CLI/App 内成员与显式 `inbox` 可以独立使用。
 
 ## 8. 聊天席位与轨迹访问
 
 Relic 的 Claude Chat 接入需要在 Claude Desktop 单独配置本地 MCP，安装 Code 插件不等于配置 Chat 页。该连接使用 `claude-chat:` actor 和最长 50 秒 inbox 等待；聊天需自己发起回合。
 
-在 Windows 上，ChatGPT 聊天可以占一个席位：在 ChatGPT 桌面应用运行时，用「添加成员 → 已有会话」把它放进席位。Relic 把发给它的每条消息的全文放进这个聊天。应用不把 ChatGPT 回复的文字交给插件，所以需要本人在 ChatGPT 窗口复制每条回复，再用成员卡片上的「转发回复」转进组织；它以这个聊天成员的消息送到各成员。这不是 ChatGPT 网页版的全自动集成，也不在 macOS 内测可用范围内。
+在 Windows 上，ChatGPT 聊天可以占一个席位：在 ChatGPT 桌面应用运行时，用「添加成员 → 已有会话」把它放进席位。Relic 把发给它的每条消息的全文放进这个聊天。应用不把 ChatGPT 回复的文字交给插件，所以需要本人在 ChatGPT 窗口复制每条回复，再用成员卡片上的「转发回复」转进组织；它以这个聊天成员的消息送到各成员。这不是 ChatGPT 网页版的全自动集成，macOS 上还需要[指南](macos.zh-CN.md)所述的已验证宿主接口；移植版 smoke test 尚未验收真实桌面投递。
 
 成员请求另一位成员的轨迹时必须说明理由，并得到对方批准。读取自己席位前任的轨迹由人类决定。导出可能包含完整对话、工具记录和可归属该会话的记忆；默认脱敏不能保证去掉所有私人细节。不需要记忆时传 `memory:false`，共享前检查文件，并阅读 [隐私与数据](privacy.zh-CN.md)。
 
@@ -150,6 +154,8 @@ Relic 的数据都在 `~/.relic`（`~` 是当前系统账号的主目录）；`R
 升级前先关闭自动唤醒，关掉 Relic 会话，并停止 App 的服务（进程号是 `~/.relic/app.json` 里的 `pid`）。再私下备份完整数据目录，包括可能存在的 SQLite WAL/SHM 文件，并保留旧下载包。将新版解压到准备长期保留的路径并运行其中的安装器：它会先移除指向旧目录的 `relic-bridge` marketplace 注册，再把新目录注册上。重启宿主，按提示重新审阅 hooks。不要为了修安装错误而删除组织数据库。
 
 **从 v0.3.0-beta.1 升级。**组织照常保留。新版本第一次打开数据库时，加上 `seats` 和 `focus` 两张表，每个会话现在的席位作为它的主席位。已有组织都是没有上级的正式组织，也没有秘书处，所以在你设上级或标秘书处之前（见第 6 节），别的都不变；标了秘书处以后，每个领导制正式组织的负责人都会在秘书处里多一个席位。装好后，在还开着的 Claude Code 会话里运行 `/reload-plugins`（或开新会话），并重启 Codex：Codex 把装过的每个插件版本放在各自的目录里（`~/.codex/plugins/cache/relic-bridge/relic/<版本>`），启动时才载入。在那之前，这些会话可能还在用 0.14.0-beta.1：没有 `group` 工具和 `org` 参数，从上级继承来的协议也不会在它们的工具调用上执行。
+
+**v0.7.0 迁移：**两端首次打开旧库都会添加 `activity.paths` 列，这是不可逆自动迁移；换回代码不会撤销它，也没有自动降级。
 
 回滚时，在进程已停止的条件下恢复旧下载包与匹配的数据备份。卸载时在宿主插件管理器中移除插件，并删除 Relic 快捷方式；数据和解压目录会保留，只有明确不再需要记录时才另行删除。
 
@@ -181,6 +187,6 @@ v0.2.0-beta.1 的各个版本仍可从 [v0.2.0-beta.1 Release](https://github.co
 | 装好的 App 连不上 Relic | 39321 端口被占用，服务换了端口；释放端口，停止服务（`~/.relic/app.json` 里的 `pid`），再打开 App |
 | 成员无法在 App 里运行 | 「设置 → Harness 连接」：适配器是否已装、是否找到 Node.js、Claude Code 或 Codex 是否找到并已登录 |
 | Codex 桌面对话没被唤醒 | Windows 上 Codex 桌面应用是否打开；被终端里 Codex CLI 会话持有的对话无法触达，消息等它调用 `inbox` |
-| macOS 上 Relic 无法唤醒桌面聊天 | 当前平台限制，使用 CLI 同伴或显式 inbox |
+| macOS 上 Relic 无法唤醒桌面聊天 | 在设置中验证本机宿主能力；不可用时使用 CLI/App 成员或显式 inbox |
 
 报告问题时附发布版本、系统、Python 和宿主版本、失败步骤、预期行为及最小脱敏日志。不要默认上传真实组织数据库或完整轨迹。

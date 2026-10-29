@@ -1,7 +1,10 @@
 """Readable organization context for one member (injected by hooks and returned by status)."""
 import json
+import time
 
-from .store import language_name
+from .store import has_check, language_name
+
+RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
 
 
 def _rule_text(rule):
@@ -24,6 +27,9 @@ def _rule_text(rule):
         return "%s requires %s after your latest edit%s" % (what, need, who)
     if rule["effect"] == "require_review":
         return "%s needs another member's approval%s" % (what, who)
+    if rule["effect"] == "check":
+        return "%s is judged by its check program%s (if the program fails: %s)" % (what, who,
+                                                                                  rule.get("on_error") or "allow")
     return "%s is blocked%s" % (what, who)
 
 
@@ -111,12 +117,25 @@ def render(store, org, member, unread_count=None, full=True):
     for above, p, level, by, how in lineage["replaced"]:
         lines.append("- %s/%s '%s' of %s is %s by %s %s and does not bind here." % (
             above["id"], p["id"], p["title"], above["name"], how, level["name"], by))
+    for ref, title, kinds, latest in store.check_trouble(org):
+        if time.time() - latest < RECENT_TROUBLE:
+            lines.append("The check program of %s '%s' has failed (%s; latest %s UTC): calls it covers are allowed or "
+                         "blocked as its on_error says. Propose a revision (supersedes) that fixes it." % (
+                             ref, title, ", ".join("%s x%d" % (k, n) for k, n in sorted(kinds.items())),
+                             time.strftime("%Y-%m-%d %H:%M", time.gmtime(latest))))
+    gone = store.retired_by_person(org)
+    if gone:
+        lines.append("Retired by the person (they no longer bind anyone here; do not propose them again as they were): "
+                     + "; ".join("%s '%s' (%s)" % (ref, title, when[:10]) for ref, title, when in gone))
     pending = [p for p in org["protocols"].values() if p["status"] == "proposed" and member not in p["votes"]]
     for p in pending:
-        lines.append("Proposal awaiting your vote: %s '%s' by %s (%s)." % (p["id"], p["title"], p["author"], p["strength"]))
+        lines.append("Proposal awaiting your vote: %s '%s' by %s (%s)." % (p["id"], p["title"], p["author"], p["strength"])
+                     + (" It runs a check program: read its code and examples with protocol op=list protocol_id=%s "
+                        "before you vote, and say in your vote what you checked." % p["id"] if has_check(p) else ""))
     reviews = [r for r in org["reviews"].values() if r["status"] == "pending" and r["subject"] != member]
     for r in reviews[:5]:
-        lines.append("Review requested: %s by %s for %s: %s" % (r["id"], r["subject"], r["tool"], r["summary"][:120]))
+        lines.append("Review requested: %s by %s for %s: %s%s" % (r["id"], r["subject"], r["tool"], r["summary"][:120],
+                                                                 (" (why: %s)" % r["why"][:160]) if r.get("why") else ""))
     asks = [r for r in org.get("trajectory_requests", {}).values() if r["approver"] == member and r["status"] == "pending"]
     for r in asks[:5]:
         lines.append("Trajectory request %s: %s asks to read %s (reason: %s). Your call: trajectory op=answer." % (
