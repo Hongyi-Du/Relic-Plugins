@@ -2,6 +2,12 @@ import XCTest
 @testable import RelicCore
 
 final class InspectorGeometryTests: XCTestCase {
+    func testNarrowWindowsKeepConversationWidthAndOverlayTheInspector() {
+        XCTAssertTrue(InspectorGeometry.overlaysConversation(window: 1024))
+        XCTAssertTrue(InspectorGeometry.overlaysConversation(window: 1180))
+        XCTAssertFalse(InspectorGeometry.overlaysConversation(window: 1181))
+        XCTAssertFalse(InspectorGeometry.overlaysConversation(window: 1280))
+    }
     func testRestoresInspectorAndFileWidthsWithoutNativeSplitViewMinimums() {
         XCTAssertEqual(InspectorGeometry.width(window: 1440, saved: 340, files: false), 340)
         XCTAssertEqual(InspectorGeometry.width(window: 1024, saved: 520, files: true), 520)

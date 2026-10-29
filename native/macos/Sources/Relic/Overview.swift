@@ -16,8 +16,8 @@ struct Overview: View {
                             Button { m.overviewMode = value } label: {
                                 ReferenceLabel(m.t(key), size: 12, color: m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary, lines: 0, alignment: .center)
                                     .padding(.horizontal, 9).padding(.vertical, 2)
-                                    .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6))
-                            }.buttonStyle(.plain).layoutPriority(value == "liaison" ? 0 : 1).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
+                                    .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6, shadows: m.overviewMode == value ? SurfaceShadow.small : [], selected: m.overviewMode == value))
+                            }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
                         }
                     }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
                         .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
@@ -50,7 +50,7 @@ struct Overview: View {
                 Button { m.openDetails("trace") } label: { HStack(spacing: 6) { ReferenceIcon(name: "trace", size: 16); Text(m.t("org.details")).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle())
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
-            .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
+            .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
     }
     private func sectionTitle(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2) }
     private func empty(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }

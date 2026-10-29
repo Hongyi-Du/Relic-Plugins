@@ -42,7 +42,7 @@ import RelicCore
     @Published var panelOpen = true
     @Published var focusSearch = false
     @Published var search = ""
-    @Published var overviewMode = "transparent"
+    @Published var overviewMode = "direct"
     @Published var detailTab = "trace"
     @Published var detailMember = ""
     @Published var detailDocument = ""
@@ -217,7 +217,7 @@ import RelicCore
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
         plainMode = defaults.bool(forKey: "plain." + next.org); digestOpen = defaults.bool(forKey: "digest." + next.org)
-        overviewMode = defaults.string(forKey: "mode." + next.org) ?? "transparent"
+        overviewMode = defaults.string(forKey: "overview.mode") ?? "direct"
         if record { history.visit(next) }
         if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: "selection") }
         recent.removeAll { $0 == next }; recent.insert(next, at: 0); recent = Array(recent.prefix(12))

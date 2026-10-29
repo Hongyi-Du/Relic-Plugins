@@ -14,6 +14,7 @@ struct MainView: View {
     @State private var resizingPanel: CGFloat?
     @State private var resizeStart: CGFloat?
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
+    private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
     private var panelWidth: CGFloat {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
@@ -27,19 +28,8 @@ struct MainView: View {
             HStack(spacing: 0) {
                 if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
                 ChatView().frame(minWidth: 0, maxWidth: .infinity)
-                if m.panelOpen {
-                    RightPane().frame(width: panelWidth).measuredRegion("right-pane")
-                        .overlay(alignment: .leading) {
-                            Color.clear.frame(width: 6).contentShape(Rectangle())
-                                .onHover { hovering in if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
-                                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                                    if resizeStart == nil { resizeStart = panelWidth }
-                                    resizingPanel = InspectorGeometry.width(window: m.windowSize.width, saved: (resizeStart ?? panelWidth) - value.translation.width, files: m.pane == "files")
-                                }.onEnded { _ in m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
-                                .help(m.t("panel.resize"))
-                        }
-                }
-            }.frame(maxHeight: .infinity)
+                if m.panelOpen && !floatingPanel { inspector }
+            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
@@ -54,6 +44,18 @@ struct MainView: View {
         .accessibilityIdentifier("relic-root")
         .coordinateSpace(name: "relic-window")
         }
+    }
+    private var inspector: some View {
+        RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
+            .overlay(alignment: .leading) {
+                Color.clear.frame(width: 6).contentShape(Rectangle())
+                    .onHover { hovering in if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                        if resizeStart == nil { resizeStart = panelWidth }
+                        resizingPanel = InspectorGeometry.width(window: m.windowSize.width, saved: (resizeStart ?? panelWidth) - value.translation.width, files: m.pane == "files")
+                    }.onEnded { _ in m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
+                    .help(m.t("panel.resize"))
+            }
     }
 }
 
@@ -133,6 +135,7 @@ struct SheetContent: View {
 
 struct RightPane: View {
     @EnvironmentObject var m: Model
+    var floating = false
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -142,10 +145,10 @@ struct RightPane: View {
                             Button { m.setPane(pane.0) } label: {
                                 HStack(spacing: 5) {
                                     ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary)
-                                    Text(m.t(pane.1)).font(.system(size: 12.5, weight: m.pane == pane.0 ? .semibold : .regular)).lineLimit(1)
+                                    ReferenceLabel(m.t(pane.1), size: 12.5, weight: m.pane == pane.0 ? 600 : 400)
                                     if pane.0 == "thread" { Button { m.closeThread() } label: { ReferenceIcon(name: "x", size: 12, color: RelicStyle.muted).frame(width: 16, height: 16) }.buttonStyle(.plain).help(m.t("panel.close_thread")) }
                                 }.padding(.horizontal, 9).frame(height: 28)
-                            }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
+                            }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
                         }
                     }
                 }.scrollIndicators(.hidden)
@@ -159,7 +162,7 @@ struct RightPane: View {
             default: ScrollView { Overview() }
             }
         }.frame(maxHeight: .infinity, alignment: .top)
-            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region")).help(m.t("panel.resize"))
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
     }
 }
 

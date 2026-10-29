@@ -40,7 +40,7 @@ struct SettingsSegments: View {
             ForEach(options, id: \.0) { value, title in
                 TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9) { selection = value }
                     .buttonStyle(.plain)
-                    .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, selected: value == selection))
+                    .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
                     .accessibilityAddTraits(value == selection ? .isSelected : [])
             }
         }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
@@ -66,14 +66,19 @@ struct ReferenceInput: View {
     @Binding var text: String
     var commit: () -> Void = {}
     var height: CGFloat = 38.4
+    var pointSize: CGFloat = 14
+    var monospaced = false
+    var voice = true
     @FocusState private var focused: Bool
+    @State private var identity = "relic-input/" + UUID().uuidString
     @EnvironmentObject var m: Model
     var body: some View {
-        TextField(placeholder, text: $text).textFieldStyle(.plain).font(RelicStyle.font(14, weight: 400))
+        TextField(placeholder, text: $text).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400))
+            .accessibilityIdentifier(identity)
             .focused($focused).onSubmit { focused = false }
             .onChange(of: focused) { old, new in if old && !new { commit() } }
-            .padding(.leading, 10).padding(.trailing, m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9))
-            .overlay(alignment: .trailing) { if m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
+            .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: identity))
+            .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
     }
 }

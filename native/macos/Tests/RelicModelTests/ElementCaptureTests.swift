@@ -6,6 +6,14 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testProductionRegionOwnershipWinsOverIntersectingBackgroundRegions() {
+        XCTAssertEqual(ElementCapture.assignedRegion(identifier: "relic-region/dialog", textRegion: nil, inherited: "conversation", geometric: "right-pane"), "dialog")
+        XCTAssertEqual(ElementCapture.assignedRegion(identifier: "", textRegion: "dialog", inherited: "window", geometric: "conversation"), "dialog")
+        XCTAssertEqual(ElementCapture.assignedRegion(identifier: "", textRegion: nil, inherited: "menu", geometric: "sidebar"), "menu")
+        // Background elements keep their own ancestry even when their position
+        // also intersects the overlay's opaque surface.
+        XCTAssertEqual(ElementCapture.assignedRegion(identifier: "", textRegion: nil, inherited: "conversation", geometric: "dialog"), "conversation")
+    }
     func testScreenCoordinatesBecomeContentCoordinatesWithoutTitlebarOffset() {
         let content = NSRect(x: 100, y: 200, width: 1024, height: 700)
         let element = NSRect(x: 140, y: 550, width: 80, height: 20)
