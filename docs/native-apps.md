@@ -2,8 +2,12 @@
 
 Changes for the clients (macOS request integration): the member-card editing,
 conversation-banner and suggestion-control changes through `edf599a` are merged.
-The three requested member-card interaction states are being added to both the
-shared matrix and Windows capture, preserving the existing 47 states. The
+The three requested member-card interaction states are now added to both the
+shared matrix and Windows capture, preserving the existing 47 states. The full
+matrix is now 50 states / 600 cases per platform. Rename and model editing use
+real pointer clicks; avatar hover uses real pointer movement and retains its
+actual overlay visibility. Each capture keeps the action receipt; no edit or
+hover state is injected into an extractor. The
 layout-only-wrapper projection request is under evidence review: null paint or
 a generic group role is not proof that a node may be omitted. Raw nodes and
 unresolved coverage failures remain retained.

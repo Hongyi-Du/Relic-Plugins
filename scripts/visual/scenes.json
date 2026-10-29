@@ -7,7 +7,7 @@
     "group", "private", "thread", "overview", "workspace", "file-markdown", "file-code", "file-image",
     "copies", "copy-rules", "chart", "new-org", "member-app", "member-host", "member-existing",
     "member-host-model-suggestions", "member-existing-seat-suggestions",
-    "member-card", "member-edit", "forward", "secretary", "tasks", "task-report", "protocols", "documents", "trajectory",
+    "member-card", "member-card-rename", "member-card-model", "member-card-avatar-hover", "member-edit", "forward", "secretary", "tasks", "task-report", "protocols", "documents", "trajectory",
     "settings-profile", "settings-appearance", "settings-language", "settings-voice", "settings-notify", "settings-harness", "settings-about",
     "shortcuts", "recipients", "quote", "mention", "digest", "plain", "quick-start", "menu-file", "menu-edit", "menu-view", "menu-help",
     "live-busy", "live-tool-output", "live-typing"

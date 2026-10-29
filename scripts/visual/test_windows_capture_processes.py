@@ -25,9 +25,9 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                 "cases": [{"id": f"en-US-light-1440x900-{scene}", "scene": scene,
                            "width": 1440, "height": 900, "file": f"en-US-light-1440x900-{scene}.png"} for scene in scenes]}
 
-    def test_all_47_cases_get_fresh_process_inputs_and_continue_after_menu_crash(self):
+    def test_all_50_cases_get_fresh_process_inputs_and_continue_after_menu_crash(self):
         scenes = json.loads((Path(capture.HERE) / "scenes.json").read_text(encoding="utf-8"))["scenes"]
-        self.assertEqual(len(scenes), 47)
+        self.assertEqual(len(scenes), 50)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             manifest = self.manifest(root, scenes)
@@ -52,9 +52,9 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                 result = capture.native(root / "manifest.json", manifest, Path("Relic.exe"))
             self.assertEqual(calls, scenes)
             self.assertEqual(calls[-1], "live-typing")
-            self.assertEqual(result["expected_count"], 47)
-            self.assertEqual(result["attempted_count"], 47)
-            self.assertEqual(result["count"], 46)
+            self.assertEqual(result["expected_count"], 50)
+            self.assertEqual(result["attempted_count"], 50)
+            self.assertEqual(result["count"], 49)
             self.assertEqual(len(result["errors"]), 1)
             failed = next(row for row in result["cases"] if row["status"] == "failed")
             self.assertIn("loading organization", failed["last_progress"])

@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from capture import DATALIST_SCENES, LIVE_SCENES, open_datalist_scene, record_datalist_coverage
+from capture import DATALIST_SCENES, LIVE_SCENES, MEMBER_CARD_SCENES, open_datalist_scene, record_datalist_coverage
 
 
 class DatalistCaptureTests(unittest.TestCase):
@@ -73,8 +73,11 @@ class DatalistCaptureTests(unittest.TestCase):
         }
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         self.assertEqual(len(original), 42)
-        self.assertEqual(set(spec["scenes"]), original | set(DATALIST_SCENES) | LIVE_SCENES)
-        self.assertEqual(len(spec["scenes"]), 47)
+        original_47 = original | set(DATALIST_SCENES) | LIVE_SCENES
+        self.assertEqual(len(original_47), 47)
+        self.assertEqual(set(MEMBER_CARD_SCENES), {"member-card-rename", "member-card-model", "member-card-avatar-hover"})
+        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES))
+        self.assertEqual(len(spec["scenes"]), 50)
 
 
 if __name__ == "__main__":
