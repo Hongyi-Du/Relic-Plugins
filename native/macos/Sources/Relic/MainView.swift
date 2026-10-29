@@ -27,7 +27,7 @@ struct MainView: View {
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
                 if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
-                ChatView().frame(minWidth: 0, maxWidth: .infinity)
+                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation")
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
@@ -47,7 +47,6 @@ struct MainView: View {
         .tracking(0)
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
-        .accessibilityIdentifier("relic-root")
         .coordinateSpace(name: "relic-window")
         .background(ScrollAppearance())
         .background(InitialWindowFocus().frame(width: 0, height: 0))
@@ -96,7 +95,7 @@ struct AppToolbar: View {
                     }
                 }
             }
-            let title = m.organization.isEmpty ? "Relic" : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
+            let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
             Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
         }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))

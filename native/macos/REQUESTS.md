@@ -35,6 +35,17 @@ components and raster evidence. This is not a request to relax alpha/DeltaE
 tolerances or copy reference colors into native data. Native values remain
 unchanged until a measured conversion is implemented and tested.
 
+Canonical layout-container question: native AX exposes transparent grouping
+nodes (`AXGroup`, `AXScrollArea`, `AXOpaqueProviderGroup`) independently of
+visible paint. The reference `kindOf()` omits equivalent transparent DOM layout
+wrappers except its explicitly named regions. Current macOS export retains
+these as canonical regions as well as in raw AX, so a group screen has several
+extra regions at the same bounds. Please document the common rule for projecting
+unpainted layout-only wrappers versus visible/interactive region elements.
+Native will retain every raw node and unresolved paint coverage failure; this
+must not become a blanket element/scene exclusion or an exception. Painted
+container borders/fills, scrollbars and actual controls remain separate evidence.
+
 ## 2026-10-29: literal Harness label in the reference member form
 
 Font evidence update: `67dae7b` macOS build and 97 tests pass in

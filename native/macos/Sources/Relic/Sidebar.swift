@@ -14,7 +14,7 @@ struct Sidebar: View {
                     ReferenceIcon(name: "search", size: 16, color: RelicStyle.muted)
                     TextField(m.t("page.search"), text: $m.search).textFieldStyle(.plain).focused($focused)
                     VoiceButton(text: $m.search).labelStyle(.iconOnly)
-                }.padding(.horizontal, 10).frame(height: 34).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8))
+                }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
             ScrollView {
                 VStack(spacing: 0) {
