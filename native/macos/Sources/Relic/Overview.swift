@@ -236,11 +236,11 @@ struct DecisionView: View {
 struct TaskCard: View {
     @EnvironmentObject var m: Model
     let task: Node
-    private var expanded: Bool { m.detailTask == task["id"].text }
+    @State private var expanded = false
     private var owner: String { "relic-row/task/" + task["id"].text }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { m.detailTask = expanded ? "" : task["id"].text } label: {
+            Button { expanded.toggle() } label: {
                 HStack(spacing: 10) {
                     if !task["owner"].text.isEmpty { Avatar(member: task["owner"].text, size: 28) }
                     VStack(alignment: .leading, spacing: 0) {
@@ -252,7 +252,7 @@ struct TaskCard: View {
                         OverviewChip(text: m.taskLabel(task["status"].text), tone: task["status"].text == "done" ? "ok" : task["status"].text == "blocked" ? "bad" : task["status"].text == "working" ? "warn" : "")
                     }
                 }.padding(.horizontal, 12).padding(.vertical, 10)
-                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: expanded ? 1 : 0, trailing: 0)))
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: expanded ? 1 : 0, trailing: 0), owner: owner, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(owner)
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
@@ -268,7 +268,9 @@ struct TaskCard: View {
                 }.font(RelicStyle.font(13, weight: 400)).padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.padding(1).modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, borderWidth: 1, radius: 12, kind: "card"))
-            .overlay { if expanded { RoundedRectangle(cornerRadius: 14).strokeBorder(RelicStyle.accent.opacity(0.5), lineWidth: 2).padding(-2).allowsHitTesting(false) } }
+            .overlay { if m.detailTask == task["id"].text { RoundedRectangle(cornerRadius: 14).strokeBorder(RelicStyle.accent.opacity(0.5), lineWidth: 2).padding(-2).allowsHitTesting(false) } }
+            .onAppear { expanded = m.detailTask == task["id"].text }
+            .onChange(of: m.detailTask) { if m.detailTask == task["id"].text { expanded = true } }
     }
 }
 
@@ -283,7 +285,7 @@ struct TaskReport: View {
                 if !task["done_at"].isNull { ReferenceLabel(m.day(task["done_at"]) + " " + m.clock(task["done_at"]), size: 12.5, color: RelicStyle.muted) }
                 Spacer(minLength: 0)
             }
-            RichText(task["report"].text)
+            RichText(task["report"].text, pointSize: 13)
         }.padding(11).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.green.opacity(0.06), border: RelicStyle.green.opacity(0.3), borderWidth: 1, radius: 10, kind: "card"))
     }
@@ -329,7 +331,7 @@ struct ProtocolCard: View {
                 if !p["summary_for_person"].text.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         ReferenceLabel(m.t("details.label_summary"), size: 13, color: RelicStyle.muted)
-                        RichText(p["summary_for_person"].text)
+                        RichText(p["summary_for_person"].text, pointSize: 13)
                     }
                 }
                 if !p["rules"].rows.isEmpty {
@@ -355,23 +357,47 @@ struct RulesView: View {
     @EnvironmentObject var m: Model
     let rules: [Node]
     @State private var expanded = false
+    @State private var identity = "relic-rule-toggle/" + UUID().uuidString
+    private var checks: [Node] { rules.filter { $0["effect"].text == "check" } }
     var body: some View {
-        Rows(rules.filter { $0["effect"].text == "check" }) { rule in
-            DisclosureGroup(m.t(rule["effect"].text == "check" ? "cc.code" : "org.protocols"), isExpanded: $expanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(m.t("cc.scope", ["what": m.ruleScope(rule)]))
-                    if rule["effect"].text == "check" {
-                        Text(m.t(rule["on_error"].text == "allow" ? "cc.on_error_allow" : "cc.on_error_deny"))
-                        Text(rule["code"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        if !rule["code_sha256"].text.isEmpty { Text("sha256 " + String(rule["code_sha256"].text.prefix(16)) + "…").font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).help(rule["code_sha256"].text) }
-                        if !rule["examples"].rows.isEmpty { Text(m.t("cc.examples")).bold() }
-                        Rows(rule["examples"].rows) { example in
-                            Text(m.t(example["expect"].text == "allow" ? "cc.decision_allow" : example["expect"].text == "deny" ? "cc.decision_deny" : "cc.decision_review")).bold()
-                            Text(pretty(example)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        }
+        if !checks.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Button { expanded.toggle() } label: {
+                    HStack(spacing: 5) {
+                        ReferenceIcon(name: "chev", size: 13).rotationEffect(.degrees(expanded ? 90 : 0))
+                        ReferenceLabel(m.t("cc.code"), size: 12.5, color: RelicStyle.secondary, owner: identity)
+                    }.modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
+                }.buttonStyle(.plain).accessibilityIdentifier(identity)
+                if expanded {
+                    Rows(checks) { rule in
+                        VStack(alignment: .leading, spacing: 6) {
+                            ReferenceLabel(m.t("cc.scope", ["what": m.ruleScope(rule)]), size: 12, color: RelicStyle.muted, lines: 0)
+                            ReferenceLabel(m.t(rule["on_error"].text == "deny" ? "cc.on_error_deny" : "cc.on_error_allow"), size: 12, color: RelicStyle.muted, lines: 0)
+                            ScrollView(.horizontal) {
+                                FittingScroll(maxHeight: 322) {
+                                    SelectableText(value: AttributedString(rule["code"].text), pointSize: 12, lineHeight: 18.6, monospaced: true).fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }.padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                                .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
+                            if !rule["code_sha256"].text.isEmpty { ReferenceLabel("sha256 " + String(rule["code_sha256"].text.prefix(16)) + "…", size: 12, color: RelicStyle.muted, monospaced: true) }
+                            if !rule["examples"].rows.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ReferenceLabel(m.t("cc.examples"), size: 12, color: RelicStyle.muted)
+                                    Rows(rule["examples"].rows) { example in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            OverviewChip(text: m.t(example["expect"].text == "allow" ? "cc.decision_allow" : example["expect"].text == "deny" ? "cc.decision_deny" : "cc.decision_review"), tone: example["expect"].text == "allow" ? "ok" : example["expect"].text == "deny" ? "bad" : "warn")
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                ReferenceLabel(example["call_display"].text.isEmpty ? RuleExample.text(example["call"]) : example["call_display"].text, size: 11.5, color: RelicStyle.secondary, lineHeight: 22, monospaced: true).help(example["call_json"].text.isEmpty ? pretty(example["call"]) : example["call_json"].text)
+                                                if !example["note"].text.isEmpty { ReferenceLabel(example["note"].text, size: 12, color: RelicStyle.muted, lines: 0) }
+                                            }.frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }
+                                }
+                            }
+                        }.padding(.top, 8)
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.onAppear { expanded = m.expandRules }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).onAppear { expanded = m.expandRules }
+        }
     }
 }

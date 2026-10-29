@@ -12,10 +12,12 @@ struct ReferenceLabel: NSViewRepresentable {
     var lines: Int = 1
     var alignment: NSTextAlignment = .left
     var owner: String? = nil
+    var monospaced = false
     @Environment(\.captureOpacity) private var opacity
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
+        self.monospaced = monospaced
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = ReferenceLabelView()
@@ -31,7 +33,7 @@ struct ReferenceLabel: NSViewRepresentable {
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        let value = NSAttributedString(string: text, attributes: [.font: RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph])
+        let value = NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph])
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner

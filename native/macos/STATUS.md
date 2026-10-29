@@ -9,6 +9,42 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+### 119f04c：完整矩阵的实际失败报告
+
+[完整视觉运行 40952663814](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40952663814)
+已结束，两端各 504 场景均已捕获，严格门禁失败。完整报告、逐场景 HTML、热图在
+`S:\Codex\Outputs\Relic-native-visual\parity-119f04c\report\`；三端对照图在
+同级 `comparisons\`。以下来自实际下载的 `summary.json`，不是构建结果推断。
+
+| 119f04c 严格报告 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 504 | 504 |
+| scenes_checked / scenes_passed | 0 / 0 | 0 / 0 |
+| raw_native_elements | 92,746 | 100,794 |
+| valid_native_elements | 84,268 | 96,559 |
+| invalid_native_elements | 8,478 | 4,235 |
+| reference_elements | 93,032 | 92,536 |
+| paired_elements / matched_elements | 62,842 / 0 | 52,694 / 0 |
+| missing | 30,190 | 39,842 |
+| extra | 21,426 | 43,865 |
+| text_mismatch | 30,936 | 33,595 |
+| geometry_out_of_tolerance | 299,614 | 170,563 |
+| style_out_of_tolerance | 252,661 | 317,608 |
+| state_mismatch | 60,864 | 36,585 |
+| kind_mismatch | 6,804 | 6,737 |
+| region_mismatch | 742 | 76 |
+| order_mismatch | 12,576 | 4,263 |
+| layout_mismatch | 40,012 | 109,952 |
+| icon_mismatch | 4,846 | 1,700 |
+| extraction_errors | 487,960 | 1,371,276 |
+
+例外表和批准的图标映射表均为空。`scenes_checked=0` 表示仍有未完成的提取，
+不能把截图齐全称为完整逐元素验证。此提交早于弹层、分栏、消息、设置、名片、
+组织图、组织详情的后续修正；后续修改已经通过构建/单元测试，仍须新完整矩阵验证。
+[2749a17 Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40959230686)
+通过；[38526b3 全矩阵](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40958568166)
+运行中。完整绘制覆盖、遮挡、菜单、Markdown、快速开始及所有非零项仍未完成。
+
 ### 重启后继续：d4a4e44 的完整失败报告
 
 已核对重启后的干净工作区及远端提交。`d4a4e44` 的

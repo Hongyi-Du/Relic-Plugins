@@ -285,6 +285,8 @@ import CoreText
                 elements[index]["surface_evidence"] = surface["evidence"]!
                 if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
+                if let selected = surface["selected"] as? Bool { elements[index]["recorded_selected"] = selected }
+                if let expanded = surface["expanded"] as? Bool { elements[index]["recorded_expanded"] = expanded }
             } else if let kind = surface["kind"] as? String {
                 var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
@@ -380,7 +382,7 @@ import CoreText
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull(), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull()]
+            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull()]
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node

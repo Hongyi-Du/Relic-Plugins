@@ -11,6 +11,13 @@ client now consumes this field, falling back to its existing serialization for
 older servers; fallback differences remain reportable failures. Keep the
 existing rules array and payloads unchanged.
 
+The expanded check-rule examples additionally need `call_display` and
+`call_json` on each example: `call_display` is reference `exampleText(call)`
+(first command/file_path/path, else compact JSON; clip normalized text to 160
+UTF-16 units); `call_json` is `JSON.stringify(call, null, 2)` for the tooltip.
+Both must preserve source object ordering. The native implementation consumes
+these optional fields and keeps its older-server fallback visible to the gate.
+
 ## 2026-10-29: measured chart paths and dashed stroke evidence
 
 The macOS chart now draws the reference's orthogonal parent connectors and

@@ -79,7 +79,7 @@ struct OrgTree: View {
                         if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, owner: owner) }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
-                }.buttonStyle(QuietButtonStyle(selected: active)).accessibilityIdentifier(owner).accessibilityLabel(node["name"].text).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
+                }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true)).accessibilityIdentifier(owner).accessibilityLabel(node["name"].text).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
                 if active && !folded {
@@ -150,7 +150,7 @@ struct SidebarChatRow: View {
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
-        }.buttonStyle(QuietButtonStyle(selected: selected)).accessibilityIdentifier(owner).accessibilityLabel(title + ", " + subtitle).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+        }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true)).accessibilityIdentifier(owner).accessibilityLabel(title + ", " + subtitle).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }
     private var avatar: some View {
