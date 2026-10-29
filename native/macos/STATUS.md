@@ -9,6 +9,36 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+首轮严格报告来自 [CI 40926888945](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40926888945)，
+提交 61b2740，结果失败；已下载到
+S:\Codex\Outputs\Relic-native-visual\parity-61b2740\report，
+包含 parity-report.json、index.html 和全部 504 场景的分平台/合并 HTML。
+两平台 scenes_expected 均为 504；scenes_checked 和 scenes_passed 均为 0，
+原因包含提取缺失，不能声称已完整核对了 504 个场景。
+参考元素 93,048；Windows 提取 90,675，macOS 提取 706（AX 子树缺失）。
+
+| 首轮诊断类别 | Windows | macOS |
+| --- | ---: | ---: |
+| missing | 27,458 | 92,352 |
+| extra | 25,085 | 10 |
+| text_mismatch | 19,534 | 553 |
+| geometry_out_of_tolerance | 285,234 | 4,362 |
+| style_out_of_tolerance | 195,109 | 2,784 |
+| state_mismatch | 78,208 | 1,392 |
+| kind_mismatch | 7,136 | 0 |
+| region_mismatch | 548 | 0 |
+| order_mismatch | 10,112 | 0 |
+| layout_mismatch | 156,655 | 2,088 |
+| icon_mismatch | 10,553 | 0 |
+| extraction_errors | 251,293 | 16,140 |
+
+这些数字是修复前的失败基线；不能把低提取覆盖导致的零计数解释为通过。
+异常表为空，无已批准例外。后续 b7e6962 已修正窗口内菜单、工具栏/分页、
+群聊标题操作、参考路径图标、日期和快速开始的部分差异，并加入原生绘制测量；
+[新完整矩阵](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40930279724)
+仍待返回。功能静态检查当前为 52 路由、686 词条、214 参考流程，缺失均为 0；
+这与逐元素验收分开记录。
+
 ## Amendment 3：macOS 已验证，完整三方验收被共享问题阻塞
 
 更新：2026-10-29。分支 `native-macos`；本会话只修改 `native/macos/**`。

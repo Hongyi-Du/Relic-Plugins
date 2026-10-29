@@ -48,7 +48,7 @@ struct RichText: View {
         })
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: (try? AttributedString(markdown: NativeLinks.markdown(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).help(m.t("chat.path_preview"))
+        SelectableText(value: NativeMarkdown.attributed(value)).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
@@ -56,9 +56,9 @@ struct RichText: View {
             Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10)
             ScrollView(.horizontal) { Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10) }
         }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line))
-        case "head": inline("**" + block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression) + "**").padding(.top, 6)
+        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold).padding(.top, 8).padding(.bottom, 4)
         case "quote":
-            HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(quoteText(block)) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))
+            HStack(alignment: .top, spacing: 10) { Rectangle().fill(RelicStyle.border).frame(width: 3); SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary) }.padding(.vertical, 2).padding(.bottom, 8).fixedSize(horizontal: false, vertical: true).accessibilityLabel(m.t("common.quote"))
         case "list":
             VStack(alignment: .leading, spacing: 3) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
@@ -67,20 +67,21 @@ struct RichText: View {
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                        Text((try? AttributedString(markdown: index == 0 ? "**" + cell + "**" : cell)) ?? AttributedString(cell)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).frame(minWidth: 70, alignment: .leading).padding(8).background(index == 0 ? RelicStyle.hover : RelicStyle.card).overlay(Rectangle().stroke(RelicStyle.border, lineWidth: 0.5))
+                        Text(NativeMarkdown.attributed(cell)).fontWeight(index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).frame(minWidth: 70, alignment: .leading).padding(.horizontal, 8).padding(.vertical, 3).background(index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear).overlay(Rectangle().stroke(RelicStyle.border, lineWidth: 1))
                     }
                 } }
             }.padding(4) }
         default: inline(block.text)
         }
     }
-    private func quoteText(_ block: MarkdownBlock) -> String {
+    private func quoteText(_ block: MarkdownBlock) -> AttributedString {
         let value = block.lines.map { $0.replacingOccurrences(of: #"^\s*>\s?"#, with: "", options: .regularExpression) }.joined(separator: "\n")
         if let range = value.range(of: #"^[^\n：:]{1,40}[：:]\s?"#, options: .regularExpression) {
             let head = String(value[range]).trimmingCharacters(in: CharacterSet(charactersIn: ":： "))
-            return "**" + m.t("chat.quote_from", ["name": head]) + "**" + value[range.upperBound...]
+            var title = AttributedString(m.t("chat.quote_from", ["name": head])); title.inlinePresentationIntent = .stronglyEmphasized
+            title.append(AttributedString(String(value[range.upperBound...]))); return title
         }
-        return value
+        return AttributedString(value)
     }
 }
 

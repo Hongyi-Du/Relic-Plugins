@@ -4,6 +4,37 @@ The macOS session owns only `native/macos/**`. Please merge this branch regularl
 
 ## Amendment 4 — element extraction / strict machine gate (active)
 
+Latest macOS implementation is b7e6962. It includes the shared 237f254/4db4aa6
+work, adopts RELIC_VISUAL_NOW and UTC only in CI, emits the version 1 schema,
+and renders the reference icon path assets through CoreGraphics. Actual path
+geometry/color/resource evidence is collected by transparent native view probes.
+Toolbar menus and pane tabs now have in-window counterparts. This is ongoing
+implementation, not an accepted element-parity result.
+
+Update from CI 40930279724: public AX client initialization succeeded (0).
+The en-US/dark group scene now exposes 790 raw nodes and 171 normalized
+elements, including actual SwiftUI.AccessibilityNode children, not just the
+hosting root. All 126 en-US/dark captures finished. Style/paint coverage still
+fails explicitly; actual AXFont/CGColor attributes and TextKit run geometry are
+being decoded next. It also exposed incorrectly inherited container AX labels;
+those are being fixed in production views, not rewritten in the exporter.
+
+The first complete strict report, CI 40926888945 at 61b2740, is downloaded to
+S:\Codex\Outputs\Relic-native-visual\parity-61b2740\report. Both platforms have
+0 fully measured/passing scenes. macOS AX still returned only hosting roots;
+its 706 emitted elements are incomplete. Three macOS variants captured all
+126 scenes; zh-CN/light stopped at mention, so the remaining cases are explicit
+missing captures. Current CI adds navigation-order AX children, real AppKit
+subviews, a public AX client request, and mention-state diagnostics. No failed
+scene or unknown measurement was excluded.
+
+Shared input question: reference capture currently runs on Windows, whose
+platform/keyboard labels and available font fallback differ from the same
+reference on macOS. Please expose the captured reference platform/font evidence
+in the report and clarify the comparison input for macOS menu/shortcut labels.
+The macOS app currently implements the reference's Mac keyLabel behavior.
+No substitution or exception is requested or treated as passing.
+
 The macOS client is implementing real in-process AppKit/SwiftUI accessibility
 tree extraction beside every existing PNG, including sheets/popovers. Please
 publish the canonical element JSON shape and reference sample early. Proposed
