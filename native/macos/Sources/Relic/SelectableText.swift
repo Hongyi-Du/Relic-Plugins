@@ -51,12 +51,19 @@ struct SelectableText: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
         let offered = proposal.width ?? 400
         let available = offered.isFinite ? max(1, offered) : 400
-        let measured = nsView.attributedString().boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).width
-        let width = max(1, min(available, ceil(measured)))
-        guard let container = nsView.textContainer, let layout = nsView.layoutManager else { return nil }
-        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        // Measure a separate TextKit layout. SwiftUI probes several widths before
+        // assigning the final frame; mutating the live container here leaves the
+        // last probe width behind and can draw a second line outside its height.
+        let storage = NSTextStorage(attributedString: nsView.attributedString())
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: available, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
         layout.ensureLayout(for: container)
-        return CGSize(width: width, height: max(20, ceil(layout.usedRect(for: container).height)))
+        let width = max(1, min(available, ceil(layout.usedRect(for: container).width) + 1))
+        container.containerSize.width = width
+        layout.ensureLayout(for: container)
+        return CGSize(width: width, height: max(20, ceil(layout.usedRect(for: container).height) + 2))
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SelectableText
