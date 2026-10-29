@@ -151,6 +151,27 @@ final class ContractTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
         XCTAssertEqual(decoded, draft)
     }
+    func testNativeLinksKeepURLsSeparateFromLocalFileReferences() throws {
+        XCTAssertEqual(NativeLinks.file("/tmp/a.py:12:3")?.path, "/tmp/a.py"); XCTAssertEqual(NativeLinks.file("/tmp/a.py:12:3")?.line, 12)
+        XCTAssertEqual(NativeLinks.file(#"C:\work\a.py:9"#)?.path, #"C:\work\a.py"#)
+        XCTAssertNil(NativeLinks.file("https://example.com/a")); XCTAssertNil(NativeLinks.file("src/app.swift"))
+        let linked = NativeLinks.markdown("https://example.com/a [keep](https://example.com/b) `/tmp/a.py:12` and /tmp/b.py.")
+        XCTAssertTrue(linked.contains("[https://example.com/a](https://example.com/a)")); XCTAssertTrue(linked.contains("[keep](https://example.com/b)"))
+        XCTAssertEqual(linked.components(separatedBy: "relic-file://").count - 1, 2)
+        let url = try XCTUnwrap(NativeLinks.file("/tmp/中文 a.swift:12")?.url)
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value, "/tmp/中文 a.swift")
+    }
+    func testHistoryInsertionKeepsRowIdentitiesAndRepeatedKeysDistinct() {
+        let old = NodeRow.identify([Node(["id": 2, "body": "old"]), Node(["id": 3])])
+        let updated = NodeRow.identify([Node(["id": 1]), Node(["id": 2, "body": "new"]), Node(["id": 3])])
+        XCTAssertEqual(old.map(\.id), Array(updated.dropFirst()).map(\.id))
+        XCTAssertEqual(Set(NodeRow.identify([Node("same"), Node("same")]).map(\.id)).count, 2)
+    }
+    func testMarkdownListContinuationDoesNotInventAnotherBullet() {
+        let block = NativeMarkdown.blocks("3. first\n   continuation\n  + nested\n4. last")[0]
+        let list = NativeMarkdown.list(block)
+        XCTAssertEqual(list.count, 3); XCTAssertEqual(list[0].marker, "3."); XCTAssertEqual(list[0].text, "first\ncontinuation"); XCTAssertTrue(list[1].indented)
+    }
     func testSendKeyPreservesIMECompletionAndNewline() {
         XCTAssertTrue(Composer.sendsReturn(shift: false, composing: false, completing: false))
         XCTAssertFalse(Composer.sendsReturn(shift: true, composing: false, completing: false))

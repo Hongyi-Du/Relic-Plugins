@@ -39,9 +39,9 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
             CommandGroup(after: .sidebar) {
                 Button(model.t("appmenu.sidebar")) { model.sidebarOpen.toggle() }.keyboardShortcut("b")
                 Button(model.t("page.panel")) { model.panelOpen.toggle() }.keyboardShortcut("b", modifiers: [.command, .option])
-                Button(model.t("appmenu.pane", ["pane": model.t("panel.overview")])) { model.setPane("overview") }.keyboardShortcut("1", modifiers: .option)
-                Button(model.t("panel.workspace")) { model.setPane("workspace") }.keyboardShortcut("2", modifiers: .option)
-                Button(model.t("common.file")) { model.setPane("files") }.keyboardShortcut("3", modifiers: .option)
+                Button(model.t("appmenu.pane", ["pane": model.t("panel.overview")])) { model.togglePane("overview") }.keyboardShortcut("1", modifiers: .option)
+                Button(model.t("appmenu.pane", ["pane": model.t("panel.workspace")])) { model.togglePane("workspace") }.keyboardShortcut("2", modifiers: .option)
+                Button(model.t("appmenu.pane", ["pane": model.t("common.file")])) { model.togglePane("files") }.keyboardShortcut("3", modifiers: .option)
                 Divider()
                 Button(model.t("appmenu.org_chart")) { model.sheet = .chart }
                 Button(model.t("cc.title")) { model.sheet = .copies }
@@ -53,11 +53,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 Button(model.t("appmenu.reload")) { model.run { try await model.refresh() } }.keyboardShortcut("r")
             }
             CommandGroup(after: .pasteboard) {
-                Button(model.t("appmenu.quote_selection")) {
-                    if !model.selectedText.isEmpty { model.setQuote(model.selectedText, from: model.selectedAuthor.isEmpty ? "human" : model.selectedAuthor) }
-                    else if let view = NSApp.keyWindow?.firstResponder as? NSTextView, view.selectedRange().length > 0 { model.setQuote((view.string as NSString).substring(with: view.selectedRange()), from: "human") }
-                    else { model.notice = model.t("appmenu.quote_need_selection") }
-                }
+                Button(model.t("appmenu.quote_selection")) { model.quoteSelection() }
                 Button(model.t("page.search")) { model.sidebarOpen = true; model.focusSearch = true }.keyboardShortcut("k")
                 Button(model.t("appbar.back")) { model.navigate(-1) }.keyboardShortcut(.leftArrow, modifiers: .option).disabled(!model.history.canBack)
                 Button(model.t("appbar.forward")) { model.navigate(1) }.keyboardShortcut(.rightArrow, modifiers: .option).disabled(!model.history.canForward)

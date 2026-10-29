@@ -21,6 +21,7 @@ import RelicCore
     @Published var quote = ""
     var selectedText = ""
     var selectedAuthor = ""
+    weak var selectedTextView: NSTextView?
     @Published var pane = "overview"
     @Published var error = ""
     @Published var notice = ""
@@ -48,6 +49,7 @@ import RelicCore
     @Published var threadID = ""
     @Published var threadData = Node()
     @Published var threadDraft = ""
+    private var threadPreviousPane = "overview"
     @Published var file = Node()
     @Published var fileImage: NSImage?
     @Published var fileLine = 0
@@ -201,7 +203,7 @@ import RelicCore
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
-        selectedText = ""; selectedAuthor = ""
+        selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
         plainMode = defaults.bool(forKey: "plain." + next.org); digestOpen = defaults.bool(forKey: "digest." + next.org)
@@ -227,12 +229,12 @@ import RelicCore
     func send() async throws {
         guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sending = true; defer { sending = false }
-        let selected = selection, body = draft, quoted = quote, to = recipients
+        let selected = selection, original = draft, body = draft.trimmingCharacters(in: .whitespacesAndNewlines), quoted = quote, to = recipients
         do { _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: to, members: members, quote: quoted)) }
         catch { throw RelicError.message(t("composer.send_failed", ["error": error.localizedDescription])) }
         if selected == selection {
-            if draft == body { draft = "" }; if quote == quoted { quote = "" }; recipients = ["all"]; persistDraft()
-        } else if drafts[selected.key]?.text == body {
+            if draft == original { draft = "" }; if quote == quoted { quote = "" }; if recipients == to { recipients = ["all"] }; persistDraft()
+        } else if drafts[selected.key]?.text == original {
             drafts[selected.key] = ChatDraft()
             if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
         }
@@ -262,6 +264,15 @@ import RelicCore
     func openCard(_ name: String) { cardMember = name; sheet = .card }
     func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
+    func togglePane(_ value: String) { if pane == value && panelOpen { panelOpen = false } else { setPane(value) } }
+    func quoteSelection() {
+        if let view = NSApp.keyWindow?.firstResponder as? NSTextView, view.selectedRange().length > 0 {
+            setQuote((view.string as NSString).substring(with: view.selectedRange()), from: view === selectedTextView && !selectedAuthor.isEmpty ? selectedAuthor : t("common.quote"))
+            view.setSelectedRange(NSRange(location: view.selectedRange().location, length: 0))
+        } else if !selectedText.isEmpty { setQuote(selectedText, from: selectedAuthor.isEmpty ? t("common.quote") : selectedAuthor) }
+        else { notice = t("appmenu.quote_need_selection") }
+        selectedText = ""; selectedAuthor = ""; selectedTextView = nil
+    }
     func toggleFold(_ id: String) { Tree.toggle(id, folded: &folded); defaults.set(Array(folded), forKey: "folded") }
     func setQuote(_ body: String, from: String, stripExisting: Bool = false) {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -271,19 +282,21 @@ import RelicCore
         lines[0] = t("sel.quote_line", ["who": name(from), "text": lines[0]])
         quote = lines.map { "> " + $0 }.joined(separator: "\n"); persistDraft()
     }
-    func openThread(_ id: String) async throws { threadID = id; threadDraft = defaults.string(forKey: "thread." + organization + "/" + id) ?? ""; setPane("thread"); try await loadThread() }
+    func openThread(_ id: String) async throws { if pane != "thread" { threadPreviousPane = pane }; threadID = id; threadDraft = defaults.string(forKey: "thread." + organization + "/" + id) ?? ""; setPane("thread"); try await loadThread() }
+    func closeThread() { threadID = ""; threadData = Node(); setPane(threadPreviousPane) }
     func loadThread() async throws {
         let selected = selection, id = threadID; guard !id.isEmpty else { return }
         let result = try await get(selected.path("/thread?root=" + Client.segment(id)))
         if selected == selection, id == threadID { threadData = result }
     }
     func sendThread() async throws {
-        let selected = selection, id = threadID, body = threadDraft
+        let selected = selection, id = threadID, original = threadDraft, body = threadDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let quoted = quote
         _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: [], members: [], quote: quoted, replyTo: id))
-        defaults.removeObject(forKey: "thread." + selected.org + "/" + id)
-        if selected == selection, id == threadID, threadDraft == body { threadDraft = ""; if quote == quoted { quote = "" } }
+        let key = "thread." + selected.org + "/" + id
+        if defaults.string(forKey: key) == original { defaults.removeObject(forKey: key) }
+        if selected == selection, id == threadID, threadDraft == original { threadDraft = ""; if quote == quoted { quote = "" } }
         try await loadThread(); schedule()
     }
     func openFile(_ path: String, line: Int = 0) async throws {

@@ -6,7 +6,25 @@ public struct MarkdownBlock {
     public var text: String { lines.joined(separator: "\n") }
 }
 
+public struct MarkdownListItem {
+    public let marker: String
+    public let indented: Bool
+    public var text: String
+}
+
 public enum NativeMarkdown {
+    public static func list(_ block: MarkdownBlock) -> [MarkdownListItem] {
+        guard let regex = try? NSRegularExpression(pattern: #"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"#) else { return [] }
+        var rows: [MarkdownListItem] = []
+        for line in block.lines {
+            if let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+                func part(_ n: Int) -> String { Range(match.range(at: n), in: line).map { String(line[$0]) } ?? "" }
+                let bullet = part(2), marker = bullet.first?.isNumber == true ? bullet : "•"
+                rows.append(MarkdownListItem(marker: marker, indented: part(1).count >= 2, text: part(3)))
+            } else if !rows.isEmpty { rows[rows.count - 1].text += "\n" + line.trimmingCharacters(in: .whitespaces) }
+        }
+        return rows
+    }
     public static func blocks(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         for (index, part) in text.components(separatedBy: "```").enumerated() {

@@ -14,7 +14,7 @@ struct SelectableText: NSViewRepresentable {
     let value: AttributedString
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
-        let view = NSTextView()
+        let view = QuoteTextView()
         view.isEditable = false; view.isSelectable = true; view.drawsBackground = false
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = true
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
@@ -23,6 +23,10 @@ struct SelectableText: NSViewRepresentable {
     }
     func updateNSView(_ view: NSTextView, context: Context) {
         context.coordinator.parent = self
+        if let selectable = view as? QuoteTextView {
+            selectable.quoteTitle = m.t("common.quote")
+            selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
+        }
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
         rendered.addAttributes([.font: NSFont.systemFont(ofSize: m.preferences["font"].text == "large" ? 16 : m.preferences["font"].text == "small" ? 12 : 14), .foregroundColor: NSColor.labelColor], range: range)
@@ -54,12 +58,28 @@ struct SelectableText: NSViewRepresentable {
         var parent: SelectableText
         init(_ parent: SelectableText) { self.parent = parent }
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView, view.selectedRange().length > 0 else { return }
-            parent.m.selectedText = (view.string as NSString).substring(with: view.selectedRange()); parent.m.selectedAuthor = parent.author
+            guard let view = notification.object as? NSTextView else { return }
+            if view.selectedRange().length > 0 {
+                parent.m.selectedText = (view.string as NSString).substring(with: view.selectedRange()); parent.m.selectedAuthor = parent.author; parent.m.selectedTextView = view
+            } else if parent.m.selectedTextView === view { parent.m.selectedText = ""; parent.m.selectedAuthor = ""; parent.m.selectedTextView = nil }
         }
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             if let url = link as? URL { parent.openURL(url); return true }
             if let text = link as? String, let url = URL(string: text) { parent.openURL(url); return true }; return false
         }
     }
+}
+
+final class QuoteTextView: NSTextView {
+    var quoteTitle = ""
+    var quote: ((String) -> Void)?
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if selectedRange().length > 0 {
+            let item = NSMenuItem(title: quoteTitle, action: #selector(quoteSelection), keyEquivalent: ""); item.target = self
+            menu.insertItem(.separator(), at: 0); menu.insertItem(item, at: 0)
+        }
+        return menu
+    }
+    @objc private func quoteSelection() { guard selectedRange().length > 0 else { return }; quote?((string as NSString).substring(with: selectedRange())); setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
 }
