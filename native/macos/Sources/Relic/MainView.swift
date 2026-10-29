@@ -28,9 +28,10 @@ struct MainView: View {
                 Button { m.navigate(1) } label: { Image(systemName: "chevron.right") }.disabled(!m.history.canForward).help(m.t("appbar.forward"))
             }
             ToolbarItemGroup {
+                Button(m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)])) { m.setPane("overview") }.labelStyle(.titleOnly)
                 Button(m.t("chart.title")) { m.sheet = .chart }
                 Button(m.t("cc.title") + (m.copies.contains { !$0["read"].flag } ? " •" : "")) { m.sheet = .copies }.help(m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]))
-                Button { m.panelOpen.toggle() } label: { Image(systemName: "sidebar.right") }.help(m.t("page.panel"))
+                Button { m.panelOpen.toggle() } label: { Image(systemName: "sidebar.right") }.help(m.t(m.panelOpen ? "panel.hide_title" : "page.panel")).accessibilityLabel(m.t(m.panelOpen ? "panel.hide" : "page.panel"))
             }
         }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
@@ -51,7 +52,7 @@ struct SheetContent: View {
     let sheet: Model.Sheet
     var body: some View {
         VStack {
-            HStack { Spacer(); Button(m.t("common.close")) { m.sheet = nil }.keyboardShortcut(.cancelAction) }
+            HStack { Spacer(); Button(m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close")) { m.sheet = nil }.keyboardShortcut(.cancelAction) }
             switch sheet {
             case .create: CreateOrgView()
             case .member: MemberForm()
@@ -79,6 +80,7 @@ struct Sidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(m.t("page.tree")).font(.caption).foregroundStyle(.secondary)
+                    if m.organizations.isEmpty { Text(m.t("side.no_orgs")) }
                     if m.search.isEmpty {
                         Rows(m.organizations.filter { o in o["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == o["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
                     } else {
@@ -97,8 +99,9 @@ struct Sidebar: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button(m.t("common.settings")) { m.sheet = .settings }
-        }.padding(12).onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
+            if m.secretary.isEmpty && !m.organization.isEmpty { Button(m.t("side.set_secretary")) { m.sheet = .secretary }.help(m.t("side.secretary_hint")) }
+            Button(m.t("side.profile")) { m.sheet = .settings }.help(m.t("page.me"))
+        }.padding(12).accessibilityLabel(m.t("page.side")).onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
     }
 }
 
@@ -117,7 +120,7 @@ struct OrgTree: View {
             if !m.folded.contains(id) {
                 if m.organization == id {
                     VStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 4 : 10) {
-                        Button("# " + m.t("common.group_chat")) { m.run { try await m.select(id) } }
+                        Button("# " + m.t("common.group_chat") + (m.unread() > 0 ? " · " + String(m.unread()) : "")) { m.run { try await m.select(id) } }.help(m.lastLine())
                         Rows(m.members.sorted { $0["secretary"].flag && !$1["secretary"].flag }) { who in
                             HStack {
                                 Button { m.run { try await m.select(id, who["name"].text) } } label: {
@@ -128,9 +131,10 @@ struct OrgTree: View {
                                             if who["secretary"].flag { Text(m.t("common.secretary")).font(.caption) }
                                             if who["leader"].flag { Text(m.t("common.leader")).font(.caption) }
                                             Text(m.stateLabel(who["state"].text) + " · " + who["role"].text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                            if !who["doing"].text.isEmpty { Text(who["doing"].text).font(.caption).lineLimit(1) }
+                                            if !who["doing"].text.isEmpty { Text(m.t("side.doing", ["doing": who["doing"].text])).font(.caption).lineLimit(1) }
+                                            Text(m.lastLine(who["name"].text)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         }
-                                        if who["unread"].integer > 0 { Text(who["unread"].text).font(.caption).padding(4).background(.tint.opacity(0.15), in: Capsule()) }
+                                        if m.unread(who["name"].text) > 0 { Text(String(m.unread(who["name"].text))).font(.caption).padding(4).background(.tint.opacity(0.15), in: Capsule()) }
                                     }
                                 }
                             }.contextMenu { Button(m.t("chat.card")) { m.openCard(who["name"].text) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: who["name"].text) } }
@@ -160,7 +164,7 @@ struct RightPane: View {
             case "thread": ThreadView()
             default: ScrollView { Overview() }
             }
-        }.padding(12)
+        }.padding(12).help(m.t("panel.resize"))
     }
 }
 

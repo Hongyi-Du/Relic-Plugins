@@ -27,7 +27,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
         .defaultSize(width: 1480, height: 940)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button(model.t("common.new_org")) { model.sheet = .create }.keyboardShortcut("n")
+                Button(model.t("appmenu.new_org")) { model.sheet = .create }.keyboardShortcut("n")
                 Button(model.t("appmenu.add_member")) { model.openMemberForm() }.disabled(model.organization.isEmpty)
                 Button(model.t("appmenu.add_existing")) { model.openMemberForm(mode: "existing") }.disabled(model.organization.isEmpty)
                 Button(model.t(model.secretary.isEmpty ? "appmenu.set_up_secretary" : "appmenu.open_secretary")) { if model.secretary.isEmpty { model.sheet = .secretary } else { model.run { try await model.select(model.organization, model.secretary) } } }.disabled(model.organization.isEmpty)
@@ -39,11 +39,11 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
             CommandGroup(after: .sidebar) {
                 Button(model.t("appmenu.sidebar")) { model.sidebarOpen.toggle() }.keyboardShortcut("b")
                 Button(model.t("page.panel")) { model.panelOpen.toggle() }.keyboardShortcut("b", modifiers: [.command, .option])
-                Button(model.t("panel.overview")) { model.setPane("overview") }.keyboardShortcut("1", modifiers: .option)
+                Button(model.t("appmenu.pane", ["pane": model.t("panel.overview")])) { model.setPane("overview") }.keyboardShortcut("1", modifiers: .option)
                 Button(model.t("panel.workspace")) { model.setPane("workspace") }.keyboardShortcut("2", modifiers: .option)
                 Button(model.t("common.file")) { model.setPane("files") }.keyboardShortcut("3", modifiers: .option)
                 Divider()
-                Button(model.t("chart.title")) { model.sheet = .chart }
+                Button(model.t("appmenu.org_chart")) { model.sheet = .chart }
                 Button(model.t("cc.title")) { model.sheet = .copies }
                 Button(model.t("appmenu.plain_group")) { model.run { if !model.member.isEmpty { try await model.select(model.organization) }; model.togglePlain() } }.keyboardShortcut("l", modifiers: [.command, .shift])
                 Button(model.t("appmenu.group_digest")) { model.run { if !model.member.isEmpty { try await model.select(model.organization) }; model.toggleDigest() } }
@@ -54,7 +54,8 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
             }
             CommandGroup(after: .pasteboard) {
                 Button(model.t("appmenu.quote_selection")) {
-                    if let view = NSApp.keyWindow?.firstResponder as? NSTextView, view.selectedRange().length > 0 { model.setQuote((view.string as NSString).substring(with: view.selectedRange()), from: "human") }
+                    if !model.selectedText.isEmpty { model.setQuote(model.selectedText, from: model.selectedAuthor.isEmpty ? "human" : model.selectedAuthor) }
+                    else if let view = NSApp.keyWindow?.firstResponder as? NSTextView, view.selectedRange().length > 0 { model.setQuote((view.string as NSString).substring(with: view.selectedRange()), from: "human") }
                     else { model.notice = model.t("appmenu.quote_need_selection") }
                 }
                 Button(model.t("page.search")) { model.sidebarOpen = true; model.focusSearch = true }.keyboardShortcut("k")
@@ -71,7 +72,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 Button(model.t("appmenu.about")) { model.settingsSection = "about"; model.sheet = .settings }
             }
             CommandGroup(replacing: .appSettings) {
-                Button(model.t("common.settings")) { model.sheet = .settings }.keyboardShortcut(",")
+                Button(model.t("appmenu.settings")) { model.sheet = .settings }.keyboardShortcut(",")
             }
         }
     }
@@ -86,6 +87,7 @@ struct ShortcutsView: View {
             ForEach(rows, id: \.0) { key, label in
                 HStack { Text(key).font(.system(.body, design: .monospaced)).frame(width: 130, alignment: .leading); Text(m.t(label)) }
             }
+            Button(m.t("shortcuts.ok")) { m.sheet = nil }
         }
     }
 }

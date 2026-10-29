@@ -75,14 +75,20 @@ final class ComposerTextView: NSTextView {
         guard speech else { throw RelicError.message(model.t("native.speech_permission")) }
         let microphone = await AVCaptureDevice.requestAccess(for: .audio)
         guard microphone else { throw RelicError.message(model.t("native.microphone_permission")) }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.isAvailable else { throw RelicError.message(model.t("native.speech_unavailable")) }
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.isAvailable else { throw RelicError.message(model.t("composer.voice_unsupported_mac")) }
         stop(); let request = SFSpeechAudioBufferRecognitionRequest(); request.shouldReportPartialResults = true; self.request = request
         let input = audio.inputNode, format = audio.inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw RelicError.message(model.t("native.speech_unavailable")) }
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw RelicError.message(model.t("composer.voice_no_mic")) }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }; tapInstalled = true
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 if let result { update(result.bestTranscription.formattedString) }
+                if let error {
+                    let ns = error as NSError
+                    if ns.domain == NSURLErrorDomain { model.error = model.t("composer.voice_network") }
+                    else if ns.code == 1110 { model.notice = model.t("composer.voice_no_speech") }
+                    else if ns.code != 216 { model.error = model.t("composer.voice_start_failed", ["error": error.localizedDescription]) }
+                }
                 if error != nil || result?.isFinal == true { self?.stop() }
             }
         }
@@ -99,7 +105,9 @@ struct VoiceButton: View {
         if m.preferences["voice"].text != "off" {
             Button { if voice.recording { voice.stop() } else { let before = text; m.run { try await voice.start(language: m.words.language, model: m) { text = before + (before.isEmpty ? "" : " ") + $0 } } } } label: {
                 Label(m.t("common.voice_input"), systemImage: voice.recording ? "stop.circle.fill" : "mic")
-            }.tint(voice.recording ? .red : nil).onDisappear { voice.stop() }
+            }.tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
+        } else {
+            Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
         }
     }
 }
@@ -107,12 +115,14 @@ struct VoiceButton: View {
 @MainActor func pickAvatar(_ model: Model, member: String? = nil) async throws {
     let panel = NSOpenPanel(); panel.allowedContentTypes = [.png, .jpeg, .heic, .gif]; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
     guard await panel.begin() == .OK, let url = panel.url, let source = NSImage(contentsOf: url) else { return }
+    guard ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) <= 2 * 1024 * 1024 else { throw RelicError.message(model.t("card.image_too_large")) }
     let size = NSSize(width: 256, height: 256), resized = NSImage(size: size)
     resized.lockFocus(); source.draw(in: NSRect(origin: .zero, size: size)); resized.unlockFocus()
     guard let tiff = resized.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let data = bitmap.representation(using: .png, properties: [:]) else { return }
     var body: [String: Any] = ["data": "data:image/png;base64," + data.base64EncodedString()]
     if let member { body["org"] = model.organization; body["member"] = member }
     let result = try await model.post("/api/avatar", body)
+    model.notice = model.t("card.avatar_changed")
     if member == nil { model.preferences = Node(model.preferences.object.merging(["avatar": result["avatar"].raw]) { _, new in new }) }
     try await model.refresh()
 }

@@ -204,6 +204,8 @@ struct CopiesView: View {
                 Rows(m.copies) { copy in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(copy["org_name"].text + " · " + copy["title"].text).font(.headline)
+                        if !copy["read"].flag { Text(m.t("cc.unread")).font(.caption).foregroundStyle(.tint) }
+                        if !copy["supersedes"].text.isEmpty { Text(m.t("cc.revision")).font(.caption) }
                         Text(copy["summary"].text).textSelection(.enabled)
                         Text(m.t("cc.proposed_by", ["name": copy["author_display"].text]))
                         Text(m.t("cc.approved_by", ["names": copy["approved_display"].rows.map(\.text).joined(separator: ", ")]))
@@ -222,7 +224,7 @@ struct CopiesView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.frame(maxHeight: 600)
         .confirmationDialog(m.t("cc.retire"), isPresented: Binding(get: { retire != nil }, set: { if !$0 { retire = nil } }), presenting: retire) { copy in
-            Button(m.t("cc.retire"), role: .destructive) { m.run { try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/retire", [:]); try await m.refresh() } }
+            Button(m.t("cc.retire"), role: .destructive) { m.run { do { try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/retire", [:]); m.notice = m.t("cc.retired", ["id": copy["protocol_id"].text, "title": copy["title"].text]); try await m.refresh() } catch { throw RelicError.message(m.t("cc.retire_failed", ["error": error.localizedDescription])) } } }
         } message: { copy in Text(m.t("cc.retire_confirm", ["id": copy["protocol_id"].text, "title": copy["title"].text, "org": copy["org_name"].text])) }
     }
 }

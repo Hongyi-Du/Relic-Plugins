@@ -18,16 +18,16 @@ struct MemberCard: View {
                 HStack {
                     Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 60) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
                     VStack(alignment: .leading) {
-                        Text(card.display).font(.title2); Text(who).font(.caption).textSelection(.enabled)
+                        Text(card.display).font(.title2); Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(.caption).textSelection(.enabled)
                         HStack { if card["leader"].flag { Text(m.t("common.leader")) }; if card["secretary"].flag { Text(m.t("common.secretary")) }; if !card["ex_officio"].isNull { Text(m.t("card.ex_officio_tag")) } }.font(.caption)
                     }
                 }
-                HStack { TextField(m.t("card.new_name"), text: $name); Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; try await m.refresh(); try await load() } } }
+                HStack { TextField(m.t("card.new_name"), text: $name).help(m.t("card.rename_hint")); Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; try await m.refresh(); try await load() } } }
                 LabeledContent(m.t("common.role"), value: card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text)
                 LabeledContent(m.t("card.identity"), value: m.identity(card))
                 LabeledContent(m.t("common.status"), value: m.stateLabel(card["state"].text) + " · " + card["detail"].text)
-                if !card["doing"].text.isEmpty { LabeledContent(m.t("card.doing"), value: card["doing"].text) }
-                if !card["ex_officio"]["org"].text.isEmpty { Button(m.t("card.ex_officio", ["org": card["ex_officio"]["org_name"].text])) { let org = card["ex_officio"]["org"].text; m.sheet = nil; m.run { try await m.select(org) } } }
+                if !card["doing"].text.isEmpty { LabeledContent(m.t("card.doing"), value: card["doing_at"].text.isEmpty ? card["doing"].text : m.t("card.doing_since", ["doing": card["doing"].text, "ago": m.ago(card["doing_at"])])) }
+                if !card["ex_officio"]["org"].text.isEmpty { Text(m.t("card.seat_origin")).font(.caption); Button(m.t("card.ex_officio", ["org": card["ex_officio"]["org_name"].text])) { let org = card["ex_officio"]["org"].text; m.sheet = nil; m.run { try await m.select(org) } } }
                 if !card["also_in"].rows.isEmpty {
                     Text(m.t("card.also_in")).bold()
                     Rows(card["also_in"].rows) { seat in Button(m.t("card.also_in_item", ["org": seat["org_name"].text, "member": seat["member"].text]) + (seat["main"].flag ? " · " + m.t("card.main_seat") : "")) { m.sheet = nil; m.run { try await m.select(seat["org"].text, seat["member"].text) } } }
@@ -39,20 +39,22 @@ struct MemberCard: View {
                 } else { LabeledContent(m.t("common.model"), value: card["model"].text.isEmpty ? m.t("common.default_model") : card["model"].text) }
                 Text(card["model_note"].text).font(.caption).foregroundStyle(.secondary)
                 LabeledContent(m.t("common.session"), value: card["agent"].text.isEmpty ? card["session"].text : card["agent"].text).textSelection(.enabled)
+                if !card["parent"].text.isEmpty { Text(m.t("card.in_parent_session", ["parent": m.name(card["parent"].text)])) }
+                if card["carriers"].integer > 1 { Text(m.t("card.session_nth", ["n": card["carriers"].text])) }
                 LabeledContent(m.t("card.folder"), value: card["cwd"].text).textSelection(.enabled)
                 LabeledContent(m.t("card.joined"), value: card["joined_at"].text)
-                DisclosureGroup(m.t("card.owns")) { Rows(card["tasks"].rows) { TaskCard(task: $0) } }
+                DisclosureGroup(m.t("card.owns")) { Rows(card["tasks"].rows) { TaskCard(task: $0) }; if !card["tasks"].rows.isEmpty && card["tasks"].rows.allSatisfy({ ["done", "dropped"].contains($0["status"].text) }) { Text(m.t("card.tasks_done", ["n": String(card["tasks"].rows.count)])) } }
                 DisclosureGroup(m.t("card.recent")) { Rows(card["recent"].rows) { Text($0["at"].text + " · " + $0["tool"].text + " · " + $0["summary"].text).font(.caption) } }
                 HStack { Button(m.t("card.message")) { m.sheet = nil; m.run { try await m.select(m.organization, who) } }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: who) } }
                 Divider()
                 if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { Button(m.t("card.new_session")) { confirmation = "fresh" }.help(m.t("card.new_session_hint")) }
                 if hosted && !card["session"].text.isEmpty { Button(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.help(m.t("card.open_session_hint")) }
                 if hosted { Button(m.t("card.edit_setup")) { m.openMemberForm(mode: "host", edit: who) }.help(m.t("card.edit_setup_hint")) }
-                if card["harness"].text == "chatgpt" { Button(m.t("card.forward_reply")) { m.sheet = .forward }.help(m.t("card.forward_reply_hint")) }
+                if card["harness"].text == "chatgpt" { Button(m.t(card["waiting_replies"].integer > 0 ? "card.forward_reply_waiting" : "card.forward_reply", ["n": card["waiting_replies"].text])) { m.sheet = .forward }.help(m.t("card.forward_reply_hint")) }
                 if !card["session"].text.isEmpty { Button(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.help(m.t("card.leave_seat_hint")) }
                 if !status.isEmpty { Text(status) }
             }.padding(8)
-        }.frame(width: 600, height: 650)
+        }.frame(width: 600, height: 650).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
             Button(m.t(confirmation == "fresh" ? "card.new_session" : "card.leave_seat"), role: .destructive) { let action = confirmation; m.run { try await seatAction(action) } }
@@ -62,7 +64,7 @@ struct MemberCard: View {
     func seatAction(_ action: String) async throws {
         let route: String
         switch action { case "fresh": route = "/fresh"; case "unbind": route = "/unbind"; default: route = "/open_session" }
-        try await m.post(m.path(route), ["member": who]); status = m.t("seat." + action, ["name": m.name(who)]); try await m.refresh(); try await load()
+        try await m.post(m.path(route), ["member": who]); status = m.t(["fresh": "seat.fresh", "unbind": "seat.unbind", "open_session": "seat.open_session"][action] ?? "seat.done", ["name": m.name(who)]); try await m.refresh(); try await load()
     }
 }
 
@@ -96,7 +98,7 @@ struct ForwardForm: View {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !body.isEmpty else { throw RelicError.message(m.t("forward.need_body")) }
                 if body.hasPrefix("【Relic") && !acknowledged { acknowledged = true; throw RelicError.message(m.t("forward.not_reply", ["prefix": "【Relic"])) }
-                try await m.post(m.path("/forward"), ["member": m.cardMember, "to": recipients, "body": body]); try await m.refresh()
+                try await m.post(m.path("/forward"), ["member": m.cardMember, "to": recipients, "body": body]); m.notice = m.t("forward.sent", ["name": m.name(m.cardMember)]); try await m.refresh()
             }
         }.formStyle(.grouped).frame(width: 680, height: 520)
         .task { m.run { info = try await m.get(m.path("/waiting?member=" + Client.segment(m.cardMember))); recipients = (info["waiting"].rows.first?["to"].rows ?? info["members"].rows).map(\.text).joined(separator: ",") } }

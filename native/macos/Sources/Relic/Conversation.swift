@@ -29,21 +29,47 @@ struct RichText: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            ForEach(Array(text.components(separatedBy: "```").enumerated()), id: \.offset) { index, part in
-                if index % 2 == 1 {
-                    ScrollView(.horizontal) { Text(part.components(separatedBy: "\n").dropFirst().joined(separator: "\n")).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(8) }.background(.quaternary.opacity(0.4))
-                } else {
-                    Text((try? AttributedString(markdown: linkedPaths(part), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(part)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                }
+            ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
+                blockView(block)
             }
         }.environment(\.openURL, OpenURLAction { url in
             if url.scheme == "relic-file", let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let path = parts.queryItems?.first(where: { $0.name == "path" })?.value {
                 let line = Int(parts.queryItems?.first(where: { $0.name == "line" })?.value ?? "") ?? 0
                 m.run { try await m.openFile(path, line: line) }; return .handled
             }
-            if url.isFileURL { m.run { try await m.openFile(url.path) }; return .handled }
+            if url.isFileURL || url.scheme == nil && url.path.hasPrefix("/") { m.run { try await m.openFile(url.path) }; return .handled }
             return .systemAction
         })
+    }
+    private func inline(_ value: String) -> some View {
+        SelectableText(value: (try? AttributedString(markdown: linkedPaths(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).frame(maxWidth: .infinity, alignment: .leading).help(m.t("chat.path_preview"))
+    }
+    @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block.kind {
+        case "code": ScrollView(.horizontal) { Text(block.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(8) }.background(.quaternary.opacity(0.4))
+        case "head": inline("**" + block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression) + "**").padding(.top, 6)
+        case "quote":
+            HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(quoteText(block)) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))
+        case "list":
+            VStack(alignment: .leading, spacing: 3) { ForEach(Array(block.lines.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .top) { Text(line.trimmingCharacters(in: .whitespaces).prefix(1).first?.isNumber == true ? String(line.trimmingCharacters(in: .whitespaces).prefix { $0.isNumber }) + "." : "•"); inline(line.replacingOccurrences(of: #"^\s*([-*•+]|\d+[.)])\s+"#, with: "", options: .regularExpression)) }.padding(.leading, line.hasPrefix("  ") ? 20 : 0)
+            } }
+        case "table":
+            ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in inline(index == 0 ? "**" + cell + "**" : cell).padding(4) }
+                } }
+            }.padding(4) }
+        default: inline(block.text)
+        }
+    }
+    private func quoteText(_ block: MarkdownBlock) -> String {
+        let value = block.lines.map { $0.replacingOccurrences(of: #"^\s*>\s?"#, with: "", options: .regularExpression) }.joined(separator: "\n")
+        if let range = value.range(of: #"^[^\n：:]{1,40}[：:]\s?"#, options: .regularExpression) {
+            let head = String(value[range]).trimmingCharacters(in: CharacterSet(charactersIn: ":： "))
+            return "**" + m.t("chat.quote_from", ["name": head]) + "**" + value[range.upperBound...]
+        }
+        return value
     }
     private func linkedPaths(_ input: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: #"(?<![\w./:\\(])/(?!/)[^\s<>\"'`|*?，。；、（）)\]]+"#) else { return input }
@@ -84,7 +110,7 @@ struct ChatView: View {
                             if m.moreChat { Button(m.t("trace.load_older")) { m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             Rows(m.displayMessages) { MessageView(item: $0) }
-                            Rows(m.liveItems) { LiveItem(item: $0) }
+                            if !m.displayLiveItems.isEmpty { DisclosureGroup(m.t("live.turn_actions")) { Rows(m.displayLiveItems.filter { $0["type"].text != "assistant" }) { LiveItem(item: $0) } }; if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) } }
                             if ["running", "working"].contains(m.liveStatus["state"].text) { Label(m.t("live.replying"), systemImage: "ellipsis") }
                             Color.clear.frame(height: 1).id("end")
                         }.padding(.vertical, 8)
@@ -156,7 +182,7 @@ struct MessageView: View {
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
+            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
         }
     }
 }
@@ -184,7 +210,7 @@ struct LiveItem: View {
     var body: some View {
         if item["type"].text == "permission" { DecisionView(decision: Node(item.object.merging(["kind": "permission", "member": m.member]) { _, new in new })) }
         else if ["tool", "tool_call", "tool_result"].contains(item["type"].text) {
-            DisclosureGroup(item["title"].text + " · " + item["status"].text) { Text(pretty(item)).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+            DisclosureGroup(item["title"].text + " · " + m.t(item["status"].text == "pending" ? "live.pending" : item["status"].text == "completed" ? "task.done" : item["status"].text == "failed" ? "common.failed" : "task.working")) { Text(item["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
         } else { RichText(item["text"].text) }
     }
 }
