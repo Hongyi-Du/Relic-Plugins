@@ -34,7 +34,24 @@ LANG = [None]
 
 def _t(key, **args):
     return i18n.t(key, LANG[0]() if LANG[0] else None, **args)
-EFFORT_OPTIONS = ("reasoning_effort", "effort", "thought_level")  # config options that set reasoning effort
+EFFORT_OPTIONS = ("reasoning_effort", "effort", "thought_level", "thinking")
+
+
+def _config_option(options, category, ids):
+    """Categories describe a setting; its id is the harness's actual RPC argument."""
+    return (next((o for o in options if o.get("category") == category), None)
+            or next((o for o in options if o.get("id") in ids), None))
+
+
+def _option_values(options):
+    """ACP select options can be flat or grouped (for example, models by provider)."""
+    values = []
+    for option in options or []:
+        if "options" in option:
+            values.extend(_option_values(option["options"]))
+        elif isinstance(option.get("value"), str):
+            values.append(option["value"])
+    return list(dict.fromkeys(values))
 
 
 def secretary_brief(org, member):
@@ -73,6 +90,7 @@ class Live:
         self.lock = threading.RLock()
         self.models, self.modes, self.options, self.efforts = [], [], [], []
         self.effort = ""
+        self.reported = collections.Counter()  # explicit selections, including updates sent before an RPC reply
         self.active = time.time()  # last start or end of a turn: idle sessions are closed (reap) and resumed later
         self.calls = {}  # toolCallId -> the tool call as reported so far (sessions without Relic hooks: activity)
         self.notes = []  # protocol decisions to tell the session at the start of its next turn (no hooks to say them)
@@ -99,7 +117,7 @@ class Hub:
             return None
         return {"state": live.state, "detail": live.detail, "model": live.model, "mode": live.mode, "doing": live.doing,
                 "session": live.session_id, "queued": len(live.queue), "harness": live.harness, "effort": live.effort,
-                "models": list(live.models)}
+                "models": list(live.models), "efforts": list(live.efforts)}
 
     def items(self, org_id, member, after=0):
         live = self._live.get((org_id, member))
@@ -245,7 +263,9 @@ class Hub:
                 store.set_config(org_id, member, dict(config, session=sid))
             live.session_id = sid
             self._read_session(live, result)
-            self._apply(live, config)
+            errors = self._apply(live, config)
+            if errors:
+                raise AcpError("; ".join(errors))
             self._set(live, "idle", _t("view.state.idle"))
             return live
         except Exception as error:
@@ -255,27 +275,46 @@ class Hub:
 
     def _read_session(self, live, result):
         result = result or {}
-        live.options = result.get("configOptions") or []
         models = result.get("models") or {}
-        live.models = [m.get("modelId") for m in models.get("availableModels") or []]
+        if "availableModels" in models:
+            live.models = [m.get("modelId") for m in models["availableModels"] or []]
+        if models.get("currentModelId") is not None:
+            live.model = models["currentModelId"]
+            live.reported["model"] += 1
         modes = result.get("modes") or {}
-        live.modes = [m.get("id") for m in modes.get("availableModes") or []]
+        if "availableModes" in modes:
+            live.modes = [m.get("id") for m in modes["availableModes"] or []]
         live.mode = modes.get("currentModeId") or live.mode
-        live.efforts = []
-        for option in live.options:
-            if option.get("id") == "model":
-                live.model = option.get("currentValue") or live.model
-                live.models = [o.get("value") for o in option.get("options") or []] or live.models
-            if option.get("id") == "mode":
+        if "configOptions" in result:
+            live.options = result["configOptions"] or []
+            for kind, category, ids in (("model", "model", ("model",)),
+                                        ("effort", "thought_level", EFFORT_OPTIONS)):
+                option = _config_option(live.options, category, ids)
+                if option is not None:
+                    if option.get("currentValue") is not None:
+                        setattr(live, kind, option["currentValue"])
+                        live.reported[kind] += 1
+                    if "options" in option:
+                        setattr(live, "models" if kind == "model" else "efforts", _option_values(option["options"]))
+                elif kind == "effort":
+                    live.effort, live.efforts = "", []  # a full options update can remove this model's effort setting
+            option = _config_option(live.options, "mode", ("mode",))
+            if option is not None:
                 live.mode = option.get("currentValue") or live.mode
-            if option.get("id") in EFFORT_OPTIONS:
-                live.effort = option.get("currentValue") or live.effort
-                live.efforts = [o.get("value") for o in option.get("options") or []]
-        live.model = live.model or models.get("currentModelId") or ""
         harnesses.remember(live.harness, live.models, live.efforts)
+
+    def _selection_reply(self, live, result, kind, requested, before):
+        self._read_session(live, result)
+        # Legacy set_model/set_config_option agents answer {}. Preserve that convention, unless a session update
+        # has already reported what actually took effect; even an unchanged reported value is authoritative.
+        if not result and live.reported[kind] == before:
+            setattr(live, kind, requested)
+        if getattr(live, kind) != requested:
+            raise AcpError("agent reported %r instead of %r" % (getattr(live, kind), requested))
 
     def _apply(self, live, config):
         mode, model, effort = config.get("mode"), config.get("model"), config.get("effort")
+        errors = []
         if mode and mode != live.mode and (not live.modes or mode in live.modes):
             try:
                 live.agent.set_mode(live.session_id, mode)
@@ -284,20 +323,28 @@ class Hub:
                 live.detail = _t("hub.mode_failed", mode=mode, error=error)
         if model and model != live.model:
             try:
-                if any(o.get("id") == "model" for o in live.options):
-                    live.agent.set_config_option(live.session_id, "model", model)
+                option = _config_option(live.options, "model", ("model",))
+                before = live.reported["model"]
+                if option is not None:
+                    result = live.agent.set_config_option(live.session_id, option["id"], model)
                 else:
-                    live.agent.request("session/set_model", {"sessionId": live.session_id, "modelId": model}, timeout=60)
-                live.model = model
+                    result = live.agent.request("session/set_model", {"sessionId": live.session_id, "modelId": model}, timeout=60)
+                self._selection_reply(live, result, "model", model, before)
             except AcpError as error:
                 live.detail = _t("hub.model_failed", model=model, error=error)
-        option = next((o.get("id") for o in live.options if o.get("id") in EFFORT_OPTIONS), None)
-        if effort and option and effort != live.effort:
+                errors.append(live.detail)
+        option = _config_option(live.options, "thought_level", EFFORT_OPTIONS)
+        if effort and effort != live.effort:
             try:
-                live.agent.set_config_option(live.session_id, option, effort)
-                live.effort = effort
+                if option is None:
+                    raise AcpError("the agent did not offer a reasoning effort setting")
+                before = live.reported["effort"]
+                result = live.agent.set_config_option(live.session_id, option["id"], effort)
+                self._selection_reply(live, result, "effort", effort, before)
             except AcpError as error:
                 live.detail = _t("hub.effort_failed", effort=effort, error=error)
+                errors.append(live.detail)
+        return errors
 
     def set_model(self, org_id, member, model="", effort=""):
         """The person chose a model (and reasoning effort) for an App-run seat: saved on the seat, applied to its live
@@ -312,9 +359,16 @@ class Hub:
         store.set_config(org_id, member, config)
         live = self._live.get((org_id, member))
         if live and live.agent and live.agent.alive and live.session_id:
-            self._apply(live, config)
+            errors = self._apply(live, config)
+            for kind in ("model", "effort"):
+                if getattr(live, kind) or kind in config:
+                    config[kind] = getattr(live, kind)
+            store.set_config(org_id, member, config)
             self._set(live, live.state, live.detail)
-        return {"model": config.get("model", ""), "effort": config.get("effort", ""), "applied": "now"}
+            if errors:
+                raise AcpError("; ".join(errors))
+            return {"model": live.model, "effort": live.effort, "applied": "now"}
+        return {"model": config.get("model", ""), "effort": config.get("effort", ""), "applied": "next"}
 
     def stop(self, org_id, member):
         with self._lock:
@@ -516,9 +570,8 @@ class Hub:
         elif kind == "current_mode_update":
             live.mode = update.get("currentModeId") or live.mode
         elif kind == "config_option_update":
-            for option in update.get("configOptions") or []:
-                if option.get("id") == "model":
-                    live.model = option.get("currentValue") or live.model
+            self._read_session(live, update)
+            self._set(live, live.state, live.detail)
 
     def _actor(self, live):
         seat = (self.store().get(live.org_id).get("members") or {}).get(live.member) or {}

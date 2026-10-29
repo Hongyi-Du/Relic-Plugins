@@ -383,6 +383,7 @@
  "fs.dir_outside": "This folder isn't in any member's workspace.",
  "fs.file_outside": "This file isn't in any member's workspace.",
  "fs.path_outside": "This path isn't in any member's workspace.",
+ "harness.native_acp": "ACP is built into this harness. Use its existing installation and login; no npm adapter is needed.",
  "harness.need_node": "Node.js wasn't found; the ACP adapter needs it.",
  "harness.need_npm": "npm wasn't found: install Node.js first (nodejs.org).",
  "harness.not_found": "{title} wasn't found.",
