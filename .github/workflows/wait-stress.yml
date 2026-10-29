@@ -22,9 +22,59 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Prove cancellation after snapshot against the merged server
+        shell: python
+        run: |
+          import importlib.util, io, json, pathlib, subprocess, sys, tempfile, threading
+          from unittest import mock
+          sys.path.insert(0, 'plugins/relic')
+          import server
+          from relic_core import api
+          from relic_core.store import Store
+          from relic_core.process import creation_flags
+          original = subprocess.check_output(['git', 'show', '10b0965:plugins/relic/server.py'],
+                                             creationflags=creation_flags()).decode('utf-8')
+          results = {}
+          with tempfile.TemporaryDirectory() as directory:
+              old_path = pathlib.Path(directory) / 'old_server.py'
+              old_path.write_text(original, encoding='utf-8')
+              spec = importlib.util.spec_from_file_location('old_server', old_path)
+              old_server = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(old_server)
+              for label, transport in [('before', old_server), ('after', server)]:
+                  store = Store(pathlib.Path(directory) / (label + '.sqlite3'))
+                  org = store.create('a', 'Fixture', 'snapshot cancellation', 'a')['id']
+                  store.join('b', org, 'b')
+                  store.send('b', ['a'], 'must stay unread')
+                  prepared, release = threading.Event(), threading.Event()
+                  real_inbox = api.inbox
+                  def inbox(*args, **kwargs):
+                      data = real_inbox(*args, **kwargs)
+                      prepared.set()
+                      assert release.wait(10), 'snapshot gate timed out'
+                      return data
+                  plugin = type('Plugin', (), {'store': store, 'api': api})()
+                  params = {'name': 'inbox', 'arguments': {'actor': 'a', 'wait': 30}}
+                  waiter = transport.Waiter(plugin, 1, params, 30, lambda _: None)
+                  output = io.StringIO()
+                  with mock.patch.object(api, 'inbox', side_effect=inbox), mock.patch.object(sys, 'stdout', output):
+                      waiter.start()
+                      try:
+                          assert prepared.wait(10), 'no snapshot'
+                          waiter.stop.set()
+                      finally:
+                          release.set()
+                      waiter.join(10)
+                      assert not waiter.is_alive(), 'wait did not finish'
+                  results[label] = dict(replies=len(output.getvalue().splitlines()),
+                                        unread=len(store.unread('a', mark=False)))
+          print(json.dumps(results), flush=True)
+          assert results == {'before': {'replies': 1, 'unread': 0}, 'after': {'replies': 0, 'unread': 1}}, results
       - name: Run the transport tests 30 times in fresh processes
         shell: python
         run: |

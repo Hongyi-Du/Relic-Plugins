@@ -126,7 +126,7 @@ def send(message, stop=None):
             if stop is not None and stop.is_set():
                 return False
             print(line, flush=True)
-            return True
+            return stop is None or not stop.is_set()
         except (BrokenPipeError, OSError):
             return False  # a closed output must never acknowledge inbox messages
         finally:

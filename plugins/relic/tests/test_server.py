@@ -4,7 +4,6 @@ relic_core must still be picked up while a member waits."""
 import json
 import os
 import queue
-import re
 import shutil
 import subprocess
 import sys
@@ -135,13 +134,18 @@ class SharedServer(unittest.TestCase):
 
     def start(self, script, home):
         """A server with an organization of three members: the lead and its subagents ana and bob."""
+        # Arrange each private store before starting its server. Formation performs
+        # many SQLite commits on Windows; it is not a concurrent-response latency
+        # assertion and must not spend the QUICK budget of a running server call.
+        store = Store(home / "relic.sqlite3")
+        org = store.create(LEAD, "Team", "build", "lead")["id"]
+        store.join(ANA, org, "ana")
+        store.join(BOB, org, "bob")
+        with store.change(org) as (record, _):
+            record["auto_wake"] = False
         server = Server(script, home)
         self.addCleanup(server.close)
         server.reply(server.request("initialize", {"protocolVersion": "2025-06-18"}), 20)
-        created = server.text(server.tool("create", LEAD, name="Team", purpose="build", member="lead"), 20)
-        org = re.search(r"\((org_[0-9a-f]+)\)", created).group(1)
-        server.text(server.tool("join", ANA, org_id=org, member="ana"))
-        server.text(server.tool("join", BOB, org_id=org, member="bob"))
         return server
 
     def test_a_member_waiting_in_its_inbox_holds_up_nobody(self):
@@ -274,7 +278,7 @@ class Cancellation(unittest.TestCase):
                 stream = Input()
                 requests = transport.Requests(stream)
                 requests.reader.start()
-                self.addCleanup(lambda: stream.put(None))
+                self.addCleanup(lambda stream=stream: stream.put(None))
                 stream.put({"id": 1, "method": "tools/call", "params": self.params})
                 _, stop = requests.queue.get(timeout=QUICK)
                 # Simulates a slow ordinary call/reload owning CODE. The input
@@ -327,6 +331,17 @@ class Cancellation(unittest.TestCase):
             waiter = self.start()
             waiter.join(QUICK)
             self.assertFalse(waiter.is_alive())
+        self.assertEqual(self.unread(), ["keep unread"])
+
+    def test_disconnect_during_flush_does_not_mark_messages_read(self):
+        self.store.send(ANA, ["lead"], "keep unread")
+        stop = threading.Event()
+        with mock.patch.object(transport.sys, "stdout") as output:
+            output.flush.side_effect = stop.set
+            waiter = self.start(stop)
+            waiter.join(QUICK)
+            self.assertFalse(waiter.is_alive())
+            output.flush.assert_called_once()
         self.assertEqual(self.unread(), ["keep unread"])
 
     def test_cancel_while_output_is_busy_does_not_hold_code_or_mark_messages(self):
