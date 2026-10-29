@@ -405,6 +405,8 @@ public sealed partial class MainWindow
         Button? button = null;
         button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
         button.Width = button.Height = 32; button.CornerRadius = new CornerRadius(16);
+        button.Foreground = Paint("5A5853", "B8B5AE");
+        if (button.Content is ReferenceVectorIcon icon) icon.Foreground = button.Foreground;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input"));
         button.Visibility = always || preferences.Text("voice") != "off" ? Visibility.Visible : Visibility.Collapsed;
         microphoneButtons.Add((new(button), always)); return button;
@@ -413,7 +415,13 @@ public sealed partial class MainWindow
     {
         var current = speech; speech = null;
         if (current != null) { try { current.RecognizeAsyncCancel(); } catch (InvalidOperationException) { } current.Dispose(); }
-        if (speechButton != null) { speechButton.Content = Glyph("\uE720"); speechButton.Foreground = Ink; } speechButton = null;
+        if (speechButton != null)
+        {
+            speechButton.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            speechButton.Foreground = Paint("5A5853", "B8B5AE");
+            if (speechButton.Content is ReferenceVectorIcon icon) icon.Foreground = speechButton.Foreground;
+        }
+        speechButton = null;
         return Task.CompletedTask;
     }
     private async Task Voice(TextBox target, Button button)
@@ -443,7 +451,10 @@ public sealed partial class MainWindow
                 else if (e.Error != null) Note(T("composer.voice_start_failed", ("error", e.Error.Message)));
                 target.Text = before + final + after; await StopVoice(); target.Focus(FocusState.Programmatic);
             });
-            recognizer.RecognizeAsync(RecognizeMode.Multiple); button.Content = T("common.cancel");
+            recognizer.RecognizeAsync(RecognizeMode.Multiple);
+            button.Foreground = Paint("C2412D", "EE8A78");
+            var recording = Paint("C2412D", "EE8A78"); recording.Opacity = .14; button.Background = recording;
+            if (button.Content is ReferenceVectorIcon icon) icon.Foreground = button.Foreground;
         }
         catch (UnauthorizedAccessException) { await StopVoice(); Note(T("native.speech_unavailable")); }
         catch (Exception ex) { await StopVoice(); Note(T("composer.voice_start_failed", ("error", ex.Message))); }

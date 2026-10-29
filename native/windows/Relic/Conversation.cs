@@ -310,6 +310,7 @@ public sealed partial class MainWindow
             layout.Children.Add(new Border { Child = note, Padding = new Thickness(10, 2, 10, 2), CornerRadius = new CornerRadius(10), Background = Paint("F8F7F5", "191918") }); return layout;
         }
         if (item.Text("type") == "acts") return ToolActions(item);
+        if (item.Text("type") == "receipt") return AutoReceipt(item, inThread);
         if (item.Text("type") == "step")
         {
             var content = Text(item.Text("text")); var expand = new Expander { Header = item.Text("tool").Length > 0 ? item.Text("tool") : T("common.result"), Content = content, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -338,8 +339,7 @@ public sealed partial class MainWindow
         }
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
         var showingPlain = explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.ContainsKey(key);
-        if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
-        else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
+        if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
         {
             var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 0, 0, 3) };
             var icon = (ReferenceVectorIcon)ReferenceIcon("lang", 13); icon.Foreground = Paint("7058B8", "A894E0"); icon.VerticalAlignment = VerticalAlignment.Center; title.Children.Add(icon);
@@ -576,28 +576,7 @@ public sealed partial class MainWindow
     }
     private UIElement ToolActions(JsonNode group)
     {
-        var pairs = Transcript.PairTools(group.Rows("steps"));
-        var failed = pairs.Count(p => p.Result.Flag("error")); var content = new StackPanel { Spacing = 6 };
-        var expand = new Expander { Header = T("step.actions", ("n", pairs.Count)) + (failed > 0 ? " · " + T("step.failed", ("n", failed)) : ""), Content = content, HorizontalAlignment = HorizontalAlignment.Stretch };
-        expand.Expanding += (_, _) =>
-        {
-            if (content.Children.Count > 0) return;
-            foreach (var (call, result) in pairs)
-            {
-                var body = new StackPanel { Spacing = 6 }; var tool = call.Text("tool").Replace("mcp__plugin_relic_org__", "Relic ").Replace("mcp__relic_org__", "Relic ").Replace("mcp__", "");
-                var row = new Expander { Header = (tool.Length > 0 ? tool : T("common.result")) + " · " + (result.Flag("error") ? T("common.failed") : When((call ?? result).Text("at"))), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch };
-                row.Expanding += async (_, _) => await Run(async () =>
-                {
-                    if (body.Children.Count > 0) return;
-                    foreach (var step in new[] { call, result }.Where(s => s != null))
-                    {
-                        var text = Text(step.Text("text"), 12); body.Children.Add(text);
-                        if (step.Flag("cut")) { var full = await api!.Get(PathFor("/step?member=" + Client.Segment(group.Text("member")) + "&i=" + step.Text("i"))); text.Text = full.Text("text"); }
-                    }
-                }); content.Children.Add(row);
-            }
-        };
-        return expand;
+        return ConversationActions(group);
     }
 }
 

@@ -398,12 +398,14 @@ class ExtractionContractTests(unittest.TestCase):
 
 
 class MatrixReportTests(unittest.TestCase):
-    def test_full_matrix_requires_exact_504_cases(self):
+    def test_full_matrix_requires_exact_528_cases(self):
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         cases = expected_cases(spec, "full")
-        self.assertEqual(len(cases), 504)
+        self.assertEqual(len(cases), 528)
         self.assertIn("en-US-dark-1024x700-menu-help", cases)
         self.assertIn("zh-CN-light-1440x900-quick-start", cases)
+        self.assertIn("en-US-dark-1024x700-member-host-model-suggestions", cases)
+        self.assertIn("zh-CN-light-1440x900-member-existing-seat-suggestions", cases)
         self.assertEqual(len(expected_cases(spec, "smoke")), 7)
 
     def test_missing_native_capture_writes_failure_report_and_html(self):

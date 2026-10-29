@@ -469,6 +469,7 @@
  "member.environment": "Environment",
  "member.finding_sessions": "Looking for sessions on this computer…",
  "member.folder_placeholder": "Leave empty to use ~/.relic/workspaces/<organization>/<name>",
+ "member.harness_label": "Harness",
  "member.harness_cli": "{harness} · command line",
  "member.harness_gui": "{harness} · desktop app",
  "member.host_folder_placeholder": "Leave empty to use your home folder",

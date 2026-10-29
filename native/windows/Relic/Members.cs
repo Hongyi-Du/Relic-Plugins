@@ -181,102 +181,170 @@ public sealed partial class MainWindow
     }
     private async Task SecretarySetup()
     {
-        var content = Stack(Quiet(T("secretary.setup_intro"), 12)); content.Width = Math.Min(572, root.ActualWidth - 160);
+        var target = org; var dialog = new ContentDialog { XamlRoot = root.XamlRoot };
+        var body = new StackPanel(); body.Children.Add(OverviewText(T("secretary.setup_title"), 17, weight: 650));
+        body.Children.Add(OverviewText(T("secretary.setup_intro"), 12.5, true));
+        var choices = new StackPanel { Spacing = 6 };
         foreach (var m in snap.Rows("members").Where(m => m.Text("state") != "vacant" && m.Text("surface") is not ("subagent" or "chat")))
         {
-            var choice = Button("", async () => { await Post("/secretary", new { member = m.Text("name") }); visibleDialog?.Hide(); await Select(org, m.Text("name")); }); choice.HorizontalAlignment = HorizontalAlignment.Stretch; choice.Padding = new Thickness(12);
-            var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(SmallAvatar(m.Text("avatar"), Display(m.Text("name")), m.Text("state"), 32)); var labels = Stack(Heading(T("secretary.make", ("name", m.Text("display"))), 13), Quiet(m.Text("harness_label") + " · " + m.Text("surface_label"), 11)); labels.Spacing = 4; Grid.SetColumn(labels, 1); row.Children.Add(labels); choice.Content = row; content.Children.Add(choice);
+            var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var face = Avatar(m.Text("avatar"), Display(m.Text("name")), 28); ((FrameworkElement)face).VerticalAlignment = VerticalAlignment.Center; row.Children.Add(face);
+            var labels = new StackPanel(); labels.Children.Add(OverviewText(T("secretary.make", ("name", Display(m.Text("name")))), 13, weight: 700));
+            labels.Children.Add(OverviewText(string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label") }.Where(value => value.Length > 0)), 12, true)); Grid.SetColumn(labels, 1); row.Children.Add(labels);
+            var choice = Button("", async () => { await api!.Post(Client.Org(target, "/secretary"), new { member = m.Text("name") }); dialog.Hide(); await Select(target, m.Text("name")); });
+            choice.Content = row; choice.HorizontalAlignment = HorizontalAlignment.Stretch; choice.HorizontalContentAlignment = HorizontalAlignment.Stretch; choice.Padding = new Thickness(11, 9, 11, 9); choice.CornerRadius = new CornerRadius(10); choice.MinHeight = 0;
+            choice.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.BorderThickness = new Thickness(1); choices.Children.Add(choice);
         }
-        content.Children.Add(Button(T("secretary.new_embedded"), () => MemberDialog(secretary: true)));
-        await Show(T("secretary.setup_title"), content);
+        if (choices.Children.Count > 0) body.Children.Add(choices);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; })); footer.Children.Add(FormAction(T("secretary.new_embedded"), async () => { dialog.Hide(); await MemberDialog(secretary: true); }, true)); body.Children.Add(footer);
+        await FormDialog(dialog, body, 520);
     }
     private async Task MemberDialog(string mode = "app", string? edit = null, bool secretary = false)
     {
         if (org.Length == 0) return;
-        var target = org; platform = await api!.Get("/api/platform");
-        var harnesses = await api.Get("/api/harnesses"); var sessions = await api.Get("/api/sessions"); var options = await api.Get("/api/seat-options");
+        var target = org; platform = await api!.Get("/api/platform"); var harnesses = await api.Get("/api/harnesses");
+        JsonNode options;
+        try { options = await api.Get("/api/seat-options"); }
+        catch { options = new JsonObject { ["efforts"] = new JsonArray(""), ["claude_modes"] = new JsonArray("auto"), ["codex_sandboxes"] = new JsonArray("workspace-write"), ["claude_models"] = new JsonArray("") }; }
         var card = edit == null ? new JsonObject() : await api.Get(Client.Org(target, "/member/" + Client.Segment(edit))); var config = card["config"];
-        var form = new StackPanel { Spacing = 10, MinWidth = 480 };
-        var run = Choice(form, "member.where_run", [("app", T("member.run_app")), ("host", T("member.run_host")), ("existing", T("member.run_existing"))]); SetChoice(run, edit != null ? "host" : mode);
-        run.Visibility = edit != null || secretary ? Visibility.Collapsed : Visibility.Visible;
-        var note = Text(""); form.Children.Add(note);
-        var name = Field(form, "member.name_label"); name.Text = edit ?? (secretary ? "secretary" : ""); name.IsReadOnly = edit != null; name.PlaceholderText = T("member.name_placeholder");
-        var role = Field(form, "common.role"); role.Text = card.Text("role"); role.PlaceholderText = secretary ? T("member.role_placeholder_secretary") : T("member.role_placeholder");
-        var nameSurface = FieldSurface(name); var roleSurface = FieldSurface(role);
-        var appFields = new StackPanel { Spacing = 8 }; form.Children.Add(appFields);
-        var harness = Choice(appFields, "common.harness", harnesses.Rows().Where(h => h.Flag("available") && !h.Flag("later")).Select(h => (h.Text("id"), h.Text("title"))));
-        harness.PlaceholderText = T("member.need_harness"); ToolTipService.SetToolTip(harness, T("member.need_harness"));
-        foreach (var h in harnesses.Rows().Where(h => !h.Flag("later"))) appFields.Children.Add(Text(h.Text("title") + " · " + (h.Flag("available") ? T("member.connected", ("program", h.Text("program"))) : h.Text("problem")), 12));
-        if (harnesses.Rows().Any(h => h.Flag("later"))) appFields.Children.Add(Text(T("member.later_acp") + "\n" + string.Join(" · ", harnesses.Rows().Where(h => h.Flag("later")).Select(h => h.Text("title"))), 12));
-        var appModel = Field(appFields, "common.model"); appModel.PlaceholderText = T("member.model_placeholder");
-        var appFolder = Field(appFields, "common.work_folder"); appFolder.PlaceholderText = T("member.folder_placeholder");
-        var sec = new CheckBox { Content = T("member.make_secretary"), IsChecked = secretary }; appFields.Children.Add(sec);
-        var hostFields = new StackPanel { Spacing = 8 }; form.Children.Add(hostFields);
-        var kinds = new List<(string, string)>();
-        foreach (var h in new[] { "claude-code", "codex" }) foreach (var s in new[] { "cli", "gui" }) if (Delivery(h, s)) kinds.Add((h + "/" + s, T(s == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", HarnessTitle(h)))));
-        var hostKind = Choice(hostFields, "member.where_run", kinds); SetChoice(hostKind, (config.Text("harness").Length > 0 ? config.Text("harness") : "claude-code") + "/" + (config.Text("surface") == "gui" ? "gui" : "cli"));
-        var hostModel = Field(hostFields, "common.model"); hostModel.Text = config.Text("model"); hostModel.PlaceholderText = T("member.model_placeholder");
-        var effort = Choice(hostFields, "member.effort", options.Rows("efforts").Select(x => (x.Text(), x.Text().Length > 0 ? x.Text() : T("common.default_effort")))); SetChoice(effort, config.Text("effort"));
-        PairFields(hostFields, FieldSurface(hostModel), effort);
-        var folder = Field(hostFields, "member.work_folder"); folder.Text = config.Text("folder"); folder.PlaceholderText = T("member.host_folder_placeholder");
-        var environment = Choice(hostFields, "member.environment", [("local", T("member.env_local")), ("worktree", T("member.env_worktree"))]); SetChoice(environment, config.Text("environment"));
-        var permission = Choice(hostFields, "member.permission", []);
-        void FillPermissions() { permission.Items.Clear(); foreach (var p in options.Rows(Value(hostKind).StartsWith("codex") ? "codex_sandboxes" : "claude_modes")) permission.Items.Add(new ComboBoxItem { Content = p.Text(), Tag = p.Text() }); SetChoice(permission, config.Text("permission")); }
-        FillPermissions(); hostKind.SelectionChanged += (_, _) => FillPermissions();
-        PairFields(hostFields, environment, permission);
-        var env = Field(hostFields, "member.env_vars", true); env.PlaceholderText = T("member.env_placeholder"); env.Text = config?["env"] is JsonObject variables ? string.Join("\n", variables.Select(v => v.Key + "=" + v.Value.Text())) : "";
-        var start = new CheckBox { Content = T("member.start_now"), IsChecked = true, Visibility = edit == null ? Visibility.Visible : Visibility.Collapsed }; hostFields.Children.Add(start);
-        var existing = new StackPanel { Spacing = 8 }; form.Children.Add(existing);
-        var find = new TextBox { PlaceholderText = T("member.session_search") }; existing.Children.Add(find);
-        var list = new ListView { MaxHeight = 240, SelectionMode = ListViewSelectionMode.Single }; existing.Children.Add(list); var empty = Text(T("member.finding_sessions")); existing.Children.Add(empty);
-        var found = sessions.Rows("sessions").Where(s => s.Text("harness") != "chatgpt" || platform.Flag("chatgpt_delivery")).ToArray();
-        void FindSessions()
+        var run = edit != null ? "host" : secretary ? "app" : mode;
+        var name = FormInput(edit ?? (secretary ? "secretary" : ""), T("member.name_placeholder")); name.IsEnabled = edit == null;
+        var role = FormInput(card.Text("role"), T(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder"));
+        var nameField = FormLabel("member.name_label", SettingsVoiceField(name, double.NaN)); var roleField = FormLabel("common.role", SettingsVoiceField(role, double.NaN));
+        var appFields = new StackPanel { Spacing = 12 };
+        var picked = harnesses.Rows().FirstOrDefault(h => h.Flag("available") && !h.Flag("later")).Text("id");
+        var harnessChoice = new StackPanel { Spacing = 6 }; var harnessTitle = OverviewText(T("member.harness_label"), 12.5, true); harnessChoice.Children.Add(harnessTitle);
+        var appRadios = new StackPanel { Spacing = 6 }; var appGroup = "member-app-" + Guid.NewGuid().ToString("N");
+        foreach (var harness in harnesses.Rows().Where(h => !h.Flag("later")))
         {
-            var previous = (list.SelectedItem as ListViewItem)?.Tag as JsonNode;
-            list.Items.Clear();
-            foreach (var s in found.Where(s => (s.Text("title") + " " + s.Text("cwd") + " " + s.Text("id")).Contains(find.Text, StringComparison.OrdinalIgnoreCase)))
-                list.Items.Add(new ListViewItem { Tag = s, Content = HarnessTitle(s.Text("harness")) + " · " + (s.Text("title").Length > 0 ? s.Text("title") : s.Text("id")) + "\n" + s.Text("cwd") + (Delivery(s.Text("harness"), s.Text("surface")) ? "" : "\n" + T("member.manual_delivery") + " · " + T("member.desktop_manual")) });
-            list.SelectedItem = list.Items.Cast<ListViewItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, previous));
-            empty.Text = list.Items.Count == 0 ? T(find.Text.Trim().Length > 0 ? "member.no_match" : "member.no_sessions") : "";
+            var labels = new StackPanel(); var heading = FormLabelText("");
+            heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = harness.Text("title"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+            heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + harness.Text("vendor"), Foreground = Muted }); labels.Children.Add(heading);
+            labels.Children.Add(OverviewText(harness.Flag("available") ? T("member.connected", ("program", OverviewClip(harness.Text("program"), 48))) : harness.Text("problem"), 12, true, lineHeight: 19.2));
+            appRadios.Children.Add(FormRadio(appGroup, harness.Text("title"), labels, harness.Text("id") == picked, harness.Flag("available"), () => picked = harness.Text("id")));
         }
-        FindSessions(); find.TextChanged += (_, _) => FindSessions();
-        if (sessions.Rows("problems").Count > 0) existing.Children.Add(Quiet(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(p => p.Text())), 12));
-        var modes = new SelectorBar { Visibility = run.Visibility };
-        foreach (var (id, label) in new[] { ("app", "member.run_app"), ("host", "member.run_host"), ("existing", "member.run_existing") }) modes.Items.Add(new SelectorBarItem { Text = T(label), Tag = id, IsSelected = Value(run) == id, FontSize = 13 });
-        modes.SelectionChanged += (_, _) => { if (modes.SelectedItem?.Tag is string value) SetChoice(run, value); };
-        form.Children.Clear(); form.Children.Add(modes); form.Children.Add(note); var fields = new StackPanel { Spacing = 10 }; form.Children.Add(fields);
-        void DrawMode()
+        harnessChoice.Children.Add(appRadios);
+        if (harnesses.Rows().Any(h => h.Flag("later")))
         {
-            var value = Value(run); note.Text = edit != null ? T("member.edit_note") : value switch { "app" => T("member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
-            appFields.Visibility = value == "app" ? Visibility.Visible : Visibility.Collapsed; hostFields.Visibility = value == "host" ? Visibility.Visible : Visibility.Collapsed; existing.Visibility = value == "existing" ? Visibility.Visible : Visibility.Collapsed;
-            name.Header = value == "existing" ? T("member.which_seat") : T("member.name_label"); name.PlaceholderText = value == "existing" ? T("member.seat_placeholder") : T("member.name_placeholder");
-            role.Header = value == "existing" ? T("member.role_new") : T("common.role");
-            fields.Children.Clear();
-            if (value == "existing") fields.Children.Add(existing);
-            fields.Children.Add(nameSurface); fields.Children.Add(roleSurface);
-            if (value == "app") fields.Children.Add(appFields); else if (value == "host") fields.Children.Add(hostFields);
-            if (visibleDialog != null) visibleDialog.PrimaryButtonText = SubmitLabel();
+            var later = new DetailsFilterRow { Spacing = 6 }; later.Children.Add(OverviewText(T("member.later_acp"), 12, true, lineHeight: 19.2));
+            foreach (var harness in harnesses.Rows().Where(h => h.Flag("later"))) { var chip = OverviewChip(harness.Text("title")); ToolTipService.SetToolTip(chip, harness.Text("vendor") + " · " + harness.Text("launch")); later.Children.Add(chip); }
+            harnessChoice.Children.Add(later);
         }
-        string SubmitLabel() => edit != null ? T("common.save") : Value(run) == "existing" ? T("member.bind") : Value(run) == "app" ? T(secretary ? "member.create_secretary" : "member.create_member") : T(start.IsChecked == true ? "member.create_start" : "member.create_seat_only");
-        run.SelectionChanged += (_, _) => DrawMode(); start.Checked += (_, _) => DrawMode(); start.Unchecked += (_, _) => DrawMode(); DrawMode();
-        await Form(edit != null ? T("member.edit_title", ("name", card.Text("display"))) : secretary ? T("secretary.new_embedded") : T("common.add_member"), form, async () =>
+        appFields.Children.Add(harnessChoice);
+        var appModel = FormInput("", T("member.model_placeholder")); var appFolder = FormInput("", T("member.folder_placeholder"));
+        appFields.Children.Add(FormLabel("common.model", SettingsVoiceField(appModel, double.NaN))); appFields.Children.Add(FormLabel("common.work_folder", SettingsVoiceField(appFolder, double.NaN)));
+        var makeSecretary = secretary; appFields.Children.Add(FormSwitch("member.make_secretary", makeSecretary, value => makeSecretary = value));
+        var hostFields = new StackPanel { Spacing = 12 }; var hostKind = (config.Text("harness").Length > 0 ? config.Text("harness") : "claude-code") + "/" + (config.Text("surface") == "gui" ? "gui" : "cli");
+        var hostModel = FormInput(config.Text("model"), T("member.model_placeholder"), "member-model");
+        FormSuggestions(hostModel, () => options.Rows("claude_models").Select(value => (value.Text(), "")).Where(value => value.Item1.Length > 0));
+        var effort = FormSelect(options.Rows("efforts").Select(value => (value.Text(), value.Text().Length > 0 ? value.Text() : T("common.default_effort"))), config.Text("effort"));
+        var folder = FormInput(config.Text("folder"), T("member.host_folder_placeholder"));
+        var environment = FormSelect(new[] { ("local", T("member.env_local")), ("worktree", T("member.env_worktree")) }, config.Text("environment"));
+        var permission = FormSelect(Array.Empty<(string, string)>());
+        void FillPermissions()
         {
-            var seat = name.Text.Trim(); if (seat.Length == 0) throw new ArgumentException(Value(run) == "existing" ? T("member.need_seat_name") : T("member.need_name"));
-            switch (Value(run))
+            permission.Items.Clear(); foreach (var value in options.Rows(hostKind.StartsWith("codex") ? "codex_sandboxes" : "claude_modes")) permission.Items.Add(new ComboBoxItem { Content = value.Text(), Tag = value.Text(), FontSize = 12.5 }); SetChoice(permission, config.Text("permission"));
+        }
+        FillPermissions();
+        var kinds = new Grid { ColumnSpacing = 6, RowSpacing = 6 }; kinds.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); kinds.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var hostGroup = "member-host-" + Guid.NewGuid().ToString("N"); var hostIndex = 0;
+        foreach (var harness in new[] { "claude-code", "codex" }) foreach (var surface in new[] { "cli", "gui" })
+        {
+            if (!Delivery(harness, surface)) continue;
+            var key = harness + "/" + surface; var label = T(surface == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", HarnessTitle(harness)));
+            var title = FormLabelText(label); title.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+            var choice = FormRadio(hostGroup, label, title, key == hostKind, true, () => { hostKind = key; FillPermissions(); });
+            if (hostIndex % 2 == 0) kinds.RowDefinitions.Add(new() { Height = GridLength.Auto }); Grid.SetRow(choice, hostIndex / 2); Grid.SetColumn(choice, hostIndex % 2); kinds.Children.Add(choice); hostIndex++;
+        }
+        var kindFields = new StackPanel { Spacing = 6 }; kindFields.Children.Add(OverviewText(T("member.where_run"), 12.5, true)); kindFields.Children.Add(kinds);
+        if (!Delivery(config.Text("harness"), config.Text("surface"))) kindFields.Children.Add(OverviewText(T("member.choose_supported_host"), 14, true)); hostFields.Children.Add(kindFields);
+        hostFields.Children.Add(FormLabel("common.model", SettingsVoiceField(hostModel, double.NaN))); hostFields.Children.Add(FormLabel("member.effort", effort)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
+        hostFields.Children.Add(FormLabel("member.work_folder", SettingsVoiceField(folder, double.NaN)));
+        hostFields.Children.Add(FormLabel("member.environment", environment)); hostFields.Children.Add(FormLabel("member.permission", permission)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
+        var env = FormInput(config?["env"] is JsonObject variables ? string.Join("\n", variables.Select(value => value.Key + "=" + value.Value.Text())) : "", T("member.env_placeholder"), multiline: true, mono: true);
+        hostFields.Children.Add(FormLabel("member.env_vars", env));
+        var startNow = true; Button? submit = null;
+        string SubmitLabel() => edit != null ? T("common.save") : run == "existing" ? T("member.bind") : run == "app" ? T(secretary ? "member.create_secretary" : "member.create_member") : T(startNow ? "member.create_start" : "member.create_seat_only");
+        if (edit == null) hostFields.Children.Add(FormSwitch("member.start_now", startNow, value => { startNow = value; if (submit?.Content is TextBlock label) label.Text = SubmitLabel(); }));
+        var find = FormInput("", T("member.session_search")); var seatName = FormInput("", T("member.seat_placeholder"), "member-seat-name");
+        FormSuggestions(seatName, () => snap.Rows("members").Select(m => (m.Text("name"), m.Text("display").Length > 0 ? m.Text("display") : m.Text("name"))));
+        var searchField = FormLabel("common.session", SettingsVoiceField(find, double.NaN)); var seatField = FormLabel("member.which_seat", SettingsVoiceField(seatName, double.NaN));
+        JsonNode? sessions = null, chosen = null; var sessionRows = new StackPanel { Spacing = 4 };
+        var sessionList = new Border { Child = Scroll(sessionRows), Padding = new Thickness(6), BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), MaxHeight = 260 };
+        void DrawSessions()
+        {
+            sessionRows.Children.Clear();
+            if (sessions == null) { sessionRows.Children.Add(OverviewText(T("member.finding_sessions"), 14, true)); return; }
+            var query = find.Text.Trim(); var rows = sessions.Rows("sessions").Where(s => (s.Text("harness") != "chatgpt" || platform.Flag("chatgpt_delivery")) && (s.Text("title") + " " + s.Text("cwd") + " " + s.Text("id")).Contains(query, StringComparison.OrdinalIgnoreCase)).Take(80).ToArray();
+            if (rows.Length == 0) sessionRows.Children.Add(OverviewText(T(query.Length > 0 ? "member.no_match" : "member.no_sessions"), 14, true));
+            foreach (var session in rows)
             {
-                case "existing":
-                    if ((list.SelectedItem as ListViewItem)?.Tag is not JsonNode chosen) throw new ArgumentException(T("member.pick_session"));
-                    await api.Post(Client.Org(target, "/bind"), new { session = chosen, member = seat, role = role.Text.Trim() }); Note(T("member.bound", ("name", seat))); break;
-                case "app":
-                    if (Value(harness).Length == 0) throw new ArgumentException(T("member.need_harness"));
-                    await api.Post(Client.Org(target, "/members"), new { name = seat, role = role.Text.Trim(), harness = Value(harness), model = appModel.Text.Trim(), folder = appFolder.Text.Trim(), secretary = sec.IsChecked == true }); Note(T("member.starting", ("name", seat))); break;
-                default:
-                    var parts = Value(hostKind).Split('/'); if (parts.Length != 2 || !Delivery(parts[0], parts[1])) throw new ArgumentException(T("member.choose_supported_host"));
-                    await api.Post(Client.Org(target, "/seat"), new { name = seat, role = role.Text.Trim(), harness = parts[0], surface = parts[1], model = hostModel.Text.Trim(), effort = Value(effort), folder = folder.Text.Trim(), environment = Value(environment), permission = Value(permission), env = env.Text, start = edit == null && start.IsChecked == true, edit = edit != null });
-                    Note(edit != null ? T("member.edit_saved") : start.IsChecked == true ? T("member.starting_first", ("name", seat)) : T("member.seat_created")); break;
+                var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(150), MaxWidth = 150 }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                var label = HarnessTitle(session.Text("harness")); if (session.Text("surface") is "gui" or "cli") label = T(session.Text("surface") == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", label)); row.Children.Add(OverviewChip(label));
+                var title = OverviewText(session.Text("title").Length > 0 ? session.Text("title") : session.Text("id"), 12.5); title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis; title.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(title, 1); row.Children.Add(title);
+                var cwd = OverviewText(OverviewClip(session.Text("cwd"), 40), 11.5, true); cwd.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); cwd.TextWrapping = TextWrapping.NoWrap; cwd.TextTrimming = TextTrimming.CharacterEllipsis; cwd.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(cwd, 2); row.Children.Add(cwd);
+                var updated = OverviewText(session.Text("updated").Length > 0 ? Ago(session.Text("updated")) : "", 12.5, true); updated.VerticalAlignment = VerticalAlignment.Center;
+                if (!Delivery(session.Text("harness"), session.Text("surface")))
+                {
+                    var manual = OverviewChip(T("member.manual_delivery")); ToolTipService.SetToolTip(manual, T("member.desktop_manual")); Grid.SetColumn(manual, 3); row.Children.Add(manual);
+                    row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowSpacing = 8; Grid.SetRow(updated, 1);
+                }
+                else Grid.SetColumn(updated, 3);
+                row.Children.Add(updated);
+                var button = Button("", () => { chosen = session; DrawSessions(); return Task.CompletedTask; }); button.Content = row; button.Padding = new Thickness(8, 6, 8, 6); button.MinHeight = 0; button.CornerRadius = new CornerRadius(8); button.BorderThickness = new Thickness(0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                button.Background = ReferenceEquals(chosen, session) ? OverviewAlpha(Accent, .14) : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); sessionRows.Children.Add(button);
             }
-            await Select(target, seat);
-        }, SubmitLabel(), width: 620);
+            if (sessions.Rows("problems").Count > 0) sessionRows.Children.Add(OverviewText(string.Join(T("member.problem_sep"), sessions.Rows("problems").Select(value => value.Text())), 11.5, true));
+        }
+        async Task LoadSessions()
+        {
+            if (sessions != null) return;
+            try { sessions = await api.Get("/api/sessions"); } catch (Exception error) { sessions = new JsonObject { ["sessions"] = new JsonArray(), ["problems"] = new JsonArray(error.Message) }; } DrawSessions();
+        }
+        find.TextChanged += (_, _) => DrawSessions(); DrawSessions();
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel(); body.Children.Add(OverviewText(edit != null ? T("member.edit_title", ("name", card.Text("display").Length > 0 ? card.Text("display") : edit)) : secretary ? T("secretary.new_embedded") : T("common.add_member"), 17, weight: 650));
+        var tabs = new Border(); body.Children.Add(tabs); var note = OverviewText("", 12.5, true); body.Children.Add(note); var fields = new StackPanel { Spacing = 12 }; body.Children.Add(fields);
+        var errorLabel = OverviewText("", 12.5); errorLabel.Foreground = Paint("C2412D", "EE8A78"); var errorBox = new Border { Child = errorLabel, Height = 0 }; body.Children.Add(errorBox);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right }; body.Children.Add(footer);
+        footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; }));
+        submit = FormAction(SubmitLabel(), async () =>
+        {
+            errorLabel.Text = ""; errorBox.Height = 0; submit!.IsEnabled = false;
+            try
+            {
+                if (run == "existing")
+                {
+                    if (chosen == null) throw new ArgumentException(T("member.pick_session")); var seat = seatName.Text.Trim(); if (seat.Length == 0) throw new ArgumentException(T("member.need_seat_name"));
+                    await api.Post(Client.Org(target, "/bind"), new { session = chosen, member = seat, role = role.Text.Trim() }); dialog.Hide(); Note(T("member.bound", ("name", seat))); await Select(target, seat); return;
+                }
+                var nameValue = name.Text.Trim(); if (nameValue.Length == 0) throw new ArgumentException(T("member.need_name"));
+                if (run == "app")
+                {
+                    if (picked.Length == 0) throw new ArgumentException(T("member.need_harness"));
+                    await api.Post(Client.Org(target, "/members"), new { name = nameValue, role = role.Text.Trim(), harness = picked, model = appModel.Text.Trim(), folder = appFolder.Text.Trim(), secretary = makeSecretary }); Note(T("member.starting", ("name", nameValue)));
+                }
+                else
+                {
+                    var pair = hostKind.Split('/'); if (pair.Length != 2 || !Delivery(pair[0], pair[1])) throw new ArgumentException(T("member.choose_supported_host"));
+                    await api.Post(Client.Org(target, "/seat"), new { name = nameValue, role = role.Text.Trim(), harness = pair[0], surface = pair[1], model = hostModel.Text.Trim(), effort = Value(effort), folder = folder.Text.Trim(), environment = Value(environment), permission = Value(permission), env = env.Text, start = edit == null && startNow, edit = edit != null });
+                    Note(edit != null ? T("member.edit_saved") : startNow ? T("member.starting_first", ("name", nameValue)) : T("member.seat_created"));
+                }
+                dialog.Hide(); if (edit == null) await Select(target, nameValue); else await Refresh();
+            }
+            catch (Exception error) { errorLabel.Text = error.Message; errorBox.Height = double.NaN; submit.IsEnabled = true; }
+        }, true); footer.Children.Add(submit);
+        async Task DrawMode(string value)
+        {
+            run = value; fields.Children.Clear();
+            note.Text = edit != null ? T("member.edit_note") : value switch { "app" => T("member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
+            ((TextBlock)roleField.Children[0]).Text = T(value == "existing" ? "member.role_new" : "common.role");
+            if (value == "existing") { fields.Children.Add(searchField); fields.Children.Add(sessionList); fields.Children.Add(seatField); fields.Children.Add(roleField); await LoadSessions(); }
+            else { fields.Children.Add(nameField); fields.Children.Add(roleField); fields.Children.Add(value == "app" ? appFields : hostFields); }
+            ((TextBlock)submit.Content).Text = SubmitLabel();
+        }
+        if (edit == null && !secretary) tabs.Child = DetailsTabs(new[] { ("app", T("member.run_app")), ("host", T("member.run_host")), ("existing", T("member.run_existing")) }, run, DrawMode);
+        await DrawMode(run); await FormDialog(dialog, body, 620, run == "existing" ? find : edit != null ? role : name);
     }
     private static void PairFields(StackPanel container, FrameworkElement first, FrameworkElement second)
     {

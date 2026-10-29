@@ -11,6 +11,10 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+DATALIST_SCENES = {
+    "member-host-model-suggestions": "#layer input[list='relic-claude-models']",
+    "member-existing-seat-suggestions": "#layer input[list='relic-seat-names']",
+}
 
 
 def wait_file(path, process, timeout=60, on_tick=None):
@@ -85,6 +89,70 @@ def input_text_evidence(cdp):
     return {"inputs": evidence, "errors": errors, "raw_document": document}
 
 
+def open_datalist_scene(page, cdp, scene):
+    """Use the production input and a trusted ArrowDown; never draw an option.
+
+    Chromium's datalist suggestion view belongs to browser Autofill UI, not to
+    the page DOM. Page/AX evidence can therefore be incomplete even when the
+    input accepted this action. The source options below are explicitly not a
+    measured visible popup inventory.
+    """
+    selector = DATALIST_SCENES[scene]
+    field = page.locator(selector)
+    field.wait_for(state="visible")
+    read_input = """el => ({tag:el.tagName, list:el.getAttribute('list'), value:el.value,
+        focused:document.activeElement===el, disabled:el.disabled,
+        bounds:(r => ({x:r.x,y:r.y,width:r.width,height:r.height}))(el.getBoundingClientRect()),
+        source_options:Array.from(el.list?.options || [], o => ({value:o.value,label:o.label,text:o.textContent,disabled:o.disabled})),
+        source_options_quantity:'DOM datalist definitions; not painted popup elements'})"""
+    evidence = {"source": "production input focus + Playwright keyboard ArrowDown",
+                "scene": scene, "selector": selector, "errors": [],
+                "popup_painted_presence": None, "popup_painted_bounds": None,
+                "popup_painted_elements": None, "screenshot_includes_browser_popup": None}
+    def record_cdp(key, method, parameters=None):
+        try:
+            evidence[key] = cdp.send(method, parameters or {})
+        except Exception as error:
+            evidence[key] = None
+            evidence["errors"].append({"method": method, "reason": str(error)})
+    evidence["before_input"] = field.evaluate(read_input)
+    if evidence["before_input"]["disabled"] or not evidence["before_input"]["source_options"]:
+        raise RuntimeError("Datalist scene needs an enabled input with real source suggestions: " + scene)
+    record_cdp("before_ax", "Accessibility.getFullAXTree")
+    record_cdp("before_targets", "Target.getTargets")
+    field.focus()
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(250)
+    evidence["after_input"] = field.evaluate(read_input)
+    if not evidence["after_input"]["focused"]:
+        raise RuntimeError("Datalist input lost focus before capture: " + scene)
+    record_cdp("after_ax", "Accessibility.getFullAXTree")
+    record_cdp("after_targets", "Target.getTargets")
+    record_cdp("after_dom", "DOM.getDocument", {"depth": -1, "pierce": True})
+    return evidence
+
+
+def record_datalist_coverage(elements, evidence):
+    """Keep the UA popup measurement gap visible to the existing strict gate.
+
+    A focus/key receipt, source <option> rows, or an AX name alone cannot prove
+    painted presence, glyph bounds, state, colors, or screenshot inclusion.
+    This does not turn hidden source options into canonical visible elements.
+    """
+    elements.setdefault("capture_evidence", {})["datalist_popup"] = evidence
+    owners = [row["id"] for row in elements["elements"] if row.get("kind") == "input"
+              and row.get("state", {}).get("focused")]
+    owner = owners[0] if len(owners) == 1 else "browser-autofill-popup"
+    gaps = elements["coverage"]["unmeasured"]
+    for property_name, reason in (
+        ("browser_popup.painted_presence", "The real datalist input received focus and ArrowDown; page CDP evidence does not certify that the browser Autofill popup painted."),
+        ("browser_popup.painted_elements", "Actual browser popup rows, text, icons, geometry, styles and states are not measured. Source datalist options are definitions, not visible counterparts."),
+        ("browser_popup.screenshot_coverage", "Page.screenshot captures the page surface; inclusion of the separate browser UI popup is unproven. This screenshot cannot certify complete scene paint."),
+    ):
+        gaps.append({"element": owner, "property": property_name, "reason": reason,
+                     "evidence": "capture_evidence.datalist_popup"})
+
+
 def reference(manifest):
     from playwright.sync_api import sync_playwright
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -116,9 +184,10 @@ def reference(manifest):
                 page.locator(".details .left .chat-row").first.click()
                 page.locator(".details .doc-body").wait_for(state="visible")
             page.wait_for_timeout(700)
-            page.mouse.move(case["width"] + 20, case["height"] + 20)
-            page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
             cdp = page.context.new_cdp_session(page)
+            page.mouse.move(case["width"] + 20, case["height"] + 20)
+            datalist = open_datalist_scene(page, cdp, case["scene"]) if case["scene"] in DATALIST_SCENES else None
+            page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
             snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
             ax_tree = cdp.send("Accessibility.getFullAXTree")
             input_text = input_text_evidence(cdp)
@@ -132,6 +201,9 @@ def reference(manifest):
             (Path(manifest["output"]) / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
             extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
             elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
+            if datalist is not None:
+                record_datalist_coverage(elements, datalist)
+                (Path(manifest["output"]) / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")
             (Path(manifest["output"]) / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
             cdp.detach()
             if errors:

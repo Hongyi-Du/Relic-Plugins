@@ -436,6 +436,7 @@
  "member.environment": "环境",
  "member.finding_sessions": "正在找这台电脑上的会话…",
  "member.folder_placeholder": "留空用 ~/.relic/workspaces/<组织>/<名字>",
+ "member.harness_label": "Harness",
  "member.harness_cli": "{harness} · 命令行",
  "member.harness_gui": "{harness} · 桌面版",
  "member.host_folder_placeholder": "留空用你的主目录",

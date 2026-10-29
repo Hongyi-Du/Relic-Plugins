@@ -24,8 +24,8 @@ window.__relicVisual = async (scene, fixture) => {
     case 'chart': openChart(fixture.org); break;
     case 'new-org': orgDialog(); break;
     case 'member-app': await memberDialog({ mode: 'app' }); break;
-    case 'member-host': await memberDialog({ mode: 'host' }); break;
-    case 'member-existing': await memberDialog({ mode: 'existing' }); break;
+    case 'member-host': case 'member-host-model-suggestions': await memberDialog({ mode: 'host' }); break;
+    case 'member-existing': case 'member-existing-seat-suggestions': await memberDialog({ mode: 'existing' }); break;
     case 'member-card': await openCard(fixture.member, document.querySelector('#chat-head')); break;
     case 'member-edit': await memberDialog({ edit: fixture.member, mode: 'host' }); break;
     case 'forward': await forwardDialog('advisor'); break;

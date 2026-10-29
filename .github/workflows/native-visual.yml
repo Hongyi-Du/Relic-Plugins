@@ -135,7 +135,7 @@ jobs:
           path: visual/macos
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
         continue-on-error: true
-      - name: Require all 504 scenes to have zero element mismatches
+      - name: Require every full-matrix scene to have zero element mismatches
         if: always()
         run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full
       - uses: actions/upload-artifact@v4

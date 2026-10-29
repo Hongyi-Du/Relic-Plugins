@@ -204,6 +204,7 @@ public sealed partial class MainWindow
     }
     private async Task Edit(string action)
     {
+        if (EditWorkspaceCode(action)) return;
         if (selectedRich?.SelectedText.Length > 0 && action is "copy" or "quote")
         {
             if (action == "copy") Copy(selectedRich.SelectedText); else Quote(T("common.quote"), selectedRich.SelectedText);
