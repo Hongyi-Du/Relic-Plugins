@@ -43,6 +43,7 @@ struct MainView: View {
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))
+        .tracking(0)
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
         .accessibilityIdentifier("relic-root")

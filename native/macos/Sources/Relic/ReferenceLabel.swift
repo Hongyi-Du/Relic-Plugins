@@ -34,7 +34,7 @@ struct ReferenceLabel: NSViewRepresentable {
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        let value = NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph])
+        let value = NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0])
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner

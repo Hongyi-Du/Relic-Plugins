@@ -42,13 +42,14 @@ struct MentionEditor: NSViewRepresentable {
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
         editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
-        editor.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.typingAttributes[.tracking] = 0
+        editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0], range: NSRange(location: 0, length: (editor.string as NSString).length))
         editor.needsDisplay = true
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let editor = nsView.documentView as? ComposerTextView else { return nil }
         let width = max(1, proposal.width ?? 400), font = editor.font ?? RelicStyle.nativeFont(14, weight: 400)
-        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default])
+        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0])
         let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
         return CGSize(width: width, height: min(260, max(26, layout.usedRect(for: container).height + 4)))
@@ -74,7 +75,7 @@ final class ComposerTextView: NSTextView {
         super.draw(dirtyRect)
         if string.isEmpty {
             let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-            NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph])
+        NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph, .tracking: 0])
                 .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
         }
     }
@@ -172,8 +173,8 @@ struct MentionSuggestions: View {
     @EnvironmentObject var m: Model
     private var width: CGFloat {
         max(220, m.mentionItems.map {
-            74 + ($0.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400)]).width
-                + ($0["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96)]).width
+            74 + ($0.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400), .tracking: 0]).width
+                + ($0["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96), .tracking: 0]).width
         }.max() ?? 220)
     }
     private var height: CGFloat { min(m.windowSize.height * 0.6, CGFloat(m.mentionItems.count) * 34.8 + 14) }
