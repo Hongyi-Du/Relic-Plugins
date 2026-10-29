@@ -8,6 +8,14 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+`e4bb502` passes native builds/tests/parity and all four Python CI jobs. Real
+desktop captures now include menus and popovers; the reviewed dark and English
+images show them correctly. A subsequent visual fix keeps digest/private-chat
+banners below the header instead of scrolling them out of view, and refines
+secretary choices, inspector rows and task headings. The harness reports each
+Windows case and fails a case stalled for 90 seconds, preserving its receipt
+and log for diagnosis. No source route or payload was changed by these edits.
+
 Visual review update: `6391291` passes both native build/test jobs and parity.
 The full capture exposed a WinUI 1.6 automation-peer crash before the first
 Windows image; CI now opens actual MenuBar items through desktop input and
@@ -27,6 +35,13 @@ screen/dialog. Reverse native-key coverage now rejects keys missing from either
 shared locale. `composer.voice_title` exists in both lists: the Windows bug was
 constructing its label before `/api/i18n` loaded and retaining the raw fallback.
 Microphone controls now use an icon with localized accessibility/tooltip text.
+
+Visual note for the macOS owner: `iteration-6/macos/zh-CN-light-1024x700-settings-profile.png`
+under `S:\Codex\Outputs\Relic-native-visual` shows avatar, avatar label, hint,
+name, name hint and Save as separate full-width Form rows. The reference uses
+two horizontal rows: labels/hints on the left, avatar/change and name input on
+the right. Please review profile/notify/voice/about against that structure.
+Windows now uses those compact rows; no shared strings or payloads changed.
 Mac amendment-3 requests 1/2 are addressed by the new shared manifest and visual
 workflow (dispatchable on either branch); request 3 is addressed by reverse-key
 tests and the existing shared voice title. Exact manifest fields are documented

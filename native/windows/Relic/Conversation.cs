@@ -26,6 +26,7 @@ public sealed partial class MainWindow
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<TextBox> composing = new();
     private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(32) };
+    private readonly Border conversationBanner = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 0, 20, 10) };
     private void UpdateSendState() { if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .45; } }
     private string PlainKey(string id) => org + "/" + id;
     private void Quote(string who, string body)
@@ -136,6 +137,7 @@ public sealed partial class MainWindow
     private void DrawConversation()
     {
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
+        conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed;
         composerSurface.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
@@ -156,7 +158,7 @@ public sealed partial class MainWindow
             actions.Children.Add(IconButton("\uE8D4", plainMode ? "chat.plain_on" : "common.plain_words", TogglePlain, T("chat.plain_title")));
             actions.Children.Add(IconButton("\uE945", "chat.digest", ToggleDigest, T("chat.digest_title")));
             actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
-            if (digestOpen) stream.Children.Add(Card(DigestCard()));
+            if (digestOpen) { var digestScroll = Scroll(DigestCard()); digestScroll.MaxHeight = Math.Min(230, root.ActualHeight * .3); conversationBanner.Child = Card(digestScroll); conversationBanner.Visibility = Visibility.Visible; }
         }
         else
         {
@@ -167,7 +169,7 @@ public sealed partial class MainWindow
             actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
             actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
-            stream.Children.Add(Quiet(banner, 11));
+            conversationBanner.Child = Quiet(banner, 11); conversationBanner.Visibility = Visibility.Visible;
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
         if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));
@@ -318,16 +320,16 @@ public sealed partial class MainWindow
     }
     private UIElement DigestCard()
     {
-        var card = Stack(Text(T("digest.title"), 18));
+        var card = Stack(TwoColumns(Heading(T("digest.title"), 14), IconButton("\uE711", "common.collapse", ToggleDigest))); card.Spacing = 6;
         if (digest.Text("text").Length > 0)
         {
             var newer = messages.Count(x => long.TryParse(x.Text("id"), out var id) && id > (long.TryParse(digest.Text("last_id"), out var last) ? last : 0));
-            card.Children.Add(Text(T(newer > 0 ? "digest.read_newer" : "digest.read", ("n", digest.Text("count")), ("when", digest.Text("at")), ("newer", newer)), 12)); card.Children.Add(Rich(digest.Text("text")));
+            card.Children.Add(Quiet(T(newer > 0 ? "digest.read_newer" : "digest.read", ("n", digest.Text("count")), ("when", When(digest.Text("at"))), ("newer", newer)), 11)); card.Children.Add(Rich(digest.Text("text")));
         }
         else card.Children.Add(Text(digestPending ? T("digest.reading") : T("digest.none")));
         card.Children.Add(Button(digestPending ? T("digest.pending") : T("digest.update"), () => LoadDigest(true)));
         if (snap["org"].Text("secretary").Length > 0) { var ask = Button(T("digest.ask"), async () => { var sec = snap["org"].Text("secretary"); await api!.Post(PathFor("/send"), new { to = new[] { sec }, channel = "private", body = T("digest.ask_message") }); await Select(org, sec); }); ToolTipService.SetToolTip(ask, T("digest.ask_title")); card.Children.Add(ask); }
-        card.Children.Add(Button(T("common.collapse"), ToggleDigest)); return card;
+        InlineActions(card); return card;
     }
     private async Task OpenThread(string id)
     {

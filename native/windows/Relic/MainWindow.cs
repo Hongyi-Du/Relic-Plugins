@@ -80,11 +80,13 @@ public sealed partial class MainWindow : Window
         sidebarSurface.Child = sideLayout; sidebarSurface.BorderThickness = new Thickness(0, 0, 1, 0); columns.Children.Add(sidebarSurface);
         var chat = new Grid();
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
-        chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
-        Grid.SetRow(emptyConversation, 1); chat.Children.Add(emptyConversation);
+        Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
+        chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 2); chat.Children.Add(chatScroll);
+        Grid.SetRow(emptyConversation, 2); chat.Children.Add(emptyConversation);
         var compose = new StackPanel { Spacing = 4 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
         var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
@@ -92,7 +94,7 @@ public sealed partial class MainWindow : Window
         sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Accent; sendButton.Foreground = new SolidColorBrush(Colors.White); sendButton.CornerRadius = new CornerRadius(8); composeActions.Children.Add(sendButton);
         compose.Children.Add(TwoColumns(recipientButton, composeActions));
         composerSurface.Child = compose; composerSurface.Padding = new Thickness(12, 8, 12, 8); composerSurface.Margin = new Thickness(20, 10, 20, 18); composerSurface.CornerRadius = new CornerRadius(14); composerSurface.BorderThickness = new Thickness(1);
-        Grid.SetRow(composerSurface, 2); chat.Children.Add(composerSurface);
+        Grid.SetRow(composerSurface, 3); chat.Children.Add(composerSurface);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);

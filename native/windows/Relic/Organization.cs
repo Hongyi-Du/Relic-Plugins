@@ -40,27 +40,38 @@ public sealed partial class MainWindow
         if (tasks.Count == 0) detail.Children.Add(Text(T("org.no_tasks")));
         var open = tasks.Where(t => t.Text("status") is not ("done" or "dropped")).ToArray();
         if (tasks.Count > 0 && open.Length == 0) detail.Children.Add(Text(T("org.nothing_open", ("n", tasks.Count(t => t.Text("status") == "done")))));
-        foreach (var task in open.Take(8)) detail.Children.Add(Button(task.Text("id") + " " + task.Text("title") + " · " + (task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("org.no_owner")) + " · " + TaskState(task.Text("status")), () => Details("tasks", taskId: task.Text("id"))));
+        foreach (var task in open.Take(8)) detail.Children.Add(InspectorItem(task.Text("id") + " " + task.Text("title"), task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("org.no_owner"), () => Details("tasks", taskId: task.Text("id")), TaskState(task.Text("status"))));
         if (open.Length > 8) detail.Children.Add(Button(T("common.more_items", ("n", open.Length - 8)), () => Details("tasks")));
         var done = tasks.Where(t => t.Text("status") == "done" && t.Text("report").Length > 0).OrderByDescending(t => t.Text("done_at")).Take(3).ToArray();
-        if (done.Length > 0) detail.Children.Add(Text(T("org.recently_done"), 18));
-        foreach (var task in done) detail.Children.Add(Button(task.Text("title") + " · " + T("org.report") + "\n" + task.Text("report"), () => Details("tasks", taskId: task.Text("id"))));
+        if (done.Length > 0) detail.Children.Add(Quiet(T("org.recently_done")));
+        foreach (var task in done) detail.Children.Add(InspectorItem(task.Text("title"), task.Text("report"), () => Details("tasks", taskId: task.Text("id")), T("org.report")));
         if (viewMode != "liaison")
         {
-            detail.Children.Add(Text(T("org.members"), 18)); detail.Children.Add(Button(T("org.add"), AddMember));
-            foreach (var m in members) detail.Children.Add(Button((m.Flag("secretary") ? T("org.member_secretary", ("name", Display(m.Text("name")))) : Display(m.Text("name"))) + " · " + MemberState(m.Text("state")) + "\n" + (m.Text("doing").Length > 0 ? m.Text("doing") : m.Text("detail")), () => MemberCard(m.Text("name"))));
-            detail.Children.Add(Button(T("org.protocols"), () => Details("protocols"))); detail.Children.Add(Button(T("org.add"), IssueProtocol));
+            detail.Children.Add(TwoColumns(Quiet(T("org.members")), QuietButton(T("org.add"), AddMember)));
+            foreach (var m in members)
+            {
+                var memberRow = new Grid { ColumnSpacing = 8 }; memberRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); memberRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); memberRow.Children.Add(SmallAvatar(m.Text("avatar"), Display(m.Text("name")), m.Text("state")));
+                var labels = Stack(Heading(m.Flag("secretary") ? T("org.member_secretary", ("name", Display(m.Text("name")))) : Display(m.Text("name")), 13), Quiet(m.Text("doing").Length > 0 ? m.Text("doing") : m.Text("role"), 11)); labels.Spacing = 3; Grid.SetColumn(labels, 1); memberRow.Children.Add(labels);
+                var memberButton = QuietButton("", () => MemberCard(m.Text("name"))); memberButton.Content = memberRow; memberButton.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(memberButton, MemberState(m.Text("state")) + "\n" + m.Text("detail")); detail.Children.Add(memberButton);
+            }
+            detail.Children.Add(TwoColumns(QuietButton(T("org.protocols"), () => Details("protocols")), QuietButton(T("org.add"), IssueProtocol)));
             detail.Children.Add(Text(T("org.protocols_active", ("n", snap.Rows("protocols").Count(p => p.Text("status") == "active"))), 12));
             var protocols = snap.Rows("protocols").Where(p => p.Text("status") is "active" or "proposed").Concat(snap.Rows("inherited_protocols")).Concat(snap.Rows("replaced_protocols")).ToArray();
             if (protocols.Length == 0) detail.Children.Add(Text(T("org.no_protocols")));
-            foreach (var p in protocols) detail.Children.Add(Button(p.Text("id") + " " + p.Text("title") + " · " + T(p.Text("strength") == "strong" ? "common.strong" : "common.weak") + "\n" + (p.Text("from").Length > 0 ? T("org.inherited_from", ("name", p.Text("from"))) : p.Text("status") == "proposed" ? T("org.protocol_voting", ("n", p.Text("votes"))) : T("org.protocol_used", ("n", p.Text("uses")))), () => Details("protocols")));
-            detail.Children.Add(Text(T("native.episodes"), 18));
+            foreach (var p in protocols) detail.Children.Add(InspectorItem(p.Text("id") + " " + p.Text("title"), p.Text("from").Length > 0 ? T("org.inherited_from", ("name", p.Text("from"))) : p.Text("status") == "proposed" ? T("org.protocol_voting", ("n", p.Text("votes"))) : T("org.protocol_used", ("n", p.Text("uses"))), () => Details("protocols"), T(p.Text("strength") == "strong" ? "common.strong" : "common.weak")));
+            detail.Children.Add(Quiet(T("native.episodes")));
             var episodes = snap.Rows("episodes"); if (episodes.Count == 0) detail.Children.Add(Text(T("org.no_episodes")));
             foreach (var e in episodes.Where(e => e.Text("status") == "open").Concat(episodes.Where(e => e.Text("status") == "closed").Reverse().Take(3)))
                 detail.Children.Add(Text(e.Text("id") + " " + e.Text("title") + " · " + T(e.Text("status") == "open" ? "task.working" : e.Text("outcome") switch { "success" => "org.episode_success", "partial" => "org.episode_partial", "cancelled" => "org.episode_cancelled", _ => "common.failed" }) + "\n" + T("org.episode_reflections", ("reflections", e.Text("reflections")), ("participants", e.Text("participants")))));
         }
         else detail.Children.Add(Text(T("org.liaison_note")));
         detail.Children.Add(Button(T("org.details"), () => Details()));
+    }
+    private Button InspectorItem(string title, string metadata, Func<Task> action, string badge = "")
+    {
+        var label = Heading(title, 13); var note = Quiet(metadata, 11); note.MaxLines = 3; note.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(note, metadata);
+        var content = Stack(badge.Length > 0 ? TwoColumns(label, Badge(badge)) : label, note); content.Spacing = 5;
+        var button = QuietButton("", action); button.Content = content; button.HorizontalAlignment = HorizontalAlignment.Stretch; button.Padding = new Thickness(8); button.Background = Paint("FFFFFF", "252523"); button.BorderBrush = Line; button.BorderThickness = new Thickness(1); return button;
     }
     private void Hierarchy(JsonNode o)
     {

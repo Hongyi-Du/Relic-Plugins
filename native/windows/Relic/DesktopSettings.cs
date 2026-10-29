@@ -131,8 +131,8 @@ public sealed partial class MainWindow
                     content.Children.Add(Heading(T("settings.language.title"), 20));
                     var language = new ComboBox { MinWidth = 180, FontSize = 13 }; foreach (var item in words.Languages) language.Items.Add(new ComboBoxItem { Content = item.Text("name"), Tag = item.Text("code") }); SetChoice(language, words.Language);
                     content.Children.Add(SettingRow(T("settings.language.label"), T("settings.language.hint"), language));
-                    content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
-                    language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await Draw(key); });
+                    content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await SettingsScreen("language"); }));
+                    language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await SettingsScreen("language"); });
                     PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names");
                     break;
                 case "voice":
