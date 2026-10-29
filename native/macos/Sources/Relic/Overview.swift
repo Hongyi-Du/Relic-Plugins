@@ -32,7 +32,7 @@ struct Overview: View {
                 Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(.caption)
                 if m.snapshot["protocols"].rows.isEmpty && m.snapshot["inherited_protocols"].rows.isEmpty { Text(m.t("org.no_protocols")) }
                 ProtocolList()
-                DisclosureGroup("Episode") {
+                DisclosureGroup(m.t("native.episodes")) {
                     if m.snapshot["episodes"].rows.isEmpty { Text(m.t("org.no_episodes")) }
                     Rows(Array(m.snapshot["episodes"].rows.reversed())) { episode in
                         DisclosureGroup(episode["id"].text + " · " + episode["title"].text) {

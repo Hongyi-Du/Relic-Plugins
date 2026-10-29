@@ -2,7 +2,22 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
-## Current handoff (2026-10-29, after `467fa95`)
+## Resolved handoff (2026-10-29, shared `028e270`)
+
+All shared requests are resolved and merged. The shared owner reviewed all 34
+screen/flow rows and 214 named reference functions as implemented. The local
+static gate now reports zero missing keys/routes, zero incomplete flows and no
+browser UI uses. `327ccdf` passed the macOS Release build, **47 tests**, and app
+packaging: https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40835781285/job/123320115882.
+This final integration uses `native.episodes` and includes shared icon/language
+metadata. No further shared changes are requested. Latest-head CI remains the
+release-candidate validation gate; the person's real-Mac review remains separate.
+
+`Words.list` now uses `list.pair`, `list.middle`, `list.end` for recipient/member/
+approver/rule-scope lists, with English and Simplified Chinese tests. Native
+divider measurements persist sidebar/panel widths and the separate File width.
+
+## Historical review follow-up (after `467fa95`, resolved)
 
 The macOS Release build, **39 tests**, and unsigned app packaging passed at
 `73a2c49`: https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40834159051/job/123314926758.
@@ -24,11 +39,10 @@ Review follow-ups from `258e3d8` are implemented in `467fa95`:
   strength/rules labels and Windows field order are applied; the engine handles
   strong-rule validation. `summary_for_person` and `inherit` remain.
 
-Please review these three remaining pending macOS function rows
-(`freshToken`, `post`, `connect`) and promote after the latest CI passes.
-Every other inventory row was reviewed by the shared owner in `258e3d8`.
+The shared owner subsequently reviewed and promoted these function and screen
+rows; the first implementation review was recorded in `258e3d8`.
 
-## Final bundle metadata request
+## Final bundle metadata request (resolved in `028e270`)
 
 `native/macos/Resources/Relic.icns` packages the existing reference 512px PNG
 unchanged into Apple's ICNS container (no new artwork). In `scripts/native_package.py`
