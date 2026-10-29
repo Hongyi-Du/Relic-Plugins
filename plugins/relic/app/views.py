@@ -22,6 +22,42 @@ CHAT_HARNESSES = ("chatgpt", "claude-chat")
 
 
 # ---------------------------------------------------------------- small helpers
+def platform_info(capabilities, lang=None):
+    """Localize fixed UI diagnostics without changing transport proofs or caches."""
+    keys = {
+        "Windows desktop bridge": "view.platform.windows_bridge",
+        "No desktop bridge on this platform": "view.platform.no_bridge",
+        "Host bridge handshake verified; delivery still requires host authorization": "view.platform.bridge_authorization",
+        "Host bridge handshake verified": "view.platform.bridge_verified",
+        "Host bridge lacks the required Relic desktop tools": "view.platform.bridge_tools_missing",
+        "Desktop endpoint is not verified; run doctor.py --probe-desktop": "view.platform.bridge_unverified",
+        "No private host-supplied desktop socket; open a chat with the Relic plugin loaded": "view.platform.bridge_missing",
+        "Native peer messaging; exact Desktop target and Stop receipt required": "view.platform.peer_receipt",
+        "Native route prerequisites verified; delivery requires its exact peer and Stop receipt": "view.platform.peer_verified",
+        "Enable Claude Desktop delivery explicitly in Relic settings": "view.platform.claude_enable",
+        "Choose Claude Code 2.1.224+ and run the desktop capability probe": "view.platform.claude_probe",
+        "In an existing GUI-configured seat, complete a manual Desktop turn with the Relic hooks loaded": "view.platform.claude_turn",
+    }
+
+    def translate(reason):
+        if reason in keys:
+            return i18n.t(keys[reason], lang)
+        parts = []
+        for part in (reason or "").split("; "):
+            base, separator, version = part.partition(" (observed ")
+            if separator and base in keys and version.endswith(")"):
+                parts.append(i18n.t(keys[base], lang) + " " + i18n.t("view.platform.observed", lang, version=version[:-1]))
+            else:
+                parts.append(i18n.t(keys[part], lang) if part in keys else part)
+        return "; ".join(parts)
+
+    result = dict(capabilities)
+    for name in ("desktop_transport", "claude_desktop"):
+        if isinstance(result.get(name), dict):
+            result[name] = dict(result[name], reason=translate(result[name].get("reason")))
+    return result
+
+
 def epoch(at):
     try:
         return calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))

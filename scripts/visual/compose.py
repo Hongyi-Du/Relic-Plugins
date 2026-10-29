@@ -12,9 +12,16 @@ def compose(source, output):
     clients = ["reference", "windows", "macos"]
     names = {client: {p.name for p in (source / client).glob("*.png")} for client in clients}
     expected = set.union(*names.values())
-    receipts = [json.loads((source / client / "capture-complete.json").read_text()) for client in clients]
-    if len({r["matrix"] for r in receipts}) != 1 or any(r["count"] != len(names[client]) for client, r in zip(clients, receipts)):
+    receipts = {client: [json.loads(path.read_text()) for path in (source / client).glob("capture-complete*.json")] for client in clients}
+    matrices = {r["matrix"] for group in receipts.values() for r in group}
+    if len(matrices) != 1 or any(not receipts[client] or sum(r["count"] for r in receipts[client]) != len(names[client]) for client in clients):
         raise ValueError("Capture receipt count/matrix does not match the actual screenshots")
+    matrix = next(iter(matrices))
+    spec = json.loads((Path(__file__).parent / "scenes.json").read_text())
+    if matrix == "full":
+        required = {f"{lang}-{theme}-{width}x{height}-{scene}.png" for lang in spec["languages"] for theme in spec["themes"] for width, height in spec["sizes"] for scene in spec["scenes"]}
+        if expected != required:
+            raise ValueError(f"Full matrix differs from scenes.json: missing {sorted(required - expected)}, extra {sorted(expected - required)}")
     missing = {client: sorted(expected - names[client]) for client in clients if expected - names[client]}
     if not expected or missing:
         raise ValueError(f"Incomplete visual comparison: {missing or 'no captures'}")
@@ -36,7 +43,7 @@ def compose(source, output):
         canvas.save(output / name)
         rows.append(f'<figure><figcaption>{html.escape(name)}</figcaption><a href="{name}"><img loading="lazy" src="{name}"></a></figure>')
     (output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Relic visual review</title><style>body{font:14px system-ui;background:#f8f7f5;color:#1b1b1a;margin:24px}img{max-width:100%}figure{margin:0 0 32px}figcaption{padding:12px 0}</style><h1>Reference | Windows | macOS</h1>' + "\n".join(rows), encoding="utf-8")
-    (output / "coverage.json").write_text(json.dumps({"matrix": receipts[0]["matrix"], "comparisons": len(expected), "missing": missing, "visual_acceptance": "requires human review"}, indent=2), encoding="utf-8")
+    (output / "coverage.json").write_text(json.dumps({"matrix": matrix, "comparisons": len(expected), "missing": missing, "visual_acceptance": "requires human review"}, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -22,7 +22,11 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -36,20 +40,24 @@ jobs:
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
       - name: Set CI desktop size without a settings window
         run: ./scripts/visual/windows-display.ps1
-      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: visual-windows
+          name: visual-windows-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: visual-reference
+          name: visual-reference-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/reference
   macos:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -61,12 +69,12 @@ jobs:
       - shell: bash
         run: |
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --output visual/macos
+            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: visual-macos
+          name: visual-macos-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/macos
   compare:
     needs: [windows, macos]
@@ -79,15 +87,18 @@ jobs:
       - run: pip install pillow
       - uses: actions/download-artifact@v4
         with:
-          name: visual-reference
+          pattern: visual-reference-*
+          merge-multiple: true
           path: visual/reference
       - uses: actions/download-artifact@v4
         with:
-          name: visual-windows
+          pattern: visual-windows-*
+          merge-multiple: true
           path: visual/windows
       - uses: actions/download-artifact@v4
         with:
-          name: visual-macos
+          pattern: visual-macos-*
+          merge-multiple: true
           path: visual/macos
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
       - uses: actions/upload-artifact@v4
