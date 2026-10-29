@@ -15,6 +15,7 @@ DATALIST_SCENES = {
     "member-host-model-suggestions": "#layer input[list='relic-claude-models']",
     "member-existing-seat-suggestions": "#layer input[list='relic-seat-names']",
 }
+LIVE_SCENES = frozenset(("live-busy", "live-tool-output", "live-typing"))
 
 
 def wait_file(path, process, timeout=60, on_tick=None):
@@ -43,6 +44,63 @@ def configure(fixture, **changes):
     request = urllib.request.Request(f"http://127.0.0.1:{fixture['port']}/api/prefs", data=json.dumps(changes).encode(), headers={"Content-Type": "application/json", "X-Relic-Token": fixture["token"]})
     with urllib.request.urlopen(request) as response:
         return json.load(response)
+
+
+def prepare_scene(fixture, scene):
+    """Reset the previous Hub fixture, then prepare this actual CI scene."""
+    request = urllib.request.Request(f"http://127.0.0.1:{fixture['port']}{fixture['scene_endpoint']}",
+        data=json.dumps({"scene": scene}).encode(),
+        headers={"Content-Type": "application/json", "X-Relic-Token": fixture["token"]})
+    with urllib.request.urlopen(request) as response:
+        result = json.load(response)
+    if result.get("scene") != scene or result.get("live") is not (scene in LIVE_SCENES) or not result.get("org") or not result.get("member"):
+        raise RuntimeError("Visual fixture did not prepare the requested scene: " + scene)
+    return result
+
+
+def open_live_tool_output(page, prepared):
+    """Click the production disclosure matching the returned real tool title."""
+    title = prepared["tool"]["title"]
+    row = page.locator("#live details.step").filter(has=page.get_by_text(title, exact=True))
+    if row.count() != 1:
+        raise RuntimeError("Expected one live tool disclosure for: " + title)
+    row.locator(":scope > summary").click()
+    row.locator(":scope > .io").wait_for(state="visible")
+    opened = row.evaluate("el => el.open")
+    if not opened:
+        raise RuntimeError("Real live tool disclosure did not open: " + title)
+    return {"action": "click production details.step summary", "tool_title": title,
+            "open": opened, "visible_output": row.locator(":scope > .io").inner_text()}
+
+
+def prepare_animation_capture(page, cdp, scene):
+    """Pause real framework animations at time zero; never assign paint values."""
+    if scene not in LIVE_SCENES:
+        return None
+    return page.evaluate("""async () => {
+      const animations = document.getAnimations();
+      const numeric = value => typeof value === 'number' && !Number.isFinite(value) ? String(value) : value;
+      const timing = value => value == null ? null : Object.fromEntries(Object.entries(value).map(([key,item]) => [key,numeric(item)]));
+      const describe = animation => {
+        const target = animation.effect?.target;
+        return {id:animation.id,type:animation.constructor.name,
+          animation_name:animation.animationName ?? null,transition_property:animation.transitionProperty ?? null,
+          current_time:numeric(animation.currentTime),start_time:numeric(animation.startTime),play_state:animation.playState,
+          pending:animation.pending,playback_rate:animation.playbackRate,
+          target:target ? {tag:target.localName,id:target.id,class:target.getAttribute('class')} : null,
+          effect_timing:animation.effect ? timing(animation.effect.getTiming()) : null,
+          computed_timing:animation.effect ? timing(animation.effect.getComputedTiming()) : null};
+      };
+      const before = animations.map(describe);
+      for (const animation of animations) { animation.pause(); animation.currentTime = 0; }
+      await Promise.all(animations.map(animation => animation.ready));
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (document.getAnimations().some(animation => !animations.includes(animation) || animation.playState !== 'paused' || animation.currentTime !== 0))
+        throw new Error('Live capture animation changed after its real timeline was paused');
+      return {source:'actual Web Animations API',operation:'pause then seek currentTime to 0',
+        screenshot_animations:'allow',before,after:animations.map(describe)};
+    }""")
 
 
 def input_text_evidence(cdp):
@@ -170,6 +228,9 @@ def reference(manifest):
         context.add_init_script("localStorage.clear(); sessionStorage.clear();")
         for case in manifest["cases"]:
             print("Reference capture: " + case["id"], flush=True)
+            prepared = prepare_scene(manifest["fixture"], case["scene"])
+            case_fixture = dict(manifest["fixture"], scene_state=prepared)
+            (Path(manifest["output"]) / (case["id"] + ".scene-fixture.json")).write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
             page = context.new_page()
             page.set_viewport_size({"width": case["width"], "height": case["height"]})
             page.clock.set_fixed_time(manifest["fixture"]["clock"])
@@ -178,16 +239,22 @@ def reference(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
-            page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], manifest["fixture"]])
+            page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
                 page.locator(".details .left .chat-row").first.click()
                 page.locator(".details .doc-body").wait_for(state="visible")
             page.wait_for_timeout(700)
+            if case["scene"] == "live-tool-output":
+                action = open_live_tool_output(page, prepared)
+                (Path(manifest["output"]) / (case["id"] + ".scene-action.json")).write_text(json.dumps(action, ensure_ascii=False), encoding="utf-8")
             cdp = page.context.new_cdp_session(page)
             page.mouse.move(case["width"] + 20, case["height"] + 20)
             datalist = open_datalist_scene(page, cdp, case["scene"]) if case["scene"] in DATALIST_SCENES else None
-            page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
+            animation = prepare_animation_capture(page, cdp, case["scene"])
+            if animation is not None:
+                (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
+            page.screenshot(path=Path(manifest["output"]) / case["file"], animations="allow" if case["scene"] in LIVE_SCENES else "disabled")
             snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
             ax_tree = cdp.send("Accessibility.getFullAXTree")
             input_text = input_text_evidence(cdp)

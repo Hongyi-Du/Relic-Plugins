@@ -11,6 +11,30 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
+    private readonly List<(StackPanel Panel, Storyboard Timeline)> liveTypingAnimations = [];
+    private bool pinLiveCaptureClock;
+
+    // CI seeks the actual production timeline. The evidence exporter continues
+    // to read the live visual properties; it never receives expected opacity.
+    private object PrepareCaptureAnimation(string scene)
+    {
+        if (!VisualCaptureEnabled) throw new InvalidOperationException("Animation capture is CI-only");
+        pinLiveCaptureClock = scene.StartsWith("live-", StringComparison.Ordinal);
+        var clocks = new List<object>();
+        foreach (var (panel, timeline) in liveTypingAnimations.Where(item => item.Panel.IsLoaded))
+        {
+            var before = timeline.GetCurrentState().ToString();
+            if (pinLiveCaptureClock && timeline.GetCurrentState() != ClockState.Stopped)
+            {
+                timeline.Pause();
+                timeline.SeekAlignedToLastTick(TimeSpan.Zero);
+            }
+            clocks.Add(new { source = "production Storyboard", before, state = timeline.GetCurrentState().ToString(),
+                current_time_ms = timeline.GetCurrentTime().TotalMilliseconds,
+                actual_opacity = panel.Children.Cast<UIElement>().Select(dot => dot.Opacity).ToArray() });
+        }
+        return new { scene, protocol = "pause-production-animation-at-zero", animations_enabled = new UISettings().AnimationsEnabled, clocks };
+    }
     private UIElement LiveBubble(string text, bool mine = false)
     {
         var bubble = new Border { Child = Rich(text), Padding = new Thickness(13, 9, 13, 9),
@@ -109,12 +133,16 @@ public sealed partial class MainWindow
         void UpdateMotion()
         {
             animation.Stop(); foreach (UIElement dot in dots.Children) dot.Opacity = 1;
-            if (dots.IsLoaded && settings.AnimationsEnabled) animation.Begin();
+            if (dots.IsLoaded && settings.AnimationsEnabled)
+            {
+                animation.Begin();
+                if (VisualCaptureEnabled && pinLiveCaptureClock) { animation.Pause(); animation.SeekAlignedToLastTick(TimeSpan.Zero); }
+            }
         }
         var canObserveMotion = Windows.Foundation.Metadata.ApiInformation.IsEventPresent("Windows.UI.ViewManagement.UISettings", "AnimationsEnabledChanged");
         void MotionChanged(UISettings sender, UISettingsAnimationsEnabledChangedEventArgs args) => dots.DispatcherQueue.TryEnqueue(UpdateMotion);
-        dots.Loaded += (_, _) => { if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged += MotionChanged; UpdateMotion(); };
-        dots.Unloaded += (_, _) => { if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged -= MotionChanged; animation.Stop(); };
+        dots.Loaded += (_, _) => { liveTypingAnimations.Add((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged += MotionChanged; UpdateMotion(); };
+        dots.Unloaded += (_, _) => { liveTypingAnimations.Remove((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged -= MotionChanged; animation.Stop(); };
         return dots;
     }
 }

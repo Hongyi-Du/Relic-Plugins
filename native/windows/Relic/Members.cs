@@ -51,7 +51,11 @@ public sealed partial class MainWindow
                     HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -2, -2) };
                 if (state == "vacant") dot.Child = new Microsoft.UI.Xaml.Shapes.Ellipse { Stroke = color, StrokeThickness = 1.5 }; face.Children.Add(dot);
             }
+            var changeLabel = OverviewText(T("card.change_avatar"), 11); changeLabel.Foreground = Paint("FFFFFF"); changeLabel.TextAlignment = TextAlignment.Center; changeLabel.VerticalAlignment = VerticalAlignment.Center;
+            var changeCover = new Border { Child = changeLabel, Background = OverviewAlpha(Paint("000000"), .45), CornerRadius = new CornerRadius(14), Opacity = 0 };
+            face.Children.Add(changeCover);
             var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name, anchor); }); avatar.Content = face; avatar.Padding = new Thickness(0); avatar.Width = avatar.Height = 60; avatar.CornerRadius = new CornerRadius(14); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
+            avatar.PointerEntered += (_, _) => changeCover.Opacity = 1; avatar.PointerExited += (_, _) => changeCover.Opacity = 0;
             var heading = new Grid { ColumnSpacing = 14 }; heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.Children.Add(avatar);
             var identity = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(identity, 1); heading.Children.Add(identity);
             if (editingName)
@@ -157,7 +161,32 @@ public sealed partial class MainWindow
         Fill(); transientFlyout?.Hide(); box.RequestedTheme = root.RequestedTheme; foreach (var resource in root.Resources) box.Resources[resource.Key] = resource.Value;
         var scroll = Scroll(box); scroll.MaxHeight = Math.Max(0, root.ActualHeight - 62);
         var presenter = new Style(typeof(FlyoutPresenter)); presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(18))); presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1))); presenter.Setters.Add(new Setter(Control.BorderBrushProperty, Line)); presenter.Setters.Add(new Setter(Control.BackgroundProperty, Paint("FFFFFF", "252523"))); presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(16))); presenter.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d)); presenter.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, 340d)); presenter.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, Math.Max(0, root.ActualHeight - 24)));
-        var flyout = new Flyout { Content = scroll, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight, FlyoutPresenterStyle = presenter }; transientFlyout = flyout; flyout.ShowAt(anchor ?? chatHead);
+        var flyout = new Flyout { Content = scroll, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight, FlyoutPresenterStyle = presenter }; transientFlyout = flyout;
+        // The reference card is positioned from the invoking element, with a
+        // fixed window-edge clamp. Keep WinUI's flyout dismissal/keyboard
+        // behavior but place its actual popup at those same coordinates.
+        var origin = anchor ?? chatHead;
+        var bounds = origin.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, origin.ActualWidth, origin.ActualHeight));
+        var left = Math.Min(Math.Max(12, bounds.Right + 8), root.ActualWidth - 356);
+        var top = Math.Min(Math.Max(12, bounds.Top - 12), root.ActualHeight - 520);
+        flyout.Opened += (_, _) =>
+        {
+            bool Contains(DependencyObject parent)
+            {
+                if (ReferenceEquals(parent, scroll)) return true;
+                for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+                    if (Contains(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i))) return true;
+                return false;
+            }
+            foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
+            {
+                if (popup.Child is not FrameworkElement child || !Contains(child)) continue;
+                var position = child.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, 0));
+                popup.HorizontalOffset += left - position.X; popup.VerticalOffset += top - position.Y;
+                break;
+            }
+        };
+        flyout.ShowAt(origin, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { ShowMode = Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowMode.Transient });
     }
     private async Task SeatAction(string action, string who, string confirm = "")
     {
