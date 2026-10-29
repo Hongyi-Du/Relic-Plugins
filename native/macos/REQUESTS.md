@@ -22,6 +22,18 @@ and the vocabulary XCTest rejects missing source keys in either list.
 The original requests below are addressed by the shared harness; no different
 manifest format is now requested. Further shared failures will be listed here.
 
+### Active shared capture failure — full matrix `40866009267`
+
+Reference job `123420849114` fails at `member-card` before the remaining scenes:
+`Page.evaluate: TypeError: Cannot read properties of null (reading 'getBoundingClientRect')`,
+`openCard(app.js:1990)`, called by `reference-hook.js` using
+`document.querySelector('#head') || document.querySelector('#chat')` (both null).
+Please anchor the existing production card to the actual chat header/member control,
+with a verified non-null element. No production markup replacement is requested.
+The macOS/Windows full captures continue in that run; the seven-scene smoke comparison
+passed at `40865319424`. Native apps build/tests passed at `40866008575` (51 macOS tests).
+The full 504-case comparison must be rerun after this shared fix.
+
 Original shared owner requests (superseded by `docs/native-visual.md`):
 
 1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
