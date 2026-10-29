@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import relic_app as launcher
 from app.web import LifecycleLock
 from relic_core.store import data_home
+from relic_core.process import creation_flags
 
 
 class NativeHost:
@@ -36,7 +37,7 @@ class NativeHost:
                 self.child = subprocess.Popen(
                     [sys.executable, "-X", "utf8", str(Path(launcher.__file__)), "--serve"],
                     stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                    creationflags=launcher.NO_WINDOW, start_new_session=os.name != "nt")
+                    creationflags=creation_flags(), start_new_session=os.name != "nt")
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 info = launcher.running()

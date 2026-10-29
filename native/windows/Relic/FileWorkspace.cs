@@ -55,11 +55,23 @@ public sealed partial class MainWindow
         directory = list.Text("path"); workspaceBody.Children.Add(Text(directory, 12));
         if (list.Text("parent").Length > 0) workspaceBody.Children.Add(Button("↑ " + list.Text("parent"), async () => { directory = list.Text("parent"); await Workspace(); }));
         if (list.Rows("entries").Count == 0) workspaceBody.Children.Add(Text(T("work.empty_dir")));
-        foreach (var entry in list.Rows("entries"))
-            workspaceBody.Children.Add(Button((entry.Flag("dir") ? "▸ " : "") + entry.Text("name") + (entry.Flag("dir") ? "" : " · " + Bytes(entry.Text("size"))), async () =>
-            { if (entry.Flag("dir")) { directory = entry.Text("path"); await Workspace(); } else await OpenFile(entry.Text("path")); }));
+        foreach (var entry in list.Rows("entries")) workspaceBody.Children.Add(FileEntry(entry!, epoch));
         workspaceBody.Children.Add(Text(T("work.file_count", ("n", list.Rows("entries").Count)), 12));
         if (list.Flag("more")) workspaceBody.Children.Add(Text(T("work.list_limit"), 12));
+    }
+    private UIElement FileEntry(JsonNode entry, int epoch)
+    {
+        if (!entry.Flag("dir")) return Button(entry.Text("name") + " · " + Bytes(entry.Text("size")), () => OpenFile(entry.Text("path")));
+        var children = new StackPanel { Spacing = 3, Margin = new Thickness(12, 0, 0, 0) };
+        var folder = new Expander { Header = entry.Text("name"), Content = children, HorizontalAlignment = HorizontalAlignment.Stretch };
+        folder.Expanding += async (_, _) => await Run(async () =>
+        {
+            if (children.Children.Count > 0 || epoch != workspaceEpoch) return;
+            var data = await api!.Get("/api/fs/list?path=" + Client.Segment(entry.Text("path")));
+            foreach (var child in data.Rows("entries")) children.Children.Add(FileEntry(child!, epoch));
+            if (data.Rows("entries").Count == 0) children.Children.Add(Text(T("work.empty_dir")));
+            if (data.Flag("more")) children.Children.Add(Text(T("work.list_limit")));
+        }); return folder;
     }
     private static string Bytes(string value) => double.TryParse(value, out var size) ? size < 1024 ? $"{size:0} B" : size < 1048576 ? $"{size / 1024:0.#} KB" : $"{size / 1048576:0.#} MB" : value;
     private async Task OpenFile(string path, int line = 0)

@@ -6,6 +6,27 @@ using Xunit;
 
 public class ContractTests
 {
+    [Fact] public void TranscriptPairsParallelCallsWithOldestWaitingResult()
+    {
+        var steps = JsonNode.Parse("[{\"role\":\"tool_result\",\"text\":\"orphan\"},{\"role\":\"tool_call\",\"tool\":\"A\"},{\"role\":\"tool_call\",\"tool\":\"B\"},{\"role\":\"tool_result\",\"text\":\"first\"},{\"role\":\"tool_result\",\"text\":\"second\",\"error\":true}]")!.AsArray();
+        var pairs = Transcript.PairTools(steps);
+        Assert.Equal(3, pairs.Count); Assert.Null(pairs[0].Call);
+        Assert.Equal("first", pairs[1].Result.Text("text")); Assert.Equal("A", pairs[1].Call.Text("tool"));
+        Assert.Equal("second", pairs[2].Result.Text("text")); Assert.True(pairs[2].Result.Flag("error"));
+    }
+    [Fact] public void PersonPromptDoesNotExposeTransportInstructions()
+    {
+        Assert.Equal("hello", Transcript.PersonText(Transcript.PersonPrefix + "\nhello\n\nReply in this conversation; transport suffix"));
+        Assert.Equal("ordinary content", Transcript.PersonText("ordinary content"));
+    }
+    [Fact] public void ThreadRootAndRecipientChangesBreakMessageGrouping()
+    {
+        var first = JsonNode.Parse("{\"type\":\"message\",\"from\":\"a\",\"to\":[\"human\"],\"at\":\"2026-01-01T10:00:00Z\"}")!;
+        var next = first.DeepClone(); next["at"] = "2026-01-01T10:01:00Z";
+        Assert.True(Transcript.SameMessageGroup(first, next));
+        first["thread"] = new JsonObject { ["count"] = 1 }; Assert.False(Transcript.SameMessageGroup(first, next));
+        first.AsObject().Remove("thread"); next["to"] = new JsonArray("other"); Assert.False(Transcript.SameMessageGroup(first, next));
+    }
     private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> reply) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => reply(request);

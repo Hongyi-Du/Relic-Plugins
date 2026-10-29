@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
     private bool active = true;
+    private bool notificationsAvailable = true;
 
     private string T(string key, params (string, object)[] args) => words.T(key, args);
     private string PathFor(string action = "") => Client.Org(org, action);
@@ -64,7 +65,8 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        root.Children.Add(menu); Grid.SetRow(error, 1); root.Children.Add(error);
+        var top = new StackPanel(); top.Children.Add(menu); top.Children.Add(new ScrollViewer { Content = toolbar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        root.Resources["ContentDialogMaxWidth"] = 1100d;
 
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(260) });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
@@ -77,7 +79,7 @@ public sealed partial class MainWindow : Window
         chat.Children.Add(chatHead);
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
         var compose = new StackPanel { Spacing = 6 };
-        recipientButton = Button("", PickRecipients); compose.Children.Add(recipientButton); compose.Children.Add(quoteLabel); compose.Children.Add(Button("×", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; })); compose.Children.Add(editor); compose.Children.Add(Microphone(editor));
+        recipientButton = Button("", PickRecipients); compose.Children.Add(recipientButton); compose.Children.Add(quoteLabel); var cancelQuote = Button("×", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); cancelQuote.Loaded += (_, _) => ToolTipService.SetToolTip(cancelQuote, T("composer.cancel_quote")); compose.Children.Add(cancelQuote); compose.Children.Add(editor); compose.Children.Add(Microphone(editor));
         sendButton = Button("↵", Send); compose.Children.Add(sendButton);
         Grid.SetRow(compose, 2); chat.Children.Add(compose);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
@@ -106,12 +108,14 @@ public sealed partial class MainWindow : Window
                 var engine = Environment.GetEnvironmentVariable("RELIC_ENGINE_ROOT") ?? AppContext.BaseDirectory;
                 api = await host.Start(engine, Environment.GetEnvironmentVariable("RELIC_PYTHON") ?? "python");
                 preferences = await api.Get("/api/prefs");
+                platform = await api.Get("/api/platform");
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
                 LoadViewState(); ready = true; LayoutColumns();
                 AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
-                AppNotificationManager.Default.Register();
+                try { AppNotificationManager.Default.Register(); }
+                catch { notificationsAvailable = false; Note(T("settings.notify_unsupported")); }
                 ApplyAppearance(); DrawMenu(); await Refresh();
                 _ = api.Events(ev =>
                 {
@@ -148,8 +152,10 @@ public sealed partial class MainWindow : Window
         try
         {
             var selectedOrg = org; var selectedMember = member;
-            orgs = (await api.Get("/api/orgs")).Rows();
+            try { orgs = (await api.Get("/api/orgs")).Rows(); }
+            catch (Exception ex) { throw new InvalidOperationException(T("boot.load_orgs_failed", ("error", ex.Message)), ex); }
             copies = (await api.Get("/api/cc")).Rows("items");
+            CopyNotifications(); DrawCopies();
             if (org.Length > 0 && !orgs.Any(x => x.Text("id") == org)) { org = ""; member = ""; }
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
             if (org.Length > 0)
@@ -179,17 +185,20 @@ public sealed partial class MainWindow : Window
                     }
             }
             if (active) MarkSeen();
-            DrawMenu(); DrawSide(); DrawChat(); DrawDetail();
+            DrawMenu(); DrawToolbar(); DrawSide(); DrawChat(); DrawDetail();
             if (pane == "workspace") await Workspace();
+            if (refreshChart != null) await refreshChart();
         }
         finally { refreshing = false; if (pending) Schedule(); }
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
+        chatLimit = 1000;
         if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
         RestoreChat(); if (!fromHistory) PushHistory(); folded.Remove(id); SaveViewState();
         await Refresh();
+        if (different && digestOpen) await LoadDigest(false);
     }
     private void DrawMenu() => BuildMenus();
     private async Task LoadPreferences()
@@ -198,40 +207,7 @@ public sealed partial class MainWindow : Window
         var language = Words.Normalize(preferences.Text("lang"));
         words.Load(await api.Get("/api/i18n?lang=" + language)); DrawMenu();
     }
-    private void DrawSide()
-    {
-        side.Children.Clear(); side.Children.Add(Button(T("common.new_org"), CreateOrg)); side.Children.Add(search);
-        var seen = new HashSet<string>();
-        void Node(JsonNode? o, int depth)
-        {
-            var id = o.Text("id"); if (!seen.Add(id)) return;
-            var children = orgs.Where(n => n.Text("parent") == id).ToArray();
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(Math.Min(depth, 8) * 12, 0, 0, 0) };
-            row.Children.Add(Button(folded.Contains(id) ? "▸" : "▾", () => { if (!folded.Add(id)) folded.Remove(id); DrawSide(); return Task.CompletedTask; }));
-            row.Children.Add(Button(o.Text("name") + (id == org ? " •" : ""), () => Select(id))); side.Children.Add(row);
-            if (folded.Contains(id)) return;
-            if (id == org)
-            {
-                side.Children.Add(Button("# " + T("common.group_chat"), () => Select(id)));
-                foreach (var m in snap.Rows("members"))
-                {
-                    var name = m.Text("name");
-                    side.Children.Add(Button("@ " + m.Text("display") + " · " + T("state." + m.Text("state")), () => Select(id, name)));
-                }
-                side.Children.Add(Button("+ " + T("common.add_member"), AddMember));
-            }
-            foreach (var child in children) Node(child, depth + 1);
-        }
-        var query = search.Text.Trim();
-        if (query.Length > 0)
-            foreach (var item in orgs.Where(x => x.Text("name").Contains(query, StringComparison.OrdinalIgnoreCase)))
-                side.Children.Add(Button(item.Text("name"), () => Select(item.Text("id"))));
-        else
-        {
-            foreach (var item in orgs.Where(x => x.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == x.Text("parent")))) Node(item, 0);
-        }
-        side.Children.Add(Button(T("cc.title"), Copies)); side.Children.Add(Button(T("chart.title"), Chart)); side.Children.Add(Button(T("common.settings"), Settings));
-    }
+    private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
@@ -239,7 +215,7 @@ public sealed partial class MainWindow : Window
         if (api == null || org.Length == 0 || string.IsNullOrWhiteSpace(editor.Text)) return;
         var body = editor.Text; var destination = PathFor("/send"); var key = org + "/" + member;
         var payload = Composer.Message(Quoted(body), member, recipientNames.ToArray(), snap.Rows("members"));
-        await api.Post(destination, payload);
+        try { await api.Post(destination, payload); } catch (Exception ex) { Note(T("composer.send_failed", ("error", ex.Message))); return; }
         drafts[key] = ""; if (key == org + "/" + member && editor.Text == body) { editor.Text = ""; ClearQuote(); recipientNames.Clear(); recipientNames.Add("all"); SaveViewState(); }
         await Refresh(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null);
     }
@@ -252,6 +228,8 @@ public sealed partial class MainWindow : Window
         foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") })
             tabs.Children.Add(Button(T(key), () => SetPane(id)));
         detail.Children.Add(tabs);
+        var hide = Button(T(pane == "thread" ? "panel.close_thread" : "panel.hide"), () => pane == "thread" ? SetPane(previousPane) : TogglePanel()); ToolTipService.SetToolTip(hide, T("panel.hide_title")); detail.Children.Add(hide);
+        if (pane == "thread") detail.Children.Add(Text(T("panel.thread"), 18));
         switch (pane)
         {
             case "thread": DrawThread(); break;
@@ -312,63 +290,21 @@ public sealed partial class MainWindow : Window
         var form = new StackPanel { Spacing = 10 };
         var title = Field(form, "native.protocol_title"); var rationale = Field(form, "native.protocol_rationale", true);
         var trigger = Field(form, "native.protocol_trigger"); var guidance = Field(form, "native.protocol_guidance", true);
+        var strength = Choice(form, "native.protocol_strength", [("weak", T("common.weak")), ("strong", T("common.strong"))]);
+        var strong = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; form.Children.Add(strong);
+        var rules = Field(strong, "native.protocol_rules", true); rules.Text = "[]"; strong.Children.Add(Text(T("native.protocol_rules_hint"), 12));
+        var summary = Field(strong, "details.label_summary", true);
+        strength.SelectionChanged += (_, _) => { strong.Visibility = Value(strength) == "strong" ? Visibility.Visible : Visibility.Collapsed; trigger.IsEnabled = guidance.IsEnabled = Value(strength) == "weak"; };
         var inherit = new CheckBox { Content = T("org.protocol_inherits") }; form.Children.Add(inherit);
-        await Form(T("org.protocols"), form, () => Post("/protocols", new { title = title.Text, rationale = rationale.Text, trigger = trigger.Text, guidance = guidance.Text, strength = "weak", inherit = inherit.IsChecked == true }));
+        await Form(T("org.protocols"), form, () => Post("/protocols", new { title = title.Text, rationale = rationale.Text, trigger = trigger.Text, guidance = guidance.Text, strength = Value(strength), rules = Value(strength) == "strong" ? JsonNode.Parse(rules.Text)?.AsArray() : new JsonArray(), summary_for_person = summary.Text, inherit = inherit.IsChecked == true }));
     }
-    private async Task Copies()
-    {
-        var content = new StackPanel { Spacing = 16 }; content.Children.Add(Text(T("cc.intro")));
-        foreach (var c in copies)
-        {
-            content.Children.Add(Text(c.Text("org_name") + " · " + c.Text("title"), 18)); content.Children.Add(Text(c.Text("summary")));
-            content.Children.Add(Text(c.Text("author_display") + " · " + c.Text("status")));
-            var stats = c?["stats"];
-            content.Children.Add(Text(stats.Text("total") is "" or "0" ? T("cc.stats_none") : T("cc.stats", ("n", stats.Text("total")), ("allow", stats.Text("allow")), ("deny", stats.Text("deny")), ("review", stats.Text("review")), ("error", stats.Text("error")))));
-            var rules = new StackPanel { Spacing = 8 };
-            foreach (var rule in c.Rows("rules")) rules.Children.Add(Text(rule?.ToJsonString(new() { WriteIndented = true }) ?? ""));
-            content.Children.Add(new Expander { Header = T("cc.code"), Content = rules });
-            content.Children.Add(Button(T("cc.ack"), async () => { await api!.Post("/api/cc/" + c.Text("id") + "/read", new { }); await Refresh(); }));
-            if (c.Text("status") == "active" && c.Text("org_status") is "" or "active")
-            {
-                var confirm = new CheckBox { Content = T("cc.retire_confirm", ("id", c.Text("protocol_id")), ("title", c.Text("title")), ("org", c.Text("org_name"))) }; content.Children.Add(confirm);
-                content.Children.Add(Button(T("cc.retire"), async () => { if (confirm.IsChecked != true) return; await api!.Post("/api/cc/" + c.Text("id") + "/retire", new { }); await Refresh(); }));
-            }
-        }
-        await Show(T("cc.title"), content);
-    }
+    private Task Copies() => ShowCopies();
     private Task Settings() => SettingsScreen();
     private void Notify(string message)
     {
+        if (!notificationsAvailable) { Note(T("settings.notify_unsupported")); return; }
         try { AppNotificationManager.Default.Show(new AppNotificationBuilder().AddText("Relic").AddText(message).BuildNotification()); }
         catch (Exception ex) { error.Message = T("settings.notify_denied") + " " + ex.Message; error.IsOpen = true; }
     }
-    private async Task Chart()
-    {
-        var data = await api!.Get("/api/orgchart"); var nodes = data.Rows("orgs");
-        var canvas = new Canvas { Width = Math.Max(800, nodes.Count * 240), Height = Math.Max(500, nodes.Count * 120), Background = new SolidColorBrush(Colors.Transparent) };
-        var positions = new Dictionary<string, (double X, double Y)>(); int index = 0;
-        foreach (var node in nodes)
-        {
-            int depth = 0; var parent = node.Text("parent"); var visited = new HashSet<string>();
-            while (parent.Length > 0 && visited.Add(parent)) { depth++; parent = nodes.FirstOrDefault(n => n.Text("id") == parent).Text("parent"); }
-            positions[node.Text("id")] = (depth * 240 + 20, index++ * 110 + 20);
-        }
-        foreach (var node in nodes)
-        {
-            var point = positions[node.Text("id")];
-            if (positions.TryGetValue(node.Text("parent"), out var parent)) canvas.Children.Add(new Line { X1 = parent.X + 205, Y1 = parent.Y + 35, X2 = point.X, Y2 = point.Y + 35, Stroke = new SolidColorBrush(Colors.Gray), StrokeThickness = 2 });
-            var button = Button(node.Text("name") + "\n" + node.Text("leader_display") + " · " + T("chart.decisions", ("n", node.Text("decisions"))), () => Select(node.Text("id")));
-            button.Width = 205; button.Height = 90; Canvas.SetLeft(button, point.X); Canvas.SetTop(button, point.Y); canvas.Children.Add(button);
-        }
-        var scroll = new ScrollViewer { Content = canvas, ZoomMode = ZoomMode.Enabled, MinZoomFactor = .2f, MaxZoomFactor = 3, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 500, Width = 800 };
-        canvas.ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY;
-        canvas.ManipulationDelta += (_, e) => scroll.ChangeView(scroll.HorizontalOffset - e.Delta.Translation.X, scroll.VerticalOffset - e.Delta.Translation.Y, null);
-        var content = new StackPanel { Spacing = 8 }; content.Children.Add(scroll);
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        bar.Children.Add(Button(T("chart.zoom_in"), () => { scroll.ChangeView(null, null, Math.Min(3, scroll.ZoomFactor * 1.2f)); return Task.CompletedTask; }));
-        bar.Children.Add(Button(T("chart.zoom_out"), () => { scroll.ChangeView(null, null, Math.Max(.2f, scroll.ZoomFactor / 1.2f)); return Task.CompletedTask; }));
-        bar.Children.Add(Button(T("chart.fit"), () => { scroll.ChangeView(0, 0, Math.Clamp((float)(500 / canvas.Height), .2f, 1)); return Task.CompletedTask; })); content.Children.Add(bar);
-        foreach (var shared in data.Rows("shared")) content.Children.Add(Text(T("chart.legend_shared") + " · " + string.Join(" ↔ ", shared.Rows("seats").Select(s => s.Text("org") + "/" + s.Text("member")))));
-        await Show(T("chart.title"), content);
-    }
+    private Task Chart() => ShowChart();
 }

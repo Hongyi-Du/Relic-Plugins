@@ -14,7 +14,7 @@ public sealed partial class MainWindow
         detail.Children.Add(Text(T("org.heading") + " · " + o.Text("name"), 20));
         var mode = Choice(detail, "org.view_mode", [("direct", T("org.mode_direct")), ("transparent", T("org.mode_transparent")), ("liaison", T("org.mode_liaison"))]); SetChoice(mode, viewMode);
         mode.SelectionChanged += async (_, _) => { viewMode = Value(mode); SaveViewState(); if (viewMode == "liaison" && o.Text("secretary").Length > 0) await Run(() => Select(org, o.Text("secretary"))); else DrawDetail(); };
-        detail.Children.Add(new Expander { Header = o.Text("purpose").Length > 0 ? o.Text("purpose").Split('\n')[0] : T("org.no_purpose"), Content = Rich(o.Text("purpose")), HorizontalAlignment = HorizontalAlignment.Stretch });
+        var purpose = new Expander { Header = o.Text("purpose").Length > 0 ? o.Text("purpose").Split('\n')[0] : T("org.no_purpose"), Content = Rich(o.Text("purpose")), HorizontalAlignment = HorizontalAlignment.Stretch }; ToolTipService.SetToolTip(purpose, T("org.click_expand")); detail.Children.Add(purpose);
         detail.Children.Add(Text(T(o.Text("kind") == "subgroup" ? "org.kind_subgroup" : "org.kind_formal") + " · " + T(o.Text("governance") == "peer" ? "org.gov_peer" : "org.gov_leader") + " · " + T("common.members", ("n", members.Count)), 12));
         if (o.Flag("cabinet")) detail.Children.Add(Text(T("org.cabinet_chip")));
         if (o.Text("leader").Length > 0) detail.Children.Add(Text(T(o.Flag("cabinet") ? "org.secretary_general_chip" : "org.leader_chip", ("name", Display(o.Text("leader"))))));
@@ -108,6 +108,6 @@ public sealed partial class MainWindow
         else card.Children.Add(Text(d.ToJsonString()));
         return card;
     }
-    private string MemberState(string state) => T(state switch { "starting" => "state.starting", "running" => "state.running", "working" => "state.working", "waiting" => "state.waiting", "error" => "state.error", "vacant" => "state.vacant", "idle" => "state.idle", "offline" => "state.offline", "unreachable" => "state.unreachable", "closed" => "state.closed", _ => "state." + state });
+    private string MemberState(string state) => state is "starting" or "running" or "working" or "waiting" or "error" or "vacant" or "idle" or "active" ? T(state switch { "starting" => "state.starting", "running" => "state.running", "working" => "state.working", "waiting" => "state.waiting", "error" => "state.error", "vacant" => "state.vacant", "idle" => "state.idle", _ => "state.active" }) : state;
     private string TaskState(string state) => T(state switch { "open" => "task.open", "working" => "task.working", "blocked" => "task.blocked", "done" => "task.done", "dropped" => "task.dropped", _ => "task." + state });
 }
