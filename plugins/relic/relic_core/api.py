@@ -239,18 +239,18 @@ def call(store, name, args, meta=None):
     return result
 
 
-def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time, message_id=None):
+def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time, message_id=None, *, mark=True):
     """Unread messages, marked read; with wait, first wait up to that many seconds for one to arrive."""
     store.require(actor)
     if message_id is not None:
-        messages = store.unread(actor, message_id=message_id)
+        messages = store.unread(actor, message_id=message_id, mark=mark)
         if not messages:
             raise OrgError("No message #%s is addressed to your selected seats." % message_id)
         return {"messages": messages, "text": render_messages(messages)}
     deadline = clock() + max(0, min(int(wait or 0), max_wait()))
     while not store.unread(actor, mark=False, limit=1) and clock() < deadline:
         sleep(min(poll, max(0.0, deadline - clock())))
-    messages = store.unread(actor)
+    messages = store.unread(actor, mark=mark)
     if messages:
         return {"messages": messages, "text": render_messages(messages)}
     tasks = [dict(id=t["id"], title=t["title"], status=t["status"], org_id=org["id"], org_name=org["name"],
