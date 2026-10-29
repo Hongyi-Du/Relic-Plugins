@@ -12,6 +12,7 @@ struct RecordedSurface: ViewModifier {
     var kind: String? = nil
     var owner: String? = nil
     var hovered: Bool? = nil
+    var shadows: [SurfaceShadow] = []
     @Environment(\.captureOpacity) private var opacity
     func body(content: Content) -> some View {
         content.background(background, in: RoundedRectangle(cornerRadius: radius))
@@ -25,7 +26,22 @@ struct RecordedSurface: ViewModifier {
                     }.allowsHitTesting(false)
                 } else { RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: borderWidth).allowsHitTesting(false) }
             }
-            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered))
+            .modifier(SurfaceShadows(values: shadows))
+            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows))
+    }
+}
+
+struct SurfaceShadow {
+    let color: Color
+    let radius: CGFloat, x: CGFloat, y: CGFloat
+    static let dialog = [SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.14), radius: 16, x: 0, y: 10), SurfaceShadow(color: Color(red: 20/255, green: 18/255, blue: 15/255).opacity(0.06), radius: 3, x: 0, y: 2)]
+}
+private struct SurfaceShadows: ViewModifier {
+    let values: [SurfaceShadow]
+    func body(content: Content) -> some View {
+        values.reversed().reduce(AnyView(content)) { view, value in
+            AnyView(view.shadow(color: value.color, radius: value.radius, x: value.x, y: value.y))
+        }
     }
 }
 
@@ -52,20 +68,23 @@ struct SurfacePaintProbe: NSViewRepresentable {
     let kind: String?
     let owner: String?
     let hovered: Bool?
+    let shadows: [SurfaceShadow]
     private static let live = NSHashTable<SurfaceView>.weakObjects()
     func makeNSView(context: Context) -> SurfaceView { let view = SurfaceView(); Self.live.add(view); updateNSView(view, context: context); return view }
     func updateNSView(_ view: SurfaceView, context: Context) {
         view.fill = NSColor(background); view.border = NSColor(border); view.width = borderWidth
         view.widths = edges.map { [$0.top, $0.trailing, $0.bottom, $0.leading] } ?? Array(repeating: borderWidth, count: 4)
         view.separateEdges = edges != nil; view.radius = radius; view.opacity = opacity; view.kind = kind; view.owner = owner; view.hovered = hovered
+        view.shadows = shadows
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return nil }
             let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.bounds, to: nil)), in: content)
-            var fill: Any = NSNull(), border: Any = NSNull()
-            window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = []
+            view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 fill = ElementCapture.rgba(view.fill); border = ElementCapture.rgba(view.border)
+                shadows = view.shadows.map { ["inset": false, "offset_x": Double($0.x), "offset_y": Double($0.y), "blur_radius": Double($0.radius * 2), "spread_radius": 0, "color": ElementCapture.rgba(NSColor($0.color))] }
             }
             var opacity = view.opacity
             var ancestor: NSView? = view
@@ -75,8 +94,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
                     "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.radius),
                               "border_widths": view.widths.map { Double($0) },
                               "border_colors": Array(repeating: border, count: 4), "corner_radii": Array(repeating: Double(view.radius), count: 4),
-                              "opacity": opacity, "background_image": "none", "shadow": []],
-                    "evidence": ["source": "live-native-surface-probe", "renderer": view.separateEdges ? "RoundedRectangle.fill and four edge Rectangles" : "RoundedRectangle.fill/strokeBorder", "attachment": "production ViewModifier", "identity": view.identity]]
+                              "opacity": opacity, "background_image": "none", "shadow": shadows],
+                    "evidence": ["source": "live-native-surface-probe", "renderer": view.separateEdges ? "RoundedRectangle.fill and four edge Rectangles" : "RoundedRectangle.fill/strokeBorder", "attachment": "production ViewModifier", "identity": view.identity, "native_shadow_radii": view.shadows.map { Double($0.radius) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
         }
     }
     final class SurfaceView: NSView {
@@ -86,6 +105,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var widths: [CGFloat] = [0,0,0,0]
         var kind: String?, owner: String?, hovered: Bool?
         var separateEdges = false
+        var shadows: [SurfaceShadow] = []
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
     }

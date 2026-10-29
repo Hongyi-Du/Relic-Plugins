@@ -118,6 +118,11 @@ import CoreText
         } }
     }
     static func textRuns(_ view: NSTextView) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+        view.effectiveAppearance.performAsCurrentDrawingAppearance { result = measuredTextRuns(view) }
+        return result
+    }
+    private static func measuredTextRuns(_ view: NSTextView) -> [[String: Any]] {
         guard let manager = view.layoutManager, let container = view.textContainer, let storage = view.textStorage else { return [] }
         manager.ensureLayout(for: container)
         var rows: [[String: Any]] = []
@@ -155,6 +160,13 @@ import CoreText
         return rows
     }
     static func write(window: NSWindow, png: URL, item: Node, language: String, theme: String) throws {
+        var result: Result<Void, Error>!
+        (window.contentView?.effectiveAppearance ?? window.effectiveAppearance).performAsCurrentDrawingAppearance {
+            result = Result { try writeMeasured(window: window, png: png, item: item, language: language, theme: theme) }
+        }
+        try result.get()
+    }
+    private static func writeMeasured(window: NSWindow, png: URL, item: Node, language: String, theme: String) throws {
         guard let content = window.contentView, let bitmap = NSBitmapImageRep(data: try Data(contentsOf: png)) else { throw RelicError.message("Cannot inspect captured native image") }
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let viewport = NSRect(origin: .zero, size: content.bounds.size)

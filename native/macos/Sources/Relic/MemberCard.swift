@@ -15,18 +15,16 @@ struct MemberCard: View {
     private var own: Bool { !["chat", "subagent"].contains(card["surface"].text) }
     private var hosted: Bool { own && !card["embedded"].flag && (!card["config"]["harness"].text.isEmpty || ["cli", "desktop"].contains(card["surface"].text)) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 7) {
                     information
                     if !status.isEmpty { Text(status).foregroundStyle(RelicStyle.accent).fixedSize(horizontal: false, vertical: true) }
-                }.padding(.vertical, 2).padding(.trailing, 4)
-            }
+                }
             Divider()
             actions
-        }.font(RelicStyle.font(13, weight: 400)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
@@ -34,8 +32,8 @@ struct MemberCard: View {
         }
     }
     private var header: some View {
-        HStack(spacing: 12) {
-            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 52) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
+        HStack(spacing: 14) {
+            Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 60) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
                     Text(card.display).font(RelicStyle.font(17, weight: 600)).lineLimit(2).help(card.display)
@@ -48,8 +46,7 @@ struct MemberCard: View {
                     if !card["ex_officio"].isNull { SmallBadge(text: m.t("card.ex_officio_tag")) }
                 }
             }
-            Spacer(minLength: 16)
-        }.padding(.trailing, 16)
+        }
     }
     @ViewBuilder private var information: some View {
         if editingName {

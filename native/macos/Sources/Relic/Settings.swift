@@ -8,65 +8,72 @@ struct SettingsView: View {
     @State private var voiceTest = ""
     private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about")]
     var body: some View {
-        HSplitView {
-            List(sections, id: \.0) { key, title in
-                Button { m.settingsSection = key } label: { Label(m.t(title), systemImage: sectionIcon(key)).font(RelicStyle.font(13, weight: 400)).lineLimit(2).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: m.settingsSection == key)).help(m.t(title)).listRowSeparator(.hidden)
-            }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 210).background(RelicStyle.sidebar)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                ReferenceLabel(m.t("common.settings"), size: 16, weight: 650)
+                    .padding(.top, 4).padding(.horizontal, 10).padding(.bottom, 12)
+                ForEach(sections, id: \.0) { key, title in
+                    SettingsNavigationButton(title: m.t(title), icon: sectionIcon(key), selected: m.settingsSection == key) { m.settingsSection = key }
+                }
+                Spacer(minLength: 0)
+            }.padding(.vertical, 14).padding(.horizontal, 10).frame(width: 220)
+                .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(m.t(sections.first { $0.0 == m.settingsSection }?.1 ?? "settings.about")).font(RelicStyle.font(17, weight: 600)).padding(.bottom, 12)
-                        switch m.settingsSection {
-                        case "profile": profile
-                        case "appearance": appearance
-                        case "language": language
-                        case "voice": voice
-                        case "notify": notifications
-                        case "harness": HarnessSettings()
-                        default: about
-                        }
-                    }.padding(.horizontal, 24).padding(.vertical, 20).frame(maxWidth: .infinity, alignment: .topLeading)
-                }.frame(minWidth: 390)
-        }.frame(minWidth: 580, idealWidth: 760, maxWidth: 900, minHeight: 400, idealHeight: 530, maxHeight: 550).onAppear { name = m.preferences["name"].text }
+                VStack(alignment: .leading, spacing: 0) {
+                    ReferenceLabel(m.t(sections.first { $0.0 == m.settingsSection }?.1 ?? "settings.about"), size: 18, weight: 650).padding(.bottom, 14)
+                    switch m.settingsSection {
+                    case "profile": profile
+                    case "appearance": appearance
+                    case "language": language
+                    case "voice": voice
+                    case "notify": notifications
+                    case "harness": HarnessSettings()
+                    default: about
+                    }
+                }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 28).frame(maxWidth: .infinity, alignment: .topLeading)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.onAppear { name = m.preferences["name"].text }
     }
-    private func sectionIcon(_ key: String) -> String { ["profile": "person.crop.circle", "appearance": "paintpalette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "puzzlepiece.extension", "about": "info.circle"][key] ?? "gearshape" }
+    private func sectionIcon(_ key: String) -> String { ["profile": "user", "appearance": "palette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "plug", "about": "info"][key] ?? "gear" }
     func preference(_ key: String) -> Binding<String> { Binding(get: { m.preferences[key].text }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     func toggle(_ key: String) -> Binding<Bool> { Binding(get: { m.preferences[key].flag }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     private var profile: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.avatar"), hint: m.t("settings.avatar_hint")) {
                 HStack(spacing: 10) {
-                    Avatar(member: "human", size: 52)
-                    Button(m.t("common.change")) { m.run { try await pickAvatar(m) } }
-                    if !m.preferences["avatar"].text.isEmpty { Button(m.t("settings.remove")) { m.run { try await m.post("/api/avatar", ["data": ""]); m.preferences = try await m.get("/api/prefs") } } }
+                    Avatar(member: "human", size: 60)
+                    TextButton(m.t("common.change")) { m.run { try await pickAvatar(m) } }.buttonStyle(ReferenceButtonStyle(small: true))
+                    if !m.preferences["avatar"].text.isEmpty { TextButton(m.t("settings.remove")) { m.run { try await m.post("/api/avatar", ["data": ""]); m.preferences = try await m.get("/api/prefs") } }.buttonStyle(ReferenceButtonStyle(small: true)) }
                 }
             }
-            SettingsRow(title: m.t("common.name"), hint: m.t("settings.name_hint")) {
-                VStack(alignment: .trailing, spacing: 8) {
-                    TextField(m.t("common.you"), text: $name).textFieldStyle(.roundedBorder).onSubmit(saveName).dictation($name)
-                    Button(m.t("common.save"), action: saveName)
-                }
+            SettingsRow(title: m.t("common.name"), hint: m.t("settings.name_hint"), last: true) {
+                ReferenceInput(placeholder: m.t("common.you"), text: $name, commit: saveName).frame(width: 220)
             }
         }
     }
     private func saveName() { m.run { try await m.savePreferences(["name": name.trimmingCharacters(in: .whitespacesAndNewlines)]) } }
     private var appearance: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.theme")) {
-                Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(Choices.themes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented).labelsHidden()
+                SettingsSegments(options: Choices.themes.map { ($0.0, m.t($0.1)) }, selection: preference("theme"))
             }
             SettingsRow(title: m.t("settings.accent"), hint: m.t("settings.accent_hint")) {
-                HStack(spacing: 10) { ForEach(Choices.accents, id: \.0) { color, key in Button { m.run { try await m.savePreferences(["accent": color]) } } label: { Circle().fill(accent(color)).frame(width: 26, height: 26).overlay { if m.preferences["accent"].text == color { Image(systemName: "checkmark").font(RelicStyle.font(11, weight: 700)).foregroundStyle(.white) } } }.buttonStyle(.plain).accessibilityLabel(m.t(key)).help(m.t(key)) } }
+                HStack(spacing: 8) {
+                    ForEach(["clay", "ink", "indigo", "blue", "rose", "amber"], id: \.self) { color in
+                        SettingsSwatch(name: color, selected: m.preferences["accent"].text == color) { m.run { try await m.savePreferences(["accent": color]) } }
+                    }
+                }
             }
             SettingsRow(title: m.t("settings.font_size")) {
-                Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(Choices.fonts, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented).labelsHidden()
+                SettingsSegments(options: Choices.fonts.map { ($0.0, m.t($0.1)) }, selection: preference("font"))
             }
-            SettingsRow(title: m.t("settings.density")) {
-                Picker(m.t("settings.density"), selection: preference("density")) { ForEach(Choices.densities, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented).labelsHidden()
+            SettingsRow(title: m.t("settings.density"), last: true) {
+                SettingsSegments(options: Choices.densities.map { ($0.0, m.t($0.1)) }, selection: preference("density"))
             }
         }
     }
     private var language: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.language.label"), hint: m.t("settings.language.hint")) {
                 VStack(alignment: .trailing, spacing: 8) {
                     Picker(m.t("settings.language.label"), selection: Binding(get: { m.words.language }, set: { value in m.run { try await m.saveSettings(language: value, notify: m.preferences["notify"].flag) } })) { Rows(m.words.languages) { Text($0["name"].text).tag($0["code"].text) } }.labelsHidden()
@@ -91,11 +98,11 @@ struct SettingsView: View {
         }
     }
     private var notifications: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.desktop_notify"), hint: m.t("settings.desktop_notify_hint")) {
                 Toggle(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } })).toggleStyle(.switch).labelsHidden()
             }
-            SettingsRow(title: m.t("settings.notify_test")) { Button(m.t("settings.notify_send_test")) { m.run { try await m.authorizeNotifications(); m.notify(m.t("settings.notify_on")) } } }
+            SettingsRow(title: m.t("settings.notify_test"), last: true) { TextButton(m.t("settings.notify_send_test")) { m.run { try await m.authorizeNotifications(); m.notify(m.t("settings.notify_on")) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
         }
     }
     private var about: some View {
@@ -112,15 +119,18 @@ struct SettingsView: View {
 private struct SettingsRow<Content: View>: View {
     let title: String
     var hint = ""
+    var last = false
     @ViewBuilder let content: () -> Content
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(RelicStyle.font(13, weight: 500))
-                if !hint.isEmpty { Text(hint).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                ReferenceLabel(title, size: 13.5, weight: 600, lines: 0)
+                if !hint.isEmpty { ReferenceLabel(hint, size: 12.5, color: RelicStyle.muted, lines: 0) }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            content().frame(width: 220, alignment: .trailing)
-        }.padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+            content().fixedSize(horizontal: true, vertical: false)
+        }.padding(.vertical, 14).padding(.bottom, last ? 0 : 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: last ? 0 : 1, trailing: 0), kind: "region"))
     }
 }
 

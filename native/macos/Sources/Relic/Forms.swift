@@ -10,11 +10,11 @@ struct SaveButton: View {
     var body: some View {
         VStack(alignment: .leading) {
             if !error.isEmpty { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            HStack { Spacer(); Button(m.t(labelKey)) {
+            HStack(spacing: 8) { Spacer(); TextButton(m.t("common.cancel"), size: 13) { m.sheet = nil }.buttonStyle(ReferenceButtonStyle()); TextButton(m.t(labelKey), size: 13, color: RelicStyle.background) {
                 saving = true
                 let sheet = m.sheet
                 Task { defer { saving = false }; do { try await action(); if m.sheet == sheet { m.sheet = nil } } catch { self.error = error.localizedDescription } }
-            }.buttonStyle(.borderedProminent).disabled(saving).keyboardShortcut(.defaultAction) }
+            }.buttonStyle(ReferenceButtonStyle(primary: true)).disabled(saving).keyboardShortcut(.defaultAction) }
         }
     }
 }

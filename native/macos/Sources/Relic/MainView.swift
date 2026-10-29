@@ -27,7 +27,7 @@ struct MainView: View {
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop() }
-        .sheet(item: $m.sheet) { sheet in SheetContent(sheet: sheet).environmentObject(m) }
+        .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))
         .tint(accent(m.preferences["accent"].text))
@@ -92,10 +92,8 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
-    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .copies ? 760 : sheet == .forward ? 720 : [Model.Sheet.create, .secretary, .card].contains(sheet) ? 520 : 620, max(480, m.windowSize.width - 40)) }
-    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 400 : sheet == .secretary ? 440 : sheet == .card ? 600 : sheet == .copies ? CGFloat(min(640, 160 + max(1, m.copies.count) * (m.expandRules ? 320 : 210))) : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
-        VStack(spacing: 12) {
+        Group {
             switch sheet {
             case .create: CreateOrgView()
             case .member: MemberForm()
@@ -109,9 +107,7 @@ struct SheetContent: View {
             case .details: DetailsView()
             case .shortcuts: ShortcutsView()
             }
-        }.padding(20).frame(width: width, height: height).overlay(alignment: .topTrailing) { IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "x") { m.sheet = nil }.keyboardShortcut(.cancelAction).padding(10) }
-            .background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).background(SheetSurface()).buttonStyle(.bordered).controlSize(.regular)
-            .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil).environment(\.locale, Locale(identifier: m.words.language))
+        }.buttonStyle(ReferenceButtonStyle()).controlSize(.regular)
     }
 }
 

@@ -48,6 +48,7 @@ import RelicCore
     @Published var detailTask = ""
     @Published var detailFilter = "open"
     @Published var cardMember = ""
+    @Published var cardAnchor = CGRect.zero
     @Published var memberMode = "app"
     @Published var editMember = ""
     @Published var newSecretary = false
@@ -271,7 +272,11 @@ import RelicCore
     }
     private func backgroundNotify(_ message: String, org: String? = nil, member: String? = nil) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message, org: org, member: member) } }
     func openMemberForm(mode: String = "app", edit: String = "", secretary: Bool = false) { memberMode = mode; editMember = edit; newSecretary = secretary; sheet = .member }
-    func openCard(_ name: String) { cardMember = name; sheet = .card }
+    func openCard(_ name: String, anchor: CGRect? = nil) {
+        cardMember = name
+        cardAnchor = anchor ?? CGRect(x: sidebarOpen ? 276 : 0, y: 40, width: max(0, windowSize.width - (sidebarOpen ? 276 : 0) - (panelOpen ? 340 : 0)), height: 56)
+        sheet = .card
+    }
     func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
     func togglePane(_ value: String) { if pane == value && panelOpen { panelOpen = false } else { setPane(value) } }
