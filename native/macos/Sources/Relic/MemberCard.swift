@@ -90,19 +90,23 @@ struct ForwardForm: View {
     @State private var reply = ""
     @State private var acknowledged = false
     var body: some View {
-        Form {
-            Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(.title2)
-            Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""]))
-            TextField(m.t("forward.to"), text: $recipients, prompt: Text(m.t("forward.to_placeholder"))).dictation($recipients)
-            TextField(m.t("common.reply"), text: $reply, prompt: Text(m.t("forward.body_placeholder")), axis: .vertical).lineLimit(10...20)
-            VoiceButton(text: $reply)
+        VStack(alignment: .leading, spacing: 14) {
+            Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(.system(size: 17, weight: .semibold))
+            Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""])).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(m.t("forward.to")).font(.system(size: 12))
+            HStack { TextField(m.t("forward.to_placeholder"), text: $recipients).textFieldStyle(.plain); VoiceButton(text: $recipients).labelStyle(.iconOnly) }.padding(9).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border))
+            Text(m.t("common.reply")).font(.system(size: 12))
+            ZStack(alignment: .topLeading) {
+                if reply.isEmpty { Text(m.t("forward.body_placeholder")).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(9).allowsHitTesting(false) }
+                TextEditor(text: $reply).font(.system(size: 14)).scrollContentBackground(.hidden).padding(5).accessibilityLabel(m.t("common.reply"))
+            }.frame(minHeight: 160, maxHeight: .infinity).overlay(RoundedRectangle(cornerRadius: 10).stroke(RelicStyle.border)).overlay(alignment: .bottomTrailing) { VoiceButton(text: $reply).labelStyle(.iconOnly).padding(10) }
             SaveButton(labelKey: "common.send") {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !body.isEmpty else { throw RelicError.message(m.t("forward.need_body")) }
                 if body.hasPrefix("【Relic") && !acknowledged { acknowledged = true; throw RelicError.message(m.t("forward.not_reply", ["prefix": "【Relic"])) }
                 try await m.post(m.path("/forward"), ["member": m.cardMember, "to": recipients, "body": body]); m.notice = m.t("forward.sent", ["name": m.name(m.cardMember)]); try await m.refresh()
             }
-        }.formStyle(.grouped).frame(width: 680, height: 520)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task { m.run { info = try await m.get(m.path("/waiting?member=" + Client.segment(m.cardMember))); recipients = (info["waiting"].rows.first?["to"].rows ?? info["members"].rows).map(\.text).joined(separator: ",") } }
     }
 }

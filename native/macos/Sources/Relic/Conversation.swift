@@ -62,9 +62,11 @@ struct RichText: View {
                 HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
             } }
         case "table":
-            ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+            ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in inline(index == 0 ? "**" + cell + "**" : cell).padding(4) }
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        Text((try? AttributedString(markdown: index == 0 ? "**" + cell + "**" : cell)) ?? AttributedString(cell)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).frame(minWidth: 70, alignment: .leading).padding(8).background(index == 0 ? RelicStyle.hover : RelicStyle.card).overlay(Rectangle().stroke(RelicStyle.border, lineWidth: 0.5))
+                    }
                 } }
             }.padding(4) }
         default: inline(block.text)
