@@ -97,6 +97,13 @@ cannot carry the lesson.
   `summary_for_person`, in the Relic App's Copies next to the bell. The person may retire it there at once, without a
   vote: it stops binding here and in the organizations below that inherit it, and your status lists it as retired by
   the person. Do not propose it again unchanged.
+- **Rules on your reply (`tools: ["Reply"]`).** A rule on Reply judges the reply that ends your turn, the text the
+  person reads, when the turn ends (not a tool call). It is `check` or `deny` and names no other tool; its call is
+  `{"tool": "Reply", "input": {"text": ...}}` with the rest of a call, and its program answers allow or deny. When
+  your reply breaks it, you are sent back once with the reason: write the whole reply again so that it follows the rule.
+- **Protocols the person issues.** The person can put a protocol into effect in any organization at once, with no
+  vote: what the person asks for is final. Your status shows it as issued by the person; it binds the organizations
+  below when it is inherited, and no organization can revise, override or retire it. Only the person retires it.
 
 Example:
 

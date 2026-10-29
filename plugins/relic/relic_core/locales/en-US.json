@@ -148,6 +148,7 @@
  "cc.scope_contains": "containing {words}",
  "cc.scope_except": "except {names}",
  "cc.scope_path": "files {glob}",
+ "cc.scope_reply": "the reply that ends a member's turn",
  "cc.scope_who": "for {names}",
  "cc.stats": {
   "one": "Judged {n} call: allowed {allow} · blocked {deny} · sent for review {review} · failed {error}",
@@ -542,6 +543,7 @@
  "org.hierarchy": "Hierarchy",
  "org.inherited_from": "From “{name}” above",
  "org.issued_by": "Issued by “{name}”",
+ "org.issued_by_person": "Issued by you",
  "org.kind_formal": "Formal organization",
  "org.kind_subgroup": "Subgroup",
  "org.leader_changed": "{name} is the leader now.",
@@ -801,6 +803,7 @@
  "view.notice.parent_set": "This organization is now under “{name}”",
  "view.notice.protocol_activated": "Protocol {id} “{title}” is now active",
  "view.notice.protocol_issued": "{who} issued protocol {id} “{title}”; it is in effect now",
+ "view.notice.protocol_issued_by_person": "You issued protocol {id} “{title}”; it is in effect now, with no vote",
  "view.notice.protocol_proposed": "{who} proposed protocol {id} “{title}”",
  "view.notice.protocol_rejected": "Protocol {id} “{title}” was rejected",
  "view.notice.protocol_retired_by": "{who} retired protocol {id} “{title}”",

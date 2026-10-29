@@ -6,7 +6,8 @@ decision=block on Stop). One script handles every registered event:
   SessionStart / UserPromptSubmit / SubagentStart -> inject organization context
   PreToolUse    -> attach the caller identity to Relic tool calls; enforce strong protocols
   PostToolUse   -> record activity, deliver new peer messages
-  Stop / SubagentStop -> one continuation for due reflection or direct messages
+  Stop / SubagentStop -> one continuation for due reflection or direct messages, or (Stop) for a reply that breaks
+                         a rule on Reply
 Every event except PreToolUse also gives auto-wake a chance to start turns for seats with new messages (wake.py).
 """
 import json
@@ -36,6 +37,46 @@ def actor_key(event):
     agent = event.get("agent_id")
     key = session + "/" + agent if agent else session
     return key if harness() == "claude-code" else harness() + ":" + key
+
+
+def reply_text(event):
+    """The reply that ends the turn, the text the person reads: the host's last_assistant_message (Claude Code and
+    Codex pass it with Stop), else the last assistant message in the session's transcript ("" when there is none)."""
+    text = event.get("last_assistant_message")
+    if isinstance(text, str):
+        return text
+    path = event.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 2000000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+        if entry.get("type") == "assistant":  # Claude Code
+            content, kind = (entry.get("message") or {}).get("content"), "text"
+        elif entry.get("type") == "response_item" and payload.get("role") == "assistant":  # Codex
+            content, kind = payload.get("content"), "output_text"
+        else:
+            continue
+        if isinstance(content, str):
+            texts = [content]
+        else:
+            texts = [b.get("text") for b in content or [] if isinstance(b, dict) and b.get("type") == kind
+                     and isinstance(b.get("text"), str)]
+        if any(t.strip() for t in texts):
+            return "\n".join(texts)
+    return ""
 
 
 def seat_from_app(store):
@@ -188,6 +229,12 @@ def respond(event, store):
         org, member = store.whoami(actor)
         if not org:
             return {}
+        reasons = []
+        if name == "Stop":  # the reply the person reads: the organization's rules on Reply judge it before the turn ends
+            allowed, why = store.check_reply(actor, reply_text(event))
+            if not allowed:
+                reasons.append("Your reply breaks the organization's rules for replies: %s. Write the whole reply again "
+                               "so that it follows them; the person reads what you write now." % " ".join(why))
         ended = store.end_turn(actor)  # every seat's turn, and back to the main seat
         due, org = [], None
         for there, seat_member, main in store.seats_of(actor):  # reflection due in any organization it sits in
@@ -196,7 +243,6 @@ def respond(event, store):
                 org = there
                 break
         direct = [m for m in store.unread(actor, mark=False) if m["to"] == [m.get("seat")]]
-        reasons = []
         if due:
             ep = org["episodes"][due[-1]]
             seen = "; ".join(ep.get("friction", [])[-4:])

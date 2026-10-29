@@ -50,7 +50,9 @@ RULE = {"type": "object", "description": (
     "examples: 2-12 {call, expect, note?}, calls the rule covers (fields left out get defaults), at least one allow and "
     "one deny or review; all run when you propose and must come out as expected. on_error: allow (default) or deny, "
     "for a program that fails (timeout 3 s, an exception, an answer that is not a decision) or whose code changed "
-    "after it was proposed.")}
+    "after it was proposed. A rule on Reply (tools [\"Reply\"], effect check or deny) judges the reply that ends a "
+    "member's turn, the text the person reads, when the turn ends: call.input is {text}; a deny sends the member back "
+    "once to write the reply again (a program on Reply answers allow or deny).")}
 
 TOOLS = [
     tool("create", "Create a new Relic organization and join it as its first member. Use when the human asks for an "

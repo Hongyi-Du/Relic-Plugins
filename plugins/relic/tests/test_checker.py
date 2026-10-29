@@ -463,6 +463,17 @@ class Endpoints(Base):
         self.edit()
         self.assertTrue(self.store.gate(ANA, "Bash", PUSH)[0])
 
+    def test_the_person_issues_a_protocol_from_the_app(self):
+        rules = [{"effect": "deny", "tools": ["Reply"], "input_contains": ["TODO"], "reason": "finish the TODOs first"}]
+        body = {"title": "No TODOs in replies", "rationale": "the person asked for it", "strength": "strong",
+                "rules": rules, "inherit": True}
+        self.assertEqual(self.call("/api/org/%s/protocols" % self.oid, body, token=False)[0], 403)
+        code, p = self.call("/api/org/%s/protocols" % self.oid, body)
+        self.assertEqual((code, p["status"], p["author"]), (200, "active", HUMAN))
+        self.assertEqual(self.store.get(self.oid)["protocols"][p["id"]]["status"], "active")
+        code, error = self.call("/api/org/%s/protocols" % self.oid, dict(body, rules=[]))
+        self.assertEqual(code, 400)
+
 
 class Runner(unittest.TestCase):
     """The program's process: only the standard library, almost no environment, a temporary folder, its prints are
@@ -522,6 +533,141 @@ class Page(unittest.TestCase):
         bell = code.index("abBtn('bell'")
         self.assertLess(bell, code.index("abBtn('cc'"))
         self.assertLess(code.index("abBtn('cc'") - bell, 400)  # right next to it
+
+
+# A reply judged at the end of a turn: Chinese passes, a reply mostly in English does not, a very short one is not judged.
+REPLY_CODE = r'''
+import re
+def check(call):
+    text = call["input"].get("text", "")
+    prose = re.sub(r"```.*?```|`[^`]*`|https?://\S+", " ", text, flags=re.S)
+    han = len(re.findall(r"[一-鿿]", prose))
+    words = len(re.findall(r"[A-Za-z]+", prose))
+    if han + words < 6 or han >= words:
+        return {"decision": "allow"}
+    return {"decision": "deny", "reason": "给人的汇报要用简体中文"}
+'''
+REPLY_EXAMPLES = [
+    {"call": {"tool": "Reply", "input": {"text": "已发布 v0.5.1，装到了你的电脑上。"}}, "expect": "allow"},
+    {"call": {"tool": "Reply", "input": {"text": "Released v0.5.1 and installed it on your machine."}}, "expect": "deny"},
+]
+
+
+def reply_rule(**changes):
+    return dict({"effect": "check", "tools": ["Reply"], "code": REPLY_CODE, "examples": REPLY_EXAMPLES}, **changes)
+
+
+class Replies(Base):
+    """Rules on Reply judge the reply that ends a member's turn, the text the person reads, when the turn ends."""
+
+    def stop(self, text, **extra):
+        return relic_hook.handle(dict({"hook_event_name": "Stop", "session_id": ANA, "last_assistant_message": text},
+                                      **extra), self.store)
+
+    @staticmethod
+    def sent_back(out):  # the member is sent back to write its reply again (reflection may be due as well)
+        return out.get("decision") == "block" and "rules for replies" in out.get("reason", "")
+
+    def test_a_reply_that_breaks_the_rule_sends_the_member_back_once(self):
+        p = self.adopt(rules=[reply_rule()])
+        out = self.stop("All done: the release is out and installed on your machine.")
+        self.assertTrue(self.sent_back(out), out)
+        self.assertIn("%s Test before pushing: 给人的汇报要用简体中文" % p["id"], out["reason"])
+        self.assertFalse(self.sent_back(self.stop("发布完成，已经装到你的电脑上。")))
+        self.assertEqual(self.stop("All done, nothing else to say here.", stop_hook_active=True), {})  # the second stop
+        self.assertFalse(self.sent_back(self.stop("ok")))  # too short to judge
+        blocked = [b for k, b in self.kinds() if k == "protocol.blocked" and b["tool"] == "Reply"]
+        self.assertEqual(len(blocked), 1)
+        self.assertEqual(self.store.copies()[0]["stats"]["deny"], 1)  # counted like any check
+
+    def test_a_subagent_s_reply_is_not_judged(self):
+        self.adopt(rules=[reply_rule()])
+        out = relic_hook.handle({"hook_event_name": "SubagentStop", "session_id": ANA,
+                                 "last_assistant_message": "Here is what I found in the files you named."}, self.store)
+        self.assertFalse(self.sent_back(out))
+
+    def test_rules_on_reply_judge_no_tool_call(self):
+        self.adopt(rules=[reply_rule()])
+        out = relic_hook.handle({"hook_event_name": "PreToolUse", "session_id": ANA, "tool_name": "Bash",
+                                 "tool_input": {"command": "echo all done and installed on your machine"}}, self.store)
+        self.assertNotEqual((out.get("hookSpecificOutput") or {}).get("permissionDecision"), "deny")
+
+    def test_a_deny_rule_on_reply(self):
+        self.adopt(rules=[{"effect": "deny", "tools": ["Reply"], "input_contains": ["TODO"],
+                           "reason": "finish the TODOs before you report"}])
+        out = self.stop("Done, one TODO is left in the parser.")
+        self.assertTrue(self.sent_back(out), out)
+        self.assertIn("finish the TODOs before you report", out["reason"])
+        self.assertFalse(self.sent_back(self.stop("Done, the parser is finished.")))
+
+    def test_rules_on_reply_name_only_reply_and_are_check_or_deny(self):
+        self.assertIn("names no other tool", self.refused(rules=[reply_rule(tools=["Reply", "Bash"])]))
+        self.assertIn("check or deny", self.refused(rules=[{"effect": "require_review", "tools": ["Reply"]}]))
+        self.assertIn("no file path", self.refused(rules=[reply_rule(path_glob="*.md")]))
+        review = [REPLY_EXAMPLES[0], dict(REPLY_EXAMPLES[1], expect="review")]
+        self.assertIn("allow or deny", self.refused(rules=[reply_rule(examples=review)]))
+
+    def test_the_reply_comes_from_the_transcript_when_the_host_does_not_pass_it(self):
+        claude = Path(self.tmp.name) / "session.jsonl"
+        claude.write_text("\n".join(json.dumps(entry) for entry in [
+            {"type": "user", "message": {"content": "release it"}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Released and installed."}]}}]),
+            encoding="utf-8")
+        self.assertEqual(relic_hook.reply_text({"transcript_path": str(claude)}), "Released and installed.")
+        codex = Path(self.tmp.name) / "rollout.jsonl"
+        codex.write_text(json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "发布完成。"}]}}),
+            encoding="utf-8")
+        self.assertEqual(relic_hook.reply_text({"transcript_path": str(codex)}), "发布完成。")
+        self.assertEqual(relic_hook.reply_text({"last_assistant_message": "given", "transcript_path": str(claude)}), "given")
+        self.assertEqual(relic_hook.reply_text({"transcript_path": str(Path(self.tmp.name) / "missing.jsonl")}), "")
+        self.assertEqual(relic_hook.reply_text({}), "")
+
+
+
+class PersonIssues(Base):
+    """The person issues a protocol: in effect at once, with no vote; inherited, it binds the organizations below;
+    only the person can retire it."""
+
+    def issue(self, org_id=None, **changes):
+        return self.store.issue_by_person(org_id or self.oid, dict({
+            "title": "给人汇报一律用简体中文", "rationale": "the person asked for it", "strength": "strong",
+            "rules": [reply_rule()], "summary_for_person": "成员每轮最后给你的回复必须是中文，否则打回去重写。",
+            "inherit": True}, **changes))
+
+    def test_in_effect_at_once_and_binding_below(self):
+        s = self.store
+        below = s.create(SAM, "Below", "a team under the first", "leader", "sam")["id"]
+        s.set_parent(below, self.oid)
+        p = self.issue()
+        self.assertEqual((p["status"], p["author"], p["issued_by"]["person"], p["votes"]), ("active", HUMAN, True, {}))
+        out = relic_hook.handle({"hook_event_name": "Stop", "session_id": SAM,
+                                 "last_assistant_message": "All done, the release is out."}, s)
+        self.assertTrue(Replies.sent_back(out), out)
+        self.assertEqual(s.copies(), [])  # the person's own protocol is not copied back to the person
+        notices = [b for k, b in self.kinds() if k == "protocol.activated"]
+        self.assertTrue(notices[-1]["issued_by"]["person"])
+
+    def test_only_the_person_retires_it(self):
+        s = self.store
+        p = self.issue(inherit=False)
+        with self.assertRaises(OrgError) as caught:
+            s.protocol(LEAD, "propose", {"title": "Replies in any language", "rationale": "faster", "strength": "weak",
+                                         "guidance": "any language", "trigger": "always", "evidence": ["E1"],
+                                         "supersedes": p["id"]})
+        self.assertIn("issued by the person", str(caught.exception))
+        self.assertEqual(s.retire_by_person(self.oid, p["id"])["status"], "retired")
+
+    def test_a_weak_one_and_what_is_refused(self):
+        p = self.issue(strength="weak", rules=None, guidance="写给人的汇报用简体中文。", trigger="给人汇报时")
+        self.assertEqual((p["strength"], p["status"]), ("weak", "active"))
+        with self.assertRaises(OrgError):
+            self.issue(title="")
+        with self.assertRaises(OrgError):
+            self.issue(rules=[{"effect": "require_review", "tools": ["Reply"]}])
+        with self.assertRaises(OrgError):
+            self.issue(org_id="org_missing")
 
 
 if __name__ == "__main__":

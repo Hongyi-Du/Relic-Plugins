@@ -41,6 +41,8 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 
 `check` 规则在它管的每次工具调用前，运行一段成员自己写的程序。它必须写明 `tools`（不能是全部工具），并带三项：`code`（只用 Python 标准库，定义 `check(call)`，返回 `{"decision": "allow" | "deny" | "review", "reason": "..."}`；拦下和送审都要写原因）、`examples`（2 到 12 个这条规则管得到的 `{call, expect, note?}`，至少一个 `allow`、一个 `deny` 或 `review`；提交时逐个运行，结果必须和预期一致）、`on_error`（默认 `allow`，或 `deny`：程序超时、抛异常、返回不合法或崩溃时怎么处理这次调用）。带 check 规则的协议必须有 `summary_for_person`：用人的语言写给人看的说明。`call` 里有 `tool`、`input`、`member`、`role`、`harness`、`org_id`、`org_name`、`protocol_id`、`protocol_title`、`recent`（这个成员在本组织最近 20 次工具调用，新的在前）、`last_edit_at`/`last_edit_ts` 和 `now`/`now_ts`。程序在单独的进程里运行（`-I -S -X utf8`，3 秒，回答最多 8 KB，临时目录，几乎不带环境变量；Windows 上用 job object 结束它启动的进程，内存上限 512 MB）。这不是安全沙箱：成员投票前用 `protocol op=list protocol_id=<P#>` 读代码，每次运行前核对提交时记下的 sha256，人也可以在 Relic App 里随时废除。这类协议由组织投票通过即生效，同时抄送给人（见[使用指南](guide.zh-CN.md)第 5 节）。0.16.0 之前的插件版本会把 `check` 当成 `require_review`。
 
+规则可以写 `Reply` 代替工具名（`tools: ["Reply"]`，`effect` 是 `check` 或 `deny`，不能再写别的工具，也不能用 `path_glob`）：它在一轮结束时检查成员给人的最后回复。调用是 `{"tool": "Reply", "input": {"text": ...}}`，判断程序只回答放行或拦下；回复不合格时，成员被打回一次重写。人也可以在任何组织直接下发协议（Relic App 的 `POST /api/org/<组织 id>/protocols`）：立即生效、不需要表决，带继承时约束下面的组织，只有人能废除。
+
 ```json
 {"effect":"deny","tools":["Edit","Write"],"path_glob":"src/api/*","except_roles":["api-owner"],"reason":"修改 API 前先与负责人协调。"}
 ```

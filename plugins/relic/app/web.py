@@ -339,6 +339,12 @@ class App:
         self.bus.publish({"type": "cc"})
         return result
 
+    def issue_protocol(self, org_id, a):
+        """The person issues a protocol in an organization: in effect at once, with no vote."""
+        p = self.store.issue_by_person(org_id, a)
+        self._changed_all()
+        return p
+
     def _changed_all(self):
         self.bus.publish({"type": "orgs"})
         for org in self.store.list_orgs():
@@ -692,6 +698,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(app.decide_request(org_id, a))
                 if action == "close":
                     return self._json(app.close_group(org_id, a))
+                if action == "protocols":  # the person issues a protocol: in effect at once, with no vote
+                    return self._json(app.issue_protocol(org_id, a))
                 if action == "secretary":
                     hub.make_secretary(org_id, a["member"])
                     return self._json({"ok": True})

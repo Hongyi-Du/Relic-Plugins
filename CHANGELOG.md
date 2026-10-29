@@ -1,5 +1,21 @@
 # Changelog / 更新记录
 
+## v0.6.0-beta.1 — 2026-10-28
+
+Sixth public beta. A strong protocol can judge the reply that ends a member's turn, and a protocol the person issues takes effect at once, with no vote. Plugin 0.17.0-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.
+
+- **Rules on the reply that ends a turn.** A rule can name `Reply` instead of tools (`tools: ["Reply"]`, effect `check` or `deny`, no other tool and no `path_glob`). It judges the reply that ends a member's turn, the text the person reads, when the turn ends: the Stop hook gives the rule `{"tool": "Reply", "input": {"text": ...}}` (Claude Code and Codex both pass that reply to the hook). When the reply breaks the rule, the member is sent back once with the reason and writes the whole reply again. A program on Reply answers allow or deny; a subagent's reply is not judged. "Reports to the person in Simplified Chinese" is such a rule.
+- **Protocols the person issues.** The person puts a protocol into effect in any organization at once, with no vote: what the person asks for is final. With `inherit`, every organization below is bound too. No member and no organization can revise, override or retire it; only the person retires it. The Relic App's server takes it at `POST /api/org/<org id>/protocols` with the App's token, so a session working for the person can issue what the person asked for. The group chat says that you issued it and that it is in effect, and the organization's protocols show it as issued by you.
+- **Upgrading.** As before: stop the Relic App's server, extract the new package and run its installer; nothing in the store changes. Run `/reload-plugins` in Claude Code sessions that are already open, and restart Codex. Rules on Reply need 0.17.0 wherever Relic's hooks run: older versions ignore them.
+- **Release and checks.** `relic-windows-v0.6.0-beta.1.zip` (published, with `SHA256SUMS.txt` and `release-manifest.json`) and the macOS `.tar.gz` (built, not released). `docs/api/relic.json` lists 12 tools; a rule takes `Reply`.
+
+第六个公开内测版。强协议可以检查成员每轮最后给人的回复；人下发的协议立即生效，不需要表决。插件 0.17.0-beta.1，插件 id 仍是 `relic@relic-bridge`。仍然只发布 Windows。
+
+- **检查每轮最后的回复。**规则可以写 `Reply` 代替工具名（`tools: ["Reply"]`，`effect` 是 `check` 或 `deny`，不能再写别的工具，也不能用 `path_glob`）。它管的是成员每轮结束时给人的那段回复：一轮结束时，Stop hook 把 `{"tool": "Reply", "input": {"text": ...}}` 交给规则（Claude Code 和 Codex 都会把这段回复交给 hook）。回复不合格时，成员会带着原因被打回一次，重写整段回复。Reply 上的判断程序只回答放行或拦下；子代理的回复不检查。「给人汇报一律用简体中文」就是这样一条规则。
+- **人下发的协议。**人可以在任何组织直接下发协议，立即生效，不需要表决：人的要求就是最终决定。带上 `inherit`，下面所有组织一起受约束。成员和任何组织都不能修订、覆盖或废除它，只有人能废除。Relic App 的服务在 `POST /api/org/<组织 id>/protocols` 接收（要带 App 的口令），所以替人干活的会话可以按人的要求下发。群聊里写明是你下发的、已经生效，组织的协议列表里标着「由你下发」。
+- **升级。**照旧先停掉 Relic App 的服务，再解压新下载包、运行其中的安装器；数据库不变。已经开着的 Claude Code 会话里运行 `/reload-plugins`，并重启 Codex。Reply 规则要求所有跑 Relic hooks 的地方都用 0.17.0，旧版本会忽略它。
+- **发布与检查。**`relic-windows-v0.6.0-beta.1.zip`（发布，附 `SHA256SUMS.txt` 和 `release-manifest.json`）和 macOS 的 `.tar.gz`（构建，不发布）。`docs/api/relic.json` 列出 12 个工具；规则多了 `Reply`。
+
 ## v0.5.1-beta.1 — 2026-10-28
 
 A small update to v0.5.0-beta.1. Plugin 0.16.1-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.

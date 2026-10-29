@@ -250,6 +250,9 @@ CHECK_FIELDS = ("code", "examples", "on_error", "code_sha256")
 RULE_FIELDS = {"effect", "tools", "input_contains", "path_glob", "members", "roles",
                "except_members", "except_roles", "before", "reason"} | set(CHECK_FIELDS)
 EFFECTS = ("deny", "require_review", "require_before", "check")
+# A rule on Reply judges the reply that ends a member's turn, the text the person reads, not a tool call: the Stop
+# hook runs it (Store.check_reply) with the call {"tool": "Reply", "input": {"text": <the reply>}}. It is check or deny.
+REPLY = "Reply"
 SUMMARY_MAX = 2000  # characters of a protocol's note for the person
 # Chinese characters: CJK Unified Ideographs, Extension A and the Compatibility Ideographs
 CHINESE = re.compile("[%s-%s%s-%s%s-%s]" % tuple(map(chr, (0x3400, 0x4DBF, 0x4E00, 0x9FFF, 0xF900, 0xFAFF))))
@@ -320,6 +323,14 @@ def validate_rules(rules):
             raise OrgError("Each rule needs tool name patterns, e.g. [\"Bash\"] or [\"Edit\", \"Write\"].")
         if any(is_relic_tool(t) or "relic_org" in t for t in tools):
             raise OrgError("Rules cannot gate the organization's own governance tools.")
+        if REPLY in tools:
+            if tools != [REPLY]:
+                raise OrgError("A rule on Reply judges the reply that ends a member's turn and names no other tool: "
+                               "tools [\"Reply\"].")
+            if rule["effect"] not in ("check", "deny"):
+                raise OrgError("A rule on Reply is check or deny: a reply has no reviewer, and nothing comes after it.")
+            if "path_glob" in rule:
+                raise OrgError("A reply has no file path: narrow a rule on Reply with input_contains, not path_glob.")
         if rule["effect"] == "check" and any(all(fnmatch.fnmatchcase(n, t) for n in _ANY_TOOL) for t in tools):
             raise OrgError("A check rule runs its program on the calls it covers, so it names their tools, e.g. "
                            "[\"Bash\"] or [\"Edit\", \"Write\"]; it cannot cover every tool.")
@@ -338,6 +349,8 @@ def validate_rules(rules):
                 raise OrgError("require_before needs before: {tools: [...], input_contains?: [...]}.")
         if rule["effect"] == "check":
             _validate_check(rule)
+            if tools == [REPLY] and any(example["expect"] == "review" for example in rule["examples"]):
+                raise OrgError("A program on Reply answers allow or deny: a reply has no reviewer.")
         elif any(key in rule for key in CHECK_FIELDS):
             raise OrgError("code, examples and on_error belong to rules with effect check.")
 
@@ -1644,6 +1657,9 @@ class Store:
         sender = qualified(own["id"], member)
         issued = {"org": own["id"], "name": own["name"], "member": member}
         with self.change(target["id"]) as (org, db):
+            for ref in (retire_target, supersedes):
+                if ref and ((org["protocols"].get(ref) or {}).get("issued_by") or {}).get("person"):
+                    raise OrgError("%s was issued by the person; only the person can retire it." % ref)
             if retire_target and org["protocols"].get(retire_target, {}).get("status") != "active":
                 raise OrgError("Retiring needs an active protocol of %s." % target["name"])
             parent = org["protocols"].get(supersedes) if supersedes else None
@@ -2195,8 +2211,11 @@ class Store:
                 # stops for itself and the organizations below it (by this organization's own vote)
                 inherited = {"%s/%s" % (o["id"], q["id"]): q for o, q in self.inherited_protocols(org)}
                 for ref in (retire_target, sup):
-                    if ref and ((org["protocols"].get(ref) or {}).get("issued_by")
-                                or (inherited.get(ref) or {}).get("issued_by")):
+                    issued = ref and ((org["protocols"].get(ref) or {}).get("issued_by")
+                                      or (inherited.get(ref) or {}).get("issued_by"))
+                    if issued and issued.get("person"):
+                        raise OrgError("%s was issued by the person; only the person can retire it." % ref)
+                    if issued:
                         raise OrgError("%s was issued by an organization above; only an organization above can "
                                        "revise or retire it." % ref)
                     if ref and "/" in str(ref) and ref not in inherited:
@@ -2278,8 +2297,8 @@ class Store:
                 continue
             pid = p["id"] if owner["id"] == org["id"] else "%s/%s" % (owner["id"], p["id"])
             for rule in p["rules"]:
-                if not rule_applies(rule, member, role, tool, tool_input):
-                    continue
+                if rule.get("tools") == [REPLY] or not rule_applies(rule, member, role, tool, tool_input):
+                    continue  # a rule on Reply judges the reply that ends the turn (check_reply), not tool calls
                 label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
                     reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
@@ -2325,6 +2344,44 @@ class Store:
                 self._event(db, org["id"], member, "protocol.review_used", {"tool": tool, "reviews": consumed})
             if checks:
                 self._record_checks(db, org, member, tool, tool_input, checks, outcomes)
+        return not reasons, reasons
+
+    def check_reply(self, actor, text):
+        """(allowed, reasons) for the reply that ends a member's turn, the text the person reads: the rules on Reply
+        (check or deny) of the strong protocols in effect where the session works this turn, run by the Stop hook. A
+        program gets {"tool": "Reply", "input": {"text": ...}} and the rest of a call (relic_core/checker.py); a review
+        counts as a deny, since a reply has no reviewer."""
+        text = text if isinstance(text, str) else ""
+        actor = self.focused(actor)
+        org, member = self.whoami(actor)
+        if not org or not text.strip():
+            return True, []
+        role = org["members"][member].get("role", "")
+        tool_input = {"text": text}
+        reasons, checks = [], []
+        for owner, p in self.effective_protocols(org):
+            if p["status"] != "active" or p["strength"] != "strong":
+                continue
+            pid = p["id"] if owner["id"] == org["id"] else "%s/%s" % (owner["id"], p["id"])
+            for rule in p["rules"]:
+                if rule.get("tools") != [REPLY] or not rule_applies(rule, member, role, REPLY, tool_input):
+                    continue
+                label = "%s %s" % (pid, p["title"])
+                if rule["effect"] == "deny":
+                    reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
+                elif rule["effect"] == "check":
+                    checks.append((owner, p, pid, label, rule))
+        outcomes = self._run_checks(org, member, role, checks, REPLY, tool_input)
+        for (owner, p, pid, label, rule), outcome in zip(checks, outcomes):
+            if outcome["decision"] != "allow":
+                reasons.append("%s: %s" % (label, outcome["reason"]))
+        if reasons:
+            self.turn_note(actor, friction="reply blocked by protocol: " + reasons[0][:120])
+        with self.db() as db:
+            if reasons:
+                self._event(db, org["id"], member, "protocol.blocked", {"tool": REPLY, "reasons": reasons})
+            if checks:
+                self._record_checks(db, org, member, REPLY, tool_input, checks, outcomes)
         return not reasons, reasons
 
     # ---------------- check rules: running them ----------------
@@ -2520,6 +2577,44 @@ class Store:
                 self._event(db, d["id"], HUMAN, "protocol.retired_by_person",
                             {"id": ref, "title": p["title"], "from": org_id, "from_name": name})
         return {"org_id": org_id, "protocol_id": protocol_id, "status": "retired", "below": [d["id"] for d in below]}
+
+    def issue_by_person(self, org_id, a):
+        """The person puts a protocol into effect in an organization at once, with no vote: the person is above every
+        organization, and what the person asks for is final. a: title, rationale, strength (weak: guidance and
+        trigger; strong: rules, and summary_for_person with a check rule), inherit (true: the organizations below are
+        bound too). No organization can revise, override or retire it; the person can retire it."""
+        strength = a.get("strength", "weak")
+        if strength not in ("weak", "strong"):
+            raise OrgError("strength: weak (guidance) or strong (executable rules).")
+        if not a.get("title") or not a.get("rationale"):
+            raise OrgError("A protocol needs a title and a rationale.")
+        target = self.get(org_id)
+        if not target:
+            raise OrgError("Unknown organization " + str(org_id))
+        rules, summary = [], None
+        if strength == "weak":
+            if a.get("rules"):
+                raise OrgError("Weak protocols carry guidance only; use strength strong for rules.")
+            if not all(isinstance(a.get(k), str) and a[k].strip() for k in ("guidance", "trigger")):
+                raise OrgError("A weak protocol needs guidance and a trigger (when it applies).")
+        else:
+            rules, summary = self.prepare_rules(a.get("rules"), a.get("summary_for_person"), target, a["title"])
+        issued = {"person": True, "member": HUMAN, "name": "the person"}
+        inherit = bool(a.get("inherit", a.get("downward")))
+        with self.change(org_id) as (org, db):
+            org["counters"]["protocol"] += 1
+            pid = "P%d" % org["counters"]["protocol"]
+            p = {"id": pid, "title": a["title"], "rationale": a["rationale"], "strength": strength,
+                 "guidance": a.get("guidance") or "", "trigger": a.get("trigger") or "", "scope": a.get("scope") or "",
+                 "rules": rules, "evidence": a.get("evidence") or [], "episode_id": None, "supersedes": None,
+                 "retire_target": None, "version": 1, "author": HUMAN, "issued_by": issued, "inherit": inherit,
+                 "downward": inherit, "status": "active", "votes": {}, "uses": [], "created_at": now(),
+                 "activated_at": now()}
+            if summary:
+                p["summary_for_person"] = summary
+            org["protocols"][pid] = p
+            self._event(db, org_id, HUMAN, "protocol.activated", {"id": pid, "strength": strength, "issued_by": issued})
+        return p
 
     def retired_by_person(self, org, limit=5):
         """[(protocol as named in org, title, when)]: protocols the person retired, of this organization and the

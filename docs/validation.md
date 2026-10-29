@@ -1,5 +1,24 @@
 # Validation / 验证记录
 
+## v0.6.0-beta.1
+
+Release: **v0.6.0-beta.1**, prepared 2026-10-28. Relic plugin 0.17.0-beta.1: a strong protocol's rule can judge the reply that ends a member's turn (`Reply`), checked by the Stop hook, and a protocol the person issues takes effect at once, with no vote. The store, the hook, the Relic App's server and page and the `protocol` tool's description changed.
+
+| Check / 检查 | Result / 结果 |
+| --- | --- |
+| Relic fixtures (`--suite relic`) on Windows 11, Python 3.14.4 | 299 tests passed / 299 个通过 |
+| Packaging (`--suite packaging`): installer and both archives | 4 tests passed / 4 个通过 |
+| Rules on Reply and protocols the person issues in those fixtures (10 new tests) | A reply that breaks a rule on Reply sends the member back once, with the program's reason; the second stop of the turn goes through; a very short reply is not judged; a subagent's reply is not judged; a rule on Reply judges no tool call; a deny rule on Reply works with input_contains; a rule on Reply that names another tool, is require_review, has a path_glob or expects review is refused; the reply comes from the host's `last_assistant_message`, else from a Claude Code or Codex transcript. A protocol the person issues is active at once with no votes, binds the organization below when inherited, is not copied back to the person, and only the person can retire it; the App's server takes it with its token and refuses it without. / Reply 规则：回复不合格时成员带着程序给的原因被打回一次；同一轮第二次结束直接放行；很短的回复不判断；子代理的回复不判断；Reply 规则不管工具调用；deny 规则配 input_contains 可用；写了别的工具、用 require_review、带 path_glob 或例子期望 review 的 Reply 规则会被拒绝；回复取自宿主的 `last_assistant_message`，没有时取自 Claude Code 或 Codex 的会话记录。人下发的协议：立即生效、没有投票，带继承时约束下级组织，不抄送回给人，只有人能废除；App 服务带口令时接收、不带口令时拒绝。 |
+| Real machine: the Claude Code CLI (Claude Haiku), with this plugin, seated in an organization on a temporary store where the person issued "reports in Simplified Chinese" (a check rule on Reply), asked for one short English sentence | Its first reply was sent back once by the Stop hook (one `protocol.blocked` event on Reply, one deny counted); its final reply was in Chinese ("您好，有什么我可以帮助您的吗？"). / 第一次回复被 Stop hook 打回一次（一条 Reply 的 `protocol.blocked` 事件，计一次拦下）；最终回复是中文（「您好，有什么我可以帮助您的吗？」）。 |
+| Windows CI, Python 3.11 | to be recorded / 待记录 |
+| macOS arm64 CI, Python 3.11 | to be recorded / 待记录 |
+
+`check.py` makes no model calls. macOS results remain development evidence only; macOS is not released.
+
+**v0.6.0-beta.1** 于 2026-10-28 准备发布。Relic 插件 0.17.0-beta.1：强协议的规则可以检查成员每轮最后给人的回复（`Reply`），由 Stop hook 执行；人下发的协议立即生效，不需要表决。数据库层、hook、Relic App 的服务和页面、`protocol` 工具的说明都有改动。
+
+`check.py` 不调用模型。macOS 结果仍只作开发验证，macOS 尚未发布。
+
 ## v0.5.1-beta.1
 
 Release: **v0.5.1-beta.1**, prepared 2026-10-28. Relic plugin 0.16.1-beta.1, a front-end update to v0.5.0-beta.1: folding an organization in the sidebar hides everything under it, the organizations below it included, and the folding is kept across a reload. No server, hook, tool or store code changed, so the real-machine run of v0.5.0-beta.1 still describes how members run.

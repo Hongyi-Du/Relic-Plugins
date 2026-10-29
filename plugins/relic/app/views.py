@@ -672,6 +672,9 @@ def notice_text(org, e, lang=None, store=None):
         return None
     if k == "protocol.activated" and b.get("issued_by"):  # issued by an organization above: in effect directly
         protocols = org.get("protocols") or {}
+        if b["issued_by"].get("person"):  # issued by the person: in effect at once, with no vote
+            return i18n.t("view.notice.protocol_issued_by_person", lang, id=b.get("id"),
+                          title=(protocols.get(b.get("id")) or {}).get("title") or b.get("id"))
         if b.get("retire_target"):
             gone = protocols.get(b["retire_target"]) or {}
             return i18n.t("view.notice.protocol_retired_by", lang, who=who, id=b["retire_target"],

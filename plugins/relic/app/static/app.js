@@ -1619,13 +1619,13 @@
       const proRow = (p, notes, ended) => h('button', { class: 'item-row click' + (ended ? ' ended' : ''), type: 'button', onclick: () => openDetails('protocols') }, strength(p, ended ? '' : null),
         h('div', { class: 't' }, h('b', { class: 'ellipsis' + (ended ? ' struck' : '') }, p.id + ' ' + p.title), h('span', { class: 'ellipsis' }, notes.filter(Boolean).join(' · '))), h('span'));
       for (const p of live) {
-        pro.append(proRow(p, [p.issued_by ? t('org.issued_by', { name: p.issued_by.name }) : p.status === 'proposed' ? t('org.protocol_voting', { n: p.votes }) : t('org.protocol_used', { n: p.uses }),
+        pro.append(proRow(p, [p.issued_by ? issuedBy(p.issued_by) : p.status === 'proposed' ? t('org.protocol_voting', { n: p.votes }) : t('org.protocol_used', { n: p.uses }),
           p.replaces_above && p.supersedes ? t('org.protocol_overrides', { ref: protoName(p.supersedes) }) : '', p.inherit ? t('org.protocol_inherits') : '', p.check ? t('org.protocol_check') : '']));
       }
       // protocols that bind this organization from the organizations above, and the ones above that this organization
       // or one between overrode or stopped
       for (const p of inherited) {
-        pro.append(proRow(p, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? t('org.issued_by', { name: p.issued_by.name }) : '', p.check ? t('org.protocol_check') : '']));
+        pro.append(proRow(p, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? issuedBy(p.issued_by) : '', p.check ? t('org.protocol_check') : '']));
       }
       for (const r of replaced) {
         pro.append(proRow(r, [r.how === 'retired' ? t('org.protocol_retired', { from: r.from, at: r.at, by: r.by }) : t('org.protocol_overridden', { from: r.from, at: r.at, by: r.by })], true));
@@ -1850,8 +1850,11 @@
             h('code', { class: 'ellipsis', title: JSON.stringify(ex.call || {}, null, 2) }, exampleText(ex.call || {})),
             ex.note ? h('span', { class: 'note' }, ex.note) : null))) : null)));
   }
+  // who issued a protocol that took effect without a vote: the person, or a member of an organization above
+  function issuedBy(by) { return by.person ? t('org.issued_by_person') : t('org.issued_by', { name: by.name }); }
   function ruleScope(r) {
-    const parts = [(r.tools || []).join(' / ')];
+    const reply = (r.tools || []).length === 1 && r.tools[0] === 'Reply';  // the reply that ends a member's turn
+    const parts = [reply ? t('cc.scope_reply') : (r.tools || []).join(' / ')];
     if (r.path_glob) parts.push(t('cc.scope_path', { glob: r.path_glob }));
     if ((r.input_contains || []).length) parts.push(t('cc.scope_contains', { words: r.input_contains }));
     const who = (r.roles || []).concat(r.members || []), except = (r.except_roles || []).concat(r.except_members || []);
@@ -2297,7 +2300,7 @@
         for (const p of inherited) {
           right.append(h('div', { class: 'task' }, h('div', { class: 'inner' },
             h('b', null, t('details.protocol_head', { id: p.id, title: p.title, kind: p.strength === 'strong' ? t('details.strong_protocol') : t('details.weak_protocol'), status: t('details.status_active') })),
-            h('div', { class: 'dim' }, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? t('org.issued_by', { name: p.issued_by.name }) : ''].filter(Boolean).join(' · ')),
+            h('div', { class: 'dim' }, [t('org.inherited_from', { name: p.from }), p.issued_by && p.issued_by.name ? issuedBy(p.issued_by) : ''].filter(Boolean).join(' · ')),
             p.trigger ? h('div', null, h('span', { class: 'dim' }, t('details.label_applies')), p.trigger) : null,
             p.guidance ? h('div', { style: 'white-space:pre-wrap' }, p.guidance) : null,
             p.summary_for_person ? h('div', { class: 'cc-summary md' }, h('div', { class: 'dim' }, t('details.label_summary')), rich(p.summary_for_person)) : null,
