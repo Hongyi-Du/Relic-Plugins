@@ -108,26 +108,34 @@ struct ChatView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(RelicStyle.background)
     }
     private var header: some View {
-        HStack(spacing: 8) {
-            if m.member.isEmpty { Image(systemName: "number").font(.system(size: 14)).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28) }
-            VStack(alignment: .leading, spacing: 4) {
-                let title = m.member.isEmpty ? m.t("common.group_chat") + "  " + m.t("common.members", ["n": String(m.members.count)]) : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.name(m.member)]) : m.name(m.member)
-                Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1).help(title)
-                let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : m.stateLabel(m.selectedMember["state"].text) + " · " + m.selectedMember["role"].text
-                Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta)
+        HStack(spacing: 12) {
+            if m.member.isEmpty { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28) }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
+                    Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1).help(title)
+                    if m.member.isEmpty { Text(m.t("common.members", ["n": String(m.members.count)])).font(.system(size: 15)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                    else {
+                        if !m.selectedMember["display"].text.isEmpty && m.selectedMember["display"].text != m.member { Text(m.member).font(.system(size: 13.8, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                        if m.selectedMember["leader"].flag { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
+                    }
+                }.frame(height: 19.5, alignment: .leading)
+                let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : [m.snapshot["org"]["name"].text, m.selectedMember["harness_label"].text, m.selectedMember["surface_label"].text, m.selectedMember["model"].text, m.stateLabel(m.selectedMember["state"].text)].filter { !$0.isEmpty }.joined(separator: " · ")
+                Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta).frame(height: 16.8, alignment: .leading)
             }.frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 2) {
             if m.member.isEmpty {
-                IconButton(title: m.t(m.plainMode ? "chat.plain_on" : "common.plain_words") + " · " + m.t("chat.plain_title"), icon: "lang", selected: m.plainMode) { m.togglePlain() }
-                IconButton(title: m.t("chat.digest") + " · " + m.t("chat.digest_title"), icon: "sparkle", selected: m.digestOpen) { m.toggleDigest() }
+                ChipButton(title: m.t(m.plainMode ? "chat.plain_on" : "common.plain_words"), help: m.t("chat.plain_title"), icon: "lang", selected: m.plainMode) { m.togglePlain() }.padding(.trailing, 4)
+                ChipButton(title: m.t("chat.digest"), help: m.t("chat.digest_title"), icon: "sparkle", selected: m.digestOpen) { m.toggleDigest() }.padding(.trailing, 4)
                 IconButton(title: m.t("common.tasks"), icon: "check") { m.openDetails("tasks") }
-                if m.secretary.isEmpty { IconButton(title: m.t("secretary.setup_title"), icon: "sec") { m.sheet = .secretary } }
             } else {
+                if m.selectedMember["embedded"].flag && ["running", "waiting"].contains(m.selectedMember["state"].text) { IconButton(title: m.t("chat.stop_turn"), icon: "stop") { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
                 IconButton(title: m.t("chat.card"), icon: "card") { m.openCard(m.member) }
                 IconButton(title: m.t("common.context_trace"), icon: "trace") { m.openDetails("trace") }
-                IconButton(title: m.t("chat.workspace"), icon: "work") { m.setPane("workspace") }
-                if m.selectedMember["embedded"].flag { IconButton(title: m.t("chat.stop_turn"), icon: "stop") { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
+                if m.selectedMember["surface"].text != "chat" { IconButton(title: m.t("chat.workspace"), icon: "work") { m.setPane("workspace") } }
             }
-        }.padding(.horizontal, 18).padding(.vertical, 12).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+            }.fixedSize()
+        }.padding(.leading, 20).padding(.trailing, 14).frame(height: 56).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
     }
 }
 

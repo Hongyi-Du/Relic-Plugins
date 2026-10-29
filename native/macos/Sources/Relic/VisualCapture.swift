@@ -18,6 +18,7 @@ import RelicCore
         var results: [[String: Any]] = []
         do {
             guard env["GITHUB_ACTIONS"] == "true" else { throw RelicError.message("Visual capture is restricted to GitHub Actions") }
+            NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
             let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)))
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
             let fixture = manifest["fixture"], language = Words.normalize(manifest["lang"].text), theme = manifest["theme"].text

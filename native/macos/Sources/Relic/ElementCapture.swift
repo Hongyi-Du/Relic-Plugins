@@ -99,11 +99,16 @@ import RelicAX
             let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
-            let text = !valueText.isEmpty && ["AXStaticText", "AXTextField", "AXTextArea"].contains(role) ? valueText : !title.isEmpty ? title : label
+            let isIcon = ax["identifier"].text.hasPrefix("relic-icon-button/")
+            let elementKind = isIcon ? "icon-button" : kind(role)
+            let text: String
+            if isIcon || ["region", "image", "divider"].contains(elementKind) { text = "" }
+            else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
+            else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let assignedRegion = inheritedRegion == "dialog" || inheritedRegion == "menu" ? inheritedRegion : region(rect, fallback: inheritedRegion)
             let visible = !ax["hidden"].flag && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
-            var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": kind(role), "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
-            node["state"] = ["disabled": !ax["enabled"].flag, "focused": ax["focused"].flag, "selected": ax["selected"].flag, "expanded": ax["expanded"].flag, "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? ((attributes["value"] as? NSNumber)?.intValue == 1) : false]
+            var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
+            node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
@@ -124,10 +129,28 @@ import RelicAX
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
             visit(child.contentView!, path: "surface-" + String(index), parent: nil, inheritedRegion: child === window.attachedSheet ? "dialog" : "menu", clip: viewport)
         }
+        let paint = ElementPaintProbe.snapshots(in: contentScreen)
+        for sample in paint {
+            let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(viewport)
+            guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }
+            let owner = (sample["owner"] as? String).flatMap { identifier in elements.firstIndex { $0["identifier"] as? String == identifier } }
+            let parent = owner.map { elements[$0]["id"]! } ?? NSNull()
+            var evidence = sample["evidence"] as! [String: Any]
+            evidence["owner_accessibility_identifier"] = sample["owner"]!
+            let node: [String: Any] = ["id": sample["id"]!, "parent": parent, "kind": "icon", "text": "", "name": "",
+                "region": region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
+                "visible": true, "source": "live-NSView-shape-probe", "projection": evidence,
+                "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
+                          "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0],
+                "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
+                "icon": sample["icon"]!, "pixelSamples": samples(visible, bitmap: bitmap)]
+            raw.append(node)
+            if let owner { elements.insert(node, at: owner + 1) } else { elements.append(node) }
+        }
 
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
-        var unmeasured = ["Paint-only SwiftUI decoration coverage", "Exact opaque-overlay occlusion"]
+        var unmeasured = ["Paint-only SwiftUI decoration coverage beyond instrumented path icons", "Exact opaque-overlay occlusion", "Reading order for paint without an AX owner"]
         if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
         var orders: [String: Int] = [:]
         let emittedIDs = Set(elements.compactMap { $0["id"] as? String })
@@ -147,18 +170,22 @@ import RelicAX
             var actualStyle: [String: Any] = [:]
             for (key, original) in styleKeys {
                 let value = sourceStyle[original] ?? NSNull()
-                actualStyle[key] = value
-                if value is NSNull && (!key.hasPrefix("font_") || !text.isEmpty) { unmeasured.append(id + ":style." + key) }
+                let applicable = (!key.hasPrefix("font_") || !text.isEmpty) && (key != "foreground" || !text.isEmpty || ["icon", "chart-edge"].contains(kind))
+                actualStyle[key] = applicable ? value : NSNull()
+                if applicable && value is NSNull { unmeasured.append(id + ":style." + key) }
             }
-            let isControl = ["button", "input", "checkbox", "tab", "dropdown", "link", "menu-item"].contains(kind)
+            let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
-            let state: [String: Any] = ["enabled": isControl ? !(sourceState["disabled"] as? Bool ?? false) as Any : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": sourceState["expanded"]!, "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": NSNull(), "unread": NSNull()]
-            unmeasured.append(id + ":state.hovered")
+            let pointer = NSEvent.mouseLocation
+            let pointerOutside = !contentScreen.contains(pointer)
+            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull(), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": pointerOutside ? false as Any : NSNull(), "unread": NSNull()]
+            if !pointerOutside { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty { unmeasured.append(id + ":layout") }
             var evidence = node
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
             evidence["raw_node_id"] = id
-            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": NSNull(), "evidence": evidence]
+            evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
+            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))

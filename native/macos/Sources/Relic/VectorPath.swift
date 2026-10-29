@@ -81,9 +81,12 @@ struct ReferenceIcon: View {
     let name: String
     var size: CGFloat = 18
     var color: Color = RelicStyle.secondary
+    var owner: String? = nil
     var body: some View {
         IconShape(name: name).stroke(color, style: StrokeStyle(lineWidth: 1.7 * size / 24, lineCap: .round, lineJoin: .round))
-            .frame(width: size, height: size).accessibilityHidden(true)
+            .frame(width: size, height: size)
+            .background(ElementPaintProbe(name: name, size: size, color: color, owner: owner))
+            .accessibilityHidden(true)
     }
     private struct IconShape: Shape {
         let name: String

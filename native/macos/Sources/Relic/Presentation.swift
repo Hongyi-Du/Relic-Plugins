@@ -51,7 +51,13 @@ extension Model {
         if card["state"].text == "vacant" { return t("banner.vacant") }
         return t(card["has_transcript"].flag ? "banner.transcript" : "banner.inbox")
     }
-    func ago(_ node: Node, now: Date = Date()) -> String {
+    private var displayNow: Date {
+        if VisualCapture.enabled, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",
+           let iso = ProcessInfo.processInfo.environment["RELIC_VISUAL_NOW"], let date = Timeline.date(Node(iso)) { return date }
+        return Date()
+    }
+    func ago(_ node: Node, now: Date? = nil) -> String {
+        let now = now ?? displayNow
         guard let date = Timeline.date(node) else { return "" }
         let seconds = max(0, now.timeIntervalSince(date))
         if seconds < 60 { return t("time.just_now") }
@@ -59,7 +65,8 @@ extension Model {
         if seconds < 86400 { return t("time.hours_ago", ["n": String(Int(seconds / 3600))]) }
         return day(node, now: now)
     }
-    func day(_ node: Node, now: Date = Date(), calendar: Calendar = .current) -> String {
+    func day(_ node: Node, now: Date? = nil, calendar: Calendar = .current) -> String {
+        let now = now ?? displayNow
         guard let date = Timeline.date(node) else { return "" }
         if calendar.isDate(date, inSameDayAs: now) { return t("time.today") }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
@@ -72,7 +79,8 @@ extension Model {
         let format = DateFormatter(); format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = calendar.timeZone; format.dateFormat = "HH:mm"
         return format.string(from: date)
     }
-    func shortWhen(_ node: Node, now: Date = Date(), calendar: Calendar = .current) -> String {
+    func shortWhen(_ node: Node, now: Date? = nil, calendar: Calendar = .current) -> String {
+        let now = now ?? displayNow
         guard let date = Timeline.date(node) else { return "" }
         if calendar.isDate(date, inSameDayAs: now) { return clock(node, calendar: calendar) }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
