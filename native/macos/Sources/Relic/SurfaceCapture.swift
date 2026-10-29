@@ -125,6 +125,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         live.allObjects.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return nil }
             let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.bounds, to: nil)), in: content)
+            let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content) } ?? .null
             var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = []
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 fill = ElementCapture.rgba(view.fill); border = ElementCapture.rgba(view.border)
@@ -136,7 +137,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             var opacity = view.opacity
             var ancestor: NSView? = view
             while let current = ancestor { opacity *= Double(current.alphaValue); ancestor = current.superview }
-            return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "region": view.region,
+            return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "region": view.region,
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(), "current": view.current as Any? ?? NSNull(),
                     "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.cornerRadii.max() ?? view.radius),
