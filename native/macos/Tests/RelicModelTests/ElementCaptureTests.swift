@@ -25,6 +25,14 @@ import ApplicationServices
         XCTAssertFalse(font.fontName.contains("Times"))
         XCTAssertNil(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Unknown", "AXFontSize": 12]))
     }
+    func testFontEvidenceContainsActualCoreTextFacesAndGlyphs() throws {
+        let font = RelicStyle.nativeFont(14, weight: 400)
+        let runs = ElementCapture.renderedFonts(NSAttributedString(string: "Relic 组织", attributes: [.font: font]))
+        XCTAssertFalse(runs.isEmpty)
+        XCTAssertTrue(runs.allSatisfy { !($0["family_name"] as? String ?? "").isEmpty && !($0["postscript_name"] as? String ?? "").isEmpty })
+        XCTAssertTrue(runs.contains { $0["postscript_name"] as? String == font.fontName })
+        XCTAssertGreaterThan(runs.compactMap { $0["glyph_count"] as? Int }.reduce(0, +), 0)
+    }
 
     func testInformalAccessibilityNodesDoNotRequireProtocolConformance() {
         let child = InformalAccessibilityNode(label: "Actual child", children: [])

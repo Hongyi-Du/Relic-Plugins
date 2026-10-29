@@ -119,10 +119,10 @@ struct ChipButton: View {
     private var color: Color { selected ? RelicStyle.violet : hovered ? RelicStyle.ink : RelicStyle.secondary }
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) { ReferenceIcon(name: icon, size: 15, color: color, owner: identity); Text(title).font(RelicStyle.font(12.5, weight: 400)).lineLimit(1) }
+            HStack(spacing: 5) { ReferenceIcon(name: icon, size: 15, color: color, owner: identity); ReferenceLabel(title, size: 12.5, color: color, owner: identity) }
                 .foregroundStyle(color).padding(.horizontal, 11).frame(height: 28)
-                .background(selected ? RelicStyle.violetSoft : hovered ? RelicStyle.hover : RelicStyle.card, in: Capsule())
-                .overlay(Capsule().strokeBorder(selected ? RelicStyle.violet.opacity(0.45) : RelicStyle.border, lineWidth: 1))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.violetSoft : hovered ? RelicStyle.hover : RelicStyle.card,
+                    border: selected ? RelicStyle.violet.opacity(0.45) : RelicStyle.border, borderWidth: 1, radius: 14, owner: identity, hovered: hovered))
         }.buttonStyle(.plain).help(help).onHover { hovered = $0 }
             .accessibilityIdentifier(identity).accessibilityAddTraits(selected ? [.isSelected] : [])
     }

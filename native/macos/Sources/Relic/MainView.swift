@@ -50,7 +50,7 @@ struct AppToolbar: View {
                 IconButton(title: m.t("appbar.forward"), icon: "fwd", size: 16, height: 28) { m.navigate(1) }.disabled(!m.history.canForward)
                 HStack(spacing: 0) {
                     ForEach(menus, id: \.0) { key, label in
-                        Button { m.appMenu = m.appMenu == key ? nil : key } label: { Text(m.t(label)).font(RelicStyle.font(13, weight: 400)).padding(.horizontal, 9).frame(height: 28) }
+                        TextButton(m.t(label), size: 13, weight: 400, height: 28, padding: 9) { m.appMenu = m.appMenu == key ? nil : key }
                             .buttonStyle(QuietButtonStyle(selected: m.appMenu == key))
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
                             .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }

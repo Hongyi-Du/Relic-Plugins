@@ -9,6 +9,51 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+### 重启后继续：d4a4e44 的完整失败报告
+
+已核对重启后的干净工作区及远端提交。`d4a4e44` 的
+[Native apps 40938288562](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40938288562)
+通过，**70 个 XCTest，0 失败**；
+[完整视觉运行 40938288684](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40938288684)
+的四个 macOS 作业成功，504 个实际窗口 PNG、AX、elements 文件齐全，
+包含 1024×700 及真实 App 内的复合标签检查。严格 compare 作业失败。
+
+报告已实际下载到 `S:\Codex\Outputs\Relic-native-visual\parity-d4a4e44\report\`，
+入口为 `index.html`，完整数据为 `parity-report.json`，轻量汇总为 `summary.json`。
+macOS 基线来自同一 macOS runner、同一个 fixture/server。
+
+| d4a4e44 严格报告 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 504 | 504 |
+| scenes_checked / scenes_passed | 0 / 0 | 0 / 0 |
+| raw_native_elements | 92,564 | 100,670 |
+| valid_native_elements | 84,107 | 95,036 |
+| invalid_native_elements | 8,457 | 5,634 |
+| reference_elements | 93,032 | 92,536 |
+| paired_elements / matched_elements | 62,719 / 0 | 52,646 / 0 |
+| missing | 30,313 | 39,890 |
+| extra | 21,388 | 42,390 |
+| text_mismatch | 30,883 | 33,912 |
+| geometry_out_of_tolerance | 299,025 | 165,264 |
+| style_out_of_tolerance | 252,193 | 313,765 |
+| state_mismatch | 60,742 | 35,682 |
+| kind_mismatch | 6,787 | 6,166 |
+| region_mismatch | 741 | 77 |
+| order_mismatch | 12,560 | 4,401 |
+| layout_mismatch | 39,955 | 119,497 |
+| icon_mismatch | 4,830 | 1,675 |
+| extraction_errors | 486,448 | 1,363,074 |
+
+`scenes_checked=0` 是提取尚不完整的结果；504 个成功截图不等于 504 个场景
+已完整验证。例外表及批准的图标替代表均为空。Windows 英文浅色中断在
+1280×800 的通知设置，COM E_FAIL 已写入 REQUESTS.md 交由 Windows 会话修复。
+
+已根据这版真实截图继续修复：macOS 字体跟随参考实际使用的 PingFang SC；
+原生 CoreText 字体运行及 TextKit 每行边界进入报告；概况页的分区、紧凑行、
+决策卡与原生选择器按参考调整；分栏宽度恢复增加后续布局校正。
+`119f04c` 已推送，新的 CI 尚待返回。余下菜单、名片、图表、Markdown、
+快速开始、完整绘制覆盖、遮挡和顺序仍须按机器结果修复，不能归为原生差异豁免。
+
 首轮严格报告来自 [CI 40926888945](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40926888945)，
 提交 61b2740，结果失败；已下载到
 S:\Codex\Outputs\Relic-native-visual\parity-61b2740\report，

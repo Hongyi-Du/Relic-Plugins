@@ -232,8 +232,21 @@ import CoreText
         elements.removeAll { $0["production_owner"] is String }
         for var label in ownedLabels.reversed() {
             if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
-                label["parent"] = elements[owner]["id"]!
-                elements.insert(label, at: owner + 1)
+                let identifier = label["production_owner"] as! String
+                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/")
+                if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
+                    var style = elements[owner]["style"] as! [String: Any]
+                    let textStyle = label["style"] as! [String: Any]
+                    for key in ["fontSize", "fontWeight", "fontFamily", "rendered_fonts", "color"] { style[key] = textStyle[key] ?? NSNull() }
+                    elements[owner]["style"] = style; elements[owner]["text"] = label["text"]!
+                    elements[owner]["layout"] = label["layout"]!
+                    elements[owner]["text_bounds"] = label["text_bounds"]!
+                    elements[owner]["owned_text_id"] = label["id"]!
+                    elements[owner]["projection_reason"] = "A native button's single simple label is owned by its control; raw TextKit node retained"
+                } else {
+                    label["parent"] = elements[owner]["id"]!
+                    elements.insert(label, at: owner + 1)
+                }
             } else { elements.append(label) }
         }
         var surfaceGaps: [String] = []
