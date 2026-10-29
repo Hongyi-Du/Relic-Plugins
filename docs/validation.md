@@ -52,7 +52,23 @@ plugin manifests, `relic_core/__init__.py`) set to the unified versions.
 
 The validation workflow runs Windows 2025 / Python 3.11 and 3.13, macOS 15 / Python 3.11 and macOS 26 / Python 3.13,
 with Node.js 22. Both Mac jobs assert native arm64 Python and Node and run the real POSIX/macOS fixtures, not only
-mocked platform branches. Exact run results will be linked here after the candidate is pushed.
+mocked platform branches.
+
+All four jobs passed in [run 40811184226](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40811184226)
+on runtime commit `b38eaabb031c5a0b5fa7ed8cfff03eadf152caf5`; the following merges of `e1170f4` and `d2aaed6`
+change documentation only. The final PR head is also checked before merge; its checks are linked from
+[PR #1](https://github.com/Hongyi-Du/Relic-Plugins/pull/1).
+
+| CI environment | Packaging | Relic | Overall |
+| --- | --- | --- | --- |
+| Windows 2025, Python 3.11 | 13 passed, 2 skipped | 404 passed, 38 skipped | 417 passed, 40 skipped |
+| Windows 2025, Python 3.13 | 13 passed, 2 skipped | 404 passed, 38 skipped | 417 passed, 40 skipped |
+| macOS 15 arm64, Python 3.11 | 15 passed | 439 passed, 3 skipped | 454 passed, 3 skipped |
+| macOS 26 arm64, Python 3.13 | 15 passed | 439 passed, 3 skipped | 454 passed, 3 skipped |
+
+All jobs also passed archive verification. The three Mac skips are Windows-specific fixtures; per-test reasons,
+suite logs and results are retained in the workflow artifacts. / 四个作业与归档检查全部通过；两个 Windows 作业
+各通过 417 项、跳过 40 项，两个 Mac 作业各通过 454 项、跳过 3 项 Windows 专用测试。
 
 HaochenGu's signed-in pre-merge writer/reviewer workflow and isolated Mac installation/lifecycle are historical
 evidence. The merged version still needs signed-in real-Mac acceptance for its new check/Reply/person-issued rules,
