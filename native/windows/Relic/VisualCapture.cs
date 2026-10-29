@@ -56,6 +56,7 @@ public sealed partial class MainWindow
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     await Select(fixture.Text("org")); LayoutColumns();
                     var scene = shot.Text("scene"); Task? dialog = null;
+                    Microsoft.UI.Xaml.Controls.Primitives.Popup? suggestionPopup = null;
                     if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene[9..]);
                     else if (scene.StartsWith("file-")) await OpenFile(fixture["files"].Text(scene[5..]), scene == "file-code" ? 2 : 0);
                     else if (scene.StartsWith("menu-"))
@@ -74,8 +75,8 @@ public sealed partial class MainWindow
                         case "chart": dialog = ShowChart(org); break;
                         case "new-org": dialog = CreateOrg(); break;
                         case "member-app": dialog = MemberDialog("app"); break;
-                        case "member-host": dialog = MemberDialog("host"); break;
-                        case "member-existing": dialog = MemberDialog("existing"); break;
+                        case "member-host": case "member-host-model-suggestions": dialog = MemberDialog("host"); break;
+                        case "member-existing": case "member-existing-seat-suggestions": dialog = MemberDialog("existing"); break;
                         case "member-card": dialog = MemberCard(fixture.Text("member")); break;
                         case "member-edit": dialog = MemberDialog("host", fixture.Text("member")); break;
                         case "forward": dialog = Forward("advisor"); break;
@@ -96,6 +97,11 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene is "member-host-model-suggestions" or "member-existing-seat-suggestions")
+                    {
+                        var inputId = scene == "member-host-model-suggestions" ? "member-model" : "member-seat-name";
+                        suggestionPopup = await OpenCaptureSuggestions(inputId);
+                    }
                     if (scene == "documents" && visibleDialog != null)
                     {
                         var list = CaptureDocumentList(visibleDialog) ?? throw new InvalidOperationException("Document list is missing");
@@ -104,13 +110,20 @@ public sealed partial class MainWindow
                         if (error.IsOpen) throw new InvalidOperationException("Document selection failed");
                     }
                     if (scene == "copy-rules" && visibleDialog != null) ExpandCaptureRules(visibleDialog);
+                    if (pane == "files" && workspaceCode is { IsLoaded: true } sourceCode)
+                    {
+                        for (var waiting = 0; !sourceCode.IsDocumentReady && sourceCode.InitializationFailure == null && waiting < 100; waiting++) await Task.Delay(50);
+                        if (!sourceCode.IsDocumentReady) throw new InvalidOperationException("Native code document did not finish its real layout: " + (sourceCode.InitializationFailure ?? "timeout"));
+                    }
                     root.UpdateLayout(); await Task.Delay(250);
-                    SetCursorPos(1900, 1040);
+                    if (suggestionPopup == null) SetCursorPos(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
+                    if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before screenshot: " + scene);
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     Console.WriteLine("Relic visual capture: " + shot.Text("file"));
                     count++;
@@ -133,6 +146,31 @@ public sealed partial class MainWindow
         for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
             if (CaptureDocumentList(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index)) is { } found) return found;
         return null;
+    }
+
+    private static TextBox? CaptureSuggestionInput(DependencyObject parent, string automationId)
+    {
+        if (parent is TextBox input && Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(input) == automationId) return input;
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+            if (CaptureSuggestionInput(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index), automationId) is { } found) return found;
+        return null;
+    }
+
+    private async Task<Microsoft.UI.Xaml.Controls.Primitives.Popup> OpenCaptureSuggestions(string automationId)
+    {
+        if (!VisualCaptureEnabled || visibleDialog == null) throw new InvalidOperationException("Suggestion capture needs the real CI member dialog");
+        var input = CaptureSuggestionInput(visibleDialog, automationId) ?? throw new InvalidOperationException("Suggestion input is missing: " + automationId);
+        SetCursorPos(1900, 1040);
+        var before = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).ToHashSet();
+        if (!input.Focus(FocusState.Keyboard)) throw new InvalidOperationException("Suggestion input could not receive focus: " + automationId);
+        root.UpdateLayout(); await Task.Delay(100);
+        // Send a real Down Arrow to the focused production TextBox. Its normal
+        // keyboard handler, not the capture script, creates the suggestions.
+        keybd_event(0x28, 0, 0, 0); keybd_event(0x28, 0, 0x0002, 0);
+        await Task.Delay(250); root.UpdateLayout();
+        var after = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot);
+        return after.FirstOrDefault(popup => !before.Contains(popup) && popup.IsOpen)
+            ?? throw new InvalidOperationException("The real suggestion popup did not open: " + automationId);
     }
 
     private async Task CaptureClient(string path, int width, int height)
@@ -175,6 +213,7 @@ public sealed partial class MainWindow
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, nuint extra);
+    [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, nuint extra);
     [DllImport("gdi32.dll")] private static extern bool BitBlt(nint target, int x, int y, int width, int height, nint source, int sourceX, int sourceY, uint operation);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleBitmap(nint dc, int width, int height);

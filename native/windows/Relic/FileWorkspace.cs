@@ -194,6 +194,7 @@ public sealed partial class MainWindow
             var preview = new Image { Source = bitmap, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center };
             AutomationProperties.SetName(preview, name);
             var surface = new Border { Child = preview, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Center };
+            WorkspaceCheckerboard(surface);
             var frame = new Grid { Padding = new Thickness(16) }; frame.Children.Add(surface);
             void FitImage() { if (bitmap.PixelWidth > 0 && frame.ActualWidth > 0) surface.Width = Math.Min(bitmap.PixelWidth + 2, Math.Max(0, frame.ActualWidth - 32)); }
             bitmap.ImageOpened += (_, _) => FitImage(); frame.SizeChanged += (_, _) => FitImage(); detail.Children.Add(frame); return;

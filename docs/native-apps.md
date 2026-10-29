@@ -8,6 +8,40 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (native controls checkpoint): Windows member forms now
+have the reference radio cards, field order, real suggestion inputs and session
+rows. Sidebar name layout uses the actual available width and preserves
+fractional row heights. Receipt/action disclosures retain native Expander
+interaction with reference headers, metadata and source panels. The image
+preview paints its actual checkerboard brush; source code uses a read-only
+native rich-edit document, real tab stops, source-range selection and measured
+line positions. Capture waits for that document's actual layout and fails on
+initialization errors. These changes require CI validation; missing document
+and image-brush measurement evidence still fails the gate.
+
+Changes for the clients (chart capture failure): `b5e68ab` Windows screenshots
+failed chart scenes because the viewport was attached to the dialog Grid before
+being assigned to its keyboard-focus ContentControl. The viewport now has one
+visual owner from construction. This fixes actual native parenting, with the
+same chart content and keyboard behavior; no chart case is skipped or retried.
+
+Changes for the clients (member suggestion states): the full matrix keeps the
+original 42 scenes and adds `member-host-model-suggestions` and
+`member-existing-seat-suggestions`, for 44 scenes / 528 combinations per
+platform. Open the real host/existing form, focus its model/seat-name input and
+send Down Arrow to the actual native control; do not construct capture-only
+menus. Windows identifies those inputs by `member-model` / `member-seat-name`.
+macOS must add both scene handlers. Reference capture retains before/after
+CDP AX/DOM/target evidence; Chromium's browser-owned Autofill popup is not
+presumed present in a page screenshot. Its unmeasured paint/presence/coverage
+remain explicit gate failures. Source datalist options are never emitted as
+visible counterparts. No original scene or tolerance was removed.
+
+Changes for the clients (`e0bbd64` member-form request): `/api/i18n` now includes
+`member.harness_label` with the reference's literal `Harness` in both languages.
+This distinguishes that form label from the longer `common.harness` settings
+heading. The original keys, payloads and engine behavior remain unchanged.
+
 Changes for the clients (conversation, menus and workspace): Windows now uses
 reference-sized native menu presenters/keycaps, compact trajectory rows, the
 reference inline-code/path parser, digest/plain disclosures, hover actions and

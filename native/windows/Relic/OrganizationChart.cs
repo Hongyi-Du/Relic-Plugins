@@ -62,12 +62,11 @@ public sealed partial class MainWindow
         var listScroll = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Enabled, ZoomMode = ZoomMode.Disabled, Visibility = Visibility.Collapsed };
         viewport.Children.Add(plane); viewport.Children.Add(listScroll);
-        Grid.SetRow(viewport, 2); body.Children.Add(viewport);
         // A native focusable surface receives chart keyboard navigation. Its
         // empty template adds no painted button or additional text.
         var keyboardSurface = new ChartSurface { Content = viewport, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
             Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Stretch'/></ControlTemplate>") };
-        body.Children.Remove(viewport); Grid.SetRow(keyboardSurface, 2); body.Children.Add(keyboardSurface);
+        Grid.SetRow(keyboardSurface, 2); body.Children.Add(keyboardSurface);
         double viewX = 0, viewY = 0, viewScale = 1;
         string? autoFit = "focus";
         bool hasView = false, narrow = false, first = true, drawing = false;
