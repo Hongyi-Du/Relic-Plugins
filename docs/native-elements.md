@@ -97,12 +97,25 @@ new evidence fields do not waive existing weight differences or unknowns.
 
 Actual text fonts are recorded in `style.rendered_fonts` as records with
 `family_name`, optional `postscript_name`, and provider evidence. A configured
-fallback list is not an actual rendered-font measurement. Compare measured
-family identity, font size and weight; compare PostScript identity when both
-providers expose it. Provider glyph counts and custom-font loading flags remain
+fallback list is not an actual rendered-font measurement. When both providers
+measure a PostScript identity for every actual face, compare the exact complete
+PostScript face sets. A localized family spelling is retained as provider
+evidence, not treated as a different face: CDP's `蘋方-簡` and CoreText's
+`PingFang SC` can both report the actual `PingFangSC-Semibold` face. This is not
+an alias table. If either provider lacks any PostScript identity, measured
+family sets must match exactly, and available faces within each family must
+also match. Additional fallback faces, different actual faces, font-size and
+numeric weight differences still fail. Provider glyph counts and custom-font loading flags remain
 audit evidence, since providers can report different text-range subdivisions.
 Missing actual family evidence remains a coverage error. Reference captures use
 `CSS.getPlatformFontsForNode`, while native captures use actual UIA/AX text runs.
+`evidence.font_request` preserves the computed CSS weight, variation-settings,
+style and stretch separately from the actual face records; it does not claim
+these requests are resolved OpenType weights or variation axes. The current
+numeric weight check is unchanged pending independently measured comparable
+native request/resolved-axis evidence. AX InlineTextBox fragments retain actual
+names, including generated ellipses, but no bounds are invented when CDP omits
+them.
 
 The reference is captured separately on Windows and macOS with the same source,
 scene definition and local server as that platform's native client. This retains

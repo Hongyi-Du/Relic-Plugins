@@ -68,7 +68,13 @@ test('ellipsis evidence preserves both original ranges and unresolved generated-
   const logical = { x: 80, y: 262.125, width: 459.578125, height: 17 };
   const ranges = [logical, { x: 80, y: 262.125, width: 131.59375, height: 17 }];
   const measure = vm.runInNewContext('(' + expression('textMeasurement', 'textNodes') + ')', {
-    ...context, visibleRect, measuredText: new WeakMap(), snapshotBackend: new WeakMap(),
+    ...context, visibleRect, measuredText: new WeakMap(), snapshotBackend: new WeakMap([[node, 144]]),
+    axByBackend: new Map([[144, [{ childIds: ['original', 'prefix', 'ellipsis'] }]]]),
+    axById: new Map([
+      ['original', { nodeId: 'original', parentId: '144', ignored: false, role: { value: 'InlineTextBox' }, name: { value: node.nodeValue } }],
+      ['prefix', { nodeId: 'prefix', parentId: '144', ignored: false, role: { value: 'InlineTextBox' }, name: { value: "Designer: I'll check all " } }],
+      ['ellipsis', { nodeId: 'ellipsis', parentId: '144', ignored: false, role: { value: 'InlineTextBox' }, name: { value: '…' } }],
+    ]),
     pathOf: () => '#actual-owner', rect: box => ({ ...box }),
     document: { createRange: () => ({ selectNodeContents() {}, getBoundingClientRect: () => logical, getClientRects: () => ranges }) },
   });
@@ -80,6 +86,8 @@ test('ellipsis evidence preserves both original ranges and unresolved generated-
   assert.equal(result.evidence.css_ellipsis_active, true);
   assert.equal(result.evidence.geometry_kind, 'clipped-range-envelope-with-unresolved-ellipsis-ink');
   assert.deepEqual(result.boxes.map(box => box.width), [144, 131.59375]);
+  assert.deepEqual(result.evidence.ax_inline_text_boxes.map(box => box.name), [node.nodeValue, "Designer: I'll check all ", '…']);
+  assert.ok(result.evidence.ax_inline_text_boxes.every(box => box.bounds === null), 'AX names never stand in for actual glyph coordinates');
 });
 
 test('overflow scrollbar evidence retains actual metrics without inventing thumb bounds', () => {
@@ -103,4 +111,30 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
   assert.equal(result.measured_part_pixels, null);
   owner.style.scrollbarWidth = 'none';
   assert.equal(read(owner), null, 'An explicitly hidden scrollbar has no painted element');
+});
+
+test('actual PostScript identity preserves localized family evidence without aliasing', () => {
+  const identity = vm.runInNewContext('(' + expression('platformFontIdentity', 'fontRequestEvidence') + ')');
+  const actual = normalize(identity({ familyName: '蘋方-簡', postScriptName: 'PingFangSC-Semibold', isCustomFont: false, glyphCount: 10 }));
+  assert.equal(actual.family_name, '蘋方-簡');
+  assert.equal(actual.postscript_name, 'PingFangSC-Semibold');
+  assert.equal(actual.is_custom_font, false);
+  assert.equal(actual.identity_source, 'CDP.CSS.getPlatformFontsForNode.postScriptName');
+  assert.equal(actual.font_weight, undefined, 'A Semibold name does not prove a numeric resolved weight');
+  assert.equal(normalize(identity({ familyName: 'Other', postScriptName: 'DifferentFace-Regular' })).postscript_name, 'DifferentFace-Regular');
+});
+
+test('requested weight and variation settings stay distinct from resolved faces', () => {
+  const request = vm.runInNewContext('(' + expression('fontRequestEvidence', 'platformFonts') + ')', {
+    number: value => Number.isFinite(parseFloat(value)) ? parseFloat(value) : null,
+  });
+  const actual = normalize(request({ fontWeight: '550', fontVariationSettings: '"wght" 575, "wdth" 90', fontStyle: 'oblique 12deg', fontStretch: '90%' }));
+  assert.equal(actual.weight, 550);
+  assert.equal(actual.weight_css, '550');
+  assert.equal(actual.variation_settings, '"wght" 575, "wdth" 90');
+  assert.equal(actual.style, 'oblique 12deg');
+  assert.equal(actual.stretch, '90%');
+  assert.equal(actual.resolved_numeric_weight, undefined, 'A computed request must not become a measured resolved axis');
+  assert.equal(request({ fontWeight: 'bold', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 700);
+  assert.equal(request({ fontWeight: 'normal', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 400);
 });
