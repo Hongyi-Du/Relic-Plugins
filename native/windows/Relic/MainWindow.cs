@@ -48,7 +48,7 @@ public sealed partial class MainWindow : Window
     private Button Button(string label, Func<Task> action)
     {
         var button = new Button { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, FontSize = 13 }, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 5, 10, 5), MinWidth = 0, MinHeight = 28, CornerRadius = new CornerRadius(6) };
-        button.Click += async (_, _) => { button.IsEnabled = false; await Run(action); button.IsEnabled = true; };
+        button.Click += async (_, _) => { button.IsEnabled = false; await Run(action); button.IsEnabled = true; if (button == sendButton) UpdateSendState(); };
         return button;
     }
     private static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
+        Grid.SetRow(emptyConversation, 1); chat.Children.Add(emptyConversation);
         var compose = new StackPanel { Spacing = 4 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
         var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
@@ -100,7 +101,7 @@ public sealed partial class MainWindow : Window
         root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
-        editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; SaveViewState(); };
+        editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; UpdateSendState(); SaveViewState(); };
         AddShortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, () => pane == "thread" && threadEditor.FocusState != FocusState.Unfocused ? SendThread() : Send());
         AddShortcut(VirtualKey.N, VirtualKeyModifiers.Control, CreateOrg);
         AddShortcut((VirtualKey)188, VirtualKeyModifiers.Control, Settings);
@@ -208,6 +209,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
+        transientFlyout?.Hide();
         await StopVoice();
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
         olderHistory = false;
@@ -255,7 +257,6 @@ public sealed partial class MainWindow : Window
         paneHeader.Visibility = org.Length == 0 && pane != "files" ? Visibility.Collapsed : Visibility.Visible;
         if (paneHeader.Visibility == Visibility.Collapsed) return;
         DrawPaneHeader();
-        if (pane == "thread") detail.Children.Add(Text(T("panel.thread"), 18));
         switch (pane)
         {
             case "thread": DrawThread(); break;

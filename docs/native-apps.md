@@ -8,6 +8,13 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Visual review update: `6391291` passes both native build/test jobs and parity.
+The full capture exposed a WinUI 1.6 automation-peer crash before the first
+Windows image; CI now opens actual MenuBar items through desktop input and
+checks that their native popup is present. Settings rows, empty-state centering,
+thread tabs and sidebar organization icons were refined against the downloaded
+reference images. This is still an iteration, not visual acceptance.
+
 Visual acceptance was rejected by the person on Windows at `ce34cde`. PR #4
 is back in draft. The existing `done` columns describe function implementation
 only; they do not certify presentation. The additional required visual gate is

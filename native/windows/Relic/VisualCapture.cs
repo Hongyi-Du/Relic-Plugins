@@ -25,7 +25,7 @@ public sealed partial class MainWindow
                 try
                 {
                     if (visibleDialog != null) { visibleDialog.Hide(); if (visibleDialogTask != null) await visibleDialogTask; }
-                    transientFlyout?.Hide(); foreach (var item in menu.Items) new Microsoft.UI.Xaml.Automation.Peers.MenuBarItemAutomationPeer(item).Collapse();
+                    transientFlyout?.Hide(); foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot)) popup.IsOpen = false;
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
                     SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
@@ -38,8 +38,7 @@ public sealed partial class MainWindow
                     else if (scene.StartsWith("menu-"))
                     {
                         var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, scene[5..]);
-                        var automation = new Microsoft.UI.Xaml.Automation.Peers.MenuBarItemAutomationPeer(menu.Items[index]);
-                        automation.Expand();
+                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(menu.Items[index]);
                     }
                     else switch (scene)
                     {
@@ -118,12 +117,25 @@ public sealed partial class MainWindow
         }
         finally { SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(0, dc); }
     }
+    private void CaptureClick(FrameworkElement element)
+    {
+        // Drive the real MenuBar using the CI desktop. Directly constructing a
+        // WinUI MenuBarItemAutomationPeer can dereference an uninitialized native
+        // expand/collapse provider on Windows App SDK 1.6.
+        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        var point = element.TransformToVisual(root).TransformPoint(new(element.ActualWidth / 2, element.ActualHeight / 2));
+        var origin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin);
+        SetCursorPos(origin.x + (int)point.X, origin.y + (int)point.Y);
+        mouse_event(0x0002, 0, 0, 0, 0); mouse_event(0x0004, 0, 0, 0, 0);
+    }
     [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo { public uint size; public int width, height; public ushort planes, bits; public uint compression, imageSize; public int xppm, yppm; public uint used, important; }
     [DllImport("user32.dll")] private static extern nint GetDC(nint handle);
     [DllImport("user32.dll")] private static extern int ReleaseDC(nint handle, nint dc);
     [StructLayout(LayoutKind.Sequential)] private struct CapturePoint { public int x, y; }
     [DllImport("user32.dll")] private static extern bool ClientToScreen(nint handle, ref CapturePoint point);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, nuint extra);
     [DllImport("gdi32.dll")] private static extern bool BitBlt(nint target, int x, int y, int width, int height, nint source, int sourceX, int sourceY, uint operation);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleBitmap(nint dc, int width, int height);

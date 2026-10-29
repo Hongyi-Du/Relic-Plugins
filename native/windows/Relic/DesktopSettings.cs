@@ -61,9 +61,16 @@ public sealed partial class MainWindow
     }
     private void PreferenceToggle(StackPanel target, string title, string hint, string field)
     {
-        var toggle = new ToggleSwitch { Header = T(title), IsOn = preferences.Flag(field), OnContent = "", OffContent = "" };
-        target.Children.Add(toggle); if (hint.Length > 0) target.Children.Add(Text(T(hint), 12));
+        var toggle = new ToggleSwitch { IsOn = preferences.Flag(field), OnContent = "", OffContent = "", MinWidth = 42 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, T(title));
+        target.Children.Add(SettingRow(T(title), hint.Length > 0 ? T(hint) : "", toggle));
         toggle.Toggled += async (_, _) => await Run(() => SavePreferences(new JsonObject { [field] = toggle.IsOn }));
+    }
+    private Border SettingRow(string title, string hint, FrameworkElement control)
+    {
+        var labels = Stack(Heading(title, 13)); labels.Spacing = 5; labels.VerticalAlignment = VerticalAlignment.Center;
+        if (hint.Length > 0) labels.Children.Add(Quiet(hint, 12)); control.VerticalAlignment = VerticalAlignment.Center;
+        return new Border { Child = TwoColumns(labels, control), Padding = new Thickness(0, 10, 0, 18), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line };
     }
     private async Task SavePreferences(JsonObject changes)
     {
@@ -102,14 +109,16 @@ public sealed partial class MainWindow
             switch (key)
             {
                 case "profile":
-                    content.Children.Add(Text(T("settings.profile"), 20));
-                    content.Children.Add(Avatar(preferences.Text("avatar"), T("common.you"), 56));
-                    content.Children.Add(Text(T("settings.avatar_hint"), 12));
-                    content.Children.Add(Button(T("settings.avatar") + " · " + T("common.change"), async () => { await ChangeAvatar(); await Draw(key); }));
-                    content.Children.Add(Button(T("settings.remove"), async () => { await api!.Post("/api/avatar", new { data = "" }); await LoadPreferences(); await Draw(key); }));
-                    var name = Field(content, "common.name"); name.Text = preferences.Text("name"); name.PlaceholderText = T("common.you");
-                    content.Children.Add(Text(T("settings.name_hint"), 12));
-                    content.Children.Add(Button(T("common.save"), () => SavePreferences(new JsonObject { ["name"] = name.Text.Trim() })));
+                    content.Children.Add(Heading(T("settings.profile"), 20));
+                    var avatarActions = new ActionRow { Spacing = 10 }; avatarActions.Children.Add(Avatar(preferences.Text("avatar"), Display("human"), 56));
+                    avatarActions.Children.Add(Button(T("common.change"), async () => { await ChangeAvatar(); await Draw(key); }));
+                    if (preferences.Text("avatar").Length > 0) avatarActions.Children.Add(Button(T("settings.remove"), async () => { await api!.Post("/api/avatar", new { data = "" }); await LoadPreferences(); await Draw(key); }));
+                    content.Children.Add(SettingRow(T("settings.avatar"), T("settings.avatar_hint"), avatarActions));
+                    var name = new TextBox { Text = preferences.Text("name"), PlaceholderText = T("common.you"), FontSize = 13, MinWidth = 170 };
+                    var nameActions = TwoColumns(name, Microphone(name)); nameActions.Width = 240;
+                    name.LostFocus += async (_, _) => { if (name.Text.Trim() != preferences.Text("name")) await Run(() => SavePreferences(new JsonObject { ["name"] = name.Text.Trim() })); };
+                    name.KeyDown += async (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await Run(() => SavePreferences(new JsonObject { ["name"] = name.Text.Trim() })); } };
+                    content.Children.Add(SettingRow(T("common.name"), T("settings.name_hint"), nameActions));
                     break;
                 case "appearance":
                     content.Children.Add(Text(T("settings.appearance"), 20));
@@ -119,38 +128,39 @@ public sealed partial class MainWindow
                     SegmentedPreference(content, "settings.density", "density", ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact")));
                     break;
                 case "language":
-                    content.Children.Add(Text(T("settings.language.title"), 20));
-                    var language = Choice(content, "settings.language.label", words.Languages.Select(item => (item.Text("code"), item.Text("name")))); SetChoice(language, words.Language);
-                    content.Children.Add(Text(T("settings.language.hint"), 12));
+                    content.Children.Add(Heading(T("settings.language.title"), 20));
+                    var language = new ComboBox { MinWidth = 180, FontSize = 13 }; foreach (var item in words.Languages) language.Items.Add(new ComboBoxItem { Content = item.Text("name"), Tag = item.Text("code") }); SetChoice(language, words.Language);
+                    content.Children.Add(SettingRow(T("settings.language.label"), T("settings.language.hint"), language));
                     content.Children.Add(Button(T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), async () => { await SavePreferences(new() { ["lang"] = Words.Normalize(System.Globalization.CultureInfo.CurrentUICulture.Name) }); await Draw(key); }));
                     language.SelectionChanged += async (_, _) => await Run(async () => { await SavePreferences(new JsonObject { ["lang"] = Value(language) }); await Draw(key); });
                     PreferenceToggle(content, "settings.auto_names.label", "settings.auto_names.hint", "auto_names");
                     break;
                 case "voice":
-                    content.Children.Add(Text(T("common.voice_input"), 20));
-                    PreferenceChoice(content, "common.voice_input", "native.voice_hint", "voice", ("browser", T("native.voice_system")), ("off", T("settings.voice_off")));
-                    var sample = Field(content, "settings.voice_try", true); sample.PlaceholderText = T("settings.voice_try_here");
+                    content.Children.Add(Heading(T("common.voice_input"), 20));
+                    SegmentedPreference(content, "common.voice_input", "voice", ("browser", T("native.voice_system")), ("off", T("settings.voice_off")));
+                    var sample = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80, Width = 210, FontSize = 13, PlaceholderText = T("settings.voice_try_here") };
+                    content.Children.Add(SettingRow(T("settings.voice_try"), T("native.voice_hint"), TwoColumns(sample, Microphone(sample))));
                     break;
                 case "notify":
-                    content.Children.Add(Text(T("settings.notify"), 20));
+                    content.Children.Add(Heading(T("settings.notify"), 20));
                     PreferenceToggle(content, "settings.desktop_notify", "settings.desktop_notify_hint", "notify");
-                    content.Children.Add(Text(T("settings.notify_test")));
-                    content.Children.Add(Button(T("settings.notify_send_test"), () => { Notify(T("settings.notify_on")); return Task.CompletedTask; }));
+                    content.Children.Add(SettingRow(T("settings.notify_test"), "", Button(T("settings.notify_send_test"), () => { Notify(T("settings.notify_on")); return Task.CompletedTask; })));
                     break;
                 case "harness": await HarnessSettings(content); break;
                 case "about":
-                    content.Children.Add(Text(T("settings.about"), 20));
-                    content.Children.Add(Text(T("settings.data_folder") + "\n" + preferences.Text("data")));
-                    content.Children.Add(Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "data" }); }));
-                    content.Children.Add(Text(T("settings.logs") + "\n" + T("settings.logs_hint")));
-                    content.Children.Add(Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "logs" }); }));
-                    content.Children.Add(Text(T("settings.local_server") + "\n" + T("settings.local_server_hint", ("port", preferences.Text("port"))) + "\nv" + preferences.Text("version")));
-                    content.Children.Add(Text(T("settings.install_app") + " · " + T("settings.installed") + "\n" + T("settings.install_app_done")));
+                    content.Children.Add(Heading(T("settings.about"), 20));
+                    content.Children.Add(SettingRow(T("settings.data_folder"), preferences.Text("data"), Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "data" }); })));
+                    content.Children.Add(SettingRow(T("settings.logs"), T("settings.logs_hint"), Button(T("common.open"), async () => { await api!.Post("/api/open", new { what = "logs" }); })));
+                    content.Children.Add(SettingRow(T("settings.local_server"), T("settings.local_server_hint", ("port", preferences.Text("port"))), Badge("v" + preferences.Text("version"))));
+                    content.Children.Add(SettingRow(T("settings.install_app"), T("settings.install_app_done"), Badge(T("settings.installed"))));
                     break;
             }
         }
-        foreach (var (key, label) in new[] { ("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about") })
-            navigation.Items.Add(new ListViewItem { Content = Text(T(label), 13), Tag = key, IsSelected = key == section, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(6) });
+        foreach (var (key, label, glyph) in new[] { ("profile", "settings.profile", "\uE77B"), ("appearance", "settings.appearance", "\uE790"), ("language", "settings.language.title", "\uE774"), ("voice", "common.voice_input", "\uE720"), ("notify", "settings.notify", "\uEA8F"), ("harness", "common.harness", "\uE839"), ("about", "settings.about", "\uE946") })
+        {
+            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; labelRow.Children.Add(Glyph(glyph, 14)); labelRow.Children.Add(Text(T(label), 13));
+            navigation.Items.Add(new ListViewItem { Content = labelRow, Tag = key, IsSelected = key == section, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(6) });
+        }
         navigation.SelectionChanged += async (_, _) => { if (navigation.SelectedItem is ListViewItem item) await Run(() => Draw(item.Tag.ToString()!)); };
         await Draw(section); await Show(T("common.settings"), body);
     }
