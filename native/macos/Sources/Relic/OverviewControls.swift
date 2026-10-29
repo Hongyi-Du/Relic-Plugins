@@ -13,22 +13,30 @@ struct OverviewBlock<Content: View>: View {
 
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
-    private func positions(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], size: CGSize) {
+    var centerRows = false
+    private func positions(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], sizes: [CGSize], size: CGSize) {
         var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, maxX: CGFloat = 0
+        var sizes: [CGSize] = [], rowStart = 0
+        func finishRow() {
+            if centerRows { for index in rowStart..<points.count { points[index].y += (line - sizes[index].height) / 2 } }
+            rowStart = points.count
+        }
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width { y += line + spacing; x = 0; line = 0 }
-            points.append(CGPoint(x: x, y: y)); maxX = max(maxX, x + size.width)
+            let intrinsic = view.sizeThatFits(.unspecified)
+            let size = intrinsic.width > width ? view.sizeThatFits(ProposedViewSize(width: width, height: nil)) : intrinsic
+            if x > 0 && x + size.width > width { finishRow(); y += line + spacing; x = 0; line = 0 }
+            points.append(CGPoint(x: x, y: y)); sizes.append(size); maxX = max(maxX, x + size.width)
             x += size.width + spacing; line = max(line, size.height)
         }
-        return (points, CGSize(width: maxX, height: y + line))
+        finishRow()
+        return (points, sizes, CGSize(width: maxX, height: y + line))
     }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         positions(subviews, width: proposal.width ?? .infinity).size
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let result = positions(subviews, width: bounds.width)
-        for (index, view) in subviews.enumerated() { view.place(at: CGPoint(x: bounds.minX + result.points[index].x, y: bounds.minY + result.points[index].y), proposal: .unspecified) }
+        for (index, view) in subviews.enumerated() { view.place(at: CGPoint(x: bounds.minX + result.points[index].x, y: bounds.minY + result.points[index].y), proposal: ProposedViewSize(result.sizes[index])) }
     }
 }
 

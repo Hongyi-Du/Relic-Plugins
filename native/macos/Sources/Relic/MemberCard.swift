@@ -17,12 +17,12 @@ struct MemberCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            Divider()
                 VStack(alignment: .leading, spacing: 7) {
                     information
                     if !status.isEmpty { Text(status).foregroundStyle(RelicStyle.accent).fixedSize(horizontal: false, vertical: true) }
-                }
-            Divider()
+                }.padding(.top, 13)
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region"))
+                    .padding(.vertical, 12.5)
             actions
         }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain).accessibilityLabel(m.t("card.aria", ["name": card.display]))
@@ -34,19 +34,24 @@ struct MemberCard: View {
     private var header: some View {
         HStack(spacing: 14) {
             Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: { Avatar(member: who, size: 60, showState: true, stateBorder: RelicStyle.card) }.buttonStyle(.plain).help(m.t("card.change_avatar"))
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Text(card.display).font(RelicStyle.font(17, weight: 600)).lineLimit(2).help(card.display)
-                    IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName) { editingName.toggle() }
+            VStack(alignment: .leading, spacing: 0) {
+                FlowLayout(spacing: 6, centerRows: true) {
+                    ReferenceLabel(card.display, size: 17, weight: 650, lineHeight: 22.1, lines: 0).help(card.display)
+                    if card["leader"].flag { tag(m.t("common.leader"), color: RelicStyle.accent, background: RelicStyle.accent.opacity(0.13)) }
+                    if card["secretary"].flag { tag(m.t("common.secretary"), color: RelicStyle.violet, background: RelicStyle.violetSoft) }
+                    if !card["ex_officio"].isNull { tag(m.t("card.ex_officio_tag")) }
+                    IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName, size: 14, height: 24, width: 24) { editingName.toggle() }
                 }
-                Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(Font(RelicStyle.monoFont(12))).foregroundStyle(RelicStyle.muted).lineLimit(1).help(who)
-                HStack(spacing: 5) {
-                    if card["leader"].flag { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
-                    if card["secretary"].flag { SmallBadge(text: m.t("common.secretary"), color: RelicStyle.violet) }
-                    if !card["ex_officio"].isNull { SmallBadge(text: m.t("card.ex_officio_tag")) }
-                }
+                ReferenceLabel(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named")), size: 12, color: RelicStyle.muted, lineHeight: 19.2, monospaced: true).help(who)
             }
         }
+    }
+    private func tag(_ text: String, color: Color = RelicStyle.secondary, background: Color = RelicStyle.hover) -> some View {
+        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18).padding(.horizontal, 6).frame(height: 18)
+            .modifier(RecordedSurface(background: background, radius: 5, kind: "badge"))
+    }
+    private func value(_ text: String, mono: Bool = false) -> some View {
+        ReferenceLabel(text, size: mono ? 11.5 : 12.5, lineHeight: 20, lines: 0, monospaced: mono)
     }
     @ViewBuilder private var information: some View {
         if editingName {
@@ -55,34 +60,39 @@ struct MemberCard: View {
                 Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; editingName = false; try await m.refresh(); try await load() } }.buttonStyle(.borderedProminent)
             }
         }
-        row("common.role") { Text(card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text) }
-        row("card.identity") { Text(m.identity(card)) }
+        row("common.role") { value(card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text) }
+        row("card.identity") { value(m.identity(card)) }
         if !card["ex_officio"]["org"].text.isEmpty {
-            row("card.seat_origin") { Button(m.t("card.ex_officio", ["org": card["ex_officio"]["org_name"].text])) { let org = card["ex_officio"]["org"].text; m.sheet = nil; m.run { try await m.select(org) } }.buttonStyle(.link) }
+            row("card.seat_origin") { TextButton(m.t("card.ex_officio", ["org": card["ex_officio"]["org_name"].text]), size: 12.5, weight: 400, color: RelicStyle.accent, height: 20) { let org = card["ex_officio"]["org"].text; m.sheet = nil; m.run { try await m.select(org) } }.buttonStyle(.plain) }
         }
         if !card["also_in"].rows.isEmpty {
-            row("card.also_in") { VStack(alignment: .leading, spacing: 5) { Rows(card["also_in"].rows) { seat in
-                Button(m.t("card.also_in_item", ["org": seat["org_name"].text, "member": seat["member"].text]) + (seat["main"].flag ? " · " + m.t("card.main_seat") : "")) { m.sheet = nil; m.run { try await m.select(seat["org"].text, seat["member"].text) } }.buttonStyle(.link)
+            row("card.also_in") { VStack(alignment: .leading, spacing: 3) { Rows(card["also_in"].rows) { seat in
+                Button { m.sheet = nil; m.run { try await m.select(seat["org"].text, seat["member"].text) } } label: {
+                    HStack(spacing: 6) {
+                        ReferenceLabel(m.t("card.also_in_item", ["org": seat["org_name"].text, "member": seat["member"].text]), size: 12.5, color: RelicStyle.accent, lineHeight: 20)
+                        if seat["main"].flag { tag(m.t("card.main_seat")) }
+                    }
+                }.buttonStyle(.plain).help(seat["role"].text)
             } } }
         }
         row("common.model") {
-            HStack {
-                Text([card["model"].text.isEmpty ? m.t("common.default_model") : card["model"].text, card["effort"].text].filter { !$0.isEmpty }.joined(separator: " · "))
-                if card["model_editable"].flag { Button(m.t(editingModel ? "common.collapse" : "common.change")) { editingModel.toggle() }.buttonStyle(.link) }
+            HStack(spacing: 4) {
+                value([card["model"].text.isEmpty ? m.t("common.default_model") : card["model"].text, card["effort"].text].filter { !$0.isEmpty }.joined(separator: " · "))
+                if card["model_editable"].flag { TextButton(m.t(editingModel ? "common.collapse" : "common.change"), size: 12) { editingModel.toggle() }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)) }
             }
         }
         if editingModel && card["model_editable"].flag { modelEditor }
         else if !card["model_editable"].flag && !card["model_note"].text.isEmpty { Text(card["model_note"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
         row("common.status") {
             HStack(spacing: 6) {
-                SmallBadge(text: m.stateLabel(card["state"].text), color: RelicStyle.state(card["state"].text))
-                if !card["detail"].text.isEmpty && card["detail"].text != m.stateLabel(card["state"].text) { Text(card["detail"].text) }
+                OverviewChip(text: m.stateLabel(card["state"].text), tone: ["running", "working"].contains(card["state"].text) ? "ok" : card["state"].text == "waiting" ? "warn" : card["state"].text == "error" ? "bad" : "")
+                if !card["detail"].text.isEmpty && card["detail"].text != m.stateLabel(card["state"].text) { value(card["detail"].text) }
             }
         }
-        if !card["doing"].text.isEmpty { row("card.doing") { Text(card["doing_at"].text.isEmpty ? card["doing"].text : m.t("card.doing_since", ["doing": card["doing"].text, "ago": m.ago(card["doing_at"])])) } }
+        if !card["doing"].text.isEmpty { row("card.doing") { value(card["doing_at"].text.isEmpty ? card["doing"].text : m.t("card.doing_since", ["doing": card["doing"].text, "ago": m.ago(card["doing_at"])])) } }
         if !card["tasks"].rows.isEmpty {
             row("card.owns") {
-                if card["tasks"].rows.allSatisfy({ ["done", "dropped"].contains($0["status"].text) }) { Text(m.t("card.tasks_done", ["n": String(card["tasks"].rows.count)])) }
+                if card["tasks"].rows.allSatisfy({ ["done", "dropped"].contains($0["status"].text) }) { value(m.t("card.tasks_done", ["n": String(card["tasks"].rows.count)])) }
                 else { VStack(alignment: .leading, spacing: 0) { Rows(card["tasks"].rows.filter { !["done", "dropped"].contains($0["status"].text) }) { task in ReferenceLabel(task["id"].text + " " + task["title"].text, size: 12.5).help(task["title"].text) } } }
             }
         }
@@ -91,10 +101,10 @@ struct MemberCard: View {
                 Text("subagent ") + Text(String(card["agent"].text.prefix(12))).font(Font(RelicStyle.monoFont(12.5))) + Text(card["parent"].text.isEmpty ? "" : m.t("card.in_parent_session", ["parent": m.name(card["parent"].text)]))
             }.help(card["agent"].text)
         } else if !card["session"].text.isEmpty {
-            row("common.session") { Text(String(card["session"].text.prefix(18)) + (card["session"].text.count > 18 ? "…" : "")).font(Font(RelicStyle.monoFont(12.5))).help(card["session"].text) }
+            row("common.session") { value(String(card["session"].text.prefix(18)) + (card["session"].text.count > 18 ? "…" : ""), mono: true).help(card["session"].text) }
         }
-        if !card["cwd"].text.isEmpty { row("card.folder") { Text(ReferenceText.clip(card["cwd"].text, to: 64)).font(Font(RelicStyle.monoFont(12.5))).help(card["cwd"].text) } }
-        if !card["joined_at"].isNull { row("card.joined") { Text(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"]) + (card["carriers"].integer > 1 ? " · " + m.t("card.session_nth", ["n": card["carriers"].text]) : "")) } }
+        if !card["cwd"].text.isEmpty { row("card.folder") { value(ReferenceText.clip(card["cwd"].text, to: 64), mono: true).help(card["cwd"].text) } }
+        if !card["joined_at"].isNull { row("card.joined") { value(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"]) + (card["carriers"].integer > 1 ? " · " + m.t("card.session_nth", ["n": card["carriers"].text]) : "")) } }
         if !card["recent"].rows.isEmpty {
             row("card.recent") {
                 VStack(alignment: .leading, spacing: 0) { Rows(Array(card["recent"].rows.prefix(4))) { recent in
@@ -121,12 +131,12 @@ struct MemberCard: View {
         }.padding(10).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8))
     }
     private var actions: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { Text(m.t("card.message")).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
-                Button { m.openDetails("trace", member: who) } label: { Text(m.t("common.context_trace")).frame(maxWidth: .infinity) }
+        VStack(alignment: .leading, spacing: 12) {
+            CardActionLayout {
+                Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { ReferenceLabel(m.t("card.message"), size: 13, weight: 600, color: RelicStyle.background).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
+                Button { m.openDetails("trace", member: who) } label: { ReferenceLabel(m.t("common.context_trace"), size: 13, weight: 600).frame(maxWidth: .infinity) }
             }.buttonStyle(ReferenceButtonStyle())
-            FlowLayout(spacing: 6) { seatActions }.padding(.top, 10).overlay(alignment: .top) { RelicStyle.line.frame(height: 1) }.font(RelicStyle.font(12, weight: 600))
+            FlowLayout(spacing: 6) { seatActions }.padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region")).font(RelicStyle.font(12, weight: 600))
         }
     }
     @ViewBuilder private var seatActions: some View {
@@ -138,7 +148,7 @@ struct MemberCard: View {
     }
     private func row<Content: View>(_ key: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.muted, lines: 0).frame(width: 52, alignment: .leading)
+            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.muted, lineHeight: 20, lines: 0).frame(width: 52, alignment: .leading)
             content().frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -147,6 +157,31 @@ struct MemberCard: View {
         let route: String
         switch action { case "fresh": route = "/fresh"; case "unbind": route = "/unbind"; default: route = "/open_session" }
         try await m.post(m.path(route), ["member": who]); status = m.t(["fresh": "seat.fresh", "unbind": "seat.unbind", "open_session": "seat.open_session"][action] ?? "seat.done", ["name": m.name(who)]); try await m.refresh(); try await load()
+    }
+}
+
+private struct CardActionLayout: Layout {
+    private func widths(_ subviews: Subviews, available: CGFloat) -> [CGFloat] {
+        let half = max(0, available - 8) / 2
+        let intrinsic = subviews.map { $0.sizeThatFits(.unspecified).width }
+        guard intrinsic.count == 2 else { return intrinsic }
+        if intrinsic[0] > half { return [intrinsic[0], max(0, available - 8 - intrinsic[0])] }
+        if intrinsic[1] > half { return [max(0, available - 8 - intrinsic[1]), intrinsic[1]] }
+        return [half, half]
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.reduce(0,+) + 8
+        let columns = widths(subviews, available: width)
+        let height = subviews.enumerated().map { index, item in item.sizeThatFits(ProposedViewSize(width: columns[index], height: nil)).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columns = widths(subviews, available: bounds.width)
+        var x = bounds.minX
+        for (index, item) in subviews.enumerated() {
+            item.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: columns[index], height: bounds.height))
+            x += columns[index] + 8
+        }
     }
 }
 

@@ -191,7 +191,7 @@ import CoreText
             let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
-            let nativeClip = (object as? NSView).flatMap { NativeVisibility.screenClip($0) }
+            let nativeClip = (object as? NSView).flatMap { NativeVisibility.screenClip($0, limitingToBounds: false) }
             let activeClip = nativeClip.map { $0.isNull ? NSRect.null : clip.intersection(topLeft($0, in: contentScreen)) } ?? clip
             let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
