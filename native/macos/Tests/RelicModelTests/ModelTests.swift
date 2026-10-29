@@ -18,6 +18,26 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testInspectorUsesReferencePreviewAndMemberDetailOrder() throws {
+        let model = try model()
+        model.words.load(Node(["lang": "en-US", "strings": ["card.ex_officio": "From {org}", "state.waiting": "Waiting"]]))
+        XCTAssertEqual(model.taskReportPreview("# Ready\n**Reviewed** `paths` | next_step"), "Ready Reviewed paths next step")
+        XCTAssertEqual(model.taskReportPreview(String(repeating: "x", count: 81)), String(repeating: "x", count: 79) + "…")
+        XCTAssertEqual(model.overviewMemberDetail(Node(["state": "waiting", "doing": "Preparing", "detail": "Older", "ex_officio": ["org_name": "Studio"]])), "From Studio · Preparing")
+        XCTAssertEqual(model.overviewMemberDetail(Node(["state": "waiting", "detail": "Reading"])), "Reading")
+        XCTAssertEqual(model.overviewMemberDetail(Node(["state": "waiting"])), "Waiting")
+        XCTAssertEqual(model.clippedDecisionError("\n  first\tsecond  "), "first second")
+    }
+    func testInspectorProtocolNotesRespectOriginAndRetirement() throws {
+        let model = try model()
+        model.words.load(Node(["lang": "en-US", "strings": [
+            "org.issued_by_person": "By you", "org.issued_by": "By {name}", "org.protocol_inherits": "Inherited below", "org.protocol_check": "Checked",
+            "org.inherited_from": "From {name}", "org.protocol_retired": "{from}/{at}/{by}", "org.protocol_voting": "{n} votes"]]))
+        XCTAssertEqual(model.overviewProtocolDetail(Node(["issued_by": ["person": true, "name": "Human"], "inherit": true, "check": true]), source: "protocols"), "By you · Inherited below · Checked")
+        XCTAssertEqual(model.overviewProtocolDetail(Node(["from": "Parent", "issued_by": ["name": "Lead"], "check": true]), source: "inherited_protocols"), "From Parent · By Lead · Checked")
+        XCTAssertEqual(model.overviewProtocolDetail(Node(["how": "retired", "from": "Parent", "at": "Child", "by": "R2", "check": true]), source: "replaced_protocols"), "Parent/Child/R2")
+        XCTAssertEqual(model.overviewProtocolDetail(Node(["status": "proposed", "votes": 2]), source: "protocols"), "2 votes")
+    }
     func testReferenceDateFormattingKeeps24HourClockAndRelativeCalendarDays() throws {
         let model = try model()
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!

@@ -29,6 +29,7 @@ enum RelicStyle {
     static let violet = color(0x7058B8, 0xA894E0)
     static let violetSoft = color(0xEFEBF8, 0x2E2A3D)
     static let green = color(0x3E9B5E, 0x6CC287)
+    static let redSoft = color(0xFBEAE6, 0x3D2622)
     static let red = color(0xC2412D, 0xEE8A78)
     static func font(_ size: CGFloat, weight: Int) -> Font {
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]

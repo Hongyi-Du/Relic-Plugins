@@ -1,0 +1,141 @@
+import SwiftUI
+import RelicCore
+
+// The inspector uses the reference's compact blocks. All drawing remains native.
+struct OverviewBlock<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) { content }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 14)
+            .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+    }
+}
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    private func positions(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], size: CGSize) {
+        var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, maxX: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width { y += line + spacing; x = 0; line = 0 }
+            points.append(CGPoint(x: x, y: y)); maxX = max(maxX, x + size.width)
+            x += size.width + spacing; line = max(line, size.height)
+        }
+        return (points, CGSize(width: maxX, height: y + line))
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        positions(subviews, width: proposal.width ?? .infinity).size
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = positions(subviews, width: bounds.width)
+        for (index, view) in subviews.enumerated() { view.place(at: CGPoint(x: bounds.minX + result.points[index].x, y: bounds.minY + result.points[index].y), proposal: .unspecified) }
+    }
+}
+
+struct OverviewChip: View {
+    let text: String
+    var tone = ""
+    private var foreground: Color {
+        switch tone { case "ok": return RelicStyle.green; case "warn": return RelicStyle.amber; case "bad": return RelicStyle.red; case "sec": return RelicStyle.violet; case "accent": return RelicStyle.accent; default: return RelicStyle.secondary }
+    }
+    private var background: Color {
+        switch tone { case "ok": return RelicStyle.green.opacity(0.14); case "warn": return RelicStyle.amberSoft; case "bad": return RelicStyle.redSoft; case "sec": return RelicStyle.violetSoft; case "accent": return RelicStyle.accent.opacity(0.13); default: return RelicStyle.hover }
+    }
+    var body: some View {
+        Text(text).font(.system(size: 11.5)).foregroundStyle(foreground).lineLimit(1).fixedSize()
+            .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
+            .modifier(RecordedSurface(background: background, radius: 10, kind: "chip"))
+            .accessibilityIdentifier("relic-chip/" + text)
+    }
+}
+
+struct ReferenceButtonStyle: ButtonStyle {
+    var primary = false
+    var small = false
+    var danger = false
+    func makeBody(configuration: Configuration) -> some View {
+        Body(configuration: configuration, primary: primary, small: small, danger: danger)
+    }
+    private struct Body: View {
+        let configuration: Configuration
+        let primary: Bool, small: Bool, danger: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovered = false
+        var body: some View {
+            configuration.label.font(.system(size: small ? 12 : 13, weight: .semibold))
+                .foregroundStyle(primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink)
+                .padding(.horizontal, small ? 9 : 13).frame(height: small ? 26 : 32)
+                .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : RelicStyle.card,
+                    border: primary ? RelicStyle.ink : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
+                .recordedOpacity(enabled ? 1 : 0.45).onHover { hovered = $0 }
+        }
+    }
+}
+
+struct OverviewLink: View {
+    let text: String
+    var icon = "chev"
+    var leading = false
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: RelicStyle.muted) }
+                Text(text).font(.system(size: 12))
+                if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: RelicStyle.muted) }
+            }.foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2)
+        }.buttonStyle(.plain)
+    }
+}
+
+struct OverviewToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 8) {
+                Circle().fill(.white).frame(width: 14, height: 14)
+                    .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+                    .frame(width: 28, alignment: configuration.isOn ? .trailing : .leading).padding(2)
+                    .modifier(RecordedSurface(background: configuration.isOn ? RelicStyle.accent : RelicStyle.border, radius: 9))
+                configuration.label.font(.system(size: 12.5)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }.buttonStyle(.plain).accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
+        }
+    }
+}
+
+struct OverviewPicker: View {
+    let title: String
+    @Binding var selection: String
+    let options: [(String, String)]
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title).font(.system(size: 12.5)).foregroundStyle(RelicStyle.secondary).fixedSize()
+            Menu {
+                ForEach(options, id: \.0) { value, label in Button(label) { selection = value } }
+            } label: {
+                HStack { Text(options.first { $0.0 == selection }?.1 ?? "").lineLimit(1); Spacer(minLength: 4); ReferenceIcon(name: "chev", size: 12).rotationEffect(.degrees(90)) }
+                    .font(.system(size: 13)).padding(.horizontal, 10).frame(height: 34)
+                    .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8))
+            }.menuStyle(.borderlessButton).menuIndicator(.hidden).accessibilityLabel(title).accessibilityIdentifier("relic-dropdown/" + title)
+        }
+    }
+}
+
+struct OverviewRow<Leading: View, Trailing: View>: View {
+    let title: String, subtitle: String
+    var struck = false
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+    var body: some View {
+        HStack(spacing: 9) {
+            leading
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title).font(.system(size: 13, weight: .semibold)).strikethrough(struck).lineLimit(1).frame(minHeight: 20.8)
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            trailing
+        }.padding(.horizontal, 8).padding(.vertical, 6).padding(.horizontal, -8)
+            .accessibilityElement(children: .contain)
+    }
+}
