@@ -158,9 +158,7 @@ def main(argv=None):
             except (OSError, subprocess.CalledProcessError) as error:
                 print(f'The desktop shortcut was not made ({error}). Open the App with scripts/open_app.py.')
         elif sys.platform == 'darwin' and not args.no_shortcut:
-            import macos_app
-            launcher = macos_app.install(ROOT, sys.executable)
-            print(f'Finder launcher: {launcher}')
+            print('Open the native Relic.app from Finder. Install the SwiftUI package if it is not present.')
         print()
         print('Installed Relic ' + read_json(plugin / '.claude-plugin/plugin.json')['version'] + '.'
               + (' Plugin added to: ' + ', '.join(installed) + '.' if installed else ' No host CLI was found: the plugin '

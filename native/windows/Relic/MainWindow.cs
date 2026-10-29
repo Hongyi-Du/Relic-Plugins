@@ -85,11 +85,11 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         var right = Scroll(detail); Grid.SetColumn(right, 2); columns.Children.Add(right);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
-        root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) editing = box; };
+        root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
         editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; SaveViewState(); };
-        AddShortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, Send);
+        AddShortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, () => pane == "thread" && threadEditor.FocusState != FocusState.Unfocused ? SendThread() : Send());
         AddShortcut(VirtualKey.N, VirtualKeyModifiers.Control, CreateOrg);
         AddShortcut((VirtualKey)188, VirtualKeyModifiers.Control, Settings);
         AddShortcut(VirtualKey.F, VirtualKeyModifiers.Control, () => { search.Focus(FocusState.Keyboard); return Task.CompletedTask; });
@@ -97,7 +97,7 @@ public sealed partial class MainWindow : Window
         Closed += async (_, e) =>
         {
             if (closing) return;
-            e.Handled = true; SaveViewState(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop();
+            e.Handled = true; SaveViewState(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
             await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
         root.Loaded += async (_, _) =>
@@ -123,10 +123,10 @@ public sealed partial class MainWindow : Window
                     {
                         if (ev.Text("type") == "prefs") await Run(LoadPreferences);
                         if (ev.Text("type") == "install") InstallEvent(ev);
-                        if (ev.Text("org") == org && ev.Text("type") == "plain")
+                        if (ev.Text("type") == "plain")
                         {
-                            GotPlain(ev["items"]);
-                            foreach (var id in ev.Rows("ids")) if (!plain.ContainsKey(PlainKey(id.Text()))) { plainPending.Remove(PlainKey(id.Text())); if (ev.Text("error").Length > 0) plainFailed.Add(PlainKey(id.Text())); }
+                            GotPlain(ev["items"], ev.Text("org"));
+                            foreach (var id in ev.Rows("ids")) { var key = ev.Text("org") + "/" + id.Text(); if (!plain.ContainsKey(key)) { plainPending.Remove(key); plainFailed.Add(key); } }
                         }
                         if (ev.Text("org") == org && ev.Text("type") == "digest") { digestPending = false; if (ev["digest"] != null) digest = ev["digest"]!.DeepClone(); if (ev.Text("error").Length > 0) Note(T("digest.failed", ("error", ev.Text("error")))); }
                         Schedule();
@@ -205,6 +205,7 @@ public sealed partial class MainWindow : Window
     {
         preferences = await api!.Get("/api/prefs");
         var language = Words.Normalize(preferences.Text("lang"));
+        if (language != words.Language) { plain.Clear(); plainPending.Clear(); plainFailed.Clear(); digest = new JsonObject(); }
         words.Load(await api.Get("/api/i18n?lang=" + language)); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();
@@ -212,7 +213,7 @@ public sealed partial class MainWindow : Window
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {
-        if (api == null || org.Length == 0 || string.IsNullOrWhiteSpace(editor.Text)) return;
+        if (api == null || org.Length == 0 || composing.Contains(editor) || string.IsNullOrWhiteSpace(editor.Text)) return;
         var body = editor.Text; var destination = PathFor("/send"); var key = org + "/" + member;
         var payload = Composer.Message(Quoted(body), member, recipientNames.ToArray(), snap.Rows("members"));
         try { await api.Post(destination, payload); } catch (Exception ex) { Note(T("composer.send_failed", ("error", ex.Message))); return; }

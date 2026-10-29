@@ -793,7 +793,7 @@ class Handler(BaseHTTPRequestHandler):
                 except PermissionError as error:
                     return self._error(403, str(error))
             if api == ["install-window"]:
-                return self._json(open_install_window(app.port))
+                return self._error(410, "Install the native Relic App package; browser installation is no longer supported.")
             if api == ["open"]:
                 target = {"data": data_home(), "logs": data_home() / "runs"}.get(a.get("what"), data_home())
                 platform_support.open_external(str(target))
@@ -857,22 +857,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(400, str(error))
         except Exception as error:
             return self._error(500, "%s: %s" % (type(error).__name__, error))
-
-
-def open_install_window(port):
-    """Open a normal browser window, where supported browsers can offer app installation."""
-    import subprocess
-    url = "http://127.0.0.1:%d/#install" % port
-    exe = platform_support.browser_executable()
-    if exe:
-        try:
-            subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True, creationflags=platform_support.creation_flags())
-        except OSError:
-            exe = None  # an application removed since discovery: try the default browser
-    if not exe:
-        platform_support.open_external(url)
-    return {"opened": url, "browser": exe or "default"}
 
 
 class Server(ThreadingHTTPServer):

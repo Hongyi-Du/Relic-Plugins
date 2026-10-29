@@ -41,29 +41,56 @@ of actions and server payloads below. Every row is required; there are no deferr
 
 | Reference screen / action | Native controls and location | Windows | macOS |
 | --- | --- | --- | --- |
-| `appbar`, `menus`, `appMenu`, `shortcut`: New org, add existing/member, secretary, history, sidebar/panel, pane selection, font/density/theme, about, help | macOS menu bar/Commands; Windows MenuBar/KeyboardAccelerator; native standard edit menu for cut/copy/paste/select/undo | pending | pending |
-| `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations and current members; unread/recent chat previews; selected group and member rows | pending | pending |
-| `openOrg`, `go`, `renderHead`, `renderBanner` | Shared selection state; native conversation title, member state and permission/waiting banner | pending | pending |
-| `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read-by disclosure, history pagination, tool/activity disclosure and live session items | pending | pending |
-| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | pending | pending |
-| `permissionCard`, `decisionCard` | Native action cards; use exact permission option IDs; approve/deny structural requests; open blocked member/task | pending | pending |
-| `renderOrgPane`, `hierarchyBlock` | Native Overview: goal, status, members, tasks/reports, protocol origins and inherited/replaced rules; parent/leader/secretariat/auto-wake and subgroup controls | pending | pending |
-| `drawCopies`, `copyCard`, `checkRulesView`, `ackCopy`, `retireCopy` | Copies sheet, summary/author/status/statistics, expandable code/examples; Got it and confirmed Retire | pending | pending |
-| `orgDialog` | Name → purpose → governance → create; navigate to created organization, then secretary/member setup | pending | pending |
-| `memberDialog` App mode | Name → role → available harness → model → folder → secretary → create; open member conversation | pending | pending |
-| `memberDialog` host mode | Name → role → Claude Code/Codex and supported surface → model/effort → folder/environment → permissions/env → start now or seat only | pending | pending |
-| `memberDialog` existing mode | Search existing sessions by title/folder/id → session selection → seat → role → bind; preserve the complete session object | pending | pending |
-| `openCard`, `seatAction`, `forwardDialog` | Native member detail: rename, avatar, model/effort, edit configuration, fresh/unbind/open session, forwarding, also-in memberships | pending | pending |
-| `openSecretarySetup`, quick-start empty state | Native introductory sheet guiding organization → secretary/member → conversation | pending | pending |
-| `openChart`, `drawChart`, `wireChart` | Native vector edges/cards with pan/zoom/fit; parent and shared-seat relationships, navigate to organization | pending | pending |
-| `openThread`, `renderThread` | Right-pane thread with root/replies and reply composer; preserve `reply_to` | pending | pending |
-| `renderWork`, `fileTree` | Workspace pane: member folder, branch/changes, recent edits, nested file list, system folder opener | pending | pending |
-| `openFile`, `renderFile`, `codeView` | Native text/code/Markdown/image preview, clickable Markdown/local paths and line navigation, truncation/binary state, default-app opener | pending | pending |
-| `requestPlain`, `togglePlainOne`, `toggleDigest`, `askSecretary` | Native plain-words toggle and digest card; async completion updates | pending | pending |
-| `Voice`, `micButton` | Native OS speech input; explicit microphone permission on user action | pending | pending |
-| `openDetails`, `traceView`, `reportBlock` | Native task filters/reports, documents/revisions, protocols/rules, context/trajectory pagination and requests | pending | pending |
-| `drawProfile`, `drawAppearance`, `drawLanguage`, `drawVoice`, `drawNotify`, `drawHarness`, `drawAbout` | Native Settings; language and notification preference first; profile, appearance, voice, adapter install/path/capability and diagnostic actions | pending | pending |
-| `installApp`, `installPage`, PWA manifest/service worker | Replaced by native package installation; no browser install screen in either native App | pending | pending |
+| `appbar`, `menus`, `appMenu`, `shortcut`: New org, add existing/member, secretary, history, sidebar/panel, pane selection, font/density/theme, about, help | macOS menu bar/Commands; Windows MenuBar/KeyboardAccelerator; native standard edit menu for cut/copy/paste/select/undo | done | done |
+| `orgTree`, `renderSide`, `setFolded`, search, recent chats | Recursive native sidebar, disclosure controls, searchable organizations and current members; unread/recent chat previews; selected group and member rows | done | done |
+| `openOrg`, `go`, `renderHead`, `renderBanner` | Shared selection state; native conversation title, member state and permission/waiting banner | done | done |
+| `renderStream`, `renderItem`, `renderLive`, `memberItems`, `actsBlock`, `stepRow` | Selectable native text, timestamps, notices, read-by disclosure, history pagination, tool/activity disclosure and live session items | done | done |
+| `composerBox`, `toPicker`, `mentionCheck`, `quotedBody` | Native multiline editor, recipient selection and @member dispatch; persistent drafts, recipients and quotes per chat; Enter sends, Shift-Enter inserts a line | done | done |
+| `permissionCard`, `decisionCard` | Native action cards; use exact permission option IDs; approve/deny structural requests; open blocked member/task | done | done |
+| `renderOrgPane`, `hierarchyBlock` | Native Overview: goal, status, members, tasks/reports, protocol origins and inherited/replaced rules; parent/leader/secretariat/auto-wake and subgroup controls | done | done |
+| `drawCopies`, `copyCard`, `checkRulesView`, `ackCopy`, `retireCopy` | Copies sheet, summary/author/status/statistics, expandable code/examples; Got it and confirmed Retire | done | done |
+| `orgDialog` | Name → purpose → governance → create; navigate to created organization, then secretary/member setup | done | done |
+| `memberDialog` App mode | Name → role → available harness → model → folder → secretary → create; open member conversation | done | done |
+| `memberDialog` host mode | Name → role → Claude Code/Codex and supported surface → model/effort → folder/environment → permissions/env → start now or seat only | done | done |
+| `memberDialog` existing mode | Search existing sessions by title/folder/id → session selection → seat → role → bind; preserve the complete session object | done | done |
+| `openCard`, `seatAction`, `forwardDialog` | Native member detail: rename, avatar, model/effort, edit configuration, fresh/unbind/open session, forwarding, also-in memberships | done | done |
+| `openSecretarySetup`, quick-start empty state | Native introductory sheet guiding organization → secretary/member → conversation | done | done |
+| `openChart`, `drawChart`, `wireChart` | Native vector edges/cards with pan/zoom/fit; parent and shared-seat relationships, navigate to organization | done | done |
+| `openThread`, `renderThread` | Right-pane thread with root/replies and reply composer; preserve `reply_to` | done | done |
+| `renderWork`, `fileTree` | Workspace pane: member folder, branch/changes, recent edits, nested file list, system folder opener | done | done |
+| `openFile`, `renderFile`, `codeView` | Native text/code/Markdown/image preview, clickable Markdown/local paths and line navigation, truncation/binary state, default-app opener | done | done |
+| `requestPlain`, `togglePlainOne`, `toggleDigest`, `askSecretary` | Native plain-words toggle and digest card; async completion updates | done | done |
+| `Voice`, `micButton` | Native OS speech input; explicit microphone permission on user action | done | done |
+| `openDetails`, `traceView`, `reportBlock` | Native task filters/reports, documents/revisions, protocols/rules, context/trajectory pagination and requests | done | done |
+| `drawProfile`, `drawAppearance`, `drawLanguage`, `drawVoice`, `drawNotify`, `drawHarness`, `drawAbout` | Native Settings; language and notification preference first; profile, appearance, voice, adapter install/path/capability and diagnostic actions | done | done |
+| `installApp`, `installPage`, PWA manifest/service worker | Replaced by native package installation; no browser install screen in either native App | done | done |
+
+`done` means the native implementation and its payload/control mapping have been
+reviewed. It does not mean gate 3 (the person's real-window acceptance) has run.
+CI build/test results are the separate gate 2 and must be green for this same PR
+head. Source mappings: Windows `MainWindow`, `Navigation`, `SidebarCopies`,
+`Conversation`, `ContentViews`, `Members`, `Organization`, `OrganizationChart`,
+`FileWorkspace`, `DesktopSettings`, and `Relic.Core`; macOS exact mappings are in
+[`native/macos/STATUS.md`](../native/macos/STATUS.md).
+
+### Additional callbacks and flows
+
+These flows are required in addition to every named function below; native
+framework event callbacks replace the browser event wiring.
+
+| Reference flow | Native implementation | Windows | macOS |
+| --- | --- | --- | --- |
+| Selection mouseup toolbar / quoteSelection | Selectable native message text and Copy/Quote context actions; Edit menu selection | done | done |
+| Voice.supported / Voice.toggle / Voice.stop | OS speech availability, explicit start/stop, preference and permission handling | done | done |
+| Voice.onresult / onerror / onend | Dictation at selection, interim/final text, microphone/network/no-speech errors, focus restoration | done | done |
+| Enter / Shift-Enter / IME / mention completion | Native editor intercepts Return only outside composition/completion; Shift-Return newline | done | done |
+| EventSource reopen / token rotation | Read app.json and verify the replacement lifecycle, reconnect SSE; retry an unauthenticated write only after token rejection | done | pending |
+| Resize pointer capture / remembered pane widths | Native split controls, separate File width, persisted visibility and dimensions | done | done |
+| Hash navigation / back-forward history | Native `(org, member)` navigation stack; reveal selected organization's ancestors | done | done |
+| Native install replaces PWA install / service worker | Per-user Windows installer and SwiftUI Mach-O bundle; retired browser installer returns 410 | done | done |
+| Person issues protocol / inherited check rules | `/protocols` accepts weak guidance or strong JSON rules, rationale, trigger, inheritance and summary | done | pending |
+| Lifecycle close / beforeunload | Client-owned stdin lease and authenticated shutdown; borrowed server survives; no visible console | done | done |
+| Native notification click | System notification activates Relic; copy and decision notifications retain the reference preference | done | done |
 
 ## HTTP transport and lifecycle
 
@@ -226,223 +253,229 @@ Official build references: [WinUI unpackaged distribution](https://learn.microso
 Full v0.6 parity is required. No row is deferred. Each function and flow must be implemented and reviewed on both systems before the PR leaves draft. The static check deliberately fails while any cell is pending. DOM rendering helpers map to native controls, not an HTML renderer.
 
 | Reference function | Native responsibility | Windows | macOS |
-| --- | --- | --- | --- | --- |
-| `platformInfo@9` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `automaticDelivery@17` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `hostSurfaces@22` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `shortcutLabel@26` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `shortcutAction@29` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `absolutePath@46` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `inlineTokens@51` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `append@86` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `h@93` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `icon@148` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `hue@166` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `initial@172` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `dayLabel@179` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `clock@185` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `shortWhen@186` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `ago@191` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `stateLabel@200` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `taskLabel@204` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `pathLink@207` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `inline@211` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `rich@220` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `mdRun@245` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `quoteBlock@271` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `load@277` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `save@278` | Native platform adaptation, text rendering, timestamps, and persistent view state | pending | pending |
-| `get@281` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `loadPlatform@287` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `freshToken@291` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `post@297` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `toast@305` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `lang@313` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `applyPrefs@314` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `loadPrefs@325` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `setPrefs@329` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `tget@343` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `targ@355` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `t@365` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `tn@369` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `loadLang@381` | Authenticated HTTP, errors, preferences, and shared language formatting | pending | pending |
-| `dname@417` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `roleName@429` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `avatar@432` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `secAvatar@446` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `groupAvatar@452` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `orgBadge@454` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `loadOrgs@460` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `readHash@470` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `writeHash@476` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `openOrg@482` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `refreshSnap@506` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `loadChat@513` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `markSeen@543` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `unreadOf@547` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `scheduleRefresh@554` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `notifyChanges@562` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `liveSlot@576` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `lastLine@623` | Organization/chat selection, history, unread state, SSE refresh and notifications | pending | pending |
-| `chatRow@629` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `orgTree@636` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `setFolded@652` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `unfoldTo@656` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderSide@662` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderMe@729` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `pushHist@736` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `goHist@744` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `toggleSide@753` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `go@759` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderAll@769` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderHead@772` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderBanner@802` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `nearBottom@821` | Sidebar tree, folding, search, navigation, headings and member banners | pending | pending |
-| `renderStream@822` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `watchPlain@853` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `plainState@863` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `requestPlain@868` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `gotPlain@883` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `updatePlain@888` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `togglePlain@896` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `togglePlainOne@904` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `toggleDigest@910` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `loadDigest@916` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `digestCard@927` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `askSecretary@940` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `placeholder@950` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `renderItem@954` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `stripQuote@1013` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `copyText@1014` | Messages, digest, plain words, rich text, quote/copy/reply actions | pending | pending |
-| `memberItems@1018` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `toolName@1050` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `stepArg@1051` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `actsBlock@1059` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `stepRow@1081` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `liveTurnStart@1102` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `liveItems@1109` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `renderLive@1120` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `permissionCard@1156` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `decide@1161` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `setQuote@1166` | External transcripts, live ACP items, tool detail and permission decisions | pending | pending |
-| `quotedBody@1174` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `closeSelBar@1181` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `micButton@1236` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `field@1242` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `composerBox@1249` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `renderComposer@1290` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `toPicker@1312` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `mentionCheck@1331` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `pickMention@1347` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `mentionKey@1357` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `closeMention@1369` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `closeMenu@1373` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `openMenu@1374` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `openContextMenu@1381` | Native selection quote, voice input, drafts, recipients and mention completion | pending | pending |
-| `openThread@1400` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `loadThread@1405` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `closeThread@1416` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `renderThread@1417` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `panes@1436` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `setPane@1437` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `togglePanel@1444` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `applyPanelWidth@1450` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `startResize@1454` | Thread pane, reply composer, panel tabs and resizing | pending | pending |
-| `renderPanel@1465` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `renderWork@1493` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `fileTree@1540` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `fill@1543` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `openFile@1569` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `sizeLabel@1578` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `renderFile@1579` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `codeView@1602` | Workspace selection, git edits, recursive files, previews and line navigation | pending | pending |
-| `renderOrgPane@1612` | Overview, hierarchy, tasks, protocols, episodes and decision cards | pending | pending |
-| `hierarchyBlock@1717` | Overview, hierarchy, tasks, protocols, episodes and decision cards | pending | pending |
-| `walk@1720` | Overview, hierarchy, tasks, protocols, episodes and decision cards | pending | pending |
-| `decisionCard@1784` | Overview, hierarchy, tasks, protocols, episodes and decision cards | pending | pending |
-| `scheduleCc@1838` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `loadCc@1839` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `openCopies@1852` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `drawCopies@1859` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `copyState@1874` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `copyCard@1881` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `checkRulesView@1905` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `issuedBy@1922` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `ruleScope@1923` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `exampleText@1933` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `plainRules@1939` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `ackCopy@1942` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `retireCopy@1951` | Copies, unread acknowledgement, retirement, check source and examples | pending | pending |
-| `closeCard@1964` | Member identity, avatar, rename/model/configuration and seat actions | pending | pending |
-| `identity@1965` | Member identity, avatar, rename/model/configuration and seat actions | pending | pending |
-| `pickImage@1972` | Member identity, avatar, rename/model/configuration and seat actions | pending | pending |
-| `openCard@1986` | Member identity, avatar, rename/model/configuration and seat actions | pending | pending |
-| `closeLayer@2081` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `scrim@2082` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `harnessList@2088` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `runModes@2094` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `runNotes@2095` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `hostKinds@2102` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `seatOptions@2105` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `memberDialog@2109` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `forwardDialog@2247` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `seatAction@2271` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `openSecretarySetup@2279` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `orgDialog@2288` | Create organization, all member modes, secretary setup and manual forwarding | pending | pending |
-| `openDetails@2310` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `render@2323` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `countTasks@2402` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `reportBlock@2405` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `traceView@2410` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `fetchMore@2427` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `draw@2434` | Organization detail tabs, task reports, documents and trajectory pagination | pending | pending |
-| `sections@2454` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `openSettings@2458` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `draw@2464` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `setRow@2474` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `segControl@2477` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `toggleControl@2480` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `redraw@2485` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawProfile@2486` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawAppearance@2501` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawLanguage@2510` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawVoice@2525` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawNotify@2533` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawHarness@2545` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `onInstall@2595` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `drawAbout@2603` | Native settings sections, adapters, appearance, language, voice and about | pending | pending |
-| `svgEl@2621` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `protoName@2627` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `openChart@2635` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `applyView@2665` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `clampView@2672` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `fitChart@2677` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `zoomAt@2687` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `zoomBy@2695` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `panBy@2696` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `wireChart@2702` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `loadChart@2772` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `reloadChart@2781` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `redrawChart@2786` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `drawChart@2791` | Native organization chart, shared seats, filters, pan, zoom and focus | pending | pending |
-| `menus@2965` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `abBtn@2966` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `renderAppbar@2970` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `openAppMenu@2995` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `menuItem@3003` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `appMenu@3011` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `focusSearch@3060` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `pasteText@3061` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `quoteSelection@3066` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `shortcutsDialog@3075` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `shortcut@3082` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `installApp@3096` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `installPage@3115` | Native menus, all keyboard commands, clipboard and installation replacement | pending | pending |
-| `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | pending | pending |
+| --- | --- | --- | --- |
+| `platformInfo@9` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `automaticDelivery@17` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `hostSurfaces@22` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `shortcutLabel@26` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `shortcutAction@29` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `absolutePath@46` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `inlineTokens@51` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `append@86` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `h@93` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `icon@148` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `hue@166` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `initial@172` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `dayLabel@179` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `clock@185` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `shortWhen@186` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `ago@191` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `stateLabel@200` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `taskLabel@204` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `pathLink@207` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `inline@211` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `rich@220` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `mdRun@245` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `quoteBlock@271` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `load@277` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `save@278` | Native platform adaptation, text rendering, timestamps, and persistent view state | done | done |
+| `get@281` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `loadPlatform@287` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `freshToken@291` | Authenticated HTTP, errors, preferences, and shared language formatting | done | pending |
+| `post@297` | Authenticated HTTP, errors, preferences, and shared language formatting | done | pending |
+| `toast@305` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `lang@313` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `applyPrefs@314` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `loadPrefs@325` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `setPrefs@329` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `tget@343` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `targ@355` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `t@365` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `tn@369` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `loadLang@381` | Authenticated HTTP, errors, preferences, and shared language formatting | done | done |
+| `dname@417` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `roleName@429` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `avatar@432` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `secAvatar@446` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `groupAvatar@452` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `orgBadge@454` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `loadOrgs@460` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `readHash@470` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `writeHash@476` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `openOrg@482` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `refreshSnap@506` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `loadChat@513` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `markSeen@543` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `unreadOf@547` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `scheduleRefresh@554` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `notifyChanges@562` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `liveSlot@576` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `connect@577` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `lastLine@623` | Organization/chat selection, history, unread state, SSE refresh and notifications | done | done |
+| `chatRow@629` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `orgTree@636` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `setFolded@652` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `unfoldTo@656` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderSide@662` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderMe@729` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `pushHist@736` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `goHist@744` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `toggleSide@753` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `go@759` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderAll@769` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderHead@772` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderBanner@802` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `nearBottom@821` | Sidebar tree, folding, search, navigation, headings and member banners | done | done |
+| `renderStream@822` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `watchPlain@853` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `plainState@863` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `requestPlain@868` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `gotPlain@883` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `updatePlain@888` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `togglePlain@896` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `togglePlainOne@904` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `toggleDigest@910` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `loadDigest@916` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `digestCard@927` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `askSecretary@940` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `placeholder@950` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `renderItem@954` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `stripQuote@1013` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `copyText@1014` | Messages, digest, plain words, rich text, quote/copy/reply actions | done | done |
+| `memberItems@1018` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `toolName@1050` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `stepArg@1051` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `actsBlock@1059` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `stepRow@1081` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `liveTurnStart@1102` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `liveItems@1109` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `renderLive@1120` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `permissionCard@1156` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `decide@1161` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `setQuote@1166` | External transcripts, live ACP items, tool detail and permission decisions | done | done |
+| `quotedBody@1174` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `closeSelBar@1181` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `micButton@1236` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `field@1242` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `composerBox@1249` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `doSend@1264` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `renderComposer@1290` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `toPicker@1312` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `mentionCheck@1331` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `pickMention@1347` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `mentionKey@1357` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `closeMention@1369` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `closeMenu@1373` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `openMenu@1374` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `openContextMenu@1381` | Native selection quote, voice input, drafts, recipients and mention completion | done | done |
+| `openThread@1400` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `loadThread@1405` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `closeThread@1416` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `renderThread@1417` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `panes@1436` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `setPane@1437` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `togglePanel@1444` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `applyPanelWidth@1450` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `startResize@1454` | Thread pane, reply composer, panel tabs and resizing | done | done |
+| `renderPanel@1465` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `renderWork@1493` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `fileTree@1540` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `fill@1543` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `openFile@1569` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `sizeLabel@1578` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `renderFile@1579` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `codeView@1602` | Workspace selection, git edits, recursive files, previews and line navigation | done | done |
+| `renderOrgPane@1612` | Overview, hierarchy, tasks, protocols, episodes and decision cards | done | done |
+| `hierarchyBlock@1717` | Overview, hierarchy, tasks, protocols, episodes and decision cards | done | done |
+| `walk@1720` | Overview, hierarchy, tasks, protocols, episodes and decision cards | done | done |
+| `decisionCard@1784` | Overview, hierarchy, tasks, protocols, episodes and decision cards | done | done |
+| `scheduleCc@1838` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `loadCc@1839` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `openCopies@1852` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `drawCopies@1859` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `copyState@1874` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `copyCard@1881` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `checkRulesView@1905` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `issuedBy@1922` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `ruleScope@1923` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `exampleText@1933` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `plainRules@1939` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `ackCopy@1942` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `retireCopy@1951` | Copies, unread acknowledgement, retirement, check source and examples | done | done |
+| `closeCard@1964` | Member identity, avatar, rename/model/configuration and seat actions | done | done |
+| `identity@1965` | Member identity, avatar, rename/model/configuration and seat actions | done | done |
+| `pickImage@1972` | Member identity, avatar, rename/model/configuration and seat actions | done | done |
+| `openCard@1986` | Member identity, avatar, rename/model/configuration and seat actions | done | done |
+| `closeLayer@2081` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `scrim@2082` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `harnessList@2088` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `runModes@2094` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `runNotes@2095` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `hostKinds@2102` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `seatOptions@2105` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `memberDialog@2109` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `forwardDialog@2247` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `seatAction@2271` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `openSecretarySetup@2279` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `orgDialog@2288` | Create organization, all member modes, secretary setup and manual forwarding | done | done |
+| `openDetails@2310` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `render@2323` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `countTasks@2402` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `reportBlock@2405` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `traceView@2410` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `fetchMore@2427` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `draw@2434` | Organization detail tabs, task reports, documents and trajectory pagination | done | done |
+| `sections@2454` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `openSettings@2458` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `draw@2464` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `setRow@2474` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `segControl@2477` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `toggleControl@2480` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `redraw@2485` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawProfile@2486` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawAppearance@2501` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawLanguage@2510` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawVoice@2525` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawNotify@2533` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawHarness@2545` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `onInstall@2595` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `drawAbout@2603` | Native settings sections, adapters, appearance, language, voice and about | done | done |
+| `svgEl@2621` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `protoName@2627` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `openChart@2635` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `applyView@2665` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `clampView@2672` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `fitChart@2677` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `zoomAt@2687` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `zoomBy@2695` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `panBy@2696` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `wireChart@2702` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `loadChart@2772` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `reloadChart@2781` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `redrawChart@2786` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `drawChart@2791` | Native organization chart, shared seats, filters, pan, zoom and focus | done | done |
+| `menus@2965` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `abBtn@2966` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `renderAppbar@2970` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `openAppMenu@2995` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `menuItem@3003` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `appMenu@3011` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `focusSearch@3060` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `pasteText@3061` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `quoteSelection@3066` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `shortcutsDialog@3075` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `shortcut@3082` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `installApp@3096` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `installPage@3115` | Native menus, all keyboard commands, clipboard and installation replacement | done | done |
+| `wire@3130` | Window initialization, quick start, native event wiring and lifecycle | done | done |
 
 ## Changes for the clients
+
+- 2026-10-29: Reviewed the full implementation mappings and marked corresponding rows done (gate 1 only). Gate 2 still requires CI at the latest head; gate 3 remains the person's. macOS freshToken/post/connect remain pending: Client currently stores immutable base/token and reuses them after SSE reconnect. Please reread RELIC_HOME/app.json (default ~/.relic), validate /api/lifecycle against token/pid/instance, update the transport and reconnect events. A POST may retry only the explicit 403 missing-token rejection, never an ambiguous write failure. Windows implements this with mock HTTP regression coverage.
+- 2026-10-29: macOS ProtocolForm already exposes strength/rules, but still sends a supersedes field that issue_protocol_as_person ignores. Please remove that misleading input/payload and use shared native.protocol_* labels (including strength/rules/rules_hint) in the same order as Windows. Preserve summary_for_person and inherit; no new engine semantics are requested.
+- 2026-10-29: Removed the Edge/Chrome/app-mode launch path. relic_app.py's normal entry launches the native executable and lets it own the server; --serve and explicit headless/lifecycle CLI operations remain. /api/install-window now returns 410 without launching anything. scripts/install.py no longer creates the old macOS shell launcher. Native discovery rejects shell wrappers. No native/macos files were edited by the shared owner.
+- 2026-10-29: Merged native-macos through 081c753 and read REQUESTS.md. Requested speech metadata, platform substitutions, Enter/Shift-Enter contract and inventory updates are applied. Last full Python package matrix at 75192db passed in run 40831648376; Windows/macOS native jobs passed in run 40831648315. New changes await CI.
+
 
 - 2026-10-29: Person-issued protocol form must expose both weak guidance and strong executable rules, using the existing /protocols body (strength, rules, summary_for_person, inherit). Added shared native.protocol_strength, native.protocol_rules, native.protocol_rules_hint. Windows has both modes; macOS owner should apply this contract in its form.
 - 2026-10-29: Latest native build jobs at 184b381 passed on Windows/macOS (run 40830357357); parity stayed failing. Python CI found native_package.py missing explicit creationflags at the Inno compiler boundary; it now uses the shared helper, with no local execution.

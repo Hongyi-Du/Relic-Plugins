@@ -14,7 +14,7 @@ public sealed partial class MainWindow
 {
     private readonly Grid columns = new() { ColumnSpacing = 10, Padding = new Thickness(12) };
     private bool sideOpen = true, panelOpen = true;
-    private double sideWidth = 260, panelWidth = 370;
+    private double sideWidth = 260, panelWidth = 370, fileWidth = 520;
     private string viewMode = "direct";
     private readonly List<(string Org, string Member)> history = new();
     private int historyIndex = -1;
@@ -27,7 +27,7 @@ public sealed partial class MainWindow
         RememberChat();
         var state = new JsonObject { ["org"] = org, ["member"] = member, ["pane"] = pane == "thread" ? previousPane : pane,
             ["plain"] = plainMode, ["digest"] = digestOpen, ["side"] = sideOpen, ["panel"] = panelOpen,
-            ["sideWidth"] = sideWidth, ["panelWidth"] = panelWidth, ["mode"] = viewMode,
+            ["sideWidth"] = sideWidth, ["panelWidth"] = panelWidth, ["fileWidth"] = fileWidth, ["mode"] = viewMode, ["chartClosed"] = chartClosed, ["chartLinks"] = chartLinks,
             ["folded"] = JsonSerializer.SerializeToNode(folded), ["drafts"] = JsonSerializer.SerializeToNode(drafts),
             ["seen"] = JsonSerializer.SerializeToNode(seenMessages), ["chats"] = chatStates.DeepClone() };
         try { System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(StatePath)!); System.IO.File.WriteAllText(StatePath + ".tmp", state.ToJsonString()); System.IO.File.Move(StatePath + ".tmp", StatePath, true); }
@@ -56,6 +56,8 @@ public sealed partial class MainWindow
             plainMode = state.Flag("plain"); digestOpen = state.Flag("digest"); sideOpen = state["side"] == null || state.Flag("side"); panelOpen = state["panel"] == null || state.Flag("panel");
             if (double.TryParse(state.Text("sideWidth"), out var sw)) sideWidth = Math.Clamp(sw, 180, 460);
             if (double.TryParse(state.Text("panelWidth"), out var pw)) panelWidth = Math.Clamp(pw, 280, 900);
+            if (double.TryParse(state.Text("fileWidth"), out var fw)) fileWidth = Math.Clamp(fw, 280, 900);
+            chartClosed = state["chartClosed"] == null || state.Flag("chartClosed"); chartLinks = state["chartLinks"] == null || state.Flag("chartLinks");
             viewMode = state.Text("mode");
             foreach (var id in state.Rows("folded")) folded.Add(id.Text());
             if (state["drafts"] is JsonObject saved) foreach (var pair in saved) drafts[pair.Key] = pair.Value.Text();
@@ -69,7 +71,7 @@ public sealed partial class MainWindow
     {
         if (columns.ColumnDefinitions.Count < 3) return;
         columns.ColumnDefinitions[0].Width = new GridLength(sideOpen ? sideWidth : 0);
-        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen ? Math.Min(panelWidth, Math.Max(280, root.ActualWidth * .6)) : 0);
+        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen ? Math.Min(pane == "files" ? fileWidth : panelWidth, Math.Max(280, root.ActualWidth * .6)) : 0);
         foreach (var child in columns.Children.OfType<FrameworkElement>())
             if (Grid.GetColumn(child) == 0) child.Visibility = sideOpen ? Visibility.Visible : Visibility.Collapsed;
             else if (Grid.GetColumn(child) == 2) child.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -88,7 +90,7 @@ public sealed partial class MainWindow
             var left = i == 0; var thumb = new Thumb { Width = 6, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left, Opacity = .3 };
             thumb.Loaded += (_, _) => ToolTipService.SetToolTip(thumb, T("panel.resize"));
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
-            thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
+            thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else if (pane == "files") fileWidth = Math.Clamp(fileWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
             thumb.DragCompleted += (_, _) => SaveViewState();
         }
         root.SizeChanged += (_, _) => LayoutColumns();
@@ -112,7 +114,9 @@ public sealed partial class MainWindow
     private string Unread(string key)
     {
         var id = snap["chats"]?[key]?["last"].Text("id") ?? "";
-        return id.Length > 0 && seenMessages.GetValueOrDefault(org + "/" + key) != id ? " •" : "";
+        if (!long.TryParse(seenMessages.GetValueOrDefault(org + "/" + key), out var seen)) seen = 0;
+        var count = snap["chats"]?[key].Rows("ids").Count(row => row is JsonArray ids && ids.Count > 1 && ids[1].Text() != "human" && long.TryParse(ids[0].Text(), out var number) && number > seen) ?? 0;
+        return count > 0 ? " · " + count : "";
     }
     private string LastLine(string key)
     {
@@ -165,6 +169,11 @@ public sealed partial class MainWindow
     }
     private async Task Edit(string action)
     {
+        if (selectedRich?.SelectedText.Length > 0 && action is "copy" or "quote")
+        {
+            if (action == "copy") Copy(selectedRich.SelectedText); else Quote(T("common.quote"), selectedRich.SelectedText);
+            return;
+        }
         if (editing == null) { Note(T(action == "quote" ? "appmenu.quote_need_selection" : "appmenu.paste_need_field")); return; }
         editing.Focus(FocusState.Programmatic);
         switch (action)

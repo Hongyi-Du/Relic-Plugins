@@ -79,7 +79,7 @@ public sealed partial class MainWindow
         try
         {
             var data = await api!.Get("/api/fs/read?path=" + Client.Segment(path));
-            filePath = path; fileLine = line; fileData = data; pane = "files"; DrawDetail(); SaveViewState();
+            filePath = path; fileLine = line; fileData = data; pane = "files"; panelOpen = true; LayoutColumns(); DrawDetail(); SaveViewState();
         }
         catch (Exception ex) { Note(T("file.open_failed", ("error", ex.Message))); }
     }
@@ -87,10 +87,7 @@ public sealed partial class MainWindow
     {
         try
         {
-            // Only a direct person action reaches the system shell.
-            var opened = folder ? await Launcher.LaunchFolderAsync(await Windows.Storage.StorageFolder.GetFolderFromPathAsync(path))
-                : await Launcher.LaunchFileAsync(await Windows.Storage.StorageFile.GetFileFromPathAsync(path));
-            if (!opened) Note(T("file.open_failed", ("error", path)));
+            await api!.Post("/api/fs/open", new { path });
         }
         catch (Exception ex) { Note(T("file.open_failed", ("error", ex.Message))); }
     }

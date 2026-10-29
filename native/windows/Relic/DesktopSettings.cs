@@ -204,7 +204,11 @@ public sealed partial class MainWindow
             var picture = new Image { Source = new BitmapImage(new Uri("http://127.0.0.1:" + port + url)), Width = size, Height = size, Stretch = Stretch.UniformToFill };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(picture, label); return picture;
         }
-        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = new SolidColorBrush(Microsoft.UI.Colors.DimGray), Child = new TextBlock { Text = label.Length > 0 ? label[..1].ToUpperInvariant() : "R", Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        uint hash = 0; foreach (var character in label) hash = unchecked(hash * 31 + character);
+        var hue = hash % 360 / 60.0; double chroma = .43, x = chroma * (1 - Math.Abs(hue % 2 - 1));
+        var color = hue switch { < 1 => (chroma, x, 0d), < 2 => (x, chroma, 0d), < 3 => (0d, chroma, x), < 4 => (0d, x, chroma), < 5 => (x, 0d, chroma), _ => (chroma, 0d, x) };
+        var brush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)((color.Item1 + .25) * 255), (byte)((color.Item2 + .25) * 255), (byte)((color.Item3 + .25) * 255)));
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = brush, Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     }
     private async Task ChangeAvatar(string? who = null)
     {

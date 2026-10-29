@@ -21,13 +21,16 @@ public sealed partial class MainWindow
     private Button? recipientButton;
     private int chatLimit = 1000;
     private bool chatMore;
+    private readonly Dictionary<string, FrameworkElement> plainTargets = new();
+    private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private readonly HashSet<TextBox> composing = new();
     private string PlainKey(string id) => org + "/" + id;
     private void Quote(string who, string body)
     {
         quoteWho = who; quoteText = Regex.Replace(body, @"^(>.*\n?)+\n*", "").Trim();
         if (quoteText.Length > 1200) quoteText = quoteText[..1200] + "…";
         quoteLabel.Text = T("composer.quoting", ("who", who)) + "\n" + quoteText; SaveViewState();
-        if (pane == "thread") threadEditor.Focus(FocusState.Programmatic); else editor.Focus(FocusState.Programmatic);
+        if (pane == "thread") { DrawDetail(); threadEditor.Focus(FocusState.Programmatic); } else editor.Focus(FocusState.Programmatic);
     }
     private string Quoted(string text)
     {
@@ -67,17 +70,29 @@ public sealed partial class MainWindow
         foreach (var m in choices)
         {
             var option = new MenuFlyoutItem { Text = m.Text("display") + " · @" + m.Text("name") };
-            option.Click += (_, _) => { var at = text.LastIndexOf('@'); var inserted = "@" + m.Text("display") + " "; editor.Text = editor.Text[..at] + inserted + editor.Text[start..]; editor.SelectionStart = at + inserted.Length; editor.Focus(FocusState.Programmatic); };
+            option.Click += (_, _) => { var at = text.LastIndexOf('@'); var inserted = "@" + m.Text("display") + " "; editor.Text = editor.Text[..at] + inserted + editor.Text[start..]; editor.SelectionStart = at + inserted.Length; recipientNames.Remove("all"); recipientNames.Add(m.Text("name")); UpdateRecipient(); SaveViewState(); editor.Focus(FocusState.Programmatic); };
             menu.Items.Add(option);
         }
         menu.ShowAt(editor);
     }
     private void WireComposer()
     {
+        plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
+        chatScroll.ViewChanged += (_, _) => { if (plainMode && !plainTimer.IsEnabled) plainTimer.Start(); };
+        foreach (var text in new[] { editor, threadEditor })
+        {
+            text.TextCompositionStarted += (_, _) => composing.Add(text);
+            text.TextCompositionEnded += (_, _) => composing.Remove(text);
+        }
+        threadEditor.KeyDown += async (_, e) =>
+        {
+            var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+            if (e.Key == VirtualKey.Enter && !shift && !composing.Contains(threadEditor)) { e.Handled = true; await Run(SendThread); }
+        };
         editor.KeyDown += async (_, e) =>
         {
             var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-            if (e.Key == VirtualKey.Enter && !shift) { e.Handled = true; await Run(Send); }
+            if (e.Key == VirtualKey.Enter && !shift && !composing.Contains(editor)) { e.Handled = true; await Run(Send); }
             if (e.Key == VirtualKey.Space && editor.Text[..Math.Min(editor.SelectionStart, editor.Text.Length)].EndsWith('@')) MentionMenu();
         };
         editor.TextChanged += (_, _) => { if (editor.Text[..Math.Min(editor.SelectionStart, editor.Text.Length)].EndsWith('@')) DispatcherQueue.TryEnqueue(MentionMenu); };
@@ -113,7 +128,7 @@ public sealed partial class MainWindow
     }
     private void DrawConversation()
     {
-        chatHead.Children.Clear(); stream.Children.Clear();
+        chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
         if (org.Length == 0)
         {
             stream.Children.Add(Text(T("chat.no_orgs"), 24)); stream.Children.Add(Text(T("chat.no_orgs_hint")));
@@ -150,6 +165,7 @@ public sealed partial class MainWindow
         if (member.Length > 0) DrawLive(stream);
         if (atBottom) DispatcherQueue.TryEnqueue(() => chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null));
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
+        if (plainMode && member.Length == 0) plainTimer.Start();
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
@@ -180,7 +196,7 @@ public sealed partial class MainWindow
             if (explainable && (plainMode && member.Length == 0 && !inThread || plainOne.Contains(key)))
             {
                 box.Children.Add(Button(plainPending.Contains(key) ? T("plain.pending") : plainFailed.Contains(key) ? T("plain.retry") : T("plain.waiting"), () => RequestPlain([item.Text("id")])));
-                if (!plainPending.Contains(key) && !plainFailed.Contains(key)) box.Loaded += (_, _) => { if (plainMode) _ = Run(() => RequestPlain([item.Text("id")])); };
+                if (!plainPending.Contains(key) && !plainFailed.Contains(key) && !inThread && member.Length == 0) plainTargets[item.Text("id")] = box;
             }
         }
         if (from == "human" && item.Rows("to").Count > 0)
@@ -222,23 +238,38 @@ public sealed partial class MainWindow
     private Task TogglePlain() { plainMode = !plainMode; DrawConversation(); if (plainMode) Note(T("plain.on_hint")); SaveViewState(); return Task.CompletedTask; }
     private async Task RequestPlain(string[] ids)
     {
+        var selectedOrg = org;
         var fresh = ids.Where(id => !plainPending.Contains(PlainKey(id)) && !plain.ContainsKey(PlainKey(id))).Take(200).ToArray(); if (fresh.Length == 0) return;
         foreach (var id in fresh) { plainPending.Add(PlainKey(id)); plainFailed.Remove(PlainKey(id)); }
-        try { var result = await api!.Post(PathFor("/plain"), new { ids = fresh.Select(long.Parse).ToArray() }); GotPlain(result["items"]); }
-        catch (Exception ex) { foreach (var id in fresh) { plainPending.Remove(PlainKey(id)); plainFailed.Add(PlainKey(id)); } Note(T("plain.failed", ("error", ex.Message))); }
+        try { var result = await api!.Post(Client.Org(selectedOrg, "/plain"), new { ids = fresh.Select(long.Parse).ToArray() }); GotPlain(result["items"], selectedOrg); }
+        catch (Exception ex) { foreach (var id in fresh) { plainPending.Remove(selectedOrg + "/" + id); plainFailed.Add(selectedOrg + "/" + id); } if (org == selectedOrg) Note(T("plain.failed", ("error", ex.Message))); }
     }
-    private void GotPlain(JsonNode? items)
+    private async Task VisiblePlain()
+    {
+        if (!plainMode || member.Length > 0 || closing) return;
+        var visible = new List<string>();
+        foreach (var (id, view) in plainTargets)
+        {
+            if (!view.IsLoaded) continue;
+            var point = view.TransformToVisual(chatScroll).TransformPoint(new(0, 0));
+            if (point.Y < chatScroll.ActualHeight && point.Y + view.ActualHeight > 0) visible.Add(id);
+        }
+        await RequestPlain(visible.ToArray());
+    }
+    private void GotPlain(JsonNode? items, string? targetOrg = null)
     {
         if (items is not JsonObject results) return;
-        foreach (var pair in results) { plain[PlainKey(pair.Key)] = pair.Value.Text(); plainPending.Remove(PlainKey(pair.Key)); plainFailed.Remove(PlainKey(pair.Key)); }
-        DrawConversation();
+        targetOrg ??= org;
+        foreach (var pair in results) { var key = targetOrg + "/" + pair.Key; plain[key] = pair.Value.Text(); plainPending.Remove(key); plainFailed.Remove(key); }
+        if (targetOrg == org) DrawConversation();
     }
     private async Task ToggleDigest() { digestOpen = !digestOpen; SaveViewState(); if (digestOpen) await LoadDigest(false); DrawConversation(); }
     private async Task LoadDigest(bool refresh)
     {
+        var selectedOrg = org;
         digestPending = true; DrawConversation();
-        try { var result = await api!.Post(PathFor("/digest"), new { refresh }); if (result["digest"] != null) digest = result["digest"]!.DeepClone(); digestPending = result.Flag("pending"); if (refresh && !digestPending) Note(T("digest.up_to_date")); }
-        catch (Exception ex) { digestPending = false; Note(T("digest.failed", ("error", ex.Message))); }
+        try { var result = await api!.Post(Client.Org(selectedOrg, "/digest"), new { refresh }); if (org != selectedOrg) return; if (result["digest"] != null) digest = result["digest"]!.DeepClone(); digestPending = result.Flag("pending"); if (refresh && !digestPending) Note(T("digest.up_to_date")); }
+        catch (Exception ex) { if (org != selectedOrg) return; digestPending = false; Note(T("digest.failed", ("error", ex.Message))); }
         DrawConversation();
     }
     private UIElement DigestCard()
@@ -256,24 +287,33 @@ public sealed partial class MainWindow
     }
     private async Task OpenThread(string id)
     {
+        var targetOrg = org;
         if (pane != "thread") previousPane = pane;
         threadId = id; pane = "thread"; threadEditor.Text = drafts.GetValueOrDefault(org + "/thread/" + id, "");
-        threadData = await api!.Get(PathFor("/thread?root=" + Client.Segment(id))); DrawDetail();
+        threadData = new JsonObject(); panelOpen = true; LayoutColumns(); DrawDetail(); SaveViewState();
+        var data = await api!.Get(PathFor("/thread?root=" + Client.Segment(id)));
+        if (org != targetOrg || threadId != id || pane != "thread") return;
+        threadData = data; DrawDetail();
     }
     private void DrawThread()
     {
-        detail.Children.Add(Button(T("common.close"), () => { threadId = ""; pane = previousPane; DrawDetail(); return Task.CompletedTask; }));
+        detail.Children.Add(Button(T("common.close"), () => { threadId = ""; pane = previousPane; LayoutColumns(); DrawDetail(); SaveViewState(); return Task.CompletedTask; }));
         if (threadData["root"] == null) { detail.Children.Add(Text(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"))); return; }
         detail.Children.Add(Message(threadData["root"]!, true));
         detail.Children.Add(Text(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies")));
         foreach (var reply in threadData.Rows("replies")) detail.Children.Add(Message(reply!, true));
+        if (quoteText.Length > 0) { detail.Children.Add(Text(T("composer.quoting", ("who", quoteWho)) + quoteText)); detail.Children.Add(Button(T("composer.cancel_quote"), () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; })); }
         threadEditor.PlaceholderText = T("thread.reply_placeholder"); detail.Children.Add(threadEditor); detail.Children.Add(Microphone(threadEditor));
-        detail.Children.Add(Button(T("common.send"), async () =>
-        {
-            if (string.IsNullOrWhiteSpace(threadEditor.Text)) return;
-            var sent = threadEditor.Text; await api!.Post(PathFor("/send"), new { body = Quoted(sent), reply_to = long.Parse(threadId), channel = member.Length == 0 ? "group" : "private" });
-            if (threadEditor.Text == sent) threadEditor.Text = ""; ClearQuote(); await OpenThread(threadId); await Refresh();
-        }));
+        detail.Children.Add(Button(T("common.send"), SendThread));
+    }
+    private async Task SendThread()
+    {
+        if (string.IsNullOrWhiteSpace(threadEditor.Text) || composing.Contains(threadEditor) || threadId.Length == 0) return;
+        var selectedOrg = org; var rootId = threadId; var sent = threadEditor.Text;
+        await api!.Post(PathFor("/send"), new { body = Quoted(sent), reply_to = long.Parse(rootId), channel = member.Length == 0 ? "group" : "private" });
+        drafts[selectedOrg + "/thread/" + rootId] = "";
+        if (org == selectedOrg && threadId == rootId) { if (threadEditor.Text == sent) threadEditor.Text = ""; ClearQuote(); await OpenThread(rootId); await Refresh(); }
+        SaveViewState();
     }
     private UIElement ToolActions(JsonNode group)
     {

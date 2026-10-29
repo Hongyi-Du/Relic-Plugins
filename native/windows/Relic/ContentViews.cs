@@ -13,6 +13,7 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
+    private RichTextBlock? selectedRich;
     private string When(string at)
     {
         if (!DateTimeOffset.TryParse(at, out var date)) { if (double.TryParse(at, out var seconds) && seconds > 0) date = DateTimeOffset.FromUnixTimeSeconds((long)seconds); else return at; }
@@ -81,32 +82,27 @@ public sealed partial class MainWindow
     private RichTextBlock InlineText(string value, double size = 14)
     {
         var text = new RichTextBlock { IsTextSelectionEnabled = true, FontSize = size * (preferences.Text("font") == "large" ? 1.18 : preferences.Text("font") == "small" ? .86 : 1), TextWrapping = TextWrapping.Wrap };
-        var paragraph = new Paragraph(); var offset = 0;
-        var pattern = @"\[([^\]]+)\]\(([^\)]+)\)|`([^`]+)`|\*\*(.+?)\*\*|(?<!\*)\*([^*]+)\*(?!\*)|https?://[^\s<>]+|[A-Za-z]:[\\/][^\r\n<>]+";
-        foreach (Match match in Regex.Matches(value, pattern))
+        var paragraph = new Paragraph();
+        foreach (var part in InlineParts.Parse(value))
         {
-            if (match.Index > offset) paragraph.Inlines.Add(new Run { Text = value[offset..match.Index] });
-            if (match.Groups[1].Success || match.Value.StartsWith("http") || Regex.IsMatch(match.Value, @"^[A-Za-z]:"))
+            switch (part.Kind)
             {
-                var target = match.Groups[2].Success ? match.Groups[2].Value : match.Value;
-                var link = new Hyperlink(); link.Inlines.Add(new Run { Text = match.Groups[1].Success ? match.Groups[1].Value : match.Value });
-                ToolTipService.SetToolTip(link, target.StartsWith("http") ? target : T("chat.path_preview"));
-                link.Click += async (_, _) => await Run(async () =>
-                {
-                    if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
-                    else
+                case "link":
+                    var link = new Hyperlink(); link.Inlines.Add(new Run { Text = part.Text });
+                    ToolTipService.SetToolTip(link, part.Target.StartsWith("http") ? part.Target : T("chat.path_preview"));
+                    link.Click += async (_, _) => await Run(async () =>
                     {
-                        var at = Regex.Match(target, @"^(.*?)(?::(\d+))?$");
-                        await OpenFile(at.Groups[1].Value, int.TryParse(at.Groups[2].Value, out var line) ? line : 0);
-                    }
-                }); paragraph.Inlines.Add(link);
+                        if (Uri.TryCreate(part.Target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") await Windows.System.Launcher.LaunchUriAsync(uri);
+                        else { var target = InlineParts.PathTarget(part.Target); await OpenFile(target.Path, target.Line); }
+                    }); paragraph.Inlines.Add(link); break;
+                case "code": paragraph.Inlines.Add(new Run { Text = part.Text, FontFamily = new FontFamily("Consolas") }); break;
+                case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
+                case "italic": var italic = new Italic(); italic.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(italic); break;
+                default: paragraph.Inlines.Add(new Run { Text = part.Text }); break;
             }
-            else if (match.Groups[3].Success) paragraph.Inlines.Add(new Run { Text = match.Groups[3].Value, FontFamily = new FontFamily("Consolas") });
-            else if (match.Groups[4].Success) { var bold = new Bold(); bold.Inlines.Add(new Run { Text = match.Groups[4].Value }); paragraph.Inlines.Add(bold); }
-            else { var italic = new Italic(); italic.Inlines.Add(new Run { Text = match.Groups[5].Value }); paragraph.Inlines.Add(italic); }
-            offset = match.Index + match.Length;
         }
-        if (offset < value.Length) paragraph.Inlines.Add(new Run { Text = value[offset..] }); text.Blocks.Add(paragraph);
+        text.Blocks.Add(paragraph);
+        text.SelectionChanged += (_, _) => { if (text.SelectedText.Length > 0) selectedRich = text; };
         var menu = new MenuFlyout();
         var copy = new MenuFlyoutItem { Text = T("common.copy") }; copy.Click += (_, _) => Copy(text.SelectedText.Length > 0 ? text.SelectedText : value); menu.Items.Add(copy);
         var quote = new MenuFlyoutItem { Text = T("common.quote") }; quote.Click += (_, _) => Quote(T("common.quote"), text.SelectedText.Length > 0 ? text.SelectedText : value); menu.Items.Add(quote); text.ContextFlyout = menu;
@@ -186,7 +182,13 @@ public sealed partial class MainWindow
         if (p.Text("trigger").Length > 0) box.Children.Add(Text(T("details.label_applies") + " " + p.Text("trigger")));
         box.Children.Add(Rich(p.Text("guidance")));
         if (p.Text("summary_for_person").Length > 0) box.Children.Add(Stack(Text(T("details.label_summary")), Rich(p.Text("summary_for_person"))));
-        if (p.Rows("rules").Count > 0) box.Children.Add(CheckRules(p.Rows("rules")));
+        if (p.Rows("rules").Count > 0)
+        {
+            var rules = new JsonArray();
+            foreach (var original in p.Rows("rules")) { var rule = original?.DeepClone(); if (rule is JsonObject obj && rule.Text("effect") == "check") { obj.Remove("code"); obj.Remove("examples"); obj.Remove("code_sha256"); } rules.Add(rule); }
+            box.Children.Add(Text(rules.ToJsonString(new() { WriteIndented = true }), 12));
+            if (p.Rows("rules").Any(r => r.Text("effect") == "check")) box.Children.Add(CheckRules(p.Rows("rules")));
+        }
         box.Children.Add(Text(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 12)); return box;
     }
     private UIElement CheckRules(JsonArray rules)

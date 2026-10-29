@@ -26,12 +26,24 @@ public sealed partial class MainWindow
         void Fit(bool all)
         {
             var values = positions.Values.ToArray();
-            if (!all && positions.TryGetValue(focus.Length > 0 ? focus : org, out var center))
-            { scroll.ChangeView(Math.Max(0, center.X - 100), Math.Max(0, center.Y - 100), .85f); return; }
-            var zoom = Math.Clamp((float)Math.Min(scroll.Width / Math.Max(1, canvas.Width), scroll.Height / Math.Max(1, canvas.Height)), .15f, 1);
-            scroll.ChangeView(0, 0, zoom);
+            if (!all && positions.ContainsKey(focus.Length > 0 ? focus : org))
+            {
+                var ids = new HashSet<string> { focus.Length > 0 ? focus : org };
+                bool added; do { added = false; foreach (var node in data.Rows("orgs")) if (ids.Contains(node.Text("parent"))) added |= ids.Add(node.Text("id")); } while (added);
+                values = positions.Where(p => ids.Contains(p.Key)).Select(p => p.Value).ToArray();
+            }
+            if (values.Length == 0) return;
+            var left = values.Min(p => p.X) - 20; var top = values.Min(p => p.Y) - 20;
+            var width = values.Max(p => p.X) + 250 - left; var height = values.Max(p => p.Y) + 150 - top;
+            var zoom = Math.Clamp((float)Math.Min(scroll.Width / width, scroll.Height / height), .15f, 1);
+            scroll.ChangeView(Math.Max(0, (left + width / 2) * zoom - scroll.Width / 2), Math.Max(0, (top + height / 2) * zoom - scroll.Height / 2), zoom);
         }
-        void Zoom(float amount) => scroll.ChangeView(null, null, Math.Clamp(scroll.ZoomFactor * amount, .15f, 2));
+        void Zoom(float amount, double? x = null, double? y = null)
+        {
+            var zoom = Math.Clamp(scroll.ZoomFactor * amount, .15f, 2); var ratio = zoom / scroll.ZoomFactor;
+            var px = x ?? scroll.Width / 2; var py = y ?? scroll.Height / 2;
+            scroll.ChangeView((scroll.HorizontalOffset + px) * ratio - px, (scroll.VerticalOffset + py) * ratio - py, zoom, true);
+        }
         bar.Children.Add(Button(T("chart.zoom_out"), () => { Zoom(.8f); return Task.CompletedTask; }));
         bar.Children.Add(Button(T("chart.zoom_actual"), () => { scroll.ChangeView(null, null, 1); return Task.CompletedTask; }));
         bar.Children.Add(Button(T("chart.zoom_in"), () => { Zoom(1.25f); return Task.CompletedTask; }));
@@ -94,7 +106,7 @@ public sealed partial class MainWindow
         closed.Checked += (_, _) => { chartClosed = true; Draw(); }; closed.Unchecked += (_, _) => { chartClosed = false; Draw(); };
         links.Checked += (_, _) => { chartLinks = true; Draw(); }; links.Unchecked += (_, _) => { chartLinks = false; Draw(); };
         canvas.ManipulationDelta += (_, e) => scroll.ChangeView(scroll.HorizontalOffset - e.Delta.Translation.X, scroll.VerticalOffset - e.Delta.Translation.Y, null);
-        canvas.PointerWheelChanged += (_, e) => { Zoom(e.GetCurrentPoint(canvas).Properties.MouseWheelDelta > 0 ? 1.15f : 1 / 1.15f); e.Handled = true; };
+        canvas.PointerWheelChanged += (_, e) => { var point = e.GetCurrentPoint(scroll); Zoom(point.Properties.MouseWheelDelta > 0 ? 1.15f : 1 / 1.15f, point.Position.X, point.Position.Y); e.Handled = true; };
         canvas.DoubleTapped += (_, e) => { if (ReferenceEquals(e.OriginalSource, canvas)) Fit(true); };
         scroll.KeyDown += (_, e) =>
         {

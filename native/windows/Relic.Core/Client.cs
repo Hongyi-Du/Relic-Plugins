@@ -15,25 +15,61 @@ public static class Json
 
 public sealed class Client : IDisposable
 {
-    private readonly HttpClient http;
-    public Client(int port, string token, HttpMessageHandler? handler = null)
+    private HttpClient http;
+    private readonly HttpMessageHandler? handler;
+    private readonly Func<JsonNode?>? serverRecord;
+    private readonly SemaphoreSlim renew = new(1, 1);
+    private readonly List<HttpClient> retired = new();
+    private string identity;
+    public Client(int port, string token, HttpMessageHandler? handler = null, Func<JsonNode?>? serverRecord = null)
+    {
+        this.handler = handler; this.serverRecord = serverRecord; identity = port + ":" + token;
+        http = Connection(port, token);
+    }
+    private HttpClient Connection(int port, string token)
     {
         if (port is < 1 or > 65535 || string.IsNullOrWhiteSpace(token)) throw new ArgumentException("Invalid server record");
-        http = new HttpClient(handler ?? new SocketsHttpHandler { UseProxy = false })
+        var client = new HttpClient(handler ?? new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }, handler == null)
         { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.Add("X-Relic-Token", token);
+        client.DefaultRequestHeaders.Add("X-Relic-Token", token); return client;
+    }
+    private async Task<bool> RefreshRecord(CancellationToken ct)
+    {
+        if (serverRecord == null) return false;
+        await renew.WaitAsync(ct);
+        try
+        {
+            var record = serverRecord();
+            if (!int.TryParse(record.Text("port"), out var port) || record.Text("token").Length == 0) return false;
+            var next = port + ":" + record.Text("token"); if (next == identity) return false;
+            var candidate = Connection(port, record.Text("token"));
+            try
+            {
+                using var response = await candidate.GetAsync("/api/lifecycle", ct); var live = await Decode(response, ct);
+                if (live.Text("app") != "relic" || live.Text("state") != "running" || live.Text("pid") != record.Text("pid") || live.Text("instance") != record.Text("instance")) throw new IOException("Relic instance changed");
+                retired.Add(http); http = candidate; identity = next; return true;
+            }
+            catch { candidate.Dispose(); return false; }
+        }
+        catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return false; }
+        finally { renew.Release(); }
     }
     public static string Segment(string value) => Uri.EscapeDataString(value);
     public static string Org(string id, string action = "") => "/api/org/" + Segment(id) + action;
     public async Task<JsonNode> Get(string path, CancellationToken ct = default)
     {
-        using var response = await http.GetAsync(path, ct);
-        return await Decode(response, ct);
+        try { using var response = await http.GetAsync(path, ct); return await Decode(response, ct); }
+        catch (HttpRequestException) { if (!await RefreshRecord(ct)) throw; using var retry = await http.GetAsync(path, ct); return await Decode(retry, ct); }
     }
     public async Task<JsonNode> Post(string path, object body, CancellationToken ct = default)
     {
         using var response = await http.PostAsJsonAsync(path, body, ct);
-        return await Decode(response, ct);
+        try { return await Decode(response, ct); }
+        catch (HttpRequestException error) when (error.StatusCode == System.Net.HttpStatusCode.Forbidden && error.Message == "missing token")
+        {
+            if (!await RefreshRecord(ct)) throw;
+            using var retry = await http.PostAsJsonAsync(path, body, ct); return await Decode(retry, ct);
+        }
     }
     private static async Task<JsonNode> Decode(HttpResponseMessage response, CancellationToken ct)
     {
@@ -65,11 +101,12 @@ public sealed class Client : IDisposable
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception error) when (error is HttpRequestException or IOException or System.Text.Json.JsonException) { }
             await Task.Delay(1500, ct);
+            await RefreshRecord(ct);
             // SSE is a hint, not a durable log. Refetch after every reconnect.
             await receive(new JsonObject { ["type"] = "reconnect" });
         }
     }
-    public void Dispose() => http.Dispose();
+    public void Dispose() { http.Dispose(); foreach (var client in retired) client.Dispose(); renew.Dispose(); }
 }
 
 public sealed class Words
@@ -128,7 +165,12 @@ public sealed class ServerHost : IAsyncDisposable
             var line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(35));
             if (line == null) throw new IOException(await errors);
             var info = JsonNode.Parse(line)!;
-            var client = new Client(int.Parse(info.Text("port")), info.Text("token"));
+            JsonNode? SavedRecord()
+            {
+                var home = Environment.GetEnvironmentVariable("RELIC_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".relic");
+                return JsonNode.Parse(File.ReadAllText(Path.Combine(home, "app.json")));
+            }
+            var client = new Client(int.Parse(info.Text("port")), info.Text("token"), serverRecord: SavedRecord);
             var live = await client.Get("/api/lifecycle");
             if (live.Text("instance") != info.Text("instance") || live.Text("pid") != info.Text("pid"))
             { client.Dispose(); throw new IOException("Relic instance changed during startup"); }

@@ -6,6 +6,28 @@ using Xunit;
 
 public class ContractTests
 {
+    [Fact] public void InlinePathsRespectUrlsPunctuationAndLineNumbers()
+    {
+        var parts = InlineParts.Parse("See /tmp/a.py:12:3， and `C:\\work folder\\x.py:4` https://example.com/a/b.").ToArray();
+        var links = parts.Where(p => p.Kind == "link").ToArray(); Assert.Equal(3, links.Length);
+        Assert.Equal(("/tmp/a.py", 12), InlineParts.PathTarget(links[0].Target));
+        Assert.Equal(("C:\\work folder\\x.py", 4), InlineParts.PathTarget(links[1].Target));
+        Assert.Equal("https://example.com/a/b.", links[2].Target);
+        Assert.Contains(parts, p => p.Kind == "text" && p.Text.Contains('，'));
+    }
+    [Fact] public async Task TokenRotationRequiresMatchingAuthenticatedLifecycle()
+    {
+        var writes = 0; var record = JsonNode.Parse("{\"port\":39321,\"token\":\"new\",\"pid\":11,\"instance\":\"i\"}");
+        using var client = new Client(39321, "old", new Handler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/lifecycle") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"app\":\"relic\",\"state\":\"running\",\"pid\":11,\"instance\":\"i\"}") });
+            writes++;
+            return Task.FromResult(request.Headers.GetValues("X-Relic-Token").Single() == "old"
+                ? new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"error\":\"missing token\"}") }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":2}") });
+        }), () => record);
+        Assert.Equal("2", (await client.Post("/api/org/o/send", new { body = "hello" })).Text("id")); Assert.Equal(2, writes);
+    }
     [Fact] public void TranscriptPairsParallelCallsWithOldestWaitingResult()
     {
         var steps = JsonNode.Parse("[{\"role\":\"tool_result\",\"text\":\"orphan\"},{\"role\":\"tool_call\",\"tool\":\"A\"},{\"role\":\"tool_call\",\"tool\":\"B\"},{\"role\":\"tool_result\",\"text\":\"first\"},{\"role\":\"tool_result\",\"text\":\"second\",\"error\":true}]")!.AsArray();

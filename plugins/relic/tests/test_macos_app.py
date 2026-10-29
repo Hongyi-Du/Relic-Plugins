@@ -97,10 +97,7 @@ class NativeOpen(unittest.TestCase):
             capabilities.assert_called_once_with()
 
 
-class BrowserWindows(unittest.TestCase):
-    URL = "http://127.0.0.1:39321/"
-    BROWSER = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
+class NativeWindows(unittest.TestCase):
     def test_unsupported_python_is_rejected_before_starting_the_server(self):
         with mock.patch.object(sys, "argv", ["relic_app.py", "--no-window"]), \
                 mock.patch.object(platform_support, "require_supported_python", side_effect=RuntimeError("native arm64 required")), \
@@ -111,87 +108,46 @@ class BrowserWindows(unittest.TestCase):
             running.assert_not_called()
             start.assert_not_called()
 
-    def test_app_mode_uses_the_discovered_bundle_executable(self):
-        with mock.patch.object(relic_app, "WINDOWS", False), \
-                mock.patch.object(process, "WINDOWS", False), \
-                mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
-                mock.patch.object(relic_app, "installed_edge_app", return_value=None), \
-                mock.patch.object(relic_app, "data_home", return_value=Path("/Users/test/Relic Data")), \
-                mock.patch.object(platform_support, "browser_executable", return_value=self.BROWSER), \
-                mock.patch.object(platform_support, "open_external") as opened, \
-                mock.patch.object(relic_app.subprocess, "Popen") as popen:
-            relic_app.open_window(self.URL)
-            args = popen.call_args.args[0]
-            self.assertEqual(args[0], self.BROWSER)
-            self.assertIn("--app=" + self.URL, args)
-            self.assertIn("--user-data-dir=" + str(Path("/Users/test/Relic Data") / "app-window"), args)
-            self.assertTrue(popen.call_args.kwargs["start_new_session"])
-            self.assertEqual(popen.call_args.kwargs["creationflags"], 0)
-            opened.assert_not_called()
+    def test_default_open_delegates_server_ownership_to_the_native_app(self):
+        with mock.patch.object(sys, "argv", ["relic_app.py"]), \
+                mock.patch.object(platform_support, "require_supported_python"), \
+                mock.patch.object(relic_app, "open_native_app", return_value="Relic.exe") as opened, \
+                mock.patch.object(relic_app, "start_server") as start, \
+                mock.patch("sys.stdout", new_callable=io.StringIO):
+            relic_app.main()
+            opened.assert_called_once_with()
+            start.assert_not_called()
 
-    def test_missing_browser_uses_the_default_application(self):
-        with mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
-                mock.patch.object(relic_app, "installed_edge_app", return_value=None), \
-                mock.patch.object(platform_support, "browser_executable", return_value=None), \
-                mock.patch.object(platform_support, "open_external") as opened:
-            relic_app.open_window(self.URL)
-            opened.assert_called_once_with(self.URL)
-            opened.side_effect = RuntimeError("no browser")
-            with self.assertRaisesRegex(RuntimeError, "no browser"):
-                relic_app.open_window(self.URL)
-
-    def test_stale_browser_falls_back_to_the_default_application(self):
-        with mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
-                mock.patch.object(relic_app, "installed_edge_app", return_value=None), \
-                mock.patch.object(platform_support, "browser_executable", return_value=self.BROWSER), \
-                mock.patch.object(relic_app.subprocess, "Popen", side_effect=FileNotFoundError("removed")), \
-                mock.patch.object(platform_support, "open_external") as opened:
-            relic_app.open_window(self.URL)
-            opened.assert_called_once_with(self.URL)
-
-    def test_stale_installed_shortcut_falls_back_to_the_page(self):
-        shortcut = Path("Relic.lnk")
-        with mock.patch.object(relic_app, "installed_shortcut", return_value=shortcut), \
-                mock.patch.object(relic_app, "installed_edge_app", return_value=None), \
-                mock.patch.object(platform_support, "browser_executable", return_value=None), \
-                mock.patch.object(platform_support, "open_external", side_effect=[OSError("stale shortcut"), None]) as opened:
-            relic_app.open_window(self.URL)
-            self.assertEqual(opened.call_args_list, [mock.call(str(shortcut)), mock.call(self.URL)])
-
-    def test_existing_windows_edge_app_is_still_reused(self):
+    def test_windows_launch_is_console_free_and_never_opens_a_url(self):
+        executable = Path("Relic.exe")
         with mock.patch.object(relic_app, "WINDOWS", True), \
                 mock.patch.object(process, "WINDOWS", True), \
-                mock.patch.object(relic_app, "installed_shortcut", return_value=None), \
-                mock.patch.object(relic_app, "installed_edge_app", return_value=("Profile 1", "app-id")), \
-                mock.patch.object(platform_support, "browser_executable", return_value="msedge.exe"), \
+                mock.patch.object(relic_app, "native_executable", return_value=executable), \
                 mock.patch.object(relic_app.subprocess, "Popen") as popen:
-            relic_app.open_window(self.URL)
-            self.assertEqual(popen.call_args.args[0], ["msedge.exe", "--profile-directory=Profile 1", "--app-id=app-id"])
-            self.assertFalse(popen.call_args.kwargs["start_new_session"])
+            self.assertEqual(relic_app.open_native_app(), str(executable))
+            self.assertEqual(popen.call_args.args[0], [str(executable)])
             self.assertEqual(popen.call_args.kwargs["creationflags"], 0x08000200)
+            self.assertEqual(popen.call_args.kwargs["stdin"], relic_app.subprocess.DEVNULL)
 
-    def test_install_window_opens_a_regular_bundle_browser_window(self):
-        with mock.patch.object(platform_support, "browser_executable", return_value=self.BROWSER), \
+    def test_mac_bundle_opens_as_a_native_dock_application(self):
+        bundle = Path("/Users/test/Applications/Relic.app")
+        with mock.patch.object(relic_app, "WINDOWS", False), \
+                mock.patch.object(process, "WINDOWS", False), \
+                mock.patch.object(relic_app, "native_executable", return_value=bundle / "Contents/MacOS/Relic"), \
                 mock.patch.object(relic_app.subprocess, "Popen") as popen:
-            result = web.open_install_window(39321)
-            self.assertEqual(popen.call_args.args[0], [self.BROWSER, "--new-window", self.URL + "#install"])
-            self.assertEqual(result, {"opened": self.URL + "#install", "browser": self.BROWSER})
+            self.assertEqual(relic_app.open_native_app(), str(bundle))
+            self.assertEqual(popen.call_args.args[0], ["/usr/bin/open", str(bundle)])
+            self.assertEqual(popen.call_args.kwargs["creationflags"], 0)
 
-    def test_install_window_falls_back_and_reports_failure(self):
-        with mock.patch.object(platform_support, "browser_executable", return_value=None), \
-                mock.patch.object(platform_support, "open_external") as opened:
-            self.assertEqual(web.open_install_window(39321), {"opened": self.URL + "#install", "browser": "default"})
-            opened.assert_called_once_with(self.URL + "#install")
-            opened.side_effect = OSError("no browser")
-            with self.assertRaisesRegex(OSError, "no browser"):
-                web.open_install_window(39321)
-
-    def test_install_window_falls_back_when_discovered_browser_disappears(self):
-        with mock.patch.object(platform_support, "browser_executable", return_value=self.BROWSER), \
-                mock.patch.object(relic_app.subprocess, "Popen", side_effect=FileNotFoundError("removed")), \
-                mock.patch.object(platform_support, "open_external") as opened:
-            self.assertEqual(web.open_install_window(39321)["browser"], "default")
-            opened.assert_called_once_with(self.URL + "#install")
+    def test_browser_install_route_is_retired_without_opening_anything(self):
+        with mock.patch.object(platform_support, "open_external") as opened, \
+                mock.patch.object(relic_app.subprocess, "Popen") as popen:
+            request = Request("/api/install-window")
+            request.do_POST()
+            self.assertEqual(request.response[0], 410)
+            self.assertIn("native Relic App", request.response[1]["error"])
+            opened.assert_not_called()
+            popen.assert_not_called()
 
 
 if __name__ == "__main__":
