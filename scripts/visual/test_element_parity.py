@@ -240,7 +240,7 @@ class MatrixReportTests(unittest.TestCase):
                 path = source / client; path.mkdir(parents=True)
                 data = capture(client, [element(client)], scene, viewport)
                 if client == "windows":
-                    data["raw_evidence"] = {kind: f"{scene}.{kind}.json" for kind in ("uia", "xaml", "dom", "ax")}
+                    data["raw_evidence"] = {kind: f"{scene}.{kind}.json" for kind in ("uia", "xaml", "dom", "ax", "input-text")}
                     for kind, filename in data["raw_evidence"].items():
                         (path / filename).write_text(json.dumps({"tree_kind": kind, "raw_nodes": ["independent capture"]}), encoding="utf-8")
                 (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
@@ -293,6 +293,30 @@ class MatrixReportTests(unittest.TestCase):
             self.assertIn("2 raw elements; 0 structurally comparable; 2 unusable", scene_html)
             copied = json.loads((output / "elements" / "macos" / f"{scene}.elements.json").read_text(encoding="utf-8"))
             self.assertEqual(len(copied["elements"]), 2)
+
+    def test_lightweight_reports_preserve_full_report_values_and_failures(self):
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group", "private"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); output = root / "report"
+            result = run(root / "source", output, spec=spec)
+            complete = json.loads((output / "parity-report.json").read_text(encoding="utf-8"))
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(complete, result)
+            self.assertEqual(summary, {key: value for key, value in complete.items() if key != "scenes"})
+            self.assertFalse(summary["passed"])
+            self.assertEqual(summary["expected_scenes_per_platform"], 2)
+            self.assertEqual(summary["reported_scenes"], 2)
+            self.assertEqual(summary["expected_platform_comparisons"], 4)
+            self.assertEqual(summary["reported_platform_comparisons"], 4)
+            self.assertNotIn("scenes", summary)
+            self.assertIn('href="summary.json"', (output / "index.html").read_text(encoding="utf-8"))
+            for scene in complete["scenes"]:
+                filename = scene["scene_id"] + ".parity.json"
+                self.assertEqual(json.loads((output / filename).read_text(encoding="utf-8")), scene)
+                for suffix in ("", "-windows", "-macos"):
+                    page = (output / (scene["scene_id"] + suffix + ".html")).read_text(encoding="utf-8")
+                    self.assertIn(f'href="{filename}"', page)
+                    self.assertIn('href="summary.json"', page)
 
 
 if __name__ == "__main__":

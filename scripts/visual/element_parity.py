@@ -356,7 +356,7 @@ def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data:
     errors = []
     destination = output / "elements" / client
     destination.mkdir(parents=True, exist_ok=True)
-    suffixes = (".uia.json", ".xaml.json", ".dom.json", ".ax.json")
+    suffixes = (".uia.json", ".xaml.json", ".dom.json", ".ax.json", ".input-text.json")
     # Also keep a sidecar whose producer did not add raw_evidence metadata yet.
     # Only this case's files are included in this case's copy operation.
     copied = set()
@@ -424,7 +424,7 @@ PAGE_STYLE = """body{font:14px system-ui,sans-serif;margin:24px;color:#252525;ba
 
 def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, results: dict, images: dict) -> None:
     chunks = [f'<!doctype html><meta charset="utf-8"><title>{html.escape(scene)}</title><style>{PAGE_STYLE}</style>',
-              f'<p><a href="index.html">All scenes</a> · <a href="parity-report.json">Machine report</a></p><h1>{html.escape(scene)}</h1>',
+              f'<p><a href="index.html">All scenes</a> · <a href="summary.json">Summary JSON</a> · <a href="{html.escape(scene, quote=True)}.parity.json">This scene: complete machine report</a></p><h1>{html.escape(scene)}</h1>',
               '<p class="legend"><span style="color:#159447">Green: match</span><span style="color:#e02020">Red: missing</span><span style="color:#ef8b00">Orange: mismatch</span><span style="color:#9b38dd">Purple: extra</span></p>',
               '<label><input type="checkbox" checked onchange="document.body.classList.toggle(\'hide-outlines\', !this.checked)"> Show every extracted element</label>']
     ref_elements = valid_elements(captures["reference"])
@@ -533,12 +533,19 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                     result["pixel_difference"] = {"available": False, "reason": str(exc)}
             else: result["pixel_difference"] = {"available": False, "reason": "Missing screenshot"}
             results[platform] = result
-        report["scenes"].append({"scene_id": scene, "viewport": viewport, "platforms": results})
+        scene_report = {"scene_id": scene, "viewport": viewport, "platforms": results}
+        report["scenes"].append(scene_report)
+        (output / f"{scene}.parity.json").write_text(json.dumps(scene_report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
         write_scene_html(output, scene, viewport, captures, results, images)
         index_rows.append('<tr><td><a href="' + scene + '.html">' + html.escape(scene) + '</a></td>' + ''.join(f'<td class="{"good" if results[p]["passed"] else "bad"}">{"PASS" if results[p]["passed"] else "FAIL"}: {sum(results[p]["counts"].values())} findings; {results[p]["matched_elements"]}/{results[p]["reference_elements"]} matched</td>' for p in PLATFORMS) + '</tr>')
     report["passed"] = not report["unexpected_captures"] and all(s["scenes_passed"] == len(cases) and len(cases) > 0 for s in report["summary"].values())
+    report["reported_scenes"] = len(report["scenes"])
+    report["expected_platform_comparisons"] = len(cases) * len(PLATFORMS)
+    report["reported_platform_comparisons"] = sum(len(scene["platforms"]) for scene in report["scenes"])
     (output / "parity-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    (output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Relic element parity</title><style>' + PAGE_STYLE + '</style><h1>Relic element parity — ' + ("PASS" if report["passed"] else "FAIL") + '</h1><p><a href="parity-report.json">Full machine-readable report</a></p><p>Every requested scene and both platforms are required. No exceptions or icon equivalents are approved. Extraction errors fail the gate. Green requires kind, exact text/name, region/order, geometry, style, layout, icon and state to match.</p><pre>' + html.escape(json.dumps(report["summary"], ensure_ascii=False, indent=2)) + '</pre><h2>Exceptions</h2><p>None. No native-control differences are exempted.</p><table><thead><tr><th>Scene</th><th>Windows</th><th>macOS</th></tr></thead><tbody>' + '\n'.join(index_rows) + '</tbody></table>', encoding="utf-8")
+    summary_report = {key: value for key, value in report.items() if key != "scenes"}
+    (output / "summary.json").write_text(json.dumps(summary_report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+    (output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Relic element parity</title><style>' + PAGE_STYLE + '</style><h1>Relic element parity — ' + ("PASS" if report["passed"] else "FAIL") + '</h1><p><a href="summary.json">Lightweight summary JSON</a> · <a href="parity-report.json">Full machine-readable report (large)</a></p><p>Each scene page links its complete scene JSON. The summary and per-scene files preserve the same values as the full report; they do not change the gate.</p><p>Every requested scene and both platforms are required. No exceptions or icon equivalents are approved. Extraction errors fail the gate. Green requires kind, exact text/name, region/order, geometry, style, layout, icon and state to match.</p><pre>' + html.escape(json.dumps(report["summary"], ensure_ascii=False, indent=2)) + '</pre><h2>Exceptions</h2><p>None. No native-control differences are exempted.</p><table><thead><tr><th>Scene</th><th>Windows</th><th>macOS</th></tr></thead><tbody>' + '\n'.join(index_rows) + '</tbody></table>', encoding="utf-8")
     return report
 
 

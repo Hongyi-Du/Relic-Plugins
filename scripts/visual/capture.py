@@ -41,6 +41,50 @@ def configure(fixture, **changes):
         return json.load(response)
 
 
+def input_text_evidence(cdp):
+    """Read real UA-shadow input text ranges omitted by DOMSnapshot.
+
+    A missing range remains unknown. This neither creates a mirror element nor
+    changes input contents/styles to estimate their layout.
+    """
+    document = cdp.send("DOM.getDocument", {"depth": -1, "pierce": True})
+    evidence = {}
+    errors = []
+    def children(node):
+        return node.get("children", []) + node.get("shadowRoots", [])
+    def text_nodes(node):
+        if node.get("nodeType") == 3 and node.get("nodeValue"):
+            yield node
+        for child in children(node):
+            yield from text_nodes(child)
+    def visit(node):
+        if node.get("nodeName", "").upper() in {"INPUT", "TEXTAREA", "SELECT"}:
+            owner = str(node["backendNodeId"])
+            measured = {"boxes": [], "text_nodes": [], "source": "CDP.DOM+Runtime.DOMRange"}
+            for shadow in node.get("shadowRoots", []):
+                for text_node in text_nodes(shadow):
+                    object_id = None
+                    try:
+                        resolved = cdp.send("DOM.resolveNode", {"backendNodeId": text_node["backendNodeId"]})
+                        object_id = resolved["object"]["objectId"]
+                        result = cdp.send("Runtime.callFunctionOn", {"objectId": object_id, "functionDeclaration": "function() { for (let p = this.parentElement || this.getRootNode().host; p; p = p.parentElement || p.getRootNode().host) { const s = getComputedStyle(p); if (s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) === 0) return []; } const r = this.ownerDocument.createRange(); r.selectNodeContents(this); return Array.from(r.getClientRects(), b => ({x:b.x,y:b.y,width:b.width,height:b.height})); }", "returnByValue": True})
+                        if result.get("exceptionDetails"):
+                            raise RuntimeError(str(result["exceptionDetails"]))
+                        boxes = [b for b in result["result"].get("value", []) if b["width"] >= 0 and b["height"] > 0]
+                        measured["boxes"].extend(boxes)
+                        measured["text_nodes"].append({"backend_node_id": text_node["backendNodeId"], "text": text_node["nodeValue"], "boxes": boxes})
+                    except Exception as error:
+                        errors.append({"owner_backend_node_id": owner, "text_backend_node_id": text_node.get("backendNodeId"), "reason": str(error)})
+                    finally:
+                        if object_id:
+                            cdp.send("Runtime.releaseObject", {"objectId": object_id})
+            evidence[owner] = measured
+        for child in children(node):
+            visit(child)
+    visit(document["root"])
+    return {"inputs": evidence, "errors": errors, "raw_document": document}
+
+
 def reference(manifest):
     from playwright.sync_api import sync_playwright
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -69,11 +113,13 @@ def reference(manifest):
             cdp = page.context.new_cdp_session(page)
             snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
             ax_tree = cdp.send("Accessibility.getFullAXTree")
+            input_text = input_text_evidence(cdp)
             evidence = Path(manifest["output"]) / (case["id"] + ".dom.json")
             evidence.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
             (Path(manifest["output"]) / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
+            (Path(manifest["output"]) / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
             extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree})
+            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"]})
             (Path(manifest["output"]) / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
             cdp.detach()
             if errors:
