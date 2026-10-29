@@ -302,6 +302,7 @@ public sealed partial class MainWindow
     {
         TextBlock text => text.Text,
         WorkspaceCodeView code => code.ReadSourceText(),
+        ComposerInput input => input.Text,
         TextBox box => box.Text,
         PasswordBox => "", // Password values are never evidence.
         ContentControl control when control.Content is string label => label,
@@ -447,6 +448,7 @@ public sealed partial class MainWindow
     private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors, UIElement captureRoot, bool visible)
     {
         if (element is WorkspaceCodeView code) return CaptureCodeDocument(code, id, errors, captureRoot, visible);
+        if (element is ComposerInput input) return CaptureComposerDocument(input, id, errors, captureRoot, visible);
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
         int? lines = null; var boxes = new JsonArray(); var localBoxes = new JsonArray(); var runs = new JsonArray();

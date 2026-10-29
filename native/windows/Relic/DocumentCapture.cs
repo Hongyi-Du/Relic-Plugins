@@ -11,6 +11,77 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
+    private static JsonObject CaptureComposerDocument(ComposerInput input, string id, JsonArray errors, UIElement captureRoot, bool visible)
+    {
+        var document = input.TextDocument; var text = input.Text;
+        document.GetText(TextGetOptions.AllowFinalEop, out var story);
+        document.GetText(TextGetOptions.UseLf, out var value);
+        var paragraph = document.GetDefaultParagraphFormat(); var selection = document.Selection;
+        var raw = new JsonObject
+        {
+            ["ready"] = input.IsDocumentReady, ["initialization_error"] = input.InitializationFailure,
+            ["whole_story"] = story, ["value_use_lf_without_final_eop"] = value,
+            ["selection_start"] = selection.StartPosition, ["selection_end"] = selection.EndPosition,
+            ["line_spacing_points"] = paragraph.LineSpacing, ["line_spacing_rule"] = paragraph.LineSpacingRule.ToString(),
+            ["space_before_points"] = paragraph.SpaceBefore, ["space_after_points"] = paragraph.SpaceAfter,
+            ["source"] = "Live editable RichEditTextDocument; actual plain text, paragraph properties, selection and per-range GetRect"
+        };
+        var ranges = new JsonArray(); var boxes = new JsonArray(); var local = new JsonArray(); var runs = new JsonArray();
+        raw["character_ranges"] = ranges;
+        var incomplete = !input.IsDocumentReady || input.InitializationFailure != null || value != text;
+        if (visible && incomplete) errors.Add(id + ": editable document is not initialized or its public value differs from the native document: " + input.InitializationFailure);
+        var transform = input.TransformToVisual(captureRoot); var lineYs = new HashSet<double>();
+        if (visible && input.IsDocumentReady)
+        {
+            // Query the actual document, without creating another layout or
+            // changing its selection. UTF-16 surrogate pairs stay one range.
+            var offset = 0;
+            while (offset < text.Length)
+            {
+                var length = System.Globalization.StringInfo.GetNextTextElement(text, offset).Length;
+                var range = document.GetRange(offset, offset + length);
+                range.GetText(TextGetOptions.UseLf | TextGetOptions.AllowFinalEop, out var actualText);
+                range.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var box, out var hit);
+                var actual = transform.TransformBounds(box);
+                var complete = actualText == text.Substring(offset, length) && CaptureRectFinite(box) && CaptureRectFinite(actual);
+                var evidence = new JsonObject { ["start"] = range.StartPosition, ["end"] = range.EndPosition, ["text"] = actualText,
+                    ["local_bounds"] = CaptureBox(box), ["bounds"] = CaptureBox(actual), ["hit"] = hit, ["complete"] = complete };
+                ranges.Add(evidence);
+                if (!complete) { incomplete = true; errors.Add(id + ": editable range text/geometry failed at " + offset); }
+                if (actualText is not ("\n" or "\r"))
+                {
+                    var format = range.CharacterFormat; var color = format.ForegroundColor;
+                    var runBoxes = new JsonArray();
+                    if (complete && actual.Width > 0 && actual.Height > 0)
+                    {
+                        boxes.Add(CaptureBox(actual)); local.Add(CaptureBox(box)); runBoxes.Add(CaptureBox(actual)); lineYs.Add(box.Y);
+                    }
+                    else { incomplete = true; complete = false; errors.Add(id + ": nonempty editable range has no actual rectangle at " + offset); }
+                    runs.Add(new JsonObject { ["type"] = "RichEditTextRange", ["text"] = actualText,
+                        ["start_offset"] = range.StartPosition, ["end_offset"] = range.EndPosition,
+                        ["bounds"] = runBoxes, ["local_bounds"] = CaptureBox(box), ["geometry_complete"] = complete,
+                        ["bounds_measurement"] = "Actual live RichEditTextRange.GetRect; text-range bounds, not glyph ink bounds",
+                        ["coordinate_space"] = "content-window", ["font_size"] = format.Size * 96d / 72d,
+                        ["font_weight"] = format.Weight, ["font_family"] = format.Name,
+                        ["foreground"] = new JsonArray(color.R, color.G, color.B, color.A),
+                        ["font_evidence_quantity"] = "Actual TOM CharacterFormat properties; physical glyph/fallback face remains unknown" });
+                }
+                offset += length;
+            }
+            // Include the native final insertion line (empty composer or an
+            // actual trailing newline) without inventing a text glyph for it.
+            var caret = document.GetRange(text.Length, text.Length);
+            caret.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var caretBox, out var caretHit);
+            raw["final_insertion_range"] = new JsonObject { ["position"] = caret.StartPosition, ["local_bounds"] = CaptureBox(caretBox), ["bounds"] = CaptureBox(transform.TransformBounds(caretBox)), ["hit"] = caretHit };
+            if (CaptureRectFinite(caretBox) && caretBox.Height > 0) lineYs.Add(caretBox.Y);
+            else { incomplete = true; errors.Add(id + ": actual final editable insertion line has no rectangle"); }
+        }
+        return new JsonObject { ["wrap"] = input.TextWrapping == TextWrapping.NoWrap ? "none" : "character", ["truncation"] = "none",
+            ["line_count"] = visible && !incomplete ? lineYs.Count : null, ["character_boxes"] = boxes, ["local_character_boxes"] = local,
+            ["character_boxes_coordinate_space"] = "content-window", ["text_geometry_status"] = visible ? "measured-or-explicit-error" : "not-visible",
+            ["rich_text_runs"] = runs, ["document_evidence"] = raw, ["placeholder"] = input.PlaceholderText };
+    }
+
     private static JsonObject CaptureImageBrush(ImageBrush brush)
     {
         JsonObject? Transform(Transform? transform)

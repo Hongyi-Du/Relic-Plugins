@@ -182,6 +182,7 @@ public sealed partial class MainWindow
         stream.Spacing = 0; // Each message owns its density-dependent top margin; notices use their own 8px gap.
         side.Spacing = 2;
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
+        threadEditor.FontSize = editor.FontSize;
         ThemeSurfaces();
         if (visibleDialog != null) { visibleDialog.RequestedTheme = root.RequestedTheme; foreach (var resource in root.Resources) if (resource.Key is string key && !key.StartsWith("ContentDialog")) visibleDialog.Resources[resource.Key] = resource.Value; }
         foreach (var entry in microphoneButtons.ToArray()) { if (!entry.Button.TryGetTarget(out var mic)) { microphoneButtons.Remove(entry); continue; } Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); mic.Visibility = entry.Always || preferences.Text("voice") != "off" ? Visibility.Visible : Visibility.Collapsed; }
@@ -400,7 +401,9 @@ public sealed partial class MainWindow
         await api!.Post("/api/avatar", payload); await LoadPreferences(); await Refresh(); Note(T("card.avatar_changed"));
     }
     private readonly List<(WeakReference<Button> Button, bool Always)> microphoneButtons = new();
-    private Button Microphone(TextBox target, bool always = false)
+    private Button Microphone(TextBox target, bool always = false) => Microphone(new VoiceTextTarget(target), always);
+    private Button Microphone(ComposerInput target, bool always = false) => Microphone(new VoiceTextTarget(target), always);
+    private Button Microphone(VoiceTextTarget target, bool always)
     {
         Button? button = null;
         button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
@@ -425,7 +428,7 @@ public sealed partial class MainWindow
         speechButton = null;
         return Task.CompletedTask;
     }
-    private async Task Voice(TextBox target, Button button)
+    private async Task Voice(VoiceTextTarget target, Button button)
     {
         if (speech != null) { var same = speechButton == button; await StopVoice(); if (same) return; }
         if (preferences.Text("voice") == "off") { Note(T("composer.voice_off")); return; }

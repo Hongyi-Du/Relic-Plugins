@@ -6,6 +6,7 @@ No Skia parser, replacement rendering, estimated bounds or local execution.
 """
 import argparse
 import base64
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -16,11 +17,64 @@ import time
 from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, prepare_scene, wait_file
 
 TRACE_CATEGORIES = [
-    "devtools.timeline", "blink", "cc",
+    # Keep Paint/frame attribution and every picture export category. General
+    # blink/cc layout/compositor events dominated the first lossy recording.
+    "devtools.timeline", "disabled-by-default-devtools.timeline.frame",
     "disabled-by-default-devtools.timeline.picture",
     "disabled-by-default-cc.debug.picture",
     "disabled-by-default-cc.debug.display_items",
 ]
+
+
+def trace_parameters():
+    """Explicit supported CDP configuration; the buffer is the prior default.
+
+    Producer packet loss is not repaired by claiming a larger central buffer.
+    Keep the original picture categories until final-frame attribution works.
+    """
+    return {"traceConfig": {"recordMode": "recordUntilFull",
+            "traceBufferSizeInKb": 200 * 1024, "includedCategories": list(TRACE_CATEGORIES)},
+            "bufferUsageReportingInterval": 250, "transferMode": "ReturnAsStream",
+            "streamFormat": "json", "streamCompression": "none"}
+
+
+def launch_browser(playwright):
+    # Playwright otherwise hides production scrollbars even in the reference.
+    return playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"],
+                                      ignore_default_args=["--hide-scrollbars"])
+
+
+def trace_diagnostics(trace, pictures):
+    """Index original evidence without inferring painted geometry/attribution."""
+    metadata = trace.get("metadata", {})
+    stats = metadata.get("trace_processor_stats")
+    losses = []
+    loss_names = {"trace_writer_packet_loss", "sequence_packet_loss", "data_loss_smb_full",
+                  "bytes_overwritten", "chunks_discarded", "chunks_overwritten",
+                  "traced_chunks_discarded", "packet_skipped_seq_needs_incremental_state_invalid"}
+    def visit(value, pointer):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                path = pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+                if key in loss_names and isinstance(child, (int, float)) and child > 0:
+                    losses.append({"trace_json_pointer": path, "value": child})
+                visit(child, path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, pointer + "/" + str(index))
+    visit(stats, "/metadata/trace_processor_stats")
+    events = trace.get("traceEvents", [])
+    picture_indexes = sorted({row["event_index"] for row in pictures["pictures"]})
+    return {"command_line": metadata.get("command_line"), "trace_processor_stats": stats,
+            "nonzero_loss_evidence": losses,
+            "category_event_counts": dict(Counter(event.get("cat", "") for event in events)),
+            "clock_sync_events": [{"event_index": index, "event": event}
+                for index, event in enumerate(events) if event.get("name") == "clock_sync"],
+            "picture_events": [{"event_index": index,
+                "event": {key: events[index].get(key) for key in ("name", "cat", "ph", "ts", "pid", "tid", "id")}}
+                for index in picture_indexes],
+            "final_scene_attribution": None,
+            "quantity": "Original timing, command line and loss evidence; not a final-frame or glyph measurement"}
 
 # These metrics describe the live scene, not painted glyphs/scrollbar parts.
 SCENE_METRICS = """() => {
@@ -139,9 +193,11 @@ def collect_scene(browser, context, manifest, case, output, source):
     page.on("pageerror", lambda error: report["errors"].append({"source": "page", "reason": str(error)}))
     cdp = context.new_cdp_session(page)
     trace_cdp = browser.new_browser_cdp_session()
-    complete, layer_events, markers = [], [], []
+    complete, layer_events, markers, buffer_usage = [], [], [], []
     phase = {"name": "initial"}
     trace_cdp.on("Tracing.tracingComplete", lambda data: complete.append(data))
+    trace_cdp.on("Tracing.bufferUsage", lambda data: buffer_usage.append({
+        "phase": phase["name"], "received_monotonic": time.monotonic(), "params": data}))
     for event in ("LayerTree.layerTreeDidChange", "LayerTree.layerPainted"):
         cdp.on(event, lambda data, method=event: layer_events.append({"method": method,
             "phase": phase["name"], "received_monotonic": time.monotonic(), "params": data}))
@@ -163,9 +219,9 @@ def collect_scene(browser, context, manifest, case, output, source):
             "categories": read(trace_cdp, "Tracing.getCategories")})
         read(cdp, "DOM.enable")
         read(cdp, "LayerTree.enable")
-        trace_cdp.send("Tracing.start", {"categories": ",".join(TRACE_CATEGORIES),
-            "options": "record-until-full", "transferMode": "ReturnAsStream",
-            "streamFormat": "json", "streamCompression": "none"})
+        parameters = trace_parameters()
+        write_json(output / "trace-config.json", parameters)
+        trace_cdp.send("Tracing.start", parameters)
         tracing = True
         marker("before_navigation")
         page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
@@ -207,8 +263,22 @@ def collect_scene(browser, context, manifest, case, output, source):
                     report["errors"].append({"source": "Tracing", "reason": "Trace data loss occurred"})
                 trace_path = output / "trace.json"
                 report["trace_byte_count"] = read_trace_stream(trace_cdp, complete[0]["stream"], trace_path)
-                index = extract_pictures(json.loads(trace_path.read_text(encoding="utf-8")), output / "pictures")
+                trace = json.loads(trace_path.read_text(encoding="utf-8"))
+                index = extract_pictures(trace, output / "pictures")
                 write_json(output / "pictures.json", index)
+                diagnostics = trace_diagnostics(trace, index)
+                write_json(output / "trace-diagnostics.json", diagnostics)
+                command_line = diagnostics["command_line"]
+                if not isinstance(command_line, str) or not command_line:
+                    report["errors"].append({"source": "browser_command_line",
+                        "reason": "Actual trace metadata command line missing; scrollbar launch environment unverified"})
+                elif "--hide-scrollbars" in command_line:
+                    report["errors"].append({"source": "browser_command_line",
+                        "reason": "Actual browser command line still contains --hide-scrollbars"})
+                if diagnostics["nonzero_loss_evidence"]:
+                    report["errors"].append({"source": "trace_processor_stats",
+                        "reason": "Original trace processor statistics report packet loss or discarded/overwritten data",
+                        "evidence": diagnostics["nonzero_loss_evidence"]})
                 report["picture_count"] = len(index["pictures"])
                 report["trace_event_count"] = index["trace_event_count"]
                 report["errors"].extend(index["errors"])
@@ -218,6 +288,10 @@ def collect_scene(browser, context, manifest, case, output, source):
                 report["errors"].append({"source": "trace_export", "reason": str(error)})
         write_json(output / "layer-events.json", layer_events)
         write_json(output / "trace-markers.json", markers)
+        write_json(output / "buffer-usage.json", buffer_usage)
+        if not layer_events:
+            report["errors"].append({"source": "LayerTree",
+                "reason": "No actual layer events exported; final-scene layer/transform attribution remains unproven"})
         report["status"] = "failed" if report["errors"] else "raw_records_collected"
         write_json(output / "diagnostic.json", report)
         cdp.detach()
@@ -260,7 +334,7 @@ def main(argv=None):
             configure(manifest["fixture"], lang=manifest["lang"], theme=manifest["theme"])
             from playwright.sync_api import sync_playwright
             with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+                browser = launch_browser(pw)
                 try:
                     context = browser.new_context(device_scale_factor=1, locale=manifest["lang"],
                         color_scheme=manifest["theme"], timezone_id="UTC")

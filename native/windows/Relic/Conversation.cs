@@ -16,7 +16,7 @@ public sealed partial class MainWindow
     private readonly HashSet<string> recipientNames = new() { "all" };
     private bool plainMode, digestOpen, digestPending;
     private string quoteWho = "", quoteText = "", threadId = "", previousPane = "overview";
-    private readonly TextBox threadEditor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
+    private readonly ComposerInput threadEditor = new();
     private Panel? threadEditorContainer;
     private Button? threadSendButton;
     private readonly TextBlock quoteLabel = new() { TextWrapping = TextWrapping.Wrap };
@@ -29,7 +29,7 @@ public sealed partial class MainWindow
     private bool chatMore, olderHistory;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
-    private readonly HashSet<TextBox> composing = new();
+    private readonly HashSet<ComposerInput> composing = new();
     private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(30), Margin = new Thickness(20, 8, 20, 0), VerticalAlignment = VerticalAlignment.Top };
     private readonly Border conversationBanner = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 0, 20, 10) };
     private void UpdateSendState()
@@ -163,6 +163,7 @@ public sealed partial class MainWindow
         {
             text.TextCompositionStarted += (_, _) => composing.Add(text);
             text.TextCompositionEnded += (_, _) => composing.Remove(text);
+            text.ClipboardFailed += (_, failure) => Note(T(failure.Operation == "paste" ? "appmenu.paste_failed" : "msg.copy_failed"));
         }
         threadEditor.KeyDown += async (_, e) =>
         {
@@ -559,7 +560,7 @@ public sealed partial class MainWindow
             var cancel = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; }); cancel.Width = cancel.Height = 22; cancel.Content = ReferenceIcon("x", 14); cancel.VerticalAlignment = VerticalAlignment.Top;
             replyComposer.Children.Add(new Border { Child = TwoColumns(text, cancel), Background = Paint("F8F7F5", "191918"), BorderBrush = Accent, BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(10, 6, 8, 6), CornerRadius = new CornerRadius(10) });
         }
-        threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0); threadEditor.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); threadEditor.Foreground = Ink; threadEditor.FontSize = 14;
+        threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0); threadEditor.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); threadEditor.Foreground = Ink; threadEditor.FontSize = editor.FontSize;
         threadEditor.MinHeight = 26; threadEditor.MaxHeight = 260; threadEditor.Padding = new Thickness(0, 2, 0, 2); threadEditor.CornerRadius = new CornerRadius(0);
         threadEditorContainer?.Children.Remove(threadEditor);
         replyComposer.Children.Add(threadEditor); threadEditorContainer = replyComposer;

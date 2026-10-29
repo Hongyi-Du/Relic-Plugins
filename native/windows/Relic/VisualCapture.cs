@@ -145,6 +145,9 @@ public sealed partial class MainWindow
                         for (var waiting = 0; !sourceCode.IsDocumentReady && sourceCode.InitializationFailure == null && waiting < 100; waiting++) await Task.Delay(50);
                         if (!sourceCode.IsDocumentReady) throw new InvalidOperationException("Native code document did not finish its real layout: " + (sourceCode.InitializationFailure ?? "timeout"));
                     }
+                    foreach (var input in new[] { editor, threadEditor })
+                        if (input.IsLoaded && !input.IsDocumentReady)
+                            throw new InvalidOperationException("Native composer document did not initialize: " + (input.InitializationFailure ?? "not ready"));
                     root.UpdateLayout();
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
