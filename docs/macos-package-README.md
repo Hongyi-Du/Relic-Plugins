@@ -1,7 +1,7 @@
 # Relic for macOS · Apple silicon
 
-v0.7.0-beta.1（插件 0.18.0-beta.1）将 HaochenGu 的 Apple silicon 移植与 v0.6.0 合并。
-v0.7.0-beta.1 (plugin 0.18.0-beta.1) merges HaochenGu's Apple silicon port with v0.6.0.
+v0.7.1-beta.1（插件 0.18.1-beta.1）将 HaochenGu 的 Apple silicon 移植与 v0.6.0 合并。
+v0.7.1-beta.1 (plugin 0.18.1-beta.1) merges HaochenGu's Apple silicon port with v0.6.0.
 Windows 和 macOS 共享检查、Reply、人下发协议、抄送、侧栏折叠及组织关系图。
 Both systems share check/Reply rules, person-issued protocols, Copies, sidebar folding and the organization chart.
 合并前真机观察与合并后自动测试分别记录于 [验证记录](docs/validation.md)。合并版的已登录 Mac 验收仍待完成。

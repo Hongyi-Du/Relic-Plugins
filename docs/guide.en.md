@@ -1,6 +1,6 @@
 # Relic user guide
 
-**v0.7.0-beta.1 candidate: one feature source for Windows and macOS Apple silicon, plugin 0.18.0-beta.1.** Published v0.6.0 remains Windows-only; merged signed-in Mac acceptance is pending (see [validation](validation.md)).
+**v0.7.1-beta.1 candidate: one feature source for Windows and macOS Apple silicon, plugin 0.18.1-beta.1.** Published v0.6.0 remains Windows-only; merged signed-in Mac acceptance is pending (see [validation](validation.md)).
 
 [中文](guide.zh-CN.md) · [Windows](windows.en.md) · [macOS](macos.en.md) · [Reference](reference.en.md)
 

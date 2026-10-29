@@ -532,10 +532,10 @@ class Runner(unittest.TestCase):
         code = ("import subprocess, sys\n"
                 "def check(call):\n"
                 "    later = 'import sys, time; time.sleep(1.5); open(sys.argv[1], \"w\").write(\"x\")'\n"
-                "    subprocess.Popen([sys.executable, '-c', later, call['input']['path']])\n"
+                "    subprocess.Popen([sys.executable, '-c', later, call['input']['path']], creationflags=%d)\n"
                 "    while call['input'].get('hang'):\n"
                 "        pass\n"
-                "    return {'decision': 'allow'}\n")
+                "    return {'decision': 'allow'}\n") % checker.NO_WINDOW
         with tempfile.TemporaryDirectory() as folder:
             answered, hung = Path(folder) / "answered.txt", Path(folder) / "hung.txt"
             self.assertEqual(checker.run(code, {"input": {"path": str(answered)}})["decision"], "allow")

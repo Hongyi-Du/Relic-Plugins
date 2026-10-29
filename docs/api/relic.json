@@ -104,7 +104,7 @@
         },
         "org": {
           "type": "string",
-          "description": "Write to members of another organization: one below yours, or one above it to report. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
+          "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one below yours, or one above it to report. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
         },
         "actor": {
           "type": "string",
@@ -118,7 +118,7 @@
   },
   {
     "name": "inbox",
-    "description": "Read your unread messages (marks them read), in every organization you hold a seat in; one that reached another seat than your main one names its organization. wait (seconds; the longest this client allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. org: only that seat's messages.",
+    "description": "Read your unread messages (marks them read), in every organization you hold a seat in; one that reached another seat than your main one names its organization. wait (seconds; the longest this client allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. org: only that seat's messages. message_id: read one message addressed to your seats in full, even if already read (ignores wait). When nothing is unread, lists your open assigned tasks; an empty inbox is not an empty task list: check status.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -128,6 +128,10 @@
         "org": {
           "type": "string",
           "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
+        },
+        "message_id": {
+          "type": "integer",
+          "description": "Read or reread this message id, addressed to one of your seats (or only the seat selected by org). Returns its full text and marks it read."
         },
         "actor": {
           "type": "string",

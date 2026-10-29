@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 import relic_app  # noqa: E402
 from app import hub, web  # noqa: E402
+from relic_core.process import creation_flags
 
 ENTRY = ROOT / "scripts/relic_app.py"
 WRAPPER = REPOSITORY / "scripts/open_app.py"
@@ -122,7 +123,8 @@ class Isolated(unittest.TestCase):
         self.logs.append(log)
         command = ([sys.executable, "-B", "-c", FAKE_SERVER, str(ROOT), str(port)] if fake else
                    [sys.executable, "-B", "-c", SERVER, str(ENTRY), "--serve", "--port", str(port)])
-        process = subprocess.Popen(command, env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        process = subprocess.Popen(command, env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                   creationflags=creation_flags())
         self.processes.append(process)
         try:
             def ready():
@@ -144,8 +146,10 @@ class Isolated(unittest.TestCase):
         return process, info
 
     def cli(self, *args):
+        if not WRAPPER.is_file():
+            self.skipTest("Release-layout scripts/open_app.py is not present in this development checkout")
         done = subprocess.run([sys.executable, "-B", str(WRAPPER), *args], env=self.env,
-                              capture_output=True, text=True, timeout=35)
+                              capture_output=True, text=True, timeout=35, creationflags=creation_flags())
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.strip()
 
@@ -175,7 +179,8 @@ class RecordsAndLocks(Isolated):
                 "lock=LifecycleLock('app-control.lock',timeout=0);lock.__enter__();"
                 "print('locked',flush=True);sys.stdin.readline();lock.__exit__()")
         process = subprocess.Popen([sys.executable, "-B", "-c", code, str(ROOT)], env=self.env,
-                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                   creationflags=creation_flags())
         self.processes.append(process)
         self.assertEqual(process.stdout.readline().strip(), "locked")
         start = time.monotonic()
@@ -210,6 +215,8 @@ class RecordsAndLocks(Isolated):
 
 class Authentication(Isolated):
     def test_shutdown_requires_token_and_matching_instance(self):
+        if not WRAPPER.is_file():
+            self.skipTest("Release-layout scripts/open_app.py is not present")
         process, info = self.start()
         for changed, body, expected in ((dict(info, token="wrong"), {"instance": info["instance"]}, 403),
                                          (info, {"instance": "old-instance"}, 409)):
@@ -296,9 +303,11 @@ class ServerLifecycle(Isolated):
         self.assertIsNotNone(children[0].poll())
 
     def test_duplicate_direct_serve_is_rejected_and_stop_cleans_metadata(self):
+        if not WRAPPER.is_file():
+            self.skipTest("Release-layout scripts/open_app.py is not present")
         process, info = self.start()
         duplicate = subprocess.run([sys.executable, "-B", str(ENTRY), "--serve", "--port", str(info["port"])],
-                                   env=self.env, capture_output=True, text=True, timeout=10)
+                                   env=self.env, capture_output=True, text=True, timeout=10, creationflags=creation_flags())
         self.assertNotEqual(duplicate.returncode, 0)
         self.assertIn("app-server.lock", duplicate.stderr)
         self.assertEqual(relic_app.running()["instance"], info["instance"])
@@ -321,11 +330,14 @@ class ServerLifecycle(Isolated):
                     pass
 
     def test_concurrent_start_restart_and_stop_serialize_and_reuse_port(self):
+        if not WRAPPER.is_file():
+            self.skipTest("Release-layout scripts/open_app.py is not present")
         port = free_port()
 
         def concurrent(arguments, count=3):
             processes = [subprocess.Popen([sys.executable, "-B", str(WRAPPER), *arguments], env=self.env,
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(count)]
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                           creationflags=creation_flags()) for _ in range(count)]
             self.processes.extend(processes)
             output = []
             for process in processes:

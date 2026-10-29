@@ -19,10 +19,11 @@ import threading
 import time
 
 from .processes import group_has_live_members, signal_group
+from relic_core.process import creation_flags
 
 PROTOCOL_VERSION = 1
 CLIENT_INFO = {"name": "relic-app", "title": "Relic", "version": "0.1.0"}
-NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+NO_WINDOW = creation_flags()
 TERMINATE_WAIT = 1.0
 KILL_WAIT = 1.0
 READER_WAIT = 1.0

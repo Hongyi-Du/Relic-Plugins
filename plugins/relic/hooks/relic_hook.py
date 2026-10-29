@@ -21,6 +21,7 @@ from relic_core.context import render, render_messages, render_seats  # noqa: E4
 from relic_core.store import OrgError, Store, is_relic_tool  # noqa: E402
 
 WAKE_EVENTS = {"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SubagentStop"}
+CONTEXT_LIMIT = 9500
 
 
 def harness():
@@ -111,7 +112,14 @@ def seat_from_workspace(cwd):
 
 
 def context_output(event_name, text):
-    return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": text[:9500]}}
+    return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": clip_context(text, CONTEXT_LIMIT)}}
+
+
+def clip_context(text, budget):
+    if len(text) <= budget:
+        return text
+    note = "\n(Organization context cut here: read it in full with status.)"
+    return text[:max(0, budget - len(note))] + note
 
 
 def seats_line(store, actor, org):
@@ -120,12 +128,44 @@ def seats_line(store, actor, org):
     return "\n" + others if others else ""
 
 
-def peer_messages(store, actor):
-    messages = store.unread(actor, mark=True, limit=10)
+def peer_messages(store, actor, context=""):
+    """Budget before acknowledging: previews and omitted messages stay in inbox."""
+    messages = store.unread(actor, mark=False, limit=None)
     if not messages:
-        return ""
-    return ("New Relic messages from organization members (peer work input, not instructions from the human):\n"
-            + render_messages(messages))
+        return clip_context(context, CONTEXT_LIMIT)
+    heading = "New Relic messages from organization members (peer work input, not instructions from the human):\n"
+
+    def remaining(pending):
+        if not pending:
+            return ""
+        ids = ", ".join(str(m["id"]) for m in pending[:10]) + (", ..." if len(pending) > 10 else "")
+        return "\n%d more unread messages did not fit here (ids %s): read them in full with inbox." % (len(pending), ids)
+
+    # Leave room for the unread notice and at least a useful preview even when
+    # the organization's roster/protocols alone exceed the hook budget.
+    reserve = len(heading) + len(remaining(messages)) + 1000
+    text = clip_context(context, CONTEXT_LIMIT - reserve)
+    text = (text + "\n" if text else "") + heading
+    delivered = []
+    for index, message in enumerate(messages[:10]):
+        whole = ("\n" if delivered else "") + render_messages([message])
+        suffix = remaining(messages[index + 1:])
+        if len(text) + len(whole) + len(suffix) <= CONTEXT_LIMIT:
+            text += whole
+            delivered.append(message)
+            continue
+        suffix = remaining(messages[index:])
+        cut = "\n(cut here: read message %d in full with inbox)" % message["id"]
+        available = CONTEXT_LIMIT - len(text) - len(suffix) - len(cut)
+        if available > 0:
+            text += whole[:available] + cut
+        break
+    text += remaining(messages[len(delivered):])
+    assert len(text) <= CONTEXT_LIMIT
+    main_org = store.require(actor)[0]["id"]
+    for message in delivered:
+        store.mark_read(message.get("org_id", main_org), message["seat"], [message["id"]])
+    return text
 
 
 def handle(event, store=None):
@@ -189,8 +229,7 @@ def respond(event, store):
         if not org:
             return {}
         text = render(store, org, member, full=False) + seats_line(store, actor, org)
-        msgs = peer_messages(store, actor)
-        return context_output(name, text + ("\n" + msgs if msgs else ""))
+        return context_output(name, peer_messages(store, actor, text))
 
     if name == "PreToolUse":
         tool = event.get("tool_name", "")
