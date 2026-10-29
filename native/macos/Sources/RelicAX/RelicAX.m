@@ -20,6 +20,8 @@ static id Flag(id object, NSString *selector, NSString *legacy) {
 NSArray *RelicAXChildren(id object) {
     @try {
         id children = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);
+        if (![children isKindOfClass:NSArray.class] || ![children count])
+            children = Attribute(object, @"accessibilityChildrenInNavigationOrder", @"AXChildrenInNavigationOrder");
         return [children isKindOfClass:NSArray.class] ? children : @[];
     } @catch (NSException *exception) { return @[]; }
 }
@@ -79,6 +81,8 @@ NSDictionary<NSString *, id> *RelicAXRead(id object) {
         NSMutableArray *classes = [NSMutableArray array];
         for (id child in children) [classes addObject:NSStringFromClass([child class])];
         result[@"child_classes"] = classes;
+        id navigation = Attribute(object, @"accessibilityChildrenInNavigationOrder", @"AXChildrenInNavigationOrder");
+        result[@"navigation_child_count"] = [navigation isKindOfClass:NSArray.class] ? @([navigation count]) : NSNull.null;
         if (result[@"element"] == NSNull.null && [object respondsToSelector:@selector(accessibilityIsIgnored)])
             result[@"element"] = @(![object accessibilityIsIgnored]);
     } @catch (NSException *exception) { [errors addObject:[@"children: " stringByAppendingString:exception.reason]]; }

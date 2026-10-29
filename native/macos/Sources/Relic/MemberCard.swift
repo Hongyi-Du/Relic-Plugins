@@ -39,7 +39,7 @@ struct MemberCard: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
                     Text(card.display).font(.system(size: 17, weight: .semibold)).lineLimit(2).help(card.display)
-                    IconButton(title: m.t("card.rename_hint"), icon: "pencil", selected: editingName) { editingName.toggle() }
+                    IconButton(title: m.t("card.rename_hint"), icon: "edit", selected: editingName) { editingName.toggle() }
                 }
                 Text(who + (card["display_custom"].flag ? "" : " · " + m.t("card.auto_named"))).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(who)
                 HStack(spacing: 5) {

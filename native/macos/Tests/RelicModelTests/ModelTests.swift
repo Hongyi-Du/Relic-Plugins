@@ -18,6 +18,23 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testReferenceDateFormattingKeeps24HourClockAndRelativeCalendarDays() throws {
+        let model = try model()
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Timeline.date(Node("2026-10-29T15:00:00Z"))!
+        for language in ["en-US", "zh-CN"] {
+            model.words.load(Node(["lang": language, "strings": ["time.today": "today-fixture", "time.yesterday": "yesterday-fixture"]]))
+            XCTAssertEqual(model.clock(Node("2026-10-29T13:07:00Z"), calendar: calendar), "13:07")
+            XCTAssertEqual(model.day(Node("2026-10-29T00:00:00Z"), now: now, calendar: calendar), "today-fixture")
+            XCTAssertEqual(model.day(Node("2026-10-28T23:59:00Z"), now: now, calendar: calendar), "yesterday-fixture")
+            XCTAssertEqual(model.shortWhen(Node("2026-10-29T13:07:00Z"), now: now, calendar: calendar), "13:07")
+            XCTAssertEqual(model.clock(Node("invalid"), calendar: calendar), "")
+        }
+        model.words.load(Node(["lang": "en-US", "strings": [:]]))
+        XCTAssertEqual(model.day(Node("2026-10-20T12:00:00Z"), now: now, calendar: calendar), "October 20")
+        XCTAssertEqual(model.day(Node("2025-10-20T12:00:00Z"), now: now, calendar: calendar), "October 20, 2025")
+        XCTAssertEqual(model.shortWhen(Node("2026-10-20T12:00:00Z"), now: now, calendar: calendar), "10/20")
+    }
     func testSavingPreferencesRetainsGetOnlyServerMetadata() async throws {
         let model = try model()
         model.preferences = Node(["version": "0.6", "port": 39321, "data": "/fixture/.relic", "theme": "light"])
