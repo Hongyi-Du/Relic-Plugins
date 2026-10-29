@@ -28,11 +28,13 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pillow
+      - name: Check reference extractor syntax without opening a browser
+        run: node --check scripts/visual/reference-elements.js
       - name: Test strict matcher thresholds and failure coverage
         run: python -m unittest discover -s scripts/visual -p 'test_*.py' -v
   windows:
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -62,11 +64,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: visual-reference-${{ matrix.lang }}-${{ matrix.theme }}
+          name: reference-windows-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/reference
   macos:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -76,19 +78,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pillow
+      - run: pip install pillow playwright
+      - run: python -m playwright install chromium
       - run: swift build --package-path native/macos -c release --arch arm64
       - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/visual-macos
       - shell: bash
         run: |
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/visual/capture.py --client macos --exe "$binary" --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
+            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: visual-macos-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/macos
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reference-macos-${{ matrix.lang }}-${{ matrix.theme }}
+          path: visual/reference-macos
   compare:
     needs: [windows, macos, element-checker]
     if: always()
@@ -102,9 +110,15 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: visual-reference-*
+          pattern: reference-windows-*
           merge-multiple: true
           path: visual/reference
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: reference-macos-*
+          merge-multiple: true
+          path: visual/reference-macos
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -121,7 +135,7 @@ jobs:
         continue-on-error: true
       - name: Require all 504 scenes to have zero element mismatches
         if: always()
-        run: python scripts/visual/element_parity.py --source visual --output visual/parity --matrix full
+        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full
       - uses: actions/upload-artifact@v4
         if: always()
         with:

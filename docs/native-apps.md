@@ -8,6 +8,22 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients: the macOS reference-platform request in `26d77529` is
+implemented by capturing the unchanged reference on **each** native runner,
+against that runner's exact fixture/server. Windows uses `visual/reference`;
+macOS uses `visual/reference-macos`. The matcher never rewrites Ctrl/Command,
+paths or dates and never falls back from a missing Mac baseline to Windows.
+Each report records actual browser/platform and CDP-rendered font evidence.
+All 504 cases remain required per native platform; this adds reference captures
+and removes none. The reference transport context is reused with storage reset
+before each page load after `40930725969` exhausted Windows socket buffers near
+the end of en-US/light; the real production views and scene inputs are unchanged.
+Windows now uses the reference's actual JS pane defaults (340px / files 520px),
+56px chat header with avatar/member count/action chips, and 18px composer radius.
+The redundant sidebar chart shortcut is removed; chart access remains in the
+reference's menus and hierarchy section. Native Button templates retain native
+UIA/keyboard behavior while drawing the reference's flat palette.
+
 Changes for the clients: machine-baseline audit found untested paint fields.
 The canonical `native-elements.md` now requires individually measured TRBL border
 widths/colors, TL/TR/BR/BL radii, effective opacity, structured shadows and actual

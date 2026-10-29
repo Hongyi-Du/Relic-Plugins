@@ -67,6 +67,20 @@ public sealed partial class MainWindow
         var b = Button(label, action); b.Background = new SolidColorBrush(Colors.Transparent); b.BorderThickness = new Thickness(0);
         b.Padding = new Thickness(6, 3, 6, 3); return b;
     }
+    private Button ChipButton(string icon, string label, string tooltip, Func<Task> action)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(ReferenceIcon(icon, 15)); var text = Text(label, 12.5); text.TextWrapping = TextWrapping.NoWrap; row.Children.Add(text);
+        var button = QuietButton("", action); button.Content = row; button.Height = 28; button.Padding = new Thickness(10, 0, 10, 0); button.CornerRadius = new CornerRadius(9);
+        button.BorderBrush = Paint("DEDBD4", "3A3936"); button.BorderThickness = new Thickness(1); button.Foreground = Paint("5A5853", "B8B5AE"); text.Foreground = button.Foreground;
+        ToolTipService.SetToolTip(button, tooltip); return button;
+    }
+    private Border ChatAvatar(bool secretary)
+    {
+        var glyph = (ReferenceVectorIcon)ReferenceIcon(secretary ? "sec" : "hash", secretary ? 16 : 14);
+        glyph.Foreground = secretary ? Paint("7058B8", "A894E0") : Paint("5A5853", "B8B5AE");
+        return new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = secretary ? Paint("EFEBF8", "2E2A3D") : Paint("EFEEEA", "262624"), Child = glyph };
+    }
     private Border Card(UIElement child, bool highlighted = false) => new()
     {
         Child = child, Padding = new Thickness(12), CornerRadius = new CornerRadius(10),
@@ -96,10 +110,11 @@ public sealed partial class MainWindow
         sidebarSurface.Background = Paint("F8F7F5", "191918"); sidebarSurface.BorderBrush = Line;
         inspectorSurface.Background = Paint("F8F7F5", "191918"); inspectorSurface.BorderBrush = Line;
         composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");
+        chatHead.BorderBrush = Line;
         menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918"); navigationButtons.Background = Paint("F8F7F5", "191918");
         editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
         root.Resources["AccentTextFillColorPrimaryBrush"] = Accent; root.Resources["AccentFillColorDefaultBrush"] = Accent;
-        if (sendButton != null) sendButton.Background = Accent;
+        if (sendButton != null) { sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); }
     }
     private void DrawPaneHeader()
     {

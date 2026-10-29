@@ -1,3 +1,58 @@
 <Application x:Class="Relic.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <Application.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></Application.Resources>
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="RelicControlInk" Color="#1B1B1A" />
+          <SolidColorBrush x:Key="RelicControlCard" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="RelicControlLine" Color="#DEDBD4" />
+          <SolidColorBrush x:Key="RelicControlHover" Color="#EFEEEA" />
+          <SolidColorBrush x:Key="RelicControlPressed" Color="#E7E5DF" />
+          <SolidColorBrush x:Key="RelicControlDisabled" Color="#B8B5AF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Default">
+          <SolidColorBrush x:Key="RelicControlInk" Color="#ECEAE5" />
+          <SolidColorBrush x:Key="RelicControlCard" Color="#252523" />
+          <SolidColorBrush x:Key="RelicControlLine" Color="#3A3936" />
+          <SolidColorBrush x:Key="RelicControlHover" Color="#262624" />
+          <SolidColorBrush x:Key="RelicControlPressed" Color="#2F2E2B" />
+          <SolidColorBrush x:Key="RelicControlDisabled" Color="#5F5D58" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <!-- Native template: retain Button/UIA/keyboard semantics while matching
+           the reference's flat paint instead of the default Fluent bevel. -->
+      <Style TargetType="Button">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{ThemeResource RelicControlInk}" />
+        <Setter Property="Background" Value="{ThemeResource RelicControlCard}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource RelicControlLine}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="Button">
+              <ContentPresenter x:Name="Presenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Foreground="{TemplateBinding Foreground}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Presenter.Background" Value="{ThemeResource RelicControlHover}" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Presenter.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="Presenter.Foreground" Value="{ThemeResource RelicControlDisabled}" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+              </ContentPresenter>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+    </ResourceDictionary>
+  </Application.Resources>
 </Application>

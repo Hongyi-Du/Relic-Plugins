@@ -17,17 +17,25 @@ def element(eid="r0", text="今天 11:00", order=0, kind="text", region="convers
     return {"id": eid, "parent": None, "region": region, "order": order, "kind": kind,
             "text": text, "name": "", "bounds": {"x": 10., "y": 12., "width": 100., "height": 20.},
             "style": {"font_size": 13., "font_weight": 400, "foreground": [27, 27, 26, 255],
-                      "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0},
+                      "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0,
+                      "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)], "corner_radii": [0, 0, 0, 0],
+                      "opacity": 1, "background_image": "none", "shadow": [],
+                      "rendered_fonts": [{"family_name": "Fixture Sans", "postscript_name": "FixtureSans-Regular", "glyph_count": 8, "is_custom_font": False}]},
             "state": {key: None for key in STATE_FIELDS},
-            "layout": {"wrap": "none", "truncation": "none", "line_count": 1}, "icon": None, "evidence": {"source": "test-only fixture"}}
+            "layout": {"wrap": "none", "truncation": "none", "line_count": 1}, "icon": None,
+            "evidence": {"source": "test-only fixture", "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}}
 
 
 def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group", viewport=None):
     elements = elements if elements is not None else [element()]
-    return {"schema_version": 1, "client": client, "scene_id": scene,
+    data = {"schema_version": 1, "client": "reference" if client == "reference-macos" else client, "scene_id": scene,
             "viewport": viewport or {"width": 1440, "height": 900, "scale": 1},
             "extraction_errors": [], "coverage": {"raw_nodes": len(elements), "emitted_elements": len(elements), "unmeasured": []},
             "elements": elements}
+    if client in ("reference", "reference-macos"):
+        data["reference_environment"] = {"platform": "macos" if client == "reference-macos" else "windows",
+                                         "browser": {"name": "fixture-browser", "version": "1"}, "fonts": ["fixture font evidence"]}
+    return data
 
 
 class ElementComparisonTests(unittest.TestCase):
@@ -137,6 +145,95 @@ class ElementComparisonTests(unittest.TestCase):
         b["icon"] = {"source": "font", "glyph": "E123"}
         self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
 
+    def test_invisible_rgb_and_unpainted_border_color_do_not_create_false_mismatches(self):
+        a, b = element(), element("n")
+        b["style"]["background"] = [255, 255, 255, 0]
+        b["style"]["border_color"] = [255, 0, 0, 255]
+        b["style"]["border_colors"] = [[255, 0, 0, 255] for _ in range(4)]
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        # Even one alpha unit remains observable and cannot use that rule.
+        b["style"]["background"][3] = 1
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_border_directions_and_corner_positions_cannot_hide_behind_scalar_maximum(self):
+        a, b = element(), element("n")
+        a["style"]["border_width"] = b["style"]["border_width"] = 1
+        a["style"]["border_color"] = b["style"]["border_color"] = [0, 0, 0, 255]
+        a["style"]["border_colors"] = b["style"]["border_colors"] = [[0, 0, 0, 255] for _ in range(4)]
+        a["style"]["border_widths"] = [1, 0, 0, 0]
+        b["style"]["border_widths"] = [0, 0, 1, 0]
+        a["style"]["corner_radius"] = b["style"]["corner_radius"] = 8
+        a["style"]["corner_radii"] = [8, 0, 0, 0]
+        b["style"]["corner_radii"] = [0, 8, 0, 0]
+        fields = {entry["field"] for entry in compare_elements([a], [b])["style_out_of_tolerance"]}
+        self.assertIn("border_widths[0]", fields)
+        self.assertIn("border_widths[2]", fields)
+        self.assertIn("corner_radii[0]", fields)
+        self.assertIn("corner_radii[1]", fields)
+
+    def test_opacity_shadow_and_stroke_differences_are_checked(self):
+        a, b = element(), element("n")
+        b["style"]["opacity"] = .5
+        a["style"]["stroke_width"], b["style"]["stroke_width"] = 1.2, 2.0
+        shadow = {"inset": True, "offset_x": 3, "offset_y": 0, "blur_radius": 0, "spread_radius": 0, "color": [168, 148, 224, 255]}
+        a["style"]["shadow"] = [deepcopy(shadow)]
+        b["style"]["shadow"] = [deepcopy(shadow)]
+        b["style"]["shadow"][0]["color"] = [0, 0, 0, 255]
+        fields = {entry["field"] for entry in compare_elements([a], [b])["style_out_of_tolerance"]}
+        self.assertTrue({"opacity", "stroke_width", "shadow[0].color"}.issubset(fields))
+
+    def test_gradient_stops_are_not_ignored_or_compared_as_a_css_string(self):
+        a, b = element(), element("n")
+        gradient = {"kind": "conic-gradient", "repeating": True, "angle": 0, "center": [8, 8],
+                    "size": [16, 16], "position": [0, 0], "repeat": ["repeat", "repeat"],
+                    "stops": [{"position": 0, "color": [27, 27, 26, 255]}, {"position": .5, "color": [0, 0, 0, 0]}]}
+        a["style"]["background_image"] = deepcopy(gradient)
+        b["style"]["background_image"] = deepcopy(gradient)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["background_image"]["stops"][0]["color"] = [255, 255, 255, 255]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_unused_container_text_properties_are_not_rendered_text(self):
+        a, b = element(text="", kind="code"), element("n", text="", kind="code")
+        a["layout"] = {"wrap": "word", "truncation": "none", "line_count": 0}
+        b["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        b["style"]["font_size"] = b["style"]["font_weight"] = b["style"]["foreground"] = None
+        result = compare_elements([a], [b])
+        self.assertEqual(result["matched_elements"], 1)
+        # The separately emitted real text still must match exactly.
+        b["text"] = "visible child text incorrectly folded into parent"
+        self.assertTrue(compare_elements([a], [b])["text_mismatch"])
+
+    def test_text_alignment_checks_actual_lines_inside_equal_control_boxes(self):
+        a, b = element(kind="button"), element("n", kind="button")
+        b["evidence"]["text_bounds"][0]["x"] += 20
+        result = compare_elements([a], [b])
+        self.assertTrue(any(entry["field"] == "text_bounds[0].x" for entry in result["geometry_out_of_tolerance"]))
+        b["evidence"].pop("text_bounds")
+        self.assertTrue(compare_elements([a], [b])["layout_mismatch"])
+
+    def test_rich_text_fragments_form_same_line_without_changing_reading_order(self):
+        a, b = element(), element("n")
+        a["evidence"]["text_bounds"] = [{"x": 10, "y": 12, "width": 40, "height": 20}, {"x": 50, "y": 12, "width": 60, "height": 20}]
+        self.assertEqual(compare_elements([a], [b])["matched_elements"], 1)
+
+    def test_indeterminate_check_state_is_not_equivalent_to_unchecked(self):
+        a, b = element(kind="checkbox"), element("n", kind="checkbox")
+        a["state"]["checked"] = b["state"]["checked"] = False
+        a["state"]["indeterminate"], b["state"]["indeterminate"] = False, True
+        self.assertTrue(compare_elements([a], [b])["state_mismatch"])
+
+    def test_actual_fonts_compare_identity_not_provider_glyph_counter_or_loading_mode(self):
+        a, b = element(), element("n")
+        b["style"]["rendered_fonts"][0].update(glyph_count=30, is_custom_font=True)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0]["postscript_name"] = None
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0]["family_name"] = "Different Actual Font"
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0].update(family_name="Fixture Sans", postscript_name="FixtureSans-OtherFace")
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
 
 class ExtractionContractTests(unittest.TestCase):
     def validate(self, data):
@@ -184,6 +281,30 @@ class ExtractionContractTests(unittest.TestCase):
             errors = self.validate(data)
             self.assertTrue(any(state in e["reason"] for e in errors))
 
+    def test_unmeasured_paint_fonts_lines_and_unparsed_css_cannot_pass(self):
+        for field in ("background", "border_width", "corner_radius", "border_widths", "border_colors", "corner_radii", "opacity", "shadow", "background_image", "rendered_fonts"):
+            with self.subTest(field=field):
+                data = capture(); data["elements"][0]["style"][field] = None
+                self.assertTrue(self.validate(data))
+        for field, raw_css in (("shadow", "rgba(0,0,0,.1) 0px 1px 2px"), ("background_image", "linear-gradient(red,blue)")):
+            data = capture(); data["elements"][0]["style"][field] = raw_css
+            self.assertTrue(self.validate(data))
+        data = capture(); data["elements"][0]["evidence"].pop("text_bounds")
+        self.assertTrue(self.validate(data))
+
+    def test_missing_glyphs_cannot_pass_as_empty_icons_or_icon_buttons(self):
+        for kind in ("icon", "chart-edge", "image", "icon-button"):
+            data = capture(elements=[element(text="", kind=kind)])
+            data["elements"][0]["state"]["enabled"] = True
+            self.assertTrue(any("identity" in error["reason"] or "owned icon" in error["reason"] for error in self.validate(data)))
+
+    def test_textless_code_container_does_not_require_nonexistent_font_or_lines(self):
+        item = element(text="", kind="code")
+        item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
+        item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        item["evidence"].pop("text_bounds")
+        self.assertEqual(self.validate(capture(elements=[item])), [])
+
 
 class MatrixReportTests(unittest.TestCase):
     def test_full_matrix_requires_exact_504_cases(self):
@@ -213,7 +334,7 @@ class MatrixReportTests(unittest.TestCase):
         scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); source = root / "source"
-            for client in ("reference", "windows", "macos"):
+            for client in ("reference", "reference-macos", "windows", "macos"):
                 path = source / client; path.mkdir(parents=True)
                 item = element(client); item["bounds"] = {"x": 1, "y": 1, "width": 10, "height": 10}
                 data = capture(client, [item], scene, viewport)
@@ -236,7 +357,7 @@ class MatrixReportTests(unittest.TestCase):
         scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); source = root / "source"; output = root / "report"
-            for client in ("reference", "windows", "macos"):
+            for client in ("reference", "reference-macos", "windows", "macos"):
                 path = source / client; path.mkdir(parents=True)
                 data = capture(client, [element(client)], scene, viewport)
                 if client == "windows":
@@ -270,7 +391,7 @@ class MatrixReportTests(unittest.TestCase):
         scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); source = root / "source"; output = root / "report"
-            for client in ("reference", "windows", "macos"):
+            for client in ("reference", "reference-macos", "windows", "macos"):
                 path = source / client; path.mkdir(parents=True)
                 items = [element(client)]
                 if client == "macos":
@@ -317,6 +438,34 @@ class MatrixReportTests(unittest.TestCase):
                     page = (output / (scene["scene_id"] + suffix + ".html")).read_text(encoding="utf-8")
                     self.assertIn(f'href="{filename}"', page)
                     self.assertIn('href="summary.json"', page)
+
+    def test_each_platform_uses_its_actual_reference_without_key_normalization(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                mac = client in ("reference-macos", "macos")
+                data = capture(client, [element(client, "⌘B" if mac else "Ctrl+B")], scene, viewport)
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white" if mac else "black").save(path / f"{scene}.png")
+            result = run(source, output, spec=spec, reference_root=source / "reference", macos_reference_root=source / "reference-macos")
+            self.assertTrue(result["passed"])
+            platforms = result["scenes"][0]["platforms"]
+            self.assertEqual(platforms["macos"]["reference_platform"], "macos")
+            self.assertEqual(platforms["windows"]["reference_platform"], "windows")
+            self.assertEqual(platforms["macos"]["pixel_difference"]["changed_pixels"], 0)
+            self.assertEqual(platforms["windows"]["pixel_difference"]["changed_pixels"], 0)
+            self.assertTrue((output / "elements" / "reference-macos" / f"{scene}.elements.json").exists())
+            self.assertIn("images/reference-macos/", (output / f"{scene}-macos.html").read_text(encoding="utf-8"))
+            (source / "reference-macos" / f"{scene}.elements.json").unlink()
+            result = run(source, root / "missing-mac", spec=spec)
+            self.assertFalse(result["passed"])
+            self.assertGreater(result["summary"]["macos"]["counts"]["extraction_errors"], 0)
+            self.assertEqual(result["summary"]["macos"]["raw_reference_elements"], 0)
+            self.assertEqual(result["summary"]["windows"]["scenes_passed"], 1)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ public sealed partial class MainWindow
         navigationButtons.Children.Clear(); var brand = new Border { Width = 20, Height = 20, Margin = new Thickness(5, 0, 7, 0), CornerRadius = new CornerRadius(5), Background = Ink, Child = new TextBlock { Text = "R", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF", "1B1B1A"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; ToolTipService.SetToolTip(brand, T("page.titlebar")); navigationButtons.Children.Add(brand); navigationButtons.Children.Add(IconButton("\uE700", "appmenu.sidebar", ToggleSide, T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar")));
         var back = IconButton("\uE72B", "appbar.back", () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
         var forward = IconButton("\uE72A", "appbar.forward", () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
-        var title = Ellipsis(snap["org"].Text("name"), 13); title.Margin = new Thickness(16, 8, 16, 0); title.Foreground = Muted; toolbar.Content = title;
+        appTitle.Text = org.Length == 0 ? "Relic" : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
         var count = snap.Rows("decisions").Count;
         Action("\uE7BA", T("decision.title"), T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"));
         var unread = copies.Count(c => !c.Flag("read"));
@@ -41,7 +41,7 @@ public sealed partial class MainWindow
         side.Children.Add(create); search.Margin = new Thickness(0); search.MinHeight = 32; search.FontSize = 12; search.Padding = new Thickness(28, 5, 30, 5); search.BorderThickness = new Thickness(0); search.CornerRadius = new CornerRadius(8); search.Background = Paint("EFEEEA", "262624");
         searchSurface.Margin = new Thickness(2, 6, 2, 12); searchSurface.Children.Add(search); var searchIcon = Glyph("\uE721", 13); searchIcon.HorizontalAlignment = HorizontalAlignment.Left; searchIcon.Margin = new Thickness(9, 0, 0, 0); searchIcon.IsHitTestVisible = false; searchSurface.Children.Add(searchIcon);
         var searchMic = Microphone(search); searchMic.HorizontalAlignment = HorizontalAlignment.Right; searchSurface.Children.Add(searchMic); side.Children.Add(searchSurface);
-        var caption = Quiet(T("page.tree"), 11); caption.Margin = new Thickness(8, 6, 8, 8); side.Children.Add(caption);
+        var caption = TwoColumns(Quiet(T("page.tree"), 12), Quiet(orgs.Count > 0 ? orgs.Count.ToString() : "", 12)); caption.Margin = new Thickness(10, 14, 10, 6); side.Children.Add(caption);
         var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0) };
         list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); };
         side.Children.Add(list);
@@ -55,11 +55,29 @@ public sealed partial class MainWindow
         void Chat(string who, string title, string subtitle, string avatar, string state = "")
         {
             var key = who.Length == 0 ? "group" : "member:" + who; var id = org;
-            var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            row.Children.Add(SmallAvatar(avatar, who.Length == 0 ? "#" : Display(who), state));
-            var text = new StackPanel { Spacing = 1 }; text.Children.Add(Ellipsis(title + Unread(key), 13));
-            if (subtitle.Length > 0) { var sub = Ellipsis(subtitle, 11); sub.Foreground = Muted; text.Children.Add(sub); }
+            var row = new Grid { ColumnSpacing = 9 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(30) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            var secretary = who.Length > 0 && who == snap["org"].Text("secretary");
+            row.Children.Add(who.Length == 0 ? ChatAvatar(false) : secretary && avatar.Length == 0 ? ChatAvatar(true) : SmallAvatar(avatar, Display(who), state, 28));
+            var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
+            var heading = new Grid { ColumnSpacing = 6 }; heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            var name = Ellipsis(title, 13.3); name.FontWeight = new Windows.UI.Text.FontWeight { Weight = 550 }; name.LineHeight = 17.955; name.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; heading.Children.Add(name);
+            if (secretary)
+            {
+                var role = Display(who) == T("common.secretary") ? who : Display(who); var tag = Badge(role); tag.Background = Paint("EFEBF8", "2E2A3D"); tag.Padding = new Thickness(6, 0, 6, 0); tag.Height = 18; ((TextBlock)tag.Child).Foreground = Paint("7058B8", "A894E0"); ((TextBlock)tag.Child).FontSize = 10.5; Grid.SetColumn(tag, 1); heading.Children.Add(tag);
+            }
+            else if (snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Flag("leader")) { var tag = Badge(T("common.leader"), true); Grid.SetColumn(tag, 1); heading.Children.Add(tag); }
+            text.Children.Add(heading);
+            if (subtitle.Length > 0) { var sub = Ellipsis(subtitle, 12); sub.Foreground = Muted; sub.LineHeight = 16.2; sub.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; text.Children.Add(sub); }
             Grid.SetColumn(text, 1); row.Children.Add(text); ToolTipService.SetToolTip(row, title + "\n" + subtitle + (state.Length > 0 ? "\n" + MemberState(state) : ""));
+            var info = new StackPanel { Spacing = 3, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) };
+            var at = snap["chats"]?[key]?["last"].Text("at") ?? ""; if (at.Length == 0) at = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Text("doing_at");
+            if (at.Length > 0) info.Children.Add(Quiet(ShortWhen(at), 11));
+            var unread = who == member ? 0 : Unread(key);
+            if (unread > 0)
+            {
+                var count = new Border { Child = new TextBlock { Text = unread.ToString(), FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, MinWidth = 18, Height = 18, Padding = new Thickness(5, 0, 5, 0), CornerRadius = new CornerRadius(9), Background = Accent, HorizontalAlignment = HorizontalAlignment.Right }; info.Children.Add(count);
+            }
+            Grid.SetColumn(info, 2); row.Children.Add(info);
             Add(row, () => Select(id, who), who == member, 14);
         }
         void Node(JsonNode? item, int depth)
@@ -69,21 +87,22 @@ public sealed partial class MainWindow
             var orgMatch = Match(item.Text("name")) || Match(item.Text("purpose")); var children = orgs.Where(o => o.Text("parent") == id).ToArray();
             if (query.Length == 0 || orgMatch || members.Length > 0)
             {
-                var row = new Grid { ColumnSpacing = 6 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(18) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(14) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
                 if (selected || children.Length > 0)
                 {
                     var fold = IconButton(folded.Contains(id) ? "\uE76C" : "\uE70D", "page.tree", () => { if (!folded.Add(id)) folded.Remove(id); SaveViewState(); DrawSidebar(); return Task.CompletedTask; }); fold.Width = 20; fold.Height = 22; fold.Padding = new Thickness(2); row.Children.Add(fold);
                 }
                 var avatar = SmallAvatar(item.Text("avatar"), item.Text("name"), size: 22); Grid.SetColumn((FrameworkElement)avatar, 1); row.Children.Add(avatar);
-                var label = Ellipsis(item.Text("name")); label.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; Grid.SetColumn(label, 2); row.Children.Add(label); ToolTipService.SetToolTip(row, item.Text("purpose"));
+                var label = Text(item.Text("name"), 13.44); label.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; label.MaxLines = 2; label.LineHeight = 18.144; label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; label.TextTrimming = TextTrimming.CharacterEllipsis; Grid.SetColumn(label, 2); row.Children.Add(label); ToolTipService.SetToolTip(row, item.Text("name") + "\n" + item.Text("purpose"));
+                if (!selected && item.Text("last_at").Length > 0) { var time = Quiet(ShortWhen(item.Text("last_at")), 11.5); Grid.SetColumn(time, 3); row.Children.Add(time); }
                 var context = new MenuFlyout(); var chart = new MenuFlyoutItem { Text = T("appmenu.org_chart") }; chart.Click += async (_, _) => await Run(() => ShowChart(id)); context.Items.Add(chart); row.ContextFlyout = context;
-                Add(row, () => Select(id), selected, Math.Min(depth, 8) * 10);
+                Add(row, () => Select(id), selected, Math.Min(depth, 8) * 16);
                 if (selected && (!folded.Contains(id) || query.Length > 0))
                 {
                     if (orgMatch || Match(T("common.group_chat"))) Chat("", T("common.group_chat"), LastLine("group").Length > 0 ? LastLine("group") : T("side.group_sub"), "");
                     var secretary = snap["org"].Text("secretary"); var sec = snap.Rows("members").FirstOrDefault(m => m.Text("name") == secretary);
                     if (secretary.Length == 0) { var setup = Quiet(T("side.set_secretary")); ToolTipService.SetToolTip(setup, T("side.secretary_hint")); Add(setup, SecretarySetup, false, 14); }
-                    else if (orgMatch || members.Contains(sec)) Chat(secretary, T("common.secretary") + " · " + Display(secretary), LastLine("member:" + secretary), sec.Text("avatar"), sec.Text("state"));
+                    else if (orgMatch || members.Contains(sec)) Chat(secretary, T("common.secretary"), LastLine("member:" + secretary), sec.Text("avatar"), sec.Text("state"));
                     foreach (var m in (orgMatch ? snap.Rows("members").ToArray() : members).Where(m => !m.Flag("secretary")))
                         Chat(m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")).Length > 0 ? LastLine("member:" + m.Text("name")) : m.Text("role"), m.Text("avatar"), m.Text("state"));
                     Add(Quiet("+ " + T("common.add_member")), AddMember, false, 20);
@@ -98,7 +117,6 @@ public sealed partial class MainWindow
         var profile = QuietButton(Display("human"), Settings); ToolTipService.SetToolTip(profile, T("side.profile")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, T("page.me"));
         var identity = new Grid { ColumnSpacing = 8 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); identity.Children.Add(SmallAvatar(preferences.Text("avatar"), Display("human"), size: 30)); var labels = new StackPanel { Spacing = 2 }; labels.Children.Add(Heading(Display("human"), 13)); labels.Children.Add(Quiet(T("side.profile"), 11)); Grid.SetColumn(labels, 1); identity.Children.Add(labels); profile.Content = identity;
         sidebarFooter.Children.Add(TwoColumns(profile, IconButton("\uE713", "common.settings", Settings)));
-        sidebarFooter.Children.Add(QuietButton(T("chart.title"), Chart));
     }
     private async Task ShowCopies()
     {

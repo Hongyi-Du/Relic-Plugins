@@ -30,7 +30,7 @@ public sealed partial class MainWindow
     private readonly Border conversationBanner = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 0, 20, 10) };
     private void UpdateSendState()
     {
-        if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .45; }
+        if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .35; }
         if (threadSendButton != null) threadSendButton.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0;
     }
     private string PlainKey(string id) => org + "/" + id;
@@ -71,7 +71,14 @@ public sealed partial class MainWindow
     }
     private void UpdateRecipient()
     {
-        if (recipientButton != null) { var label = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display)))); recipientButton.Content = Ellipsis(label + "  ⌄", 12); recipientButton.MaxWidth = 230; ToolTipService.SetToolTip(recipientButton, label); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed; }
+        if (recipientButton != null)
+        {
+            var label = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display))));
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; row.Children.Add(Ellipsis(label, 12.5));
+            var arrow = ReferenceIcon("chev", 12); arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; row.Children.Add(arrow);
+            recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(9); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(10, 0, 10, 0);
+            recipientButton.MaxWidth = 230; ToolTipService.SetToolTip(recipientButton, label); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
     private void MentionMenu()
     {
@@ -153,26 +160,40 @@ public sealed partial class MainWindow
             var empty = Stack(title, hint); empty.Spacing = 18; empty.MaxWidth = 620; empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center; emptyConversation.Children.Add(empty); return;
         }
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
-        chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var titles = new StackPanel { Spacing = 3 }; var actions = new ActionRow { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        chatHead.Children.Add(titles); Grid.SetColumn(actions, 1); chatHead.Children.Add(actions);
+        chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var titles = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center }; var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        var portrait = member.Length == 0 ? ChatAvatar(false) : m.Flag("secretary") && m.Text("avatar").Length == 0 ? ChatAvatar(true) : SmallAvatar(m.Text("avatar"), Display(member), m.Text("state"), 28);
+        chatHead.Children.Add(portrait); Grid.SetColumn(titles, 1); chatHead.Children.Add(titles); Grid.SetColumn(actions, 2); chatHead.Children.Add(actions);
+        TextBlock HeaderLabel(string value)
+        {
+            var label = Ellipsis(value, 15); label.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; label.LineHeight = 19.5; label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; return label;
+        }
+        TextBlock HeaderMeta(string value)
+        {
+            var label = Ellipsis(value, 12); label.Foreground = Muted; label.LineHeight = 16.8; label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; return label;
+        }
         if (member.Length == 0)
         {
-            titles.Children.Add(Heading(T("common.group_chat"), 17));
-            titles.Children.Add(Quiet(T("common.members", ("n", snap.Rows("members").Count)) + " · " + T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name"))), 11));
-            actions.Children.Add(IconButton("\uE8D4", plainMode ? "chat.plain_on" : "common.plain_words", TogglePlain, T("chat.plain_title")));
-            actions.Children.Add(IconButton("\uE945", "chat.digest", ToggleDigest, T("chat.digest_title")));
+            var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; heading.Children.Add(HeaderLabel(T("common.group_chat")));
+            var count = HeaderLabel(T("common.members", ("n", snap.Rows("members").Count))); count.FontWeight = Microsoft.UI.Text.FontWeights.Normal; count.Foreground = Muted; heading.Children.Add(count); titles.Children.Add(heading);
+            titles.Children.Add(HeaderMeta(T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name")))));
+            actions.Children.Add(ChipButton("lang", T(plainMode ? "chat.plain_on" : "common.plain_words"), T("chat.plain_title"), TogglePlain));
+            actions.Children.Add(ChipButton("sparkle", T("chat.digest"), T("chat.digest_title"), ToggleDigest));
             actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
             if (digestOpen) { var digestScroll = Scroll(DigestCard()); digestScroll.MaxHeight = Math.Min(230, root.ActualHeight * .3); var summary = Card(digestScroll); summary.Background = Paint("F3F0FA", "302A40"); summary.BorderBrush = Paint("D8CEE9", "4C405E"); conversationBanner.Child = summary; conversationBanner.Visibility = Visibility.Visible; }
         }
         else
         {
-            titles.Children.Add(Heading(m.Flag("secretary") ? T("chat.secretary_title", ("name", Display(member))) : Display(member), 17));
-            titles.Children.Add(Quiet(string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label"), m.Text("model"), MemberState(m.Text("state")) }.Where(x => x.Length > 0)), 11));
+            var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var roleName = Display(member) == T("common.secretary") ? member : Display(member);
+            heading.Children.Add(HeaderLabel(m.Flag("secretary") ? T("chat.secretary_title", ("name", roleName)) : Display(member)));
+            if (m.Text("display").Length > 0 && m.Text("display") != member) { var identifier = HeaderLabel(member); identifier.Foreground = Muted; identifier.FontWeight = Microsoft.UI.Text.FontWeights.Normal; identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Cascadia Mono, Consolas"); identifier.FontSize = 13.8; heading.Children.Add(identifier); }
+            if (m.Flag("leader")) heading.Children.Add(Badge(T("common.leader"), true)); titles.Children.Add(heading);
+            titles.Children.Add(HeaderMeta(string.Join(" · ", new[] { snap["org"].Text("name"), m.Text("harness_label"), m.Text("surface_label"), m.Text("model"), MemberState(m.Text("state")) }.Where(x => x.Length > 0))));
             if (m.Flag("embedded") && m.Text("state") is "running" or "waiting") actions.Children.Add(IconButton("\uE71A", "chat.stop_turn", () => Post("/cancel", new { member })));
             actions.Children.Add(IconButton("\uE77B", "chat.card", () => MemberCard(member)));
             actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
-            actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
+            if (m.Text("surface") != "chat") actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
             conversationBanner.Child = Quiet(banner, 11); conversationBanner.Visibility = Visibility.Visible;
         }

@@ -24,6 +24,7 @@ CLIENTS = ("reference",) + PLATFORMS
 REGIONS = {"window", "header", "sidebar", "conversation", "composer", "right-pane", "dialog", "menu"}
 KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link"}
 STYLE_FIELDS = ("font_size", "font_weight", "foreground", "background", "border_color", "border_width", "corner_radius")
+PAINT_FIELDS = ("border_widths", "border_colors", "corner_radii", "opacity", "background_image", "shadow")
 STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
 LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
 INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link"}
@@ -47,6 +48,120 @@ def expected_cases(spec: dict, matrix: str) -> dict[str, dict]:
 
 def rgba(value: Any) -> bool:
     return isinstance(value, list) and len(value) == 4 and all(number(v) and 0 <= v <= 255 for v in value)
+
+
+def vector(value: Any, size: int, *, nonnegative: bool = False) -> bool:
+    return isinstance(value, list) and len(value) == size and all(number(v) and (not nonnegative or v >= 0) for v in value)
+
+
+def has_text(element: dict) -> bool:
+    # A code/card container can own paint while its child text is emitted once.
+    return bool(element.get("text")) or element.get("kind") == "text"
+
+
+def has_font_glyph(element: dict) -> bool:
+    icon = element.get("icon")
+    return (element.get("kind") == "icon" and isinstance(icon, dict)
+            and icon.get("source") not in ("svg", "image", "path", "geometry"))
+
+
+def paint_issues(style: dict) -> list[str]:
+    """Canonical paint measurements cannot disappear behind scalar maxima."""
+    issues = []
+    for field in ("background", "border_width", "corner_radius") + PAINT_FIELDS:
+        if field not in style or style[field] is None:
+            issues.append("Missing measured paint: " + field)
+    for field in ("border_width", "corner_radius"):
+        if style.get(field) is not None and (not number(style[field]) or style[field] < 0):
+            issues.append("Invalid nonnegative paint: " + field)
+    for field in ("border_widths", "corner_radii"):
+        if style.get(field) is not None and not vector(style[field], 4, nonnegative=True):
+            issues.append("Expected four measured nonnegative values: " + field)
+    if style.get("border_colors") is not None and not (isinstance(style["border_colors"], list) and len(style["border_colors"]) == 4 and all(rgba(c) for c in style["border_colors"])):
+        issues.append("Expected four measured RGBA border colors in TRBL order")
+    for scalar, field in (("border_width", "border_widths"), ("corner_radius", "corner_radii")):
+        if number(style.get(scalar)) and vector(style.get(field), 4) and abs(style[scalar] - max(style[field])) > 1e-8:
+            issues.append(scalar + " must agree with the maximum of " + field)
+    if style.get("opacity") is not None and (not number(style["opacity"]) or not 0 <= style["opacity"] <= 1):
+        issues.append("opacity must be the measured cumulative opacity in [0,1]")
+    shadows = style.get("shadow")
+    if shadows is not None:
+        if not isinstance(shadows, list):
+            issues.append("shadow must be a canonical array, not an unparsed CSS string")
+        else:
+            for index, shadow in enumerate(shadows):
+                if not isinstance(shadow, dict) or not isinstance(shadow.get("inset"), bool) or not rgba(shadow.get("color")) or not all(number(shadow.get(k)) for k in ("offset_x", "offset_y", "blur_radius", "spread_radius")) or shadow.get("blur_radius", -1) < 0:
+                    issues.append("Invalid measured shadow at index " + str(index))
+    background = style.get("background_image")
+    if background is not None and background != "none":
+        if not isinstance(background, dict) or background.get("kind") not in ("image", "linear-gradient", "radial-gradient", "conic-gradient"):
+            issues.append("background_image must be none or a canonical measured paint descriptor")
+        else:
+            for field in ("position", "size"):
+                if not vector(background.get(field), 2, nonnegative=field == "size"):
+                    issues.append("background_image has no measured " + field)
+            repeat = background.get("repeat")
+            if not isinstance(repeat, list) or len(repeat) != 2 or any(r not in ("repeat", "no-repeat", "round", "space") for r in repeat):
+                issues.append("background_image has no measured repeat axes")
+            kind = background["kind"]
+            if kind == "image":
+                digest = background.get("content_sha256")
+                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    issues.append("background image needs an actual content digest, not a path label")
+            else:
+                stops = background.get("stops")
+                if not isinstance(stops, list) or len(stops) < 2 or any(not isinstance(stop, dict) or not number(stop.get("position")) or not rgba(stop.get("color")) for stop in stops):
+                    issues.append("gradient has no complete measured stops")
+                if not isinstance(background.get("repeating"), bool):
+                    issues.append("gradient repeating state is unknown")
+                if kind in ("linear-gradient", "conic-gradient") and not number(background.get("angle")):
+                    issues.append("gradient angle is unknown")
+                if kind in ("radial-gradient", "conic-gradient") and not vector(background.get("center"), 2):
+                    issues.append("gradient center is unknown")
+                if kind == "radial-gradient" and not vector(background.get("radius"), 2, nonnegative=True):
+                    issues.append("radial gradient radii are unknown")
+    return issues
+
+
+def text_lines(element: dict) -> list[dict] | None:
+    """Union actual fragments sharing a visual line, not template layout boxes."""
+    evidence = element.get("evidence")
+    boxes = evidence.get("text_bounds") if isinstance(evidence, dict) else None
+    if not isinstance(boxes, list) or not boxes or any(not isinstance(b, dict) or not all(number(b.get(k)) for k in ("x", "y", "width", "height")) or b["width"] < 0 or b["height"] <= 0 for b in boxes):
+        return None
+    lines = []
+    for box in sorted(boxes, key=lambda b: (b["y"], b["x"])):
+        top, bottom = box["y"], box["y"] + box["height"]
+        overlaps = [line for line in lines if min(bottom, line["y"] + line["height"]) > max(top, line["y"])]
+        if not overlaps:
+            lines.append(dict(box)); continue
+        line = overlaps[0]
+        left = min(line["x"], box["x"]); right = max(line["x"] + line["width"], box["x"] + box["width"])
+        top = min(line["y"], top); bottom = max(line["y"] + line["height"], bottom)
+        line.update(x=left, y=top, width=right - left, height=bottom - top)
+    return sorted(lines, key=lambda b: (b["y"], b["x"]))
+
+
+def rendered_fonts(element: dict) -> dict[str, set[str] | None] | None:
+    """Actual render-run families; declared fallback lists are not evidence.
+
+    PostScript names supplement family identity when both APIs provide them.
+    Glyph counters and custom-font loading flags describe provider accounting,
+    not a visible style property, so remain in the copied raw capture only.
+    """
+    fonts = element.get("style", {}).get("rendered_fonts")
+    if not isinstance(fonts, list) or not fonts: return None
+    families = {}
+    for font in fonts:
+        if not isinstance(font, dict) or not isinstance(font.get("family_name"), str) or not font["family_name"]:
+            return None
+        family, postscript = font["family_name"], font.get("postscript_name")
+        if family not in families: families[family] = set()
+        if not isinstance(postscript, str) or not postscript:
+            families[family] = None
+        elif families[family] is not None:
+            families[family].add(postscript)
+    return families
 
 
 def lab(color: list[float]) -> tuple[float, float, float]:
@@ -158,7 +273,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         style = element.get("style") if isinstance(element.get("style"), dict) else {}
         state = element.get("state") if isinstance(element.get("state"), dict) else {}
         layout = element.get("layout") if isinstance(element.get("layout"), dict) else {}
-        if element.get("text") or element.get("kind") in ("text", "code"):
+        for issue in paint_issues(style): error(issue, eid)
+        if has_text(element):
             for key in ("font_size", "font_weight", "foreground"):
                 if style.get(key) is None:
                     error("Visible text has no measured " + key, eid)
@@ -167,13 +283,27 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                     error("Visible text has no measured layout." + key, eid)
             if layout.get("line_count") == 0:
                 error("Visible text cannot have zero measured lines", eid)
+            lines = text_lines(element)
+            if lines is None:
+                error("Visible text has no actual text-line rectangles in evidence.text_bounds", eid)
+            elif number(layout.get("line_count")) and len(lines) != layout["line_count"]:
+                error("Measured text-line rectangles disagree with layout.line_count", eid)
+            if rendered_fonts(element) is None:
+                error("Visible text has no measured actual font families in style.rendered_fonts; a configured fallback list is not proof", eid)
+        if (has_text(element) or element.get("kind") in ("icon", "chart-edge")) and style.get("foreground") is None:
+            error("Visible foreground paint has no measured color", eid)
+        if has_font_glyph(element):
+            for key in ("font_size", "font_weight"):
+                if style.get(key) is None: error("Font glyph has no measured " + key, eid)
         if isinstance(element.get("kind"), str) and element.get("kind") in INTERACTIVE and state.get("enabled") is None:
             error("Interactive element has no enabled state", eid)
         for kind, key in (("input", "focused"), ("tab", "selected"), ("toggle", "checked"), ("checkbox", "checked")):
             if element.get("kind") == kind and state.get(key) is None:
                 error(kind + " has no " + key + " state", eid)
-        if element.get("kind") == "icon" and not element.get("icon"):
-            error("Icon has no independently extracted glyph/vector identity", eid)
+        if element.get("kind") in ("checkbox", "toggle") and not isinstance(state.get("indeterminate"), bool):
+            error("Checkable element has no measured indeterminate state", eid)
+        if element.get("kind") in ("icon", "chart-edge", "image") and not element.get("icon"):
+            error("Visible glyph/vector/image has no independently extracted identity", eid)
         icon = element.get("icon")
         if icon is not None and (not isinstance(icon, dict) or not isinstance(icon.get("source"), str) or not isinstance(icon.get("glyph"), str) or not icon.get("glyph")):
             error("Invalid icon identity", eid)
@@ -182,6 +312,18 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
     for element in elements:
         if isinstance(element, dict) and element.get("parent") is not None and (not isinstance(element.get("parent"), str) or element.get("parent") not in ids):
             error("parent does not refer to an extracted element", element.get("id"))
+    nodes = {e["id"]: e for e in elements if isinstance(e, dict) and isinstance(e.get("id"), str)}
+    for element in nodes.values():
+        if element.get("kind") != "icon-button" or element.get("icon"): continue
+        found = False
+        for candidate in nodes.values():
+            if candidate.get("kind") not in ("icon", "image") or not candidate.get("icon"): continue
+            parent, visited = candidate.get("parent"), set()
+            while isinstance(parent, str) and parent in nodes and parent not in visited:
+                if parent == element["id"]: found = True; break
+                visited.add(parent); parent = nodes[parent].get("parent")
+            if found: break
+        if not found: error("Icon button has no measured owned icon element", element["id"])
     for region in REGIONS:
         orders = [e.get("order") for e in elements if isinstance(e, dict) and e.get("region") == region]
         if any(not isinstance(order, int) for order in orders) or sorted(orders) != list(range(len(orders))):
@@ -270,6 +412,27 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
         def mismatch(category, field, expected, actual, **more):
             result[category].append({"reference": a["id"], "native": b["id"], "field": field, "expected": expected, "actual": actual, **more})
             if category not in failures: failures.append(category)
+        def compare_color(field, av, bv):
+            if not rgba(av) or not rgba(bv):
+                mismatch("style_out_of_tolerance", field, av, bv, reason="Missing measured RGBA color"); return
+            # RGB in a fully transparent brush is unobservable. This is exact
+            # alpha semantics, not a tolerance/exception or pixel-color mask.
+            distance = 0. if av[3] == bv[3] == 0 else delta_e(av, bv)
+            if distance > 3 + 1e-8 or av[3] != bv[3]:
+                mismatch("style_out_of_tolerance", field, av, bv, delta_e_76=distance, tolerance=3, alpha_tolerance=0)
+        def compare_structured(field, av, bv):
+            if field.endswith(".color"):
+                compare_color(field, av, bv)
+            elif isinstance(av, dict) and isinstance(bv, dict):
+                for key in sorted(av.keys() | bv.keys()):
+                    if key not in av or key not in bv:
+                        mismatch("style_out_of_tolerance", field + "." + key, av.get(key), bv.get(key), reason="Missing measured paint parameter")
+                    else: compare_structured(field + "." + key, av[key], bv[key])
+            elif isinstance(av, list) and isinstance(bv, list):
+                if len(av) != len(bv): mismatch("style_out_of_tolerance", field + ".length", len(av), len(bv))
+                for index, (left, right) in enumerate(zip(av, bv)): compare_structured(field + f"[{index}]", left, right)
+            elif av != bv:
+                mismatch("style_out_of_tolerance", field, av, bv)
         for field, category in (("kind", "kind_mismatch"), ("region", "region_mismatch"), ("text", "text_mismatch"), ("name", "text_mismatch")):
             if a.get(field) != b.get(field): mismatch(category, field, a.get(field), b.get(field))
         for axis in ("x", "y", "width", "height"):
@@ -287,22 +450,74 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                 if not number(av) or not number(bv) or tolerance is None or abs(av - bv) > tolerance + 1e-8:
                     mismatch("geometry_out_of_tolerance", "visible_bounds." + axis, av, bv, tolerance=tolerance)
         for field in STYLE_FIELDS:
+            if field in ("font_size", "font_weight") and not any(has_text(e) or has_font_glyph(e) for e in (a, b)): continue
+            if field == "foreground" and not any(has_text(e) or e.get("kind") in ("icon", "chart-edge") for e in (a, b)): continue
+            if field == "border_color" and a.get("style", {}).get("border_width") == b.get("style", {}).get("border_width") == 0: continue
             av, bv = a.get("style", {}).get(field), b.get("style", {}).get(field)
             if av is None or bv is None:
                 if av != bv: mismatch("style_out_of_tolerance", field, av, bv, reason="A measured property is missing")
                 continue
             if field in ("foreground", "background", "border_color"):
-                distance = delta_e(av, bv) if rgba(av) and rgba(bv) else None
-                if distance is None or distance > 3 + 1e-8 or av[3] != bv[3]:
-                    mismatch("style_out_of_tolerance", field, av, bv, delta_e_76=distance, tolerance=3, alpha_tolerance=0)
+                compare_color(field, av, bv)
             else:
                 tolerance = .5 if field == "font_size" else 1 if field == "corner_radius" else 0
                 if not number(av) or not number(bv) or abs(av - bv) > tolerance + 1e-8:
                     mismatch("style_out_of_tolerance", field, av, bv, tolerance=tolerance)
+        for field in PAINT_FIELDS:
+            av, bv = a.get("style", {}).get(field), b.get("style", {}).get(field)
+            if av is None or bv is None:
+                mismatch("style_out_of_tolerance", field, av, bv, reason="Required paint measurement is unknown")
+                continue
+            if field in ("border_widths", "corner_radii"):
+                tolerance = 1 if field == "corner_radii" else 0
+                if not vector(av, 4, nonnegative=True) or not vector(bv, 4, nonnegative=True):
+                    mismatch("style_out_of_tolerance", field, av, bv, reason="Expected four measured axes")
+                else:
+                    for index, (left, right) in enumerate(zip(av, bv)):
+                        if abs(left - right) > tolerance + 1e-8:
+                            mismatch("style_out_of_tolerance", field + f"[{index}]", left, right, tolerance=tolerance)
+            elif field == "border_colors":
+                if not isinstance(av, list) or not isinstance(bv, list) or len(av) != 4 or len(bv) != 4:
+                    mismatch("style_out_of_tolerance", field, av, bv, reason="Expected four measured edge colors")
+                else:
+                    aw, bw = a["style"].get("border_widths"), b["style"].get("border_widths")
+                    for index, (left, right) in enumerate(zip(av, bv)):
+                        if vector(aw, 4) and vector(bw, 4) and aw[index] == bw[index] == 0: continue
+                        compare_color(field + f"[{index}]", left, right)
+            else:
+                compare_structured(field, av, bv)
+        if a.get("style", {}).get("stroke_width") is not None or b.get("style", {}).get("stroke_width") is not None:
+            compare_structured("stroke_width", a.get("style", {}).get("stroke_width"), b.get("style", {}).get("stroke_width"))
         for group, fields, category in (("state", STATE_FIELDS, "state_mismatch"), ("layout", LAYOUT_FIELDS, "layout_mismatch")):
+            if group == "layout" and not has_text(a) and not has_text(b): continue
             for field in fields:
                 av, bv = a.get(group, {}).get(field), b.get(group, {}).get(field)
                 if av != bv: mismatch(category, field, av, bv)
+        if any(e.get("kind") in ("checkbox", "toggle") for e in (a, b)):
+            av, bv = a.get("state", {}).get("indeterminate"), b.get("state", {}).get("indeterminate")
+            if not isinstance(av, bool) or not isinstance(bv, bool) or av != bv:
+                mismatch("state_mismatch", "indeterminate", av, bv)
+        if has_text(a) or has_text(b):
+            fonts_a, fonts_b = rendered_fonts(a), rendered_fonts(b)
+            if fonts_a is None or fonts_b is None:
+                mismatch("style_out_of_tolerance", "rendered_fonts", a.get("style", {}).get("rendered_fonts"), b.get("style", {}).get("rendered_fonts"), reason="Actual render-run font family is unmeasured")
+            elif fonts_a.keys() != fonts_b.keys():
+                mismatch("style_out_of_tolerance", "rendered_fonts.family_name", sorted(fonts_a), sorted(fonts_b))
+            else:
+                for family in sorted(fonts_a):
+                    if fonts_a[family] is not None and fonts_b[family] is not None and fonts_a[family] != fonts_b[family]:
+                        mismatch("style_out_of_tolerance", "rendered_fonts.postscript_name:" + family, sorted(fonts_a[family]), sorted(fonts_b[family]))
+            lines_a, lines_b = text_lines(a), text_lines(b)
+            if lines_a is None or lines_b is None:
+                mismatch("layout_mismatch", "text_bounds", lines_a, lines_b, reason="Actual text-line geometry is unknown")
+            elif len(lines_a) != len(lines_b):
+                mismatch("layout_mismatch", "text_bounds.line_count", len(lines_a), len(lines_b))
+            else:
+                for index, (left, right) in enumerate(zip(lines_a, lines_b)):
+                    for axis in ("x", "y", "width", "height"):
+                        tolerance = geometry_tolerance(left["width" if axis in ("x", "width") else "height"])
+                        if abs(left[axis] - right[axis]) > tolerance + 1e-8:
+                            mismatch("geometry_out_of_tolerance", f"text_bounds[{index}].{axis}", left[axis], right[axis], tolerance=tolerance)
         if a.get("icon") != b.get("icon"):
             mismatch("icon_mismatch", "icon", a.get("icon"), b.get("icon"), reason="No person-approved icon equivalence is configured")
         pair_results.append({"reference": a["id"], "native": b["id"], "status": "mismatch" if failures else "match", "categories": failures})
@@ -427,19 +642,20 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
               f'<p><a href="index.html">All scenes</a> · <a href="summary.json">Summary JSON</a> · <a href="{html.escape(scene, quote=True)}.parity.json">This scene: complete machine report</a></p><h1>{html.escape(scene)}</h1>',
               '<p class="legend"><span style="color:#159447">Green: match</span><span style="color:#e02020">Red: missing</span><span style="color:#ef8b00">Orange: mismatch</span><span style="color:#9b38dd">Purple: extra</span></p>',
               '<label><input type="checkbox" checked onchange="document.body.classList.toggle(\'hide-outlines\', !this.checked)"> Show every extracted element</label>']
-    ref_elements = valid_elements(captures["reference"])
     base_chunks = list(chunks)
     combined_chunks = list(chunks)
     for platform in PLATFORMS:
         chunks = list(base_chunks)
         result = results[platform]; native_elements = valid_elements(captures[platform])
+        reference_key = result["reference_artifact_client"]
+        ref_elements = valid_elements(captures[reference_key])
         ref_status = {p["reference"]: p["status"] for p in result["pairs"]}
         native_status = {p["native"]: p["status"] for p in result["pairs"]}
         ref_status.update({item["reference"]: "missing" for item in result["missing"]})
         native_status.update({item["native"]: "extra" for item in result["extra"]})
         chunks += [f'<h2>{platform}</h2><p class="{"good" if result["passed"] else "bad"}">{"PASS" if result["passed"] else "FAIL"} · {result["matched_elements"]}/{result["reference_elements"]} elements match</p>',
                    f'<p>Native extraction: {result["raw_native_elements"]} raw elements; {result["valid_native_elements"]} structurally comparable; {result["invalid_native_elements"]} unusable. Reference: {result["raw_reference_elements"]} raw; {result["valid_reference_elements"]} structurally comparable; {result["invalid_reference_elements"]} unusable. Structural comparability does not imply valid measurements or parity.</p>', '<div class="screens">',
-                   outlines(ref_elements, ref_status, viewport, images.get("reference"), "Reference"),
+                   outlines(ref_elements, ref_status, viewport, images.get(reference_key), "Reference on " + platform),
                    outlines(native_elements, native_status, viewport, images.get(platform), platform), '</div>']
         for category in CATEGORIES:
             entries = result[category]
@@ -455,13 +671,21 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
     (output / f"{scene}.html").write_text("\n".join(combined_chunks), encoding="utf-8")
 
 
-def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = None) -> dict:
+def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = None,
+        reference_root: Path | None = None, macos_reference_root: Path | None = None) -> dict:
     if spec is None:
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
     cases = expected_cases(spec, matrix)
+    roots = {"reference": reference_root if reference_root is not None else source / "reference",
+             "reference-macos": macos_reference_root if macos_reference_root is not None else source / "reference-macos",
+             "windows": source / "windows", "macos": source / "macos"}
+    references = {"windows": "reference", "macos": "reference-macos"}
     output.mkdir(parents=True, exist_ok=True)
     report = {"schema_version": 1, "commit": os.environ.get("GITHUB_SHA"), "matrix": matrix, "expected_scenes_per_platform": len(cases),
               "tolerances": TOLERANCES, "exceptions": [], "approved_icon_mappings": [], "unexpected_captures": [], "scenes": [], "summary": {}, "passed": False}
+    report["reference_baselines"] = {platform: {"platform": platform, "source_root": str(roots[client]), "artifact_client": client}
+                                     for platform, client in references.items()}
+    report["font_identity_policy"] = "Measured actual family_name is required for visible text; size and weight are checked separately. PostScript names are supplemental and compared when both APIs provide them. Glyph counters and custom-font loading flags are preserved as evidence, not treated as visible style differences. Configured fallback lists cannot establish actual font identity."
     report["element_count_definitions"] = {
         "raw_reference_elements / raw_native_elements": "Number of entries in the extractor's original elements array, before structural filtering.",
         "valid_reference_elements / valid_native_elements": "Structurally comparable entries accepted by the matcher; missing or invalid measurements can still fail extraction validation.",
@@ -469,9 +693,9 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
         "reference_elements / native_elements": "Compatibility aliases for valid_reference_elements / valid_native_elements.",
         "matched_elements": "Paired elements with no mismatch or applicable extraction error."
     }
-    for client in CLIENTS:
-        present = {p.name.removesuffix(".elements.json") for p in (source / client).glob("*.elements.json")}
-        present |= {p.stem for p in (source / client).glob("*.png")}
+    for client, capture_root in roots.items():
+        present = {p.name.removesuffix(".elements.json") for p in capture_root.glob("*.elements.json")}
+        present |= {p.stem for p in capture_root.glob("*.png")}
         for unexpected in sorted(present - cases.keys()):
             report["unexpected_captures"].append({"client": client, "scene_id": unexpected})
     for platform in PLATFORMS:
@@ -485,10 +709,18 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
         if not re.fullmatch(r"[A-Za-z0-9_-]+", scene):
             raise ValueError("Unsafe scene filename in specification: " + scene)
         captures, errors, images = {}, {}, {}
-        for client in CLIENTS:
-            capture_path = source / client / f"{scene}.elements.json"
-            captures[client], errors[client] = read_capture(capture_path, client, scene, viewport)
-            image_path = source / client / f"{scene}.png"
+        for client, capture_root in roots.items():
+            capture_path = capture_root / f"{scene}.elements.json"
+            producer = "reference" if client in references.values() else client
+            captures[client], errors[client] = read_capture(capture_path, producer, scene, viewport)
+            if producer == "reference":
+                expected_platform = "macos" if client == "reference-macos" else "windows"
+                environment = captures[client].get("reference_environment")
+                if not isinstance(environment, dict) or environment.get("platform") != expected_platform:
+                    errors[client].append({"client": client, "reason": "Missing or wrong real reference platform; expected " + expected_platform})
+                elif not isinstance(environment.get("browser"), dict) or not environment["browser"].get("name") or not environment["browser"].get("version"):
+                    errors[client].append({"client": client, "reason": "Reference browser identity/version is unmeasured"})
+            image_path = capture_root / f"{scene}.png"
             errors[client] += image_info(image_path, client, viewport)
             if image_path.is_file():
                 image_copy = output / "images" / client / image_path.name
@@ -499,25 +731,33 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                 tree_copy = output / "elements" / client / capture_path.name
                 tree_copy.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(capture_path, tree_copy)
-            errors[client] += copy_raw_evidence(source / client, output, scene, client, captures[client])
+            errors[client] += copy_raw_evidence(capture_root, output, scene, client, captures[client])
         results = {}
         for platform in PLATFORMS:
-            result = compare_elements(valid_elements(captures["reference"]), valid_elements(captures[platform]))
-            result["raw_reference_elements"] = raw_element_count(captures["reference"])
+            reference_client = references[platform]
+            reference = captures[reference_client]
+            result = compare_elements(valid_elements(reference), valid_elements(captures[platform]))
+            result["reference_platform"] = platform
+            result["reference_artifact_client"] = reference_client
+            environment = reference.get("reference_environment") if isinstance(reference.get("reference_environment"), dict) else {}
+            result["reference_environment"] = {
+                "platform": environment.get("platform"), "browser": environment.get("browser"),
+                "font_evidence": {"file": f"elements/{reference_client}/{scene}.elements.json", "field": "reference_environment.fonts"}}
+            result["raw_reference_elements"] = raw_element_count(reference)
             result["valid_reference_elements"] = result["reference_elements"]
             result["invalid_reference_elements"] = result["raw_reference_elements"] - result["valid_reference_elements"]
             result["raw_native_elements"] = raw_element_count(captures[platform])
             result["valid_native_elements"] = result["native_elements"]
             result["invalid_native_elements"] = result["raw_native_elements"] - result["valid_native_elements"]
-            result["extraction_errors"] = errors["reference"] + errors[platform]
-            bad_reference = {e.get("element") for e in errors["reference"]}
+            result["extraction_errors"] = errors[reference_client] + errors[platform]
+            bad_reference = {e.get("element") for e in errors[reference_client]}
             bad_native = {e.get("element") for e in errors[platform]}
             for pair in result["pairs"]:
                 if None in bad_reference or None in bad_native or pair["reference"] in bad_reference or pair["native"] in bad_native:
                     pair["status"] = "mismatch"
                     pair["categories"].append("extraction_errors")
             result["matched_elements"] = sum(pair["status"] == "match" for pair in result["pairs"])
-            if not errors["reference"] and not errors[platform]: report["summary"][platform]["scenes_checked"] += 1
+            if not errors[reference_client] and not errors[platform]: report["summary"][platform]["scenes_checked"] += 1
             result["counts"] = {category: len(result[category]) for category in CATEGORIES}
             result["passed"] = not any(result["counts"].values())
             if result["passed"]: report["summary"][platform]["scenes_passed"] += 1
@@ -526,9 +766,9 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                         "raw_native_elements", "valid_native_elements", "invalid_native_elements"):
                 report["summary"][platform][key] += result[key]
             for category in CATEGORIES: report["summary"][platform]["counts"][category] += result["counts"][category]
-            if "reference" in images and platform in images:
+            if reference_client in images and platform in images:
                 try:
-                    result["pixel_difference"] = heat_map(source / "reference" / f"{scene}.png", source / platform / f"{scene}.png", output / f"{scene}-{platform}-heat.png")
+                    result["pixel_difference"] = heat_map(roots[reference_client] / f"{scene}.png", source / platform / f"{scene}.png", output / f"{scene}-{platform}-heat.png")
                 except (OSError, ValueError) as exc:
                     result["pixel_difference"] = {"available": False, "reason": str(exc)}
             else: result["pixel_difference"] = {"available": False, "reason": "Missing screenshot"}
@@ -554,8 +794,10 @@ def main() -> int:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--matrix", choices=("full", "smoke"), default="full")
+    parser.add_argument("--reference-root", type=Path, help="Real Windows browser captures; defaults to SOURCE/reference")
+    parser.add_argument("--macos-reference-root", type=Path, help="Real macOS browser captures; defaults to SOURCE/reference-macos; never falls back to Windows")
     args = parser.parse_args()
-    report = run(args.source, args.output, args.matrix)
+    report = run(args.source, args.output, args.matrix, reference_root=args.reference_root, macos_reference_root=args.macos_reference_root)
     print(json.dumps({"passed": report["passed"], "summary": report["summary"], "exceptions": report["exceptions"], "unexpected_captures": report["unexpected_captures"]}, ensure_ascii=False, indent=2))
     return 0 if report["passed"] else 1
 

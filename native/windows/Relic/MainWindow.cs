@@ -25,15 +25,16 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 14, Padding = new Thickness(24, 16, 24, 16) }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
-    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 34, MaxHeight = 180, BorderThickness = new Thickness(0), Padding = new Thickness(2, 4, 2, 4) };
+    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 26, MaxHeight = 260, BorderThickness = new Thickness(0), Padding = new Thickness(0, 2, 0, 2), FontSize = 14 };
     private readonly TextBox search = new();
     private readonly Grid searchSurface = new();
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, Grid> fieldSurfaces = new();
 
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ScrollViewer chatScroll;
-    private readonly Grid chatHead = new() { Padding = new Thickness(20, 12, 20, 12), ColumnSpacing = 10 };
+    private readonly Grid chatHead = new() { Height = 56, Padding = new Thickness(20, 0, 14, 0), ColumnSpacing = 12, BorderThickness = new Thickness(0, 0, 0, 1) };
     private readonly MenuBar menu = new();
+    private readonly TextBlock appTitle = new() { FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
@@ -75,11 +76,12 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var top = new Grid { Height = 40 }; top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 2); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        Grid.SetColumnSpan(appTitle, 3); top.Children.Add(appTitle);
         root.Resources["ContentDialogMaxWidth"] = 1100d;
 
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
-        columns.ColumnDefinitions.Add(new() { Width = new GridLength(320) });
+        columns.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
         var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         sideLayout.Children.Add(Scroll(side)); Grid.SetRow(sidebarFooter, 1); sideLayout.Children.Add(sidebarFooter);
         sidebarSurface.Child = sideLayout; sidebarSurface.BorderThickness = new Thickness(0, 0, 1, 0); columns.Children.Add(sidebarSurface);
@@ -92,19 +94,19 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 2); chat.Children.Add(chatScroll);
         Grid.SetRow(emptyConversation, 2); chat.Children.Add(emptyConversation);
-        var compose = new StackPanel { Spacing = 4 };
+        var compose = new StackPanel { Spacing = 6 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
         var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
         recipientButton = QuietButton("", PickRecipients); var composeActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; composeActions.Children.Add(Microphone(editor));
-        sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Accent; sendButton.Foreground = new SolidColorBrush(Colors.White); sendButton.CornerRadius = new CornerRadius(8); composeActions.Children.Add(sendButton);
+        sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); sendButton.Width = sendButton.Height = 32; sendButton.CornerRadius = new CornerRadius(16); composeActions.Children.Add(sendButton);
         compose.Children.Add(TwoColumns(recipientButton, composeActions));
-        composerSurface.Child = compose; composerSurface.Padding = new Thickness(12, 8, 12, 8); composerSurface.Margin = new Thickness(20, 10, 20, 18); composerSurface.CornerRadius = new CornerRadius(14); composerSurface.BorderThickness = new Thickness(1);
+        composerSurface.Child = compose; composerSurface.Padding = new Thickness(14, 10, 10, 8); composerSurface.Margin = new Thickness(20, 6, 20, 16); composerSurface.CornerRadius = new CornerRadius(18); composerSurface.BorderThickness = new Thickness(1); composerSurface.MaxWidth = 880;
         Grid.SetRow(composerSurface, 3); chat.Children.Add(composerSurface);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
-        root.SizeChanged += (_, _) => LayoutColumns();
+        root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; LayoutColumns(); };
         root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; UpdateSendState(); SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
