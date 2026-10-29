@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "RelicCore"),
         .executableTarget(name: "Relic", dependencies: ["RelicCore"]),
-        .testTarget(name: "RelicCoreTests", dependencies: ["RelicCore"])
+        .testTarget(name: "RelicCoreTests", dependencies: ["RelicCore"]),
+        .testTarget(name: "RelicModelTests", dependencies: ["Relic", "RelicCore"])
     ]
 )

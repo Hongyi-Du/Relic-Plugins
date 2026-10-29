@@ -31,7 +31,7 @@ struct MentionEditor: NSViewRepresentable {
         var parent: MentionEditor
         init(_ parent: MentionEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) { if let editor = notification.object as? NSTextView { parent.text = editor.string } }
-        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange range: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
+        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange range: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
             guard let editor = textView as? ComposerTextView else { return [] }
             let query = (editor.string as NSString).substring(with: range).dropFirst().lowercased()
             return editor.members.filter { $0.display.lowercased().hasPrefix(query) || $0["name"].text.lowercased().hasPrefix(query) }.prefix(8).map { "@" + $0.display }
