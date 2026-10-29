@@ -18,6 +18,10 @@ import re
 import shutil
 from typing import Any
 
+from paint_patterns import (MeasurementError, background_pattern_kind,
+                            captured_pattern, compare_paint_patterns,
+                            pattern_measurement_issue)
+
 
 PLATFORMS = ("windows", "macos")
 CLIENTS = ("reference",) + PLATFORMS
@@ -107,7 +111,13 @@ def paint_issues(style: dict) -> list[str]:
                     issues.append("Invalid measured shadow at index " + str(index))
     background = style.get("background_image")
     if background is not None and background != "none":
-        if not isinstance(background, dict) or background.get("kind") not in ("image", "linear-gradient", "radial-gradient", "conic-gradient"):
+        if isinstance(background, dict) and background.get("kind") == "image-brush":
+            # Placement and pixels belong to this independently measured brush,
+            # not to a made-up CSS size/repeat/gradient descriptor. The complete
+            # source binding and raster contract is checked by validate_capture.
+            if not isinstance(background.get("source_id"), str) or not background["source_id"]:
+                issues.append("ImageBrush background has no actual source id")
+        elif not isinstance(background, dict) or background.get("kind") not in ("image", "linear-gradient", "radial-gradient", "conic-gradient"):
             issues.append("background_image must be none or a canonical measured paint descriptor")
         else:
             for field in ("position", "size"):
@@ -313,6 +323,17 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         state = element.get("state") if isinstance(element.get("state"), dict) else {}
         layout = element.get("layout") if isinstance(element.get("layout"), dict) else {}
         for issue in paint_issues(style): error(issue, eid)
+        # A typed bitmap descriptor is not proof of measured paint. Unknown
+        # placement/occlusion retains one concrete failure instead of inventing
+        # independent errors for every absent subfield. Null descriptors already
+        # retain the older Missing measured paint diagnostic above.
+        if (isinstance(style.get("background_image"), dict)
+                and background_pattern_kind(element) == "image-brush"):
+            try:
+                issue = pattern_measurement_issue(captured_pattern(element))
+            except MeasurementError as failure:
+                issue = str(failure)
+            if issue is not None: error("Unmeasured background pattern: " + issue, eid)
         if has_text(element):
             for key in ("font_size", "font_weight", "foreground"):
                 if style.get(key) is None:
@@ -508,6 +529,34 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                     mismatch("style_out_of_tolerance", field, av, bv, tolerance=tolerance)
         for field in PAINT_FIELDS:
             av, bv = a.get("style", {}).get(field), b.get("style", {}).get(field)
+            if (field == "background_image"
+                    and {background_pattern_kind(a), background_pattern_kind(b)} == {"css-conic", "image-brush"}):
+                records, issues = [], []
+                for side, element in (("reference", a), ("native", b)):
+                    try:
+                        record = captured_pattern(element)
+                        issue = pattern_measurement_issue(record)
+                        if issue is None: records.append(record)
+                        else: issues.append({"side": side, "reason": issue})
+                    except MeasurementError as error:
+                        issues.append({"side": side, "reason": str(error)})
+                if issues:
+                    mismatch("extraction_errors", field, background_pattern_kind(a), background_pattern_kind(b),
+                             reason="Independent background pattern measurement is incomplete", measurements=issues)
+                    if av is None or bv is None:
+                        mismatch("style_out_of_tolerance", field, av, bv, reason="Required paint measurement is unknown")
+                else:
+                    measurement = compare_paint_patterns(*records, color_distance=delta_e)
+                    if not measurement["complete"]:
+                        mismatch("extraction_errors", field, background_pattern_kind(a), background_pattern_kind(b),
+                                 reason="Background pattern raster comparison is incomplete", measurement=measurement)
+                    elif measurement["status"] != "match":
+                        mismatch("style_out_of_tolerance", field, background_pattern_kind(a), background_pattern_kind(b),
+                                 measurement=measurement)
+                # This replaces only bitmap-vs-gradient descriptor equality.
+                # Font, flat background, borders, radius, opacity, and every
+                # other element property continue through their ordinary checks.
+                continue
             if av is None or bv is None:
                 mismatch("style_out_of_tolerance", field, av, bv, reason="Required paint measurement is unknown")
                 continue
@@ -830,7 +879,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             result["raw_native_elements"] = raw_element_count(captures[platform])
             result["valid_native_elements"] = result["native_elements"]
             result["invalid_native_elements"] = result["raw_native_elements"] - result["valid_native_elements"]
-            result["extraction_errors"] = errors[reference_client] + errors[platform]
+            result["extraction_errors"] += errors[reference_client] + errors[platform]
             bad_reference = {e.get("element") for e in errors[reference_client]}
             bad_native = {e.get("element") for e in errors[platform]}
             for pair in result["pairs"]:
@@ -838,7 +887,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                     pair["status"] = "mismatch"
                     pair["categories"].append("extraction_errors")
             result["matched_elements"] = sum(pair["status"] == "match" for pair in result["pairs"])
-            if not errors[reference_client] and not errors[platform]: report["summary"][platform]["scenes_checked"] += 1
+            if not result["extraction_errors"]: report["summary"][platform]["scenes_checked"] += 1
             result["counts"] = {category: len(result[category]) for category in CATEGORIES}
             result["passed"] = not any(result["counts"].values())
             if result["passed"]: report["summary"][platform]["scenes_passed"] += 1

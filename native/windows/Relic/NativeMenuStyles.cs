@@ -24,8 +24,6 @@ public sealed partial class MainWindow
             FontWeight = Microsoft.UI.Text.FontWeights.Normal, Foreground = Paint("5A5853", "B8B5AE"),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(7), UseLayoutRounding = false };
-        group.Resources["NativeMenuActiveBackground"] = Paint("EFEEEA", "262624");
-        group.Resources["NativeMenuActiveForeground"] = Ink;
         // ContentButton is required by MenuBarItem: WinUI attaches its native
         // MenuBarItemFlyout, hover switching and keyboard handling to this part.
         group.Template = (ControlTemplate)XamlReader.Load("""
@@ -34,12 +32,12 @@ public sealed partial class MainWindow
                 <VisualStateManager.VisualStateGroups>
                   <VisualStateGroup x:Name="CommonStates">
                     <VisualState x:Name="Normal"/>
-                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource NativeMenuActiveBackground}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource NativeMenuActiveForeground}"/></VisualState.Setters></VisualState>
-                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource NativeMenuActiveBackground}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource NativeMenuActiveForeground}"/></VisualState.Setters></VisualState>
-                    <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource NativeMenuActiveBackground}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource NativeMenuActiveForeground}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource RelicControlHover}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource RelicControlInk}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource RelicControlHover}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource RelicControlInk}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="ContentRoot.Background" Value="{ThemeResource RelicControlHover}"/><Setter Target="ContentButton.Foreground" Value="{ThemeResource RelicControlInk}"/></VisualState.Setters></VisualState>
                   </VisualStateGroup>
                 </VisualStateManager.VisualStateGroups>
-                <Button x:Name="ContentButton" Content="{TemplateBinding Title}" Padding="{TemplateBinding Padding}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}" Foreground="{TemplateBinding Foreground}" BorderThickness="0" MinHeight="0" MinWidth="0" IsTabStop="False" AutomationProperties.AccessibilityView="Raw" VerticalAlignment="Stretch">
+                <Button x:Name="ContentButton" Content="{TemplateBinding Title}" Padding="{TemplateBinding Padding}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}" Foreground="{TemplateBinding Foreground}" Background="Transparent" BorderThickness="0" MinHeight="0" MinWidth="0" IsTabStop="False" AutomationProperties.AccessibilityView="Raw" VerticalAlignment="Stretch">
                   <Button.Template><ControlTemplate TargetType="Button"><ContentPresenter Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}" Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"/></ControlTemplate></Button.Template>
                 </Button>
               </Grid>
@@ -48,22 +46,21 @@ public sealed partial class MainWindow
         group.Loaded += (_, _) =>
         {
             if (DialogPart<Button>(group, "ContentButton")?.ContextFlyout is not MenuFlyout flyout) return;
-            void PresenterStyle()
-            {
-                var style = new Style(typeof(MenuFlyoutPresenter));
-                style.Setters.Add(new Setter(Control.BackgroundProperty, Paint("FFFFFF", "252523")));
-                style.Setters.Add(new Setter(Control.ForegroundProperty, Ink));
-                style.Setters.Add(new Setter(Control.BorderBrushProperty, Paint("DEDBD4", "3A3936")));
-                style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
-                style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(12)));
-                style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
-                style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 250d));
-                style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, root.ActualHeight * .6));
-                style.Setters.Add(new Setter(UIElement.UseLayoutRoundingProperty, false));
-                flyout.MenuFlyoutPresenterStyle = style;
-            }
-            PresenterStyle();
-            flyout.Opening += (_, _) => PresenterStyle();
+            // Install the style once, before WinUI creates the presenter. Its
+            // Opening callback populates the native item tree: changing Style
+            // there can replace that presenter's template during creation.
+            var style = new Style(typeof(MenuFlyoutPresenter));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Paint("FFFFFF", "252523")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Ink));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Paint("DEDBD4", "3A3936")));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(12)));
+            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
+            style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 250d));
+            style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, root.ActualHeight * .6));
+            style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, root.ActualTheme));
+            style.Setters.Add(new Setter(UIElement.UseLayoutRoundingProperty, false));
+            flyout.MenuFlyoutPresenterStyle = style;
             flyout.Opened += (_, _) =>
             {
                 // Match openAppMenu's anchor-bottom + 4px, retaining the real
@@ -72,8 +69,21 @@ public sealed partial class MainWindow
                 foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
                 {
                     DependencyObject? current = first;
-                    while (current != null && !ReferenceEquals(current, popup.Child)) current = VisualTreeHelper.GetParent(current);
+                    MenuFlyoutPresenter? presenter = null;
+                    while (current != null && !ReferenceEquals(current, popup.Child))
+                    {
+                        if (current is MenuFlyoutPresenter found) presenter = found;
+                        current = VisualTreeHelper.GetParent(current);
+                    }
                     if (current == null) continue;
+                    presenter ??= popup.Child as MenuFlyoutPresenter;
+                    if (presenter != null)
+                    {
+                        // A resized window changes the reference's 60vh limit.
+                        // Set the real presenter, preserving its existing tree.
+                        presenter.MaxHeight = root.ActualHeight * .6;
+                        presenter.RequestedTheme = root.ActualTheme;
+                    }
                     var anchor = group.TransformToVisual(root).TransformPoint(new(0, group.ActualHeight));
                     popup.HorizontalOffset = Math.Max(4, Math.Min(anchor.X, root.ActualWidth - 270));
                     popup.VerticalOffset = anchor.Y + 4; break;
@@ -94,7 +104,9 @@ public sealed partial class MainWindow
         // A missing kbd is absent from the reference flex row, including its
         // gap; keeping an empty third Grid column changes intrinsic width.
         var shortcutColumn = hasShortcut ? "<ColumnDefinition Width='Auto'/>" : "";
-        var shortcutLabel = hasShortcut ? "<TextBlock Grid.Column='2' Text='{TemplateBinding KeyboardAcceleratorTextOverride}' FontFamily='Cascadia Code' FontSize='11' Foreground='{ThemeResource RelicControlMuted}' VerticalAlignment='Center'/>" : "";
+        // WinUI queries this named TextBlock while measuring accelerator text.
+        // A row with no shortcut has neither the block nor its flex-row gap.
+        var shortcutLabel = hasShortcut ? "<TextBlock x:Name='KeyboardAcceleratorTextBlock' Grid.Column='2' Text='{TemplateBinding KeyboardAcceleratorTextOverride}' FontFamily='Cascadia Code' FontSize='11' FontWeight='Normal' Foreground='{ThemeResource RelicControlMuted}' VerticalAlignment='Center'/>" : "";
         style.Setters.Add(new Setter(Control.TemplateProperty, (ControlTemplate)XamlReader.Load($$"""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="MenuFlyoutItem">
               <Grid x:Name="MenuRow" Padding="{TemplateBinding Padding}" ColumnSpacing="10" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">

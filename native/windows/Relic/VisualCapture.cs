@@ -46,6 +46,14 @@ public sealed partial class MainWindow
                         throw new InvalidOperationException("Window dispatcher closed before the next capture scene");
                     await settled.Task;
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
+                    var scene = shot.Text("scene");
+                    var endpoint = fixture.Text("scene_endpoint");
+                    if (endpoint.Length == 0) throw new InvalidOperationException("Visual fixture scene endpoint is missing");
+                    var prepared = await api!.Post(endpoint, new { scene });
+                    var isLive = scene is "live-busy" or "live-tool-output" or "live-typing";
+                    if (prepared.Text("scene") != scene || prepared.Flag("live") != isLive || prepared.Text("org").Length == 0 || prepared.Text("member").Length == 0)
+                        throw new InvalidOperationException("Visual fixture did not prepare the requested scene: " + scene);
+                    await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-fixture.json"), prepared.ToJsonString());
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
                     SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
                     // Previous menu cases leave the desktop pointer over the
@@ -54,9 +62,11 @@ public sealed partial class MainWindow
                     SetCursorPos(1900, 1040);
                     sideWidth = 276; panelWidth = 340; fileWidth = 520; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
-                    await Select(fixture.Text("org")); LayoutColumns();
-                    var scene = shot.Text("scene"); Task? dialog = null;
+                    if (isLive) await Refresh();
+                    await Select(prepared.Text("org")); LayoutColumns();
+                    Task? dialog = null;
                     Microsoft.UI.Xaml.Controls.Primitives.Popup? suggestionPopup = null;
+                    Expander? liveTool = null;
                     if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene[9..]);
                     else if (scene.StartsWith("file-")) await OpenFile(fixture["files"].Text(scene[5..]), scene == "file-code" ? 2 : 0);
                     else if (scene.StartsWith("menu-"))
@@ -68,6 +78,11 @@ public sealed partial class MainWindow
                     {
                         case "group": break;
                         case "private": await Select(fixture.Text("org"), fixture.Text("member")); break;
+                        case "live-busy": case "live-tool-output": case "live-typing":
+                            await Select(prepared.Text("org"), prepared.Text("member"));
+                            if (org != prepared.Text("org") || member != prepared.Text("member") || liveData["status"].Text("state") != prepared.Text("state") || liveData.Rows("items").Count == 0)
+                                throw new InvalidOperationException("Prepared live state was not loaded through the production API: " + scene);
+                            break;
                         case "overview": await SetPane("overview"); break;
                         case "thread": await OpenThread(fixture.Text("thread")); break;
                         case "workspace": workspaceMember = fixture.Text("member"); await SetPane("workspace"); break;
@@ -97,6 +112,21 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene == "live-tool-output")
+                    {
+                        var title = prepared["tool"].Text("title");
+                        if (title.Length == 0) throw new InvalidOperationException("Live fixture did not return a tool title");
+                        var matches = CaptureLiveTools(stream, title).ToArray();
+                        if (matches.Length != 1) throw new InvalidOperationException("Expected one live tool disclosure for: " + title);
+                        liveTool = matches[0];
+                        var header = (FrameworkElement)liveTool.Header;
+                        header.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(header);
+                        await Task.Delay(150); root.UpdateLayout();
+                        if (!liveTool.IsExpanded) throw new InvalidOperationException("Real live tool disclosure did not open: " + title);
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"),
+                            System.Text.Json.JsonSerializer.Serialize(new { action = "click production Expander header", tool_title = title, open = liveTool.IsExpanded }));
+                    }
                     if (scene is "member-host-model-suggestions" or "member-existing-seat-suggestions")
                     {
                         var inputId = scene == "member-host-model-suggestions" ? "member-model" : "member-seat-name";
@@ -115,13 +145,17 @@ public sealed partial class MainWindow
                         for (var waiting = 0; !sourceCode.IsDocumentReady && sourceCode.InitializationFailure == null && waiting < 100; waiting++) await Task.Delay(50);
                         if (!sourceCode.IsDocumentReady) throw new InvalidOperationException("Native code document did not finish its real layout: " + (sourceCode.InitializationFailure ?? "timeout"));
                     }
-                    root.UpdateLayout(); await Task.Delay(250);
+                    root.UpdateLayout();
+                    var animation = PrepareCaptureAnimation(scene);
+                    await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
+                    await Task.Delay(250);
                     if (suggestionPopup == null) SetCursorPos(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before screenshot: " + scene);
+                    if (liveTool != null && (!liveTool.IsExpanded || !liveTool.IsLoaded)) throw new InvalidOperationException("Live tool disclosure closed or unloaded before screenshot");
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
@@ -139,6 +173,21 @@ public sealed partial class MainWindow
     {
         if (parent is Expander expander) expander.IsExpanded = true;
         for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++) ExpandCaptureRules(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index));
+    }
+
+    private static IEnumerable<Expander> CaptureLiveTools(DependencyObject parent, string title)
+    {
+        if (parent is Expander disclosure && disclosure.Header is FrameworkElement header && CaptureContainsText(header, title)) yield return disclosure;
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+            foreach (var match in CaptureLiveTools(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index), title)) yield return match;
+    }
+
+    private static bool CaptureContainsText(DependencyObject parent, string text)
+    {
+        if (parent is TextBlock label && label.Text == text) return true;
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+            if (CaptureContainsText(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index), text)) return true;
+        return false;
     }
     private static ListView? CaptureDocumentList(DependencyObject parent)
     {

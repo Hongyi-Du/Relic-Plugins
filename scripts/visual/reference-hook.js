@@ -1,13 +1,16 @@
 // Injected into the reference's closure by Playwright only. Calls the existing
 // production views and controls; does not replace their markup or styles.
 window.__relicVisual = async (scene, fixture) => {
+  const sceneState = fixture.scene_state;
+  const liveScene = scene.startsWith('live-');
+  if (liveScene && (!sceneState || sceneState.scene !== scene || !sceneState.live || !sceneState.org || !sceneState.member)) throw new Error('Live scene needs its actual prepared fixture response: ' + scene);
   closeLayer(); closeCard(); closeMenu(); closeMention();
   settingsPane = null;
   S.quote = null; S.digestOpen = false; S.plainMode = false; S.thread = null;
   S.pane = 'org'; S.sideOpen = true; S.panelOpen = window.innerWidth > 1180;
   S.folded.clear(); S.search = ''; $('#search').value = '';
   await loadOrgs();
-  await openOrg(fixture.org, { kind: 'group', member: null });
+  await openOrg(sceneState?.org || fixture.org, { kind: 'group', member: null });
   save('relic.plain.' + S.orgId, false);
   toggleSide(true); togglePanel(S.panelOpen);
   if (scene.startsWith('settings-')) { openSettings(scene.slice(9)); return; }
@@ -16,6 +19,12 @@ window.__relicVisual = async (scene, fixture) => {
   switch (scene) {
     case 'group': break;
     case 'private': await go({ kind: 'secretary', member: fixture.member }); await loadChat(true); break;
+    case 'live-busy': case 'live-tool-output': case 'live-typing': {
+      // openOrg above refreshed the real snapshot, including embedded state.
+      await openOrg(sceneState.org, { kind: sceneState.member === secretaryName() ? 'secretary' : 'member', member: sceneState.member });
+      if (!member(sceneState.member)?.embedded || S.live[sceneState.member]?.status?.state !== sceneState.state) throw new Error('Prepared live state was not loaded through the production API: ' + scene);
+      break;
+    }
     case 'thread': await openThread(Number(fixture.thread)); break;
     case 'overview': setPane('org'); break;
     case 'workspace': S.workMember = fixture.member; setPane('work'); break;

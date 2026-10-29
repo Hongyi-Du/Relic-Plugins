@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, wait_file
+from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, prepare_scene, wait_file
 
 TRACE_CATEGORIES = [
     "devtools.timeline", "blink", "cc",
@@ -267,6 +267,9 @@ def main(argv=None):
                     context.add_init_script("localStorage.clear(); sessionStorage.clear();")
                     for case in cases:
                         print("Paint trace diagnostic: " + case["id"], flush=True)
+                        state = prepare_scene(manifest["fixture"], case["scene"])
+                        manifest["fixture"]["scene_state"] = state
+                        write_json(output / (case["id"] + ".scene-fixture.json"), state)
                         summary["results"].append(collect_scene(browser, context, manifest, case, output / case["id"], source))
                     context.close()
                 finally:

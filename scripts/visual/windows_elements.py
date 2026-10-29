@@ -12,6 +12,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from paint_patterns import MeasurementError, captured_pattern, pattern_measurement_issue
+
 
 CONTROL_KINDS = {
     "Button": "button", "AppBarButton": "button", "RepeatButton": "button",
@@ -36,6 +38,32 @@ UIA_KINDS = {"Button": {"button", "icon-button", "chart-node"}, "Text": {"text"}
 INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
 ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
 PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
+
+
+def project_background_pattern(element, node):
+    """Forward only an independently captured background raster measurement.
+
+    Current ImageBrush captures have real pixels but not full clipping and
+    foreground-transmission masks. Preserve their null background_image and
+    existing unsupported-brush diagnostics. A complete future capture can use
+    the explicit image-brush descriptor without pretending it is a gradient.
+    """
+    measurement = node.get("background_pattern_measurement")
+    if measurement is None:
+        return
+    element["evidence"]["background_pattern_measurement"] = copy.deepcopy(measurement)
+    brushes = element["evidence"].get("brush_evidence")
+    brush = brushes.get("background") if isinstance(brushes, dict) else None
+    if not isinstance(brush, dict) or brush.get("type") != "Microsoft.UI.Xaml.Media.ImageBrush":
+        return
+    candidate = copy.deepcopy(element)
+    candidate["style"]["background_image"] = {"kind": "image-brush", "source_id": element["id"]}
+    try:
+        issue = pattern_measurement_issue(captured_pattern(candidate))
+    except MeasurementError:
+        return
+    if issue is None:
+        element["style"]["background_image"] = candidate["style"]["background_image"]
 
 
 def positive(box):
@@ -868,9 +896,6 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "state.hovered", "reason": "Pointer hit-test evidence missing"})
         if kind == "icon" and not node.get("icon"):
             unmeasured.append({"id": node["id"], "property": "icon", "reason": "No actual glyph/vector measurement"})
-        for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):
-            if style.get(key) is None:
-                unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})
         region = node["region"]
         name_witness = witness or run_name_witness
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
@@ -905,6 +930,10 @@ def project(xaml_path, uia_path, png_path):
                                 "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
+        project_background_pattern(element, node)
+        for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):
+            if style.get(key) is None:
+                unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})
         order[region] += 1
         projection.append({"source": node["id"], "element": node["id"], "reason": "visible rendered element"})
         # Collection is deliberately independent of the reference element count.

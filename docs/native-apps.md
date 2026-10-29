@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (live capture states, 2026-10-29): the original 44
+states remain; `live-busy`, `live-tool-output`, `live-typing` extend the matrix
+to 47 states / 564 size-language-theme cases. Before **every** case, POST
+`{"scene":"<scene>"}` to `fixture.scene_endpoint` with `X-Relic-Token`; this
+clears the prior live fixture and returns the actual `org`, `member` and `live`;
+live responses also include `state`, `tool` and `permission`. Reload the organization snapshot before
+entering that returned member's private chat, so its real embedded/live state
+is loaded. For `live-tool-output`, click the real disclosure whose title is
+the returned `tool.title`; require it to remain expanded. Save preparation and
+action receipts next to the screenshot. No provider/member session is launched.
+For live captures, pause the actual framework animations and seek their clocks
+to zero before PNG and element extraction; retain actual clock/state receipts.
+Reference screenshots use `animations="allow"` after this explicit pause so
+Playwright cannot temporarily cancel and restore the animations. macOS must
+freeze its actual animation time axis likewise; inability to do so remains a
+state/measurement failure, never a reason to insert constant opacity or exclude
+typing dots. Windows uses the production Storyboard capture hook.
+
 Baseline: `2007a83` (PR #1 merge, v0.7.0-beta.1 candidate). The executable clients are
 SwiftUI on macOS 14+ arm64 and WinUI 3 / Windows App SDK with .NET 8 on Windows x64.
 `plugins/relic` remains the single engine. Neither client instantiates a browser,
@@ -7,6 +25,14 @@ HTML renderer, JavaScript runtime, WebView2, or WKWebView. Server-side static fi
 remain a reference until full native parity is satisfied.
 
 ## Acceptance
+
+Changes for the clients (paint diagnostic): Windows/macOS en-US/light CI now
+records separate Chromium paint traces for the existing 1440x900 group and
+file-code scenes after the normal matrix capture. Raw SKP/trace/layer/font/DOM
+artifacts are diagnostic evidence only; no canonical glyph/scrollbar value is
+filled from their presence. Missing or dropped trace data is a diagnostic
+failure, and unresolved paint measurements continue failing the main gate.
+See `native-reference-evidence.md` for the attribution work still required.
 
 Changes for the clients (live rendering coverage): Windows now renders current
 turn prompts, tool rows, permission cards, reply bubbles and typing indicators

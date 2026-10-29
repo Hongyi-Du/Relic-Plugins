@@ -168,6 +168,9 @@ public sealed partial class MainWindow
         void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "", bool check = false)
         {
             var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut, Style = NativeMenuItemStyle(shortcut.Length > 0) };
+            // The reference menu item's accessible name includes the visible
+            // shortcut, while the visible label remains the localized title.
+            AutomationProperties.SetName(item, shortcut.Length > 0 ? text + " " + shortcut : text);
             if (check) { var glyph = (ReferenceVectorIcon)ReferenceIcon("check", 14); glyph.Foreground = Accent; item.Tag = glyph; }
             item.Click += async (_, _) => { await Run(action); BuildMenus(); DrawToolbar(); }; group.Items.Add(item);
         }
