@@ -162,7 +162,12 @@ public sealed partial class MainWindow
         menu.Items.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
         MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title), Height = 28, Padding = new Thickness(9, 0, 9, 0), FontSize = 13, MinWidth = 0, CornerRadius = new CornerRadius(7) }; menu.Items.Add(group); return group; }
-        void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "") { var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut }; item.Click += async (_, _) => await Run(action); group.Items.Add(item); }
+        void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "", bool check = false)
+        {
+            var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut, Style = (Style)Application.Current.Resources["RelicMenuItemStyle"] };
+            if (check) { var glyph = (ReferenceVectorIcon)ReferenceIcon("check", 14); glyph.Foreground = Accent; item.Tag = glyph; }
+            item.Click += async (_, _) => { await Run(action); BuildMenus(); DrawToolbar(); }; group.Items.Add(item);
+        }
         var file = Group("common.file");
         Item(file, T("appmenu.new_org"), CreateOrg); Item(file, T("appmenu.add_member"), AddMember, org.Length > 0);
         Item(file, T("appmenu.add_existing"), () => MemberDialog("existing"), org.Length > 0);
@@ -175,16 +180,22 @@ public sealed partial class MainWindow
         file.Items.Add(new MenuFlyoutSeparator()); Item(file, T("appmenu.settings"), Settings, shortcut: "Ctrl+,");
         var edit = Group("appmenu.edit");
         foreach (var (key, action) in new[] { ("appmenu.undo", "undo"), ("appmenu.redo", "redo"), ("appmenu.cut", "cut"), ("common.copy", "copy"), ("appmenu.paste", "paste"), ("appmenu.select_all", "all"), ("appmenu.quote_selection", "quote") })
+        {
+            if (action is "cut" or "quote") edit.Items.Add(new MenuFlyoutSeparator());
             Item(edit, T(key), () => Edit(action), shortcut: action switch { "undo" => "Ctrl+Z", "redo" => "Ctrl+Y", "cut" => "Ctrl+X", "copy" => "Ctrl+C", "paste" => "Ctrl+V", "all" => "Ctrl+A", _ => "" });
-        edit.Items.Add(new MenuFlyoutSeparator()); Item(edit, T("page.search"), FocusSearch, shortcut: "Ctrl+K");
-        var view = Group("appmenu.view"); Item(view, T("appmenu.sidebar"), ToggleSide, shortcut: "Ctrl+B"); Item(view, T("page.panel"), TogglePanel, shortcut: "Ctrl+Alt+B");
-        foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") }) Item(view, T("appmenu.pane", ("pane", T(key))), () => SetPane(id));
-        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.org_chart"), Chart); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }, shortcut: "Ctrl+Shift+L"); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); });
+        }
+        Item(edit, T("page.search"), FocusSearch, shortcut: "Ctrl+K");
+        var view = Group("appmenu.view"); Item(view, T("appmenu.sidebar"), ToggleSide, shortcut: "Ctrl+B", check: sideOpen); Item(view, T("page.panel"), TogglePanel, shortcut: "Ctrl+Alt+B", check: panelOpen);
         view.Items.Add(new MenuFlyoutSeparator());
-        foreach (var (value, key) in new[] { ("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark") }) Item(view, T("appmenu.theme", ("theme", T(key))), () => SavePreferences(new() { ["theme"] = value }));
-        foreach (var (value, key) in new[] { ("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large") }) Item(view, T("appmenu.font_size", ("size", T(key))), () => SavePreferences(new() { ["font"] = value }));
+        int paneNumber = 0;
+        foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") }) Item(view, T("appmenu.pane", ("pane", T(key))), () => SetPane(id), shortcut: "Alt+" + ++paneNumber, check: panelOpen && pane == id);
+        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.org_chart"), Chart, orgs.Count > 0);
+        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }, org.Length > 0, shortcut: "Ctrl+Shift+L", check: plainMode); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); }, org.Length > 0, check: digestOpen);
+        view.Items.Add(new MenuFlyoutSeparator());
+        foreach (var (value, key) in new[] { ("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark") }) Item(view, T("appmenu.theme", ("theme", T(key))), () => SavePreferences(new() { ["theme"] = value }), check: preferences.Text("theme") == value);
+        foreach (var (value, key) in new[] { ("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large") }) Item(view, T("appmenu.font_size", ("size", T(key))), () => SavePreferences(new() { ["font"] = value }), check: preferences.Text("font") == value);
         view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.reload"), Refresh, shortcut: "Ctrl+R");
-        var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
+        var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); help.Items.Add(new MenuFlyoutSeparator()); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
         if (sendButton != null) { AutomationProperties.SetName(sendButton, T("common.send")); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
         search.PlaceholderText = T("page.search"); AutomationProperties.SetName(search, T("page.search")); AutomationProperties.SetName(side, T("page.side")); AutomationProperties.SetName(stream, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));
     }

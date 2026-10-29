@@ -128,9 +128,11 @@ public sealed partial class MainWindow
                             ["children"] = new JsonArray(new JsonObject { ["tag"] = "path", ["attributes"] = new JsonObject { ["d"] = vectorIcon.PathData }, ["children"] = new JsonArray() }) };
                         node["icon"] = new JsonObject { ["source"] = "svg", ["glyph"] = shape.ToJsonString() };
                         node["vector_path"] = vectorIcon.PathData; node["vector_stroke_width"] = vectorIcon.VectorPath.StrokeThickness;
+                        CaptureStrokeEvidence(vectorIcon.VectorPath, root, node, id, errors);
                     }
                     else if (element is SymbolIcon symbolIcon) node["icon"] = new JsonObject { ["source"] = "Segoe MDL2 Assets", ["glyph"] = ((int)symbolIcon.Symbol).ToString("X") };
                     else if (element is Microsoft.UI.Xaml.Shapes.Path path) node["icon"] = new JsonObject { ["source"] = "xaml-path", ["glyph"] = path.Data?.ToString() };
+                    if (element is Shape renderedShape && renderedShape.Stroke != null) CaptureStrokeEvidence(renderedShape, root, node, id, errors);
                     if (element is TextBlock block) node["font_family"] = block.FontFamily.Source;
                     if (element is Control fontControl) node["font_family"] = fontControl.FontFamily.Source;
                 }
@@ -156,7 +158,8 @@ public sealed partial class MainWindow
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
             ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
-            ["popup_roots"] = popups.Length
+            ["popup_roots"] = popups.Length,
+            ["pointer"] = new JsonObject { ["x"] = cursor.x - clientOrigin.x, ["y"] = cursor.y - clientOrigin.y }
         };
         CaptureFiniteMeasurements(result, errors);
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"), result.ToJsonString());
@@ -258,7 +261,7 @@ public sealed partial class MainWindow
             case Panel p: background = p.Background; break;
             case FontIcon i: foreground = i.Foreground; size = i.FontSize; weight = i.FontWeight.Weight; break;
             case IconElement i: foreground = i.Foreground; break;
-            case Shape s: background = s.Fill; border = s.Stroke; thickness = new Thickness(s.StrokeThickness); break;
+            case Shape s: foreground = s.Stroke; background = s.Fill; break;
         }
         if (element.Shadow != null) errors.Add(id + ": actual " + element.Shadow.GetType().Name + " shadow needs paint measurement");
         if (background != null && background is not SolidColorBrush) errors.Add(id + ": actual " + background.GetType().Name + " background brush needs gradient/image measurement");
@@ -278,6 +281,25 @@ public sealed partial class MainWindow
             ["border_colors"] = new JsonArray(CaptureColor(border), CaptureColor(border), CaptureColor(border), CaptureColor(border)),
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
+    }
+    private static void CaptureStrokeEvidence(Shape shape, UIElement captureRoot, JsonObject node, string id, JsonArray errors)
+    {
+        var transform = shape.TransformToVisual(captureRoot);
+        var zero = transform.TransformPoint(new Point(0, 0));
+        var unitX = transform.TransformPoint(new Point(1, 0)); var unitY = transform.TransformPoint(new Point(0, 1));
+        var ax = unitX.X - zero.X; var ay = unitX.Y - zero.Y;
+        var bx = unitY.X - zero.X; var by = unitY.Y - zero.Y;
+        var scaleX = Math.Sqrt(ax * ax + ay * ay); var scaleY = Math.Sqrt(bx * bx + by * by);
+        var uniform = double.IsFinite(scaleX) && double.IsFinite(scaleY) && Math.Abs(scaleX - scaleY) < 1e-8 && Math.Abs(ax * bx + ay * by) < 1e-8;
+        node["stroke_evidence"] = new JsonObject
+        {
+            ["raw_width"] = shape.StrokeThickness, ["scale_x"] = scaleX, ["scale_y"] = scaleY,
+            ["basis_x"] = new JsonObject { ["x"] = ax, ["y"] = ay }, ["basis_y"] = new JsonObject { ["x"] = bx, ["y"] = by },
+            ["source"] = "Shape.StrokeThickness and actual Shape.TransformToVisual(content-root)"
+        };
+        node["style"]!["stroke_width"] = uniform ? shape.StrokeThickness * scaleX : null;
+        node["style"]!["foreground"] = CaptureColor(shape.Stroke);
+        if (!uniform) errors.Add(id + ": nonuniform or non-finite actual stroke transform requires directional stroke measurement");
     }
     private static IEnumerable<TextElement> CaptureTextLeaves(InlineCollection inlines)
     {
@@ -309,16 +331,16 @@ public sealed partial class MainWindow
             var transform = element.TransformToVisual(captureRoot);
             foreach (var range in ranges)
             {
-                var runBoxes = new JsonArray();
+                var runBoxes = new JsonArray(); var runIncomplete = false;
                 for (var offset = 0; offset < range.end.Offset - range.start.Offset; offset++)
                 {
                     var pointer = range.start.GetPositionAtOffset(offset, LogicalDirection.Forward);
-                    if (pointer == null) { incomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
+                    if (pointer == null) { incomplete = runIncomplete = true; errors.Add(id + ": TextPointer missing at offset " + offset); continue; }
                     var box = pointer.GetCharacterRect(LogicalDirection.Forward);
                     localBoxes.Add(CaptureBox(box));
                     if (!CaptureRectFinite(box))
                     {
-                        incomplete = true;
+                        incomplete = runIncomplete = true;
                         errors.Add(id + ": non-finite TextPointer rectangle at content offset " + pointer.Offset);
                     }
                     else if (box.Height > 0)
@@ -326,7 +348,7 @@ public sealed partial class MainWindow
                         var actual = transform.TransformBounds(box);
                         boxes.Add(CaptureBox(actual)); runBoxes.Add(CaptureBox(actual));
                         if (CaptureRectFinite(actual)) ys.Add(Math.Round(actual.Y, 2));
-                        else incomplete = true;
+                        else incomplete = runIncomplete = true;
                     }
                 }
                 if (range.leaf != null) runs.Add(new JsonObject
@@ -336,7 +358,7 @@ public sealed partial class MainWindow
                     ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
                     ["font_size"] = range.leaf.FontSize, ["font_weight"] = range.leaf.FontWeight.Weight,
                     ["foreground"] = CaptureColor(range.leaf.Foreground), ["font_family"] = range.leaf.FontFamily.Source,
-                    ["bounds"] = runBoxes
+                    ["bounds"] = runBoxes, ["coordinate_space"] = "content-window", ["geometry_complete"] = !runIncomplete
                 });
             }
             lines = incomplete ? null : ys.Count;

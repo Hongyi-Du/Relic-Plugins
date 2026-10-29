@@ -372,6 +372,202 @@ class ProjectionTests(unittest.TestCase):
         self.assertIn("text", self.by_id(result))
         self.assertTrue(self.occlusion_issues(result))
 
+    @staticmethod
+    def rich_fixture():
+        owner = xaml_node("rich", "RichTextBlock", "标题正文", bounds=box(10, 20, 110, 20))
+        runs = [
+            {"type": "Run", "text": "标题", "start_offset": 1, "end_offset": 3,
+             "font_size": 14, "font_weight": 700, "foreground": [27, 27, 26, 255],
+             "font_family": "Configured family", "bounds": [box(10, 20, 30, 20)],
+             "coordinate_space": "content-window", "geometry_complete": True},
+            {"type": "Run", "text": "正文", "start_offset": 5, "end_offset": 7,
+             "font_size": 13, "font_weight": 400, "foreground": [90, 88, 83, 255],
+             "font_family": "Configured family", "bounds": [box(40, 20, 30, 18)],
+             "coordinate_space": "content-window", "geometry_complete": True},
+        ]
+        owner["layout"].update(rich_text_runs=runs, character_boxes_coordinate_space="content-window")
+        witness = uia_node("uia-rich", "Document", "标题正文", bounds=owner["bounds"])
+        witness["text_pattern"] = {"visible_ranges": [{
+            "format_runs": [
+                {"text": "标题", "bounds": runs[0]["bounds"], "attributes": {"font_family": "Segoe UI Variable"},
+                 "attribute_status": {"font_family": "measured"}},
+                {"text": "正文", "bounds": runs[1]["bounds"], "attributes": {"font_family": "Microsoft YaHei UI"},
+                 "attribute_status": {"font_family": "measured"}},
+            ],
+        }]}
+        return owner, witness
+
+    def test_measured_rich_runs_are_independent_visible_elements(self):
+        owner, witness = self.rich_fixture()
+        result = self.capture(measured([owner]), [witness])
+        elements = self.by_id(result)
+        self.assertNotIn("rich", elements, "The glyph-only RichTextBlock is a layout owner, not an extra card")
+        first, second = elements["rich:run:0"], elements["rich:run:1"]
+        self.assertEqual((first["text"], second["text"]), ("标题", "正文"))
+        self.assertEqual((first["style"]["font_weight"], second["style"]["font_weight"]), (700, 400))
+        self.assertEqual((first["style"]["font_size"], second["style"]["font_size"]), (14, 13))
+        self.assertEqual(first["bounds"], box(10, 20, 30, 20))
+        self.assertEqual(second["style"]["foreground"], [90, 88, 83, 255])
+        self.assertFalse(any(issue.get("property") == "rich_text_runs" for issue in result["coverage"]["unmeasured"]))
+        self.assertEqual(first["evidence"]["text_run_source"]["start_offset"], 1)
+        self.assertEqual(result["coverage"]["recorded_text_leaves"], 2)
+
+    def test_rich_run_font_identity_uses_only_intersecting_actual_uia_range(self):
+        owner, witness = self.rich_fixture()
+        result = self.capture(measured([owner]), [witness])
+        elements = self.by_id(result)
+        self.assertEqual([f["family_name"] for f in elements["rich:run:0"]["style"]["rendered_fonts"]], ["Segoe UI Variable"])
+        self.assertEqual([f["family_name"] for f in elements["rich:run:1"]["style"]["rendered_fonts"]], ["Microsoft YaHei UI"])
+        self.assertTrue(any(p.get("source") == "uia-rich" and "TextElement Run" in p["reason"] for p in result["projection"]))
+        self.assertFalse(any(issue.get("id") == "uia-rich" and issue.get("property") == "render correspondence"
+                             for issue in result["coverage"]["unmeasured"]))
+
+    def test_rich_owner_own_background_retained_without_duplicating_leaf_paint(self):
+        owner, witness = self.rich_fixture()
+        owner["style"]["background"] = [240, 240, 240, 255]
+        result = self.capture(measured([owner]), [witness])
+        elements = self.by_id(result)
+        self.assertEqual(elements["rich"]["kind"], "card")
+        self.assertEqual(elements["rich"]["text"], "")
+        self.assertIsNone(elements["rich"]["style"]["font_weight"])
+        self.assertEqual(elements["rich:run:0"]["parent"], "rich")
+        self.assertEqual(elements["rich:run:0"]["style"]["background"], [0, 0, 0, 0])
+
+    def test_missing_rich_run_font_does_not_borrow_adjacent_run_font(self):
+        owner, witness = self.rich_fixture()
+        witness["text_pattern"]["visible_ranges"][0]["format_runs"][1]["attribute_status"]["font_family"] = "unsupported"
+        result = self.capture(measured([owner]), [witness])
+        self.assertIsNone(self.by_id(result)["rich:run:1"]["style"]["rendered_fonts"])
+        self.assertTrue(any(issue.get("id") == "rich:run:1" and issue.get("property") == "style.rendered_fonts"
+                            for issue in result["coverage"]["unmeasured"]))
+
+    def test_ambiguous_same_box_rich_provider_is_not_used_as_font_fallback(self):
+        owner, witness = self.rich_fixture()
+        second = deepcopy(witness)
+        second["id"] = "uia-unrelated"
+        second["text_pattern"]["visible_ranges"][0]["format_runs"][0]["attributes"]["font_family"] = "Unrelated family"
+        result = self.capture(measured([owner]), [witness, second])
+        self.assertIsNone(self.by_id(result)["rich:run:0"]["style"]["rendered_fonts"])
+
+    def test_incomplete_rich_run_geometry_remains_an_explicit_gap(self):
+        owner, witness = self.rich_fixture()
+        owner["layout"]["rich_text_runs"][0]["geometry_complete"] = False
+        result = self.capture(measured([owner]), [witness])
+        self.assertTrue(any(issue.get("id") == "rich:run:0" and issue.get("property") == "rich_text_runs"
+                            for issue in result["coverage"]["unmeasured"]))
+
+    def test_single_measured_text_run_can_be_owned_by_its_real_button_label(self):
+        button = xaml_node("button", "Button")
+        label = xaml_node("label", text="发送", parent="button", bounds=box(20, 25, 40, 18))
+        glyph_box = box(20, 25, 26, 18)
+        label["layout"]["rich_text_runs"] = [{
+            "type": "Run", "text": "发送", "font_size": 12, "font_weight": 600,
+            "foreground": [27, 27, 26, 255], "font_family": "Configured family", "bounds": [glyph_box],
+            "coordinate_space": "content-window", "geometry_complete": True,
+        }]
+        uia_label = uia_node("uia-label", "Text", "发送", parent="uia-button", bounds=label["bounds"])
+        uia_label["text_pattern"] = {"visible_ranges": [{
+            "text": "发送", "bounds": [glyph_box], "attributes": {"font_family": "Segoe UI Variable"},
+            "attribute_status": {"font_family": "measured"},
+        }]}
+        result = self.capture(measured([button, label]), [uia_node("uia-button", "Button", "发送"), uia_label])
+        elements = self.by_id(result)
+        self.assertEqual(elements["button"]["text"], "发送")
+        self.assertEqual(elements["button"]["style"]["font_size"], 12)
+        self.assertNotIn("label:run:0", elements)
+        self.assertEqual(elements["button"]["evidence"]["text_bounds"], [glyph_box])
+
+    def test_multiline_measured_run_keeps_exact_text_and_line_geometry(self):
+        owner, witness = self.rich_fixture()
+        owner["text"] = "一\n二"
+        owner["layout"]["rich_text_runs"] = [{
+            "type": "Run", "text": "一\n二", "font_size": 13, "font_weight": 400,
+            "foreground": [27, 27, 26, 255], "bounds": [box(10, 20, 15, 18), box(10, 40, 15, 18)],
+            "coordinate_space": "content-window", "geometry_complete": True,
+        }]
+        owner["bounds"] = owner["visible_bounds"] = box(10, 20, 110, 50)
+        result = self.capture(measured([owner]), [witness])
+        actual = self.by_id(result)["rich:run:0"]
+        self.assertEqual(actual["text"], "一\n二")
+        self.assertEqual(actual["layout"]["line_count"], 2)
+        self.assertEqual(actual["bounds"], box(10, 20, 15, 38))
+
+    def test_proven_offscreen_uia_diagnostics_are_preserved_as_nonvisible(self):
+        hidden = uia_node("uia-hidden", name="Hidden")
+        hidden["bounds"] = None
+        hidden["state"]["offscreen"] = True
+        message = "BoundingRectangle is empty; raw x=Infinity, y=Infinity, width=-Infinity, height=-Infinity"
+        hidden["measurement_errors"] = [message]
+        result = self.capture(measured([xaml_node("text", text="内容")]), [hidden, uia_node("uia-text", name="内容")],
+                              uia_changes={"extraction_errors": ["uia-hidden: " + message]})
+        self.assertFalse(result["extraction_errors"])
+        self.assertFalse(any(issue.get("id") == "uia-hidden" for issue in result["coverage"]["unmeasured"]))
+        self.assertTrue(any(diagnostic.get("id") == "uia-hidden" and "Infinity" in diagnostic["diagnostic"]
+                            for diagnostic in result["nonvisible_diagnostics"]))
+
+    def test_unknown_or_visible_uia_rect_errors_are_not_exempted(self):
+        for offscreen in (None, False):
+            with self.subTest(offscreen=offscreen):
+                bad = uia_node("uia-bad", name="内容")
+                bad["bounds"] = None
+                bad["state"]["offscreen"] = offscreen
+                bad["measurement_errors"] = ["BoundingRectangle is empty; raw x=Infinity"]
+                result = self.capture(measured([xaml_node("text", text="内容")]), [bad],
+                                      uia_changes={"extraction_errors": ["uia-bad: BoundingRectangle is empty; raw x=Infinity"]})
+                self.assertTrue(result["extraction_errors"])
+                self.assertTrue(any(issue.get("id") == "uia-bad" for issue in result["coverage"]["unmeasured"]))
+
+    def test_offscreen_parent_tree_failure_is_not_a_nonvisible_measurement(self):
+        hidden = uia_node("uia-hidden", name="Hidden")
+        hidden["state"]["offscreen"] = True
+        hidden["measurement_errors"] = ["BoundingRectangle is empty; raw x=Infinity"]
+        own_error = "uia-hidden: " + hidden["measurement_errors"][0]
+        for traversal_error in ("uia-hidden: tree traversal/identity: ElementNotAvailableException: child unavailable",
+                                "uia-hidden: ElementNotAvailableException: child unavailable"):
+            with self.subTest(error=traversal_error):
+                result = self.capture(measured([xaml_node("text", text="内容")]),
+                                      [hidden, uia_node("uia-text", name="内容")],
+                                      uia_changes={"extraction_errors": [own_error, traversal_error]})
+                self.assertEqual(result["extraction_errors"], [traversal_error])
+                self.assertTrue(any(item["diagnostic"] == own_error for item in result["nonvisible_diagnostics"]))
+                self.assertFalse(any(item["diagnostic"] == traversal_error for item in result["nonvisible_diagnostics"]))
+
+    def test_offscreen_numeric_json_path_keeps_raw_reason_without_failing_visible_nodes(self):
+        hidden = uia_node("uia-hidden", name="Hidden")
+        hidden["state"]["offscreen"] = True
+        result = self.capture(measured([xaml_node("text", text="内容")]), [hidden, uia_node("uia-text", name="内容")],
+                              uia_changes={"extraction_errors": ["/raw_nodes/0/bounds/x: non-finite actual UIA measurement Infinity"]})
+        self.assertFalse(result["extraction_errors"])
+        self.assertEqual(result["nonvisible_diagnostics"][0]["id"], "uia-hidden")
+
+    def test_actual_scaled_vector_stroke_not_overwritten_by_source_width(self):
+        icon = xaml_node("vector", "ReferenceVectorIcon", bounds=box(10, 20, 16, 16))
+        icon["icon"] = {"source": "svg", "glyph": "fixture actual path"}
+        icon["style"]["stroke_width"] = 1.7 * 16 / 24
+        icon["vector_stroke_width"] = 1.7
+        icon["stroke_evidence"] = {"raw_width": 1.7, "scale_x": 16 / 24, "scale_y": 16 / 24,
+                                   "source": "Shape.StrokeThickness and actual Shape.TransformToVisual(content-root)"}
+        result = self.capture(measured([icon]), [uia_node("uia-icon", "Image", bounds=icon["bounds"])])
+        actual = self.by_id(result)["vector"]
+        self.assertAlmostEqual(actual["style"]["stroke_width"], 1.7 * 16 / 24)
+        self.assertEqual(actual["evidence"]["stroke_evidence"]["raw_width"], 1.7)
+
+    def test_actual_selectorbar_listitem_provider_is_a_tab_witness(self):
+        tab = xaml_node("tab", "SelectorBarItem", "Overview")
+        witness = uia_node("uia-tab", "ListItem", "Overview", class_name="Microsoft.UI.Xaml.Controls.SelectorBarItem")
+        witness["state"]["selected"] = True
+        result = self.capture(measured([tab]), [witness])
+        actual = self.by_id(result)["tab"]
+        self.assertEqual(actual["kind"], "tab")
+        self.assertEqual(actual["evidence"]["uia_id"], "uia-tab")
+        self.assertTrue(actual["state"]["selected"])
+
+    def test_ordinary_listitem_is_not_a_tab_by_position_alone(self):
+        tab = xaml_node("tab", "SelectorBarItem", "Overview")
+        witness = uia_node("uia-listitem", "ListItem", "Overview", class_name="ListViewItem")
+        result = self.capture(measured([tab]), [witness])
+        self.assertIsNone(self.by_id(result)["tab"]["evidence"]["uia_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -123,7 +123,7 @@ def reference(manifest):
             ax_tree = cdp.send("Accessibility.getFullAXTree")
             input_text = input_text_evidence(cdp)
             fonts = font_evidence(cdp, snapshot, input_text)
-            environment = page.evaluate("({platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio})")
+            environment = page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})")
             environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
                                browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
             evidence = Path(manifest["output"]) / (case["id"] + ".dom.json")

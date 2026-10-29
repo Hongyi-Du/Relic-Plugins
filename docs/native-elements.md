@@ -71,6 +71,12 @@ RGBA has no visible RGB; compare its alpha exactly, and compare every nonzero
 alpha color using the unchanged DeltaE bound. A zero-width border has no visible
 border color; positive-width edges still require their actual color.
 
+`stroke_width` uses content-window pixels, like bounds and corner radii. Keep
+the original vector stroke in its source units and actual CTM in evidence;
+apply actual scale (or vector-effect non-scaling-stroke) before comparing.
+Nonuniform transforms need their actual directional stroke geometry or an
+explicit coverage gap; do not assume every transform has one scalar scale.
+
 Actual text fonts are recorded in `style.rendered_fonts` as records with
 `family_name`, optional `postscript_name`, and provider evidence. A configured
 fallback list is not an actual rendered-font measurement. Compare measured

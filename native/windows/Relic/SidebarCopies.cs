@@ -15,9 +15,11 @@ public sealed partial class MainWindow
     {
         toolbar.PrimaryCommands.Clear();
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
-        void Action(string glyph, string label, string tip, Func<Task> action, bool enabled = true)
+        void Action(string glyph, string label, string tip, Func<Task> action, bool enabled = true, int badge = 0, bool selected = false, bool alert = false)
         {
-            var b = QuietButton("", action); b.Content = Glyph(glyph); b.IsEnabled = enabled; b.Width = 30; b.Height = 30; b.Padding = new Thickness(6);
+            var b = QuietButton("", action); var content = new Grid(); content.Children.Add(Glyph(glyph)); b.Content = content; b.IsEnabled = enabled; b.Width = 30; b.Height = 28; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(7); b.Foreground = alert ? Paint("B7791F", "E2B15A") : Paint("5A5853", "B8B5AE");
+            if (selected) b.Background = Paint("E7E5DF", "2F2E2B");
+            if (badge > 0) content.Children.Add(new Border { MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8), Background = Paint("C2412D", "EE8A78"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Child = new TextBlock { Text = badge.ToString(), FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Paint("FFFFFF"), LineHeight = 15, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, HorizontalAlignment = HorizontalAlignment.Center } });
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, label);
             ToolTipService.SetToolTip(b, tip); toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = b });
         }
@@ -26,12 +28,13 @@ public sealed partial class MainWindow
         var forward = IconButton("\uE72A", "appbar.forward", () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
         appTitle.Text = org.Length == 0 ? "Relic" : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
         var count = snap.Rows("decisions").Count;
-        Action("\uE7BA", T("decision.title"), T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"));
+        Action("\uE7BA", T("decision.title"), T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0);
         var unread = copies.Count(c => !c.Flag("read"));
-        Action("\uE715", T("cc.title"), T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies);
+        Action("\uE715", T("cc.title"), T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies, badge: unread);
+        toolbar.PrimaryCommands.Add(new AppBarElementContainer { Content = new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0) } });
         int i = 1;
         foreach (var (id, key, glyph) in new[] { ("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5") })
-            Action(glyph, T(key), T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id));
+            Action(glyph, T(key), T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id);
     }
     private void DrawSidebar()
     {
