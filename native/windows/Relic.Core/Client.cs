@@ -126,7 +126,9 @@ public sealed class Words
             var one = Language == "en-US" && args.Any(a => a.Item1 == "n" && a.Item2.ToString() == "1");
             value = value[one ? "one" : "other"];
         }
-        var text = value?.ToString() ?? key;
+        // A missing translation must never become a technical key in the UI.
+        // CI checks every native key against both shared word lists.
+        var text = value?.ToString() ?? "";
         foreach (var (name, arg) in args) text = text.Replace("{" + name + "}", arg.ToString());
         return text;
     }
