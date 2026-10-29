@@ -1,0 +1,124 @@
+# Element parity contract (Amendment 4)
+
+This is a required machine gate, independent of route/vocabulary coverage and
+screenshot completeness. The earlier visual differences are failures to fix,
+not accepted platform substitutions. No exception has been approved.
+
+## Capture interchange, version 1
+
+Keep the existing manifest, PNG filenames and receipts. Beside **every** PNG,
+write `<case-id>.elements.json`. Preserve the raw source tree separately or in
+`raw_nodes`; do not derive native measurements from the reference JSON.
+
+```json
+{
+  "schema_version": 1,
+  "scene_id": "zh-CN-light-1024x700-group",
+  "client": "reference",
+  "viewport": {"width": 1024, "height": 700, "scale": 1},
+  "extraction_errors": [],
+  "coverage": {"raw_nodes": 1, "emitted_elements": 1, "unmeasured": []},
+  "elements": [{
+    "id": "tree-local-id", "parent": null,
+    "region": "header", "order": 0, "kind": "text",
+    "text": "Relic", "name": "",
+    "bounds": {"x": 8, "y": 8, "width": 32, "height": 16},
+    "style": {
+      "font_size": 12, "font_weight": 400,
+      "foreground": [27,27,26,255], "background": [0,0,0,0],
+      "border_color": [0,0,0,0], "border_width": 0, "corner_radius": 0
+    },
+    "state": {
+      "enabled": null, "selected": null, "checked": null,
+      "expanded": null, "focused": null, "hovered": false, "unread": null
+    },
+    "layout": {"wrap": "none", "truncation": "none", "line_count": 1},
+    "icon": null,
+    "evidence": {"source": "DOMRange"}
+  }]
+}
+```
+
+The example illustrates the shape, not reference values for native clients.
+Coordinates are content-window-relative, top-left origin, logical pixels;
+screenshots remain one pixel per logical pixel. `bounds` is the measured layout
+box; also retain `visible_bounds` when clipping changes it. Preserve original
+font family, path/class, text ranges, pixel samples, clips and raw properties in
+`evidence`. RGBA channels are 0..255. Font weight uses numeric CSS/OpenType values.
+Measure actual rendered template text, not the owning control's unused defaults.
+`null` means not applicable, never an undocumented substitute for an unknown
+measurement. Unknown measurements go in `extraction_errors` and/or
+`coverage.unmeasured`, which fail the gate.
+
+Regions: `window`, `header`, `sidebar`, `conversation`, `composer`, `right-pane`,
+`dialog`, `menu`. Reading `order` starts at zero within each region. Kinds:
+`region`, `text`, `button`, `icon-button`, `input`, `toggle`, `checkbox`, `tab`,
+`menu-item`, `dropdown`, `chip`, `badge`, `avatar`, `state-dot`, `card`, `list-row`,
+`divider`, `code`, `chart-node`, `chart-edge`, `icon`, `image`, `link`.
+Text is the actual visible string, with no date/path/whitespace substitutions.
+`name` preserves accessible naming separately; invisible tooltip text is not
+visible text. A shown tooltip and its text are elements.
+
+## Common visibility and counting rules
+
+- Walk the actual DOM/UIA/AX tree and actual render/view tree. Preserve raw nodes,
+  including ignored wrappers, with the projection reason. A layout-only wrapper
+  with no paint, role or text is not a visible element. A painted background,
+  border, divider, card, state dot, chart node or edge is an element even if AX
+  omits it; missing render instrumentation is an extraction failure.
+- Exclude display/visibility-hidden, zero-opacity, zero-area and fully clipped
+  content. Intersect ancestor scroll/viewport clips and the content window.
+  Retain partially clipped items and record visible bounds. Opaque overlays
+  occlude the covered portion; translucent modal dimmers do not make underlying
+  still-visible content disappear. Do not use a center-point-only hit test to
+  discard a partially visible element. If exact occlusion is unavailable, report
+  that measurement gap; do not silently count it as verified visibility.
+- A control's single simple label is represented once in the control's `text`.
+  Preserve its raw child text node and record that ownership. Distinct subtitles,
+  counters, badges, avatars, state dots and icon glyphs remain separate elements.
+  A complex row with differently styled labels must retain those individual text
+  elements. A button's icon is a child `icon` with actual glyph/vector evidence.
+  Never collapse the complete text of a card or region into a duplicate label.
+- Background/border paint owned by a semantic control is measured on the control,
+  not emitted again as its template's border. Standalone card/background/divider
+  paint is retained. This ownership is based on actual view ancestry, not a
+  target element count. Store the ownership relationship for audit.
+- Record selected/checked/enabled/expanded/focused/hovered/unread states when
+  applicable, including false values. Preserve actual wrapping, truncation and
+  measured text-line count. `wrap` is `none`, `word` or `character`; `truncation`
+  is `none`, `clip` or `ellipsis`. Unknown values fail extraction coverage.
+
+## Matching, reports and gate
+
+Pair one-to-one by region, kind, exact text/name and reading order, never by
+shared generated IDs. Report all unmatched and mismatched elements. The fixed
+tolerances are 4 px per box component, or 3% of the corresponding reference axis
+for boxes over 130 px; font size 0.5 px; exact font weight; CIE76 DeltaE <= 3;
+radius 1 px. Exact text, kind, region/order, state, wrapping and truncation are
+required. Icon glyph/vector differences fail unless the person has approved a
+specific equivalence. Missing values are not equal to measured values.
+
+`scripts/visual/element_parity.py` emits `parity-report.json`, an index and a page
+per case/platform with outlined reference/native images, a mismatch list and a
+pixel-difference heat map. All 504 cases are required for acceptance. A smoke
+run can diagnose extraction but cannot pass full acceptance. Missing captures,
+missing measurements, errors, extra scenes, or any mismatch make the job fail;
+upload reports even after failure. Reports must remain self-contained artifacts.
+
+## Exceptions and icon equivalences
+
+| Element/platform | Requested exception | Reason | Person's decision |
+| --- | --- | --- | --- |
+| None | None | No exceptions or icon substitutions requested | None approved |
+
+Do not add rows or loosen tolerances to make CI pass. Any proposed change must
+remain a reported failure until the person decides. The macOS system menu bar
+does not exempt an absent in-window counterpart automatically.
+
+## Changes for clients
+
+- Amendment 4 initial contract: emit version 1 files above on all 504 existing
+  cases. Preserve raw AX/UIA plus paint/view inspection. macOS request at
+  `43bb8e1` for filename/schema/counting/visibility/coverage is addressed here.
+  Shared reference extraction and strict report/gate are being added first;
+  native unknown measurements must remain explicit failures while implemented.
