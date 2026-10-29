@@ -98,7 +98,7 @@ struct ChatView: View {
                     Spacer()
                 }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                header
+                header.measuredRegion("header")
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty {
                     Text(m.banner(m.selectedMember)).font(.caption).padding(8).background(.quaternary.opacity(0.4))
@@ -167,7 +167,7 @@ struct ConversationStream: View {
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
-                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
+                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation").measuredRegion("conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             // A digest, inspector resize, or late text measurement
                             // changes geometry without the person scrolling away.
@@ -177,7 +177,7 @@ struct ConversationStream: View {
                             lastHeight = metrics.height; lastViewport = viewport.size
                         }
                 }
-                ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
+                ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
             }.onChange(of: m.selection) { initialLoad = true; followsBottom = true }
                 .onChange(of: m.revision) {
                     if initialLoad || followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }

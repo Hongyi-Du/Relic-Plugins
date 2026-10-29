@@ -90,6 +90,7 @@ import RelicCore
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
+                try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
             }
