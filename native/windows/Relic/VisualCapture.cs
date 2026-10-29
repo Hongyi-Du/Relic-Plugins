@@ -11,9 +11,22 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private bool VisualCaptureEnabled => Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"));
+    private bool visualCaptureStarted;
+    private void VisualStartup(string stage)
+    {
+        if (!VisualCaptureEnabled) return;
+        System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!, "current-case.txt"), "startup: " + stage);
+        Console.WriteLine("Relic visual startup: " + stage);
+    }
+    private void VisualStartupFailed(Exception error)
+    {
+        if (!VisualCaptureEnabled || visualCaptureStarted) return;
+        System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!, "complete.json"), System.Text.Json.JsonSerializer.Serialize(new { errors = new[] { error.ToString() }, count = 0 }));
+    }
 
     private async Task CaptureVisuals()
     {
+        visualCaptureStarted = true;
         var path = Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST")!;
         var failures = new List<string>(); var count = 0;
         try

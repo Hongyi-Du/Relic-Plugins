@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Relic.Core;
 using System.Text.Json.Nodes;
 using System.Speech.Recognition;
+using System.Text;
 using Windows.Storage.Pickers;
 
 namespace Relic;
@@ -90,6 +91,8 @@ public sealed partial class MainWindow
         root.Resources["SystemAccentColor"] = accent;
         root.Resources["AccentFillColorDefaultBrush"] = new SolidColorBrush(accent);
         foreach (var key in new[] { "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed", "SelectorBarItemPillFill", "ListViewItemSelectionIndicatorBrush", "TextControlBorderBrushFocused", "TextControlBorderBrushPointerOver" }) root.Resources[key] = new SolidColorBrush(accent);
+        foreach (var key in new[] { "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundStrokeChecked", "ToggleSwitchFillOn" })
+            foreach (var state in new[] { "", "PointerOver", "Pressed" }) root.Resources[key + state] = new SolidColorBrush(accent);
         stream.Spacing = preferences.Text("density") == "compact" ? 7 : 14;
         side.Spacing = 2;
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
@@ -225,10 +228,18 @@ public sealed partial class MainWindow
             var picture = new Image { Source = new BitmapImage(new Uri("http://127.0.0.1:" + port + url)), Width = size, Height = size, Stretch = Stretch.UniformToFill };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(picture, label); return picture;
         }
-        uint hash = 0; foreach (var character in label) hash = unchecked(hash * 31 + character);
-        var palette = new[] { ("DCECEF", "326C7B", "263B40"), ("EEE8F6", "7058B8", "352E43"), ("F2E4EA", "99465E", "432D37"), ("E7EDDF", "607D43", "303C29"), ("F4E7D9", "98703E", "44382A"), ("E3E8F4", "4D6198", "2C3345") };
-        var (light, ink, dark) = palette[hash % palette.Length]; var human = label == Display("human");
-        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(Math.Max(6, size / 4)), Background = human ? Paint("1B1B1A", "ECEAE5") : label == "#" ? Paint("EFEEEA", "2F2E2B") : Paint(light, dark), Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = human ? Paint("FFFFFF", "1B1B1A") : Paint(ink, light), FontSize = Math.Clamp(size * .42, 11, 22), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        var identity = snap.Rows("members").FirstOrDefault(m => m.Text("display") == label || m.Text("name") == label).Text("name");
+        if (identity.Length == 0) identity = orgs.FirstOrDefault(o => o.Text("name") == label).Text("id");
+        if (identity.Length == 0) identity = label;
+        uint hash = 7; foreach (var character in identity.EnumerateRunes()) hash = unchecked(hash * 31 + (uint)character.Value);
+        var hue = new[] { 18, 30, 42, 205, 222, 248, 272, 300, 330, 350, 190, 12 }[hash % 12]; var human = label == Display("human");
+        SolidColorBrush Hsl(double saturation, double lightness)
+        {
+            var chroma = (1 - Math.Abs(2 * lightness - 1)) * saturation; var x = chroma * (1 - Math.Abs(hue / 60d % 2 - 1)); var m = lightness - chroma / 2;
+            var (r, g, b) = hue switch { < 60 => (chroma, x, 0d), < 120 => (x, chroma, 0d), < 180 => (0d, chroma, x), < 240 => (0d, x, chroma), < 300 => (x, 0d, chroma), _ => (chroma, 0d, x) };
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255)));
+        }
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(Math.Max(6, size / 4)), Background = human ? Paint("1B1B1A", "ECEAE5") : label == "#" ? Paint("EFEEEA", "2F2E2B") : Hsl(Dark ? .18 : .4, Dark ? .24 : .9), Child = new TextBlock { Text = label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(label).ToUpperInvariant() : "R", Foreground = human ? Paint("FFFFFF", "1B1B1A") : Hsl(Dark ? .45 : .38, Dark ? .78 : .34), FontSize = Math.Clamp(size * .42, 11, 22), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     }
     private async Task ChangeAvatar(string? who = null)
     {

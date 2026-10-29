@@ -42,6 +42,10 @@ name, name hint and Save as separate full-width Form rows. The reference uses
 two horizontal rows: labels/hints on the left, avatar/change and name input on
 the right. Please review profile/notify/voice/about against that structure.
 Windows now uses those compact rows; no shared strings or payloads changed.
+Windows avatar colors now follow `app.js:hue`: unsigned hash starts at 7,
+multiplies by 31 per Unicode code point of the member/organization ID, then uses
+`[18,30,42,205,222,248,272,300,330,350,190,12]`. HSL is 40%/90% background and
+38%/34% text in light mode; 18%/24% and 45%/78% in dark mode (`app.css`).
 Mac amendment-3 requests 1/2 are addressed by the new shared manifest and visual
 workflow (dispatchable on either branch); request 3 is addressed by reverse-key
 tests and the existing shared voice title. Exact manifest fields are documented

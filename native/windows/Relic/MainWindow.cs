@@ -56,11 +56,12 @@ public sealed partial class MainWindow : Window
     {
         try { await action(); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception ex) { error.Severity = InfoBarSeverity.Error; error.Message = ex.Message; error.IsOpen = true; }
+        catch (Exception ex) { VisualStartupFailed(ex); error.Severity = InfoBarSeverity.Error; error.Message = ex.Message; error.IsOpen = true; }
     }
 
     public MainWindow()
     {
+        VisualStartup("constructing window");
         Title = "Relic";
         SystemBackdrop = new MicaBackdrop();
         Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
@@ -120,17 +121,21 @@ public sealed partial class MainWindow : Window
             if (api != null) return;
             await Run(async () =>
             {
+                VisualStartup("starting engine host");
                 var engine = Environment.GetEnvironmentVariable("RELIC_ENGINE_ROOT") ?? AppContext.BaseDirectory;
                 api = await host.Start(engine, Environment.GetEnvironmentVariable("RELIC_PYTHON") ?? "python");
+                VisualStartup("loading preferences and capabilities");
                 preferences = await api.Get("/api/prefs");
                 platform = await api.Get("/api/platform");
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
                 LoadViewState(); ready = true; LayoutColumns();
+                VisualStartup("registering native notifications");
                 AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
                 try { AppNotificationManager.Default.Register(); }
                 catch { notificationsAvailable = false; Note(T("settings.notify_unsupported")); }
+                VisualStartup("loading organization and conversation");
                 ApplyAppearance(); DrawMenu(); await Refresh();
                 if (VisualCaptureEnabled) { _ = CaptureVisuals(); return; }
                 _ = api.Events(ev =>

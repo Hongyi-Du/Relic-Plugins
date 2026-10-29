@@ -55,7 +55,7 @@ public sealed partial class MainWindow
         {
             var key = who.Length == 0 ? "group" : "member:" + who; var id = org;
             var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            row.Children.Add(SmallAvatar(avatar, who.Length == 0 ? "#" : title, state));
+            row.Children.Add(SmallAvatar(avatar, who.Length == 0 ? "#" : Display(who), state));
             var text = new StackPanel { Spacing = 1 }; text.Children.Add(Ellipsis(title + Unread(key), 13));
             if (subtitle.Length > 0) { var sub = Ellipsis(subtitle, 11); sub.Foreground = Muted; text.Children.Add(sub); }
             Grid.SetColumn(text, 1); row.Children.Add(text); ToolTipService.SetToolTip(row, title + "\n" + subtitle + (state.Length > 0 ? "\n" + MemberState(state) : ""));
