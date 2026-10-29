@@ -300,7 +300,7 @@ import CoreText
             guard let rect = node["rect"] as? [String: Double], let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"] else { return .null }
             return NSRect(x: x, y: y, width: width, height: height)
         }
-        let surfaces = SurfacePaintProbe.snapshots(in: contentScreen)
+        let surfaces = SurfacePaintProbe.snapshots(in: contentScreen) + TypingIndicatorView.snapshots(in: contentScreen)
         for surface in surfaces {
             let rect = (surface["rectValue"] as! NSValue).rectValue, visible = rect.intersection(Self.rect(surface["nativeVisibleBounds"])).intersection(viewport)
             guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }

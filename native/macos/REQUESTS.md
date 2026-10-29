@@ -1,3 +1,32 @@
+## 2026-10-29: live matrix consumption and shared extraction failures
+
+macOS consumes `fixture.scene_endpoint` before every case, records the actual
+response as `<case>.scene-fixture.json`, reloads the returned member's real Hub
+state, and opens the live tool disclosure by native mouse events at its measured
+AX bounds. `live-busy`, `live-tool-output`, and `live-typing` remain additional
+states (47 scenes / 564 cases); no previous scene is removed. The typing dots
+use a production NSAnimation clock and native drawing; capture stops and seeks
+that actual clock and retains before/after clock and draw receipts. This work
+still awaits macOS build/capture validation and does not establish parity.
+
+Shared checker run `40970311201`, job `123786329669`, fails Node tests 9 and 25:
+`overflow scrollbar evidence retains actual metrics without inventing thumb bounds`
+and `zero scrollbar gutter is not proof that overlay scrollbars are absent`.
+Both report `SyntaxError: Unexpected token ';'` while evaluating the extracted
+`scrollbarEvidence` expression (`test_reference_elements.mjs:176` and `:433`).
+Please fix the shared test/extractor boundary on `native-apps`; macOS leaves
+these files and the failure gate untouched.
+
+Color evidence question: the reference `color()` rasterizes the computed CSS
+color through a 1x1 OffscreenCanvas and exports RGBA8 `getImageData`, whereas
+native currently exports the actual NSColor sRGB floating components times
+255. For alpha 0.07 these measure 18 versus 17.85; low-alpha premultiplication
+can also change RGB when the canvas unpremultiplies. Please define/compare the
+same measurement quantity for both platforms, preserving each provider's raw
+components and raster evidence. This is not a request to relax alpha/DeltaE
+tolerances or copy reference colors into native data. Native values remain
+unchanged until a measured conversion is implemented and tested.
+
 ## 2026-10-29: literal Harness label in the reference member form
 
 Font evidence update: `67dae7b` macOS build and 97 tests pass in

@@ -59,6 +59,15 @@ import RelicAX
                 guard let defaults = UserDefaults(suiteName: suite) else { throw RelicError.message("Cannot create isolated native preferences") }
                 model = Model(client: try Client(port: fixture["port"].integer, token: fixture["token"].text), defaults: defaults)
                 defer { model.stop(); defaults.removePersistentDomain(forName: suite) }
+                guard !fixture["scene_endpoint"].text.isEmpty else { throw RelicError.message("Visual fixture is missing its scene reset endpoint") }
+                let prepared = try await model.post(fixture["scene_endpoint"].text, ["scene": scene])
+                let isLive = ["live-busy", "live-tool-output", "live-typing"].contains(scene)
+                guard prepared["scene"].text == scene, prepared["live"].flag == isLive,
+                      !prepared["org"].text.isEmpty, !prepared["member"].text.isEmpty else {
+                    throw RelicError.message("Visual fixture did not prepare the requested scene: " + scene)
+                }
+                try evidence(prepared.raw, suffix: ".scene-fixture.json", item: item, output: output)
+                try item["id"].text.write(to: manifestURL.deletingLastPathComponent().appendingPathComponent("current-case.txt"), atomically: true, encoding: .utf8)
                 await model.start()
                 guard model.ready else { throw RelicError.message(model.error) }
                 hosting.rootView = MainView().environmentObject(model).id(item["id"].text)
@@ -86,6 +95,12 @@ import RelicAX
                 else {
                     switch scene {
                     case "group": break
+                    case "live-busy", "live-tool-output", "live-typing":
+                        // select reloads the real organization snapshot before
+                        // loading the returned member's Hub turn and transcript.
+                        try await model.select(prepared["org"].text, prepared["member"].text)
+                        guard model.selectedMember["embedded"].flag, model.liveStatus["state"].text == prepared["state"].text,
+                              !model.displayLiveItems.isEmpty else { throw RelicError.message("Prepared live state was not loaded: " + scene) }
                     case "private": try await model.select(fixture["org"].text, fixture["member"].text)
                     case "overview": model.setPane("overview")
                     case "workspace": model.workspaceMember = fixture["member"].text; model.setPane("workspace")
@@ -115,6 +130,10 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
+                if scene == "live-tool-output" {
+                    let action = try await openLiveOutput(prepared, model: model, window: window)
+                    try evidence(action, suffix: ".scene-action.json", item: item, output: output)
+                }
                 if scene == "member-host-model-suggestions" || scene == "member-existing-seat-suggestions" {
                     try await openInputSuggestions(scene == "member-host-model-suggestions" ? "member-model" : "member-seat-name", window: window)
                 }
@@ -132,6 +151,17 @@ import RelicAX
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 if scene == "quick-start" {
                     guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
+                }
+                if isLive {
+                    let clocks = TypingIndicatorView.pauseVisibleClocks()
+                    if scene == "live-typing" {
+                        guard clocks.count == 1, (clocks[0]["drawn"] as? [[String: Any]])?.count == 3,
+                              (clocks[0]["after"] as? [String: Any])?["is_animating"] as? Bool == false,
+                              (clocks[0]["after"] as? [String: Any])?["current_progress"] as? Double == 0 else {
+                            throw RelicError.message("Live typing animation was not measured after pausing its real AppKit clock")
+                        }
+                    }
+                    try evidence(["provider": "production NSAnimation clocks", "clocks": clocks], suffix: ".animations.json", item: item, output: output)
                 }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
@@ -184,6 +214,35 @@ import RelicAX
     private static func textEditors(_ view: NSView?) -> [ComposerTextView] {
         guard let view else { return [] }; return (view as? ComposerTextView).map { [$0] } ?? view.subviews.flatMap { textEditors($0) }
     }
+    private static func evidence(_ value: Any, suffix: String, item: Node, output: URL) throws {
+        try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent(item["id"].text + suffix))
+    }
+    private static func openLiveOutput(_ prepared: Node, model: Model, window: NSWindow) async throws -> [String: Any] {
+        let matches = model.displayLiveItems.filter { $0["type"].text == "tool" && $0["title"].text == prepared["tool"]["title"].text }
+        guard matches.count == 1, let tool = matches.first, let content = window.contentView,
+              let frame = accessibilityFrame(identifier: "relic-row/live-tool/" + tool["id"].text, root: content) else {
+            throw RelicError.message("Expected one actual live tool disclosure: " + prepared["tool"]["title"].text)
+        }
+        try click(frame, window: window)
+        try await Task.sleep(for: .milliseconds(250))
+        let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
+        let probes = SurfacePaintProbe.snapshots(in: contentScreen).filter { $0["owner"] as? String == "relic-row/live-tool/" + tool["id"].text }
+        guard probes.count == 1, probes[0]["expanded"] as? Bool == true,
+              accessibilityFrame(identifier: "relic-live-output/" + tool["id"].text, root: content) != nil else {
+            throw RelicError.message("Actual live tool disclosure did not remain open")
+        }
+        return ["action": "native mouse down/up on measured production tool disclosure", "tool_title": tool["title"].text, "tool_id": tool["id"].text,
+                "open": true, "control_screen_bounds": ElementCapture.box(frame), "expanded_surface_evidence": probes[0]["evidence"]!]
+    }
+    private static func click(_ screen: NSRect, window: NSWindow) throws {
+        let point = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+                throw RelicError.message("Cannot create native mouse event")
+            }
+            window.sendEvent(event)
+        }
+    }
     private static func accessibilityFrame(identifier: String, root: AnyObject) -> NSRect? {
         var seen = Set<ObjectIdentifier>()
         func walk(_ object: AnyObject) -> NSRect? {
@@ -205,13 +264,7 @@ import RelicAX
         }
         // Exercise the real control through its measured location and native
         // event dispatch. The capture never constructs a substitute popup.
-        let point = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
-                throw RelicError.message("Cannot create input focus event")
-            }
-            window.sendEvent(event)
-        }
+        try click(screen, window: window)
         try await Task.sleep(for: .milliseconds(100))
         guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125) else {
             throw RelicError.message("Cannot create Down Arrow event")
