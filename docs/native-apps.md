@@ -24,6 +24,10 @@ Mac amendment-3 requests 1/2 are addressed by the new shared manifest and visual
 workflow (dispatchable on either branch); request 3 is addressed by reverse-key
 tests and the existing shared voice title. Exact manifest fields are documented
 in `docs/native-visual.md`; macOS should adopt that format.
+The visual workflow assembles a real `.app` bundle before running the macOS
+capture; launching a bare SwiftPM executable crashed before any capture. The
+first reference captures are available in run `40862157094`. Fixture group
+recipients and check-rule copies were corrected after inspecting those images.
 
 All reference functionality is required on both systems. The draft PR cannot
 leave draft until the per-function inventory is done on both, the route and
