@@ -1,5 +1,12 @@
 name: Native visual review
 on:
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - '.github/workflows/native-visual.yml'
+      - 'scripts/visual/**'
+      - 'native/windows/**'
+      - 'native/macos/**'
   workflow_dispatch:
     inputs:
       matrix:
@@ -23,7 +30,7 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow playwright
       - run: python -m playwright install --with-deps chromium
-      - run: python scripts/visual/capture.py --client reference --matrix ${{ inputs.matrix }} --output visual/reference
+      - run: python scripts/visual/capture.py --client reference --matrix ${{ inputs.matrix || 'smoke' }} --output visual/reference
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -42,7 +49,7 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
-      - run: python -X utf8 scripts/visual/capture.py --client windows --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,7 +65,7 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - run: swift build --package-path native/macos -c release --arch arm64
-      - run: python3 scripts/visual/capture.py --client macos --exe native/macos/.build/arm64-apple-macosx/release/Relic --matrix ${{ inputs.matrix }} --output visual/macos
+      - run: python3 scripts/visual/capture.py --client macos --exe native/macos/.build/arm64-apple-macosx/release/Relic --matrix ${{ inputs.matrix || 'smoke' }} --output visual/macos
       - uses: actions/upload-artifact@v4
         if: always()
         with:
