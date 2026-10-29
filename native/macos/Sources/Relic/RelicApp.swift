@@ -5,7 +5,7 @@ import UserNotifications
 final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var onQuit: (() -> Void)?
     var onNotification: ((String, String) -> Void)?
-    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); UNUserNotificationCenter.current().delegate = self }
+    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); if !VisualCapture.enabled { UNUserNotificationCenter.current().delegate = self } }
     func applicationWillTerminate(_ notification: Notification) { onQuit?() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { if !flag { sender.windows.first?.makeKeyAndOrderFront(nil) }; return true }

@@ -30,6 +30,9 @@ import RelicCore
     @Published var threadSending = false
     weak var activeSpeech: SpeechInput?
     @Published var moreChat = false
+    @Published var expandRules = false
+    @Published var recipientPicker = false
+    @Published var appMenu: String?
     @Published var sheet: Sheet?
     @Published var folded: Set<String> = []
     @Published var history = NavigationHistory()

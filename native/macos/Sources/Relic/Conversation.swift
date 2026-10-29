@@ -290,10 +290,10 @@ struct ComposerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if m.member.isEmpty {
-                Menu(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])) {
-                    Button(m.t("composer.all_members")) { m.recipients = ["all"] }
-                    Rows(m.members) { who in Toggle(who.display, isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft() })) }
-                }.menuStyle(.borderlessButton).font(.system(size: 12)).fixedSize().padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
+                Button { m.recipientPicker.toggle() } label: {
+                    HStack(spacing: 4) { Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).lineLimit(1); Image(systemName: "chevron.down").font(.system(size: 9)) }
+                }.buttonStyle(.plain).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
+                    .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
             }
             if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(.quaternary) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)

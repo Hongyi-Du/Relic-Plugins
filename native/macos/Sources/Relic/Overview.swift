@@ -208,9 +208,10 @@ struct ProtocolList: View {
 struct RulesView: View {
     @EnvironmentObject var m: Model
     let rules: [Node]
+    @State private var expanded = false
     var body: some View {
         Rows(rules) { rule in
-            DisclosureGroup(m.t(rule["effect"].text == "check" ? "cc.code" : "org.protocols")) {
+            DisclosureGroup(m.t(rule["effect"].text == "check" ? "cc.code" : "org.protocols"), isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(m.t("cc.scope", ["what": m.ruleScope(rule)]))
                     if rule["effect"].text == "check" {
@@ -225,6 +226,6 @@ struct RulesView: View {
                     Text(pretty(rule)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }
             }
-        }
+        }.onAppear { expanded = m.expandRules }
     }
 }

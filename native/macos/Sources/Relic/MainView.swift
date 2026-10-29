@@ -26,6 +26,8 @@ struct MainView: View {
                 Button { m.sidebarOpen.toggle() } label: { Image(systemName: "sidebar.left") }.help(m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"))
                 Button { m.navigate(-1) } label: { Image(systemName: "chevron.left") }.disabled(!m.history.canBack).help(m.t("appbar.back"))
                 Button { m.navigate(1) } label: { Image(systemName: "chevron.right") }.disabled(!m.history.canForward).help(m.t("appbar.forward"))
+                IconButton(title: m.t("appbar.menus"), icon: "ellipsis") { m.appMenu = m.appMenu == nil ? "file" : nil }
+                    .popover(isPresented: Binding(get: { m.appMenu != nil }, set: { if !$0 { m.appMenu = nil } }), arrowEdge: .bottom) { ActionMenu().environmentObject(m) }
             }
             ToolbarItemGroup {
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "tray", badge: m.snapshot["decisions"].rows.count) { m.setPane("overview") }
