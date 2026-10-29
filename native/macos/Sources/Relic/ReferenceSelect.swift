@@ -7,16 +7,18 @@ struct ReferenceSelect: NSViewRepresentable {
     let title: String
     @Binding var selection: String
     let options: [(String, String)]
+    var pointSize: CGFloat = 14
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSPopUpButton {
         let view = NSPopUpButton(frame: .zero, pullsDown: false)
-        view.isBordered = false; view.font = RelicStyle.nativeFont(14, weight: 400)
+        view.isBordered = false; view.font = RelicStyle.nativeFont(pointSize, weight: 400)
         view.target = context.coordinator; view.action = #selector(Coordinator.changed(_:))
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         updateNSView(view, context: context); return view
     }
     func updateNSView(_ view: NSPopUpButton, context: Context) {
         context.coordinator.parent = self
+        view.font = RelicStyle.nativeFont(pointSize, weight: 400)
         if view.itemTitles != options.map(\.1) {
             view.removeAllItems()
             for (index, option) in options.enumerated() { view.addItem(withTitle: option.1); view.lastItem?.tag = index }
@@ -25,7 +27,7 @@ struct ReferenceSelect: NSViewRepresentable {
         view.setAccessibilityLabel(title); view.setAccessibilityIdentifier("relic-dropdown/" + title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: 36)
+        CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: pointSize * 1.6)
     }
     final class Coordinator: NSObject {
         var parent: ReferenceSelect
@@ -41,8 +43,9 @@ struct ReferenceSelectField: View {
     let title: String
     @Binding var selection: String
     let options: [(String, String)]
+    var pointSize: CGFloat = 14
     var body: some View {
-        ReferenceSelect(title: title, selection: $selection, options: options).padding(.horizontal, 9).frame(height: 38)
+        ReferenceSelect(title: title, selection: $selection, options: options, pointSize: pointSize).padding(.horizontal, 9).frame(height: pointSize * 1.6 + 16)
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-dropdown/" + title))
     }
 }

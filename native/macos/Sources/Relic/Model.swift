@@ -33,6 +33,7 @@ import RelicCore
     @Published var windowSize = CGSize(width: 1440, height: 900)
     @Published var expandRules = false
     @Published var recipientPicker = false
+    @Published var recipientAnchor = CGRect.zero
     @Published var appMenu: String?
     @Published var sheet: Sheet?
     @Published var folded: Set<String> = []

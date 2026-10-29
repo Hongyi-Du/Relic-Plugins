@@ -153,15 +153,29 @@ struct MemberCard: View {
 struct SecretarySetup: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(m.t("secretary.setup_title")).font(RelicStyle.font(17, weight: 600)); Text(m.t("secretary.setup_intro")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
-            ScrollView { VStack(spacing: 8) { Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
-                Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } } label: {
-                    HStack(spacing: 10) { Avatar(member: who["name"].text, size: 30); VStack(alignment: .leading, spacing: 3) { Text(m.t("secretary.make", ["name": who.display])).font(RelicStyle.font(13, weight: 600)); Text([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }; Spacer(minLength: 0) }.relicCard()
-                }.buttonStyle(QuietButtonStyle())
-            } } }
-            HStack { Spacer(); Button(m.t("common.cancel")) { m.sheet = nil }; Button(m.t("secretary.new_embedded")) { m.openMemberForm(secretary: true) }.buttonStyle(.borderedProminent) }
-        }.frame(maxHeight: .infinity, alignment: .top)
+        VStack(alignment: .leading, spacing: 14) {
+            ReferenceLabel(m.t("secretary.setup_title"), size: 17, weight: 650, lines: 0)
+            ReferenceLabel(m.t("secretary.setup_intro"), size: 12.5, color: RelicStyle.muted, lines: 0)
+            VStack(spacing: 6) {
+                Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
+                    Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } } label: {
+                        HStack(spacing: 10) {
+                            Avatar(member: who["name"].text, size: 28)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ReferenceLabel(m.t("secretary.make", ["name": who.display]), size: 14, weight: 700, lines: 0)
+                                ReferenceLabel([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · "), size: 12, color: RelicStyle.muted, lines: 0)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }.padding(.horizontal, 12).padding(.vertical, 10)
+                            .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
+                    }.buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                TextButton(m.t("common.cancel"), size: 13) { m.sheet = nil }.buttonStyle(ReferenceButtonStyle())
+                TextButton(m.t("secretary.new_embedded"), size: 13, color: RelicStyle.background) { m.openMemberForm(secretary: true) }.buttonStyle(ReferenceButtonStyle(primary: true))
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -173,22 +187,19 @@ struct ForwardForm: View {
     @State private var acknowledged = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(RelicStyle.font(17, weight: 600))
-            Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""])).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
-            Text(m.t("forward.to")).font(RelicStyle.font(12, weight: 400))
-            HStack { TextField(m.t("forward.to_placeholder"), text: $recipients).textFieldStyle(.plain); VoiceButton(text: $recipients).labelStyle(.iconOnly) }.padding(9).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border))
-            Text(m.t("common.reply")).font(RelicStyle.font(12, weight: 400))
-            ZStack(alignment: .topLeading) {
-                if reply.isEmpty { Text(m.t("forward.body_placeholder")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(9).allowsHitTesting(false) }
-                TextEditor(text: $reply).font(RelicStyle.font(14, weight: 400)).scrollContentBackground(.hidden).padding(5).accessibilityLabel(m.t("common.reply"))
-            }.frame(minHeight: 160, maxHeight: .infinity).overlay(RoundedRectangle(cornerRadius: 10).stroke(RelicStyle.border)).overlay(alignment: .bottomTrailing) { VoiceButton(text: $reply).labelStyle(.iconOnly).padding(10) }
-            SaveButton(labelKey: "common.send") {
+            ReferenceLabel(m.t("forward.title", ["name": m.name(m.cardMember)]), size: 17, weight: 650, lines: 0)
+            ReferenceLabel(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""]), size: 12.5, color: RelicStyle.muted, lines: 0)
+            VStack(alignment: .leading, spacing: 12) {
+                NativeFormField(title: m.t("forward.to")) { ReferenceInput(placeholder: m.t("forward.to_placeholder"), text: $recipients, height: 36, pointSize: 12.5) }
+                NativeFormField(title: m.t("common.reply")) { NativeTextArea(placeholder: m.t("forward.body_placeholder"), text: $reply, rows: 10, voice: false) }
+            }
+            SaveButton(labelKey: "common.send", reserveErrorSpace: true) {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !body.isEmpty else { throw RelicError.message(m.t("forward.need_body")) }
                 if body.hasPrefix("【Relic") && !acknowledged { acknowledged = true; throw RelicError.message(m.t("forward.not_reply", ["prefix": "【Relic"])) }
                 try await m.post(m.path("/forward"), ["member": m.cardMember, "to": recipients, "body": body]); m.notice = m.t("forward.sent", ["name": m.name(m.cardMember)]); try await m.refresh()
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.frame(maxWidth: .infinity, alignment: .topLeading)
         .task { m.run { info = try await m.get(m.path("/waiting?member=" + Client.segment(m.cardMember))); recipients = (info["waiting"].rows.first?["to"].rows ?? info["members"].rows).map(\.text).joined(separator: ",") } }
     }
 }

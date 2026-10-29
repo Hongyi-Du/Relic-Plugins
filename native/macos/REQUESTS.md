@@ -1,3 +1,19 @@
+## 2026-10-29: literal Harness label in the reference member form
+
+`memberDialog()` renders the literal `Harness` above its app-run radio choices
+in both languages. `common.harness` is `Harness connections` / its longer
+Chinese settings label and does not match. Please add `member.harness_label`:
+`Harness` to both `/api/i18n` word lists, preserving the actual reference text;
+the member form will consume that key. Until it exists, the existing
+`common.harness` label remains an explicit text mismatch. No client string fork
+or raw-key fallback is introduced.
+
+Please extend the matrix with the reference's open model and seat-name
+`datalist` popups in the member host/existing forms. macOS retains both value
+suggestion lists through the native input's Down Arrow action; their open
+popover still needs the same measured reference scene. This adds states; it
+does not replace/exclude any of the existing 42 scenes or waive popup geometry.
+
 ## 2026-10-29: ordered protocol JSON display from the shared engine
 
 The reference shows `JSON.stringify(plainRules(p.rules), null, 2)` in the

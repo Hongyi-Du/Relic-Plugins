@@ -9,6 +9,46 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+### 38526b3：最新完整矩阵失败报告及后续捕获回归
+
+[完整视觉运行 40958568166](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40958568166)
+两端各 504 个截图已捕获，严格门禁失败。报告已下载至
+`S:\Codex\Outputs\Relic-native-visual\parity-38526b3\report\`，
+三端对照图在同级 `comparisons\`。以下数字直接读取该报告的 `summary.json`。
+
+| 38526b3 严格报告 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 504 | 504 |
+| scenes_checked / scenes_passed | 0 / 0 | 0 / 0 |
+| raw_native_elements | 96,028 | 104,962 |
+| valid_native_elements | 96,028 | 100,542 |
+| invalid_native_elements | 0 | 4,420 |
+| reference_elements | 93,032 | 92,536 |
+| paired_elements / matched_elements | 80,974 / 0 | 50,855 / 0 |
+| missing | 12,058 | 41,681 |
+| extra | 15,054 | 49,687 |
+| text_mismatch | 34,167 | 29,786 |
+| geometry_out_of_tolerance | 133,666 | 130,574 |
+| style_out_of_tolerance | 252,960 | 201,332 |
+| state_mismatch | 23,199 | 32,389 |
+| kind_mismatch | 2,398 | 5,179 |
+| region_mismatch | 552 | 1,423 |
+| order_mismatch | 6,430 | 3,948 |
+| layout_mismatch | 34,413 | 85,161 |
+| icon_mismatch | 2,740 | 2,345 |
+| extraction_errors | 131,144 | 1,026,354 |
+
+例外表和批准的图标映射表仍为空；`scenes_checked=0` 仍表示提取尚不完整。
+这不是当前 HEAD 的视觉结果。后续详情、抄送、区域归属、头像、输入区、气泡、
+新建组织及成员表单修改已通过
+[f3a95a6 构建与单元测试](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40964128226)。
+
+[4e18fc3 捕获运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40962975136)
+的四个 macOS 作业各完成首个尺寸 42 场景后，在切换至 1280×800 时失败：
+实际 view 保留 1440×872。布局回调在设置 NSWindow 后覆盖了可变 model.windowSize；
+捕获代码改为使用不可变目标尺寸，并在布局完成后分配位图，保留原尺寸断言。
+已下载并查看首个尺寸的实际截图，未宣称矩阵通过，也未缩小矩阵或改变容差。
+
 ### 119f04c：完整矩阵的实际失败报告
 
 [完整视觉运行 40952663814](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40952663814)

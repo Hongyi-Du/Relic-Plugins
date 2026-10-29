@@ -100,7 +100,7 @@ struct OverviewToggleStyle: ToggleStyle {
                 configuration.label.font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.buttonStyle(.plain).accessibilityRepresentation {
-            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox).accessibilityIdentifier("relic-toggle")
         }
     }
 }
