@@ -12,12 +12,13 @@ struct Overview: View {
             if !m.snapshot["org"]["leader"].text.isEmpty { Text(m.t(m.snapshot["org"]["cabinet"].flag ? "org.secretary_general_chip" : "org.leader_chip", ["name": m.name(m.snapshot["org"]["leader"].text)])).font(.caption) }
             Picker(m.t("org.view_mode"), selection: $m.overviewMode) { ForEach(Choices.modes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
                 .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
+            Toggle(m.t("org.auto_wake"), isOn: Binding(get: { m.snapshot["org"]["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
             Text(m.t("decision.title")).font(.headline)
             if m.snapshot["decisions"].rows.isEmpty { Text(m.t("decision.none")).foregroundStyle(.secondary) }
             Rows(m.snapshot["decisions"].rows) { DecisionView(decision: $0) }
             HierarchyView()
+            currentWork
             if m.overviewMode != "liaison" {
-                Toggle(m.t("org.auto_wake"), isOn: Binding(get: { m.snapshot["org"]["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
                 HStack { Text(m.t("org.members")).font(.headline); Spacer(); Button(m.t("org.add")) { m.openMemberForm() } }
                 Rows(m.members) { member in
                     Button { m.openCard(member["name"].text) } label: {
@@ -27,12 +28,6 @@ struct Overview: View {
                         }; Spacer() }
                     }.buttonStyle(.plain)
                 }
-                HStack { Text(m.t("org.current_work")).font(.headline); Spacer(); Button(m.t("common.tasks")) { m.openDetails("tasks") } }
-                if m.snapshot["tasks"].rows.isEmpty { Text(m.t("org.no_tasks")) }
-                else if m.snapshot["tasks"].rows.allSatisfy({ ["done", "dropped"].contains($0["status"].text) }) { Text(m.t("org.nothing_open", ["n": String(m.snapshot["tasks"].rows.filter { $0["status"].text == "done" }.count)])) }
-                Text(m.t("org.done_count", ["n": String(m.snapshot["tasks"].rows.filter { $0["status"].text == "done" }.count)])).font(.caption)
-                Rows(m.snapshot["tasks"].rows.filter { !["done", "dropped"].contains($0["status"].text) }) { TaskCard(task: $0) }
-                DisclosureGroup(m.t("org.recently_done")) { Rows(Array(m.snapshot["tasks"].rows.filter { $0["status"].text == "done" }.suffix(5).reversed())) { TaskCard(task: $0) } }
                 HStack { Text(m.t("org.protocols")).font(.headline); Spacer(); Button(m.t("org.add")) { m.sheet = .protocolForm } }
                 Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(.caption)
                 if m.snapshot["protocols"].rows.isEmpty && m.snapshot["inherited_protocols"].rows.isEmpty { Text(m.t("org.no_protocols")) }
@@ -54,6 +49,21 @@ struct Overview: View {
             }
             Button(m.t("org.details")) { m.openDetails("trace") }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+    }
+    private var currentWork: some View {
+        let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button(m.t("org.current_work")) { m.openDetails("tasks", filter: "open") }.font(.headline)
+                Spacer(); Button(m.t("org.done_count", ["n": String(done.count)])) { m.openDetails("tasks", filter: "done") }.font(.caption)
+            }
+            if tasks.isEmpty { Text(m.t("org.no_tasks")) }
+            else if open.isEmpty { Text(m.t("org.nothing_open", ["n": String(done.count)])) }
+            Rows(Array(open.prefix(8))) { TaskCard(task: $0) }
+            if open.count > 8 { Button(m.t("common.more_items", ["n": String(open.count - 8)])) { m.openDetails("tasks", filter: "open") } }
+            let reports = done.filter { !$0["report"].text.isEmpty }.sorted { $0["done_at"].text > $1["done_at"].text }
+            if !reports.isEmpty { Text(m.t("org.recently_done")).font(.headline); Rows(Array(reports.prefix(3))) { TaskCard(task: $0) } }
+        }
     }
 }
 

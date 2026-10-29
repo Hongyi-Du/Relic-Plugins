@@ -4,11 +4,13 @@ Updated 2026-10-29; branch `native-macos`; scope `native/macos/**` only.
 
 ## Current validation
 
-- macOS Release build, 24 XCTest cases, and unsigned app packaging passed at
-  `b88d0bb` in [Native apps macOS job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40829748348/job/123300965533).
+- macOS Release build, 30 XCTest cases, and unsigned app packaging passed at
+  `fe453f6` in [Native apps macOS job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40831000291/job/123304950300).
 - Subsequent parity/detail changes are being validated by the next push.
-- The reference route scan has zero missing macOS routes. The shared flow table
-  is still pending and literal vocabulary reconciliation is in progress.
+- The reference route scan has zero missing macOS routes. All remaining literal
+  vocabulary misses are platform substitutions documented in `REQUESTS.md`.
+  The shared flow/screen table still requires the shared owner's review and
+  macOS-column update; this branch cannot edit the shared table or allowlist.
 - This is an implementation handoff, not the final full-parity acceptance report.
   `REQUESTS.md` lists shared i18n, packaging and CI changes needed from native-apps.
 - No native window, browser, editor, local Python test suite or permission dialog

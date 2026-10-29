@@ -80,7 +80,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
 
 struct ShortcutsView: View {
     @EnvironmentObject var m: Model
-    private let rows = [("⌘B", "shortcuts.toggle_sidebar"), ("⌘⌥B", "shortcuts.toggle_panel"), ("⌥1 / 2 / 3", "shortcuts.panes"), ("⌥← / ⌥→", "shortcuts.back_forward"), ("⌘K", "page.search"), ("⌘⇧L", "appmenu.plain_group"), ("⌘,", "common.settings"), ("⌘↩ / ⌃↩", "common.send"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close")]
+    private let rows = [("⌘B", "shortcuts.toggle_sidebar"), ("⌘⌥B", "shortcuts.toggle_panel"), ("⌥1 / 2 / 3", "shortcuts.panes"), ("⌥← / ⌥→", "shortcuts.back_forward"), ("⌘K", "page.search"), ("⌘⇧L", "appmenu.plain_group"), ("⌘,", "common.settings"), ("↩ / ⇧↩", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close")]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(m.t("shortcuts.title")).font(.title2)

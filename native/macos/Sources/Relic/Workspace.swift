@@ -36,7 +36,7 @@ struct WorkspaceView: View {
             let org = m.organization, member = who; workspace = Node(); error = ""
             guard !member.isEmpty else { return }
             do { let result = try await m.get(Client.org(org, "/workspace?member=" + Client.segment(member))); try Task.checkCancellation(); if org == m.organization && member == who { workspace = result } }
-            catch is CancellationError {} catch { self.error = error.localizedDescription }
+            catch is CancellationError {} catch { self.error = m.t("common.load_failed", ["error": error.localizedDescription]) }
         }
     }
 }
@@ -72,7 +72,7 @@ struct FilePreview: View {
     @State private var source = false
     @State private var jump = ""
     private var lines: [String] {
-        let text = m.file["text"].text
+        let text = m.file["text"].text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         if m.file["kind"].text == "json", let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) { return pretty(Node(json)).components(separatedBy: "\n") }
         return text.components(separatedBy: "\n")
     }

@@ -51,7 +51,7 @@ final class ComposerTextView: NSTextView {
         return NSRange(location: NSNotFound, length: 0)
     }
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 && !hasMarkedText() && (event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control)) { send?(); return }
+        if event.keyCode == 36 && !hasMarkedText() && !event.modifierFlags.contains(.shift) { send?(); return }
         super.keyDown(with: event)
         if event.characters == "@", !members.isEmpty, !hasMarkedText() { complete(nil) }
     }
@@ -63,11 +63,14 @@ final class ComposerTextView: NSTextView {
 
 @MainActor final class SpeechInput: ObservableObject {
     @Published var recording = false
+    @Published var starting = false
     private let audio = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var tapInstalled = false
     func start(language: String, model: Model, update: @escaping (String) -> Void) async throws {
+        guard !starting && !recording else { return }; starting = true
+        defer { starting = false }
         // Shared packaging supplies the privacy keys; never trigger Apple's fatal missing-key path.
         guard Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil,
               Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil else { throw RelicError.message(model.t("native.speech_unavailable")) }
@@ -105,7 +108,7 @@ struct VoiceButton: View {
         if m.preferences["voice"].text != "off" {
             Button { if voice.recording { voice.stop() } else { let before = text; m.run { try await voice.start(language: m.words.language, model: m) { text = before + (before.isEmpty ? "" : " ") + $0 } } } } label: {
                 Label(m.t("common.voice_input"), systemImage: voice.recording ? "stop.circle.fill" : "mic")
-            }.tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
+            }.disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         } else {
             Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
         }

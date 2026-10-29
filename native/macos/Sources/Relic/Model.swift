@@ -39,6 +39,7 @@ import RelicCore
     @Published var detailTab = "trace"
     @Published var detailMember = ""
     @Published var detailTask = ""
+    @Published var detailFilter = "open"
     @Published var cardMember = ""
     @Published var memberMode = "app"
     @Published var editMember = ""
@@ -113,12 +114,16 @@ import RelicCore
                 guard let client = self?.client else { return }
                 await client.events { [weak self] event in await self?.receive(event) }
             }
-        } catch { self.error = error.localizedDescription; client = nil; host.stop() }
+        } catch { self.error = error.localizedDescription; ready = false; client = nil; host.stop() }
     }
     func receive(_ event: Node) async {
         let type = event["type"].text
         if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
-        if type == "reconnect" { plainPending = []; if digestOpen { run { try await self.loadDigest(false) } } }
+        if type == "reconnect" {
+            let retry = Array(plainPending); plainPending = []
+            if !retry.isEmpty { run { try await self.requestPlain(retry) } }
+            if digestOpen { run { try await self.loadDigest(false) } }
+        }
         if type == "prefs" {
             do { preferences = try await get("/api/prefs"); words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
             catch { self.error = error.localizedDescription }
@@ -224,7 +229,10 @@ import RelicCore
         catch { throw RelicError.message(t("composer.send_failed", ["error": error.localizedDescription])) }
         if selected == selection {
             if draft == body { draft = "" }; if quote == quoted { quote = "" }; recipients = ["all"]; persistDraft()
-        } else if drafts[selected.key]?.text == body { drafts[selected.key] = ChatDraft() }
+        } else if drafts[selected.key]?.text == body {
+            drafts[selected.key] = ChatDraft()
+            if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
+        }
         try await refresh()
     }
     func savePreferences(_ changes: [String: Any]) async throws {
@@ -243,7 +251,7 @@ import RelicCore
     private func backgroundNotify(_ message: String) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message) } }
     func openMemberForm(mode: String = "app", edit: String = "", secretary: Bool = false) { memberMode = mode; editMember = edit; newSecretary = secretary; sheet = .member }
     func openCard(_ name: String) { cardMember = name; sheet = .card }
-    func openDetails(_ tab: String, member: String = "", task: String = "") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; sheet = .details }
+    func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
     func toggleFold(_ id: String) { Tree.toggle(id, folded: &folded); defaults.set(Array(folded), forKey: "folded") }
     func setQuote(_ body: String, from: String) {
