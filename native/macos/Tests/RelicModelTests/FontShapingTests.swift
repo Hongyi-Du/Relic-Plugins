@@ -22,6 +22,33 @@ import CoreText
             storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
             let actual = layout.usedRect(for: container).width
             let defaultValue = NSAttributedString(string: text, attributes: [.font: RelicStyle.nativeFont(size, weight: 400)])
+            let font = RelicStyle.nativeFont(size, weight: 400)
+            if text == samples[0].0 {
+                print("FONT DESCRIPTOR \(font.fontDescriptor.fontAttributes)")
+                print("FONT VARIATION \(String(describing: CTFontCopyVariation(font as CTFont)))")
+                print("FONT AXES \(String(describing: CTFontCopyVariationAxes(font as CTFont)))")
+                print("FONT URL \(String(describing: CTFontCopyAttribute(font as CTFont, kCTFontURLAttribute)))")
+                for optical in ["none", "auto"] {
+                    let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: optical] as CFDictionary)
+                    let variant = CTFontCreateCopyWithAttributes(font as CTFont, size, nil, descriptor)
+                    let value = NSAttributedString(string: text, attributes: [.font: variant])
+                    print("FONT OPTICAL \(optical) width=\(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(value), nil, nil, nil))")
+                }
+                let variants: [[NSAttributedString.Key: Any]] = [[.font: font, .kern: 0], [.font: font, .tracking: 0, .kern: 0], [.font: font, NSAttributedString.Key(kCTTrackingAttributeName as String): 0]]
+                for attributes in variants {
+                    let value = NSAttributedString(string: text, attributes: attributes)
+                    print("FONT ATTRIBUTES \(attributes) width=\(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(value), nil, nil, nil))")
+                }
+                let line = CTLineCreateWithAttributedString(defaultValue)
+                for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                    let count = CTRunGetGlyphCount(run)
+                    var glyphs = [CGGlyph](repeating: 0, count: count), positions = [CGPoint](repeating: .zero, count: count), advances = [CGSize](repeating: .zero, count: count)
+                    CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
+                    CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
+                    let nominal = CTFontGetAdvancesForGlyphs(font as CTFont, .horizontal, glyphs, &advances, count)
+                    print("FONT GLYPHS nominal=\(nominal) glyphs=\(glyphs) positions=\(positions.map(\.x)) advances=\(advances.map(\.width))")
+                }
+            }
             let defaultWidth = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(defaultValue), nil, nil, nil)
             let shaped = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(production), nil, nil, nil)
             print("FONT ADVANCES size=\(size) TextKit=\(actual) CoreText=\(shaped) defaultTracking=\(defaultWidth) reference=\(referenceWidth) text=\(text)")

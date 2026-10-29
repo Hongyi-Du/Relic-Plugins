@@ -11,8 +11,9 @@ import RelicAX
     private static var started = false
     private static var captureWindow: NSWindow?
     static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_VISUAL_MANIFEST"] != nil }
-    static func run(_ model: Model) async {
+    static func run(_ initialModel: Model) async {
         guard !started else { return }; started = true
+        var model = initialModel
         let env = ProcessInfo.processInfo.environment
         guard let manifestPath = env["RELIC_VISUAL_MANIFEST"] else { return }
         let manifestURL = URL(fileURLWithPath: manifestPath)
@@ -31,7 +32,7 @@ import RelicAX
             // This CI window renders the production view at the requested bounds.
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let window = CaptureWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            let hosting = NSHostingView(rootView: MainView().environmentObject(model))
+            let hosting = NSHostingView(rootView: MainView().environmentObject(model).id("bootstrap"))
             hosting.sizingOptions = []; hosting.autoresizingMask = [.width, .height]
             window.contentView = hosting; captureWindow = window
             window.isReleasedWhenClosed = false
@@ -50,6 +51,17 @@ import RelicAX
             for item in manifest["cases"].rows {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
                 for editor in textEditors(window.contentView) { editor.closeMentions() }
+                model.stop()
+                // Reference capture creates a fresh page and clears both stores
+                // for every case. Recreate our production model/view identity too,
+                // so prior private-chat reads, focus and disclosure state cannot leak.
+                let suite = "Relic.VisualCapture." + UUID().uuidString
+                guard let defaults = UserDefaults(suiteName: suite) else { throw RelicError.message("Cannot create isolated native preferences") }
+                model = Model(client: try Client(port: fixture["port"].integer, token: fixture["token"].text), defaults: defaults)
+                defer { model.stop(); defaults.removePersistentDomain(forName: suite) }
+                await model.start()
+                guard model.ready else { throw RelicError.message(model.error) }
+                hosting.rootView = MainView().environmentObject(model).id(item["id"].text)
                 model.sheet = nil; model.error = ""; model.notice = ""; model.search = ""
                 model.sidebarOpen = true; model.panelOpen = width > 1180; model.folded = []
                 model.digestOpen = false; model.plainMode = false; model.quote = ""; model.draft = ""

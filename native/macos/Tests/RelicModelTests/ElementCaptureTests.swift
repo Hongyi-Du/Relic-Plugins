@@ -6,6 +6,22 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testNativeProbeClippingUsesActualScrollViewportAndAncestry() {
+        let viewport = NSClipView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+        viewport.documentView = document
+        let probe = NSView(frame: NSRect(x: 80, y: 10, width: 60, height: 20))
+        document.addSubview(probe)
+        XCTAssertEqual(NativeVisibility.localClip(probe).width, 20, accuracy: 0.01)
+        viewport.scroll(to: NSPoint(x: 50, y: 0))
+        XCTAssertEqual(NativeVisibility.localClip(probe).width, 60, accuracy: 0.01)
+        document.alphaValue = 0.5; probe.alphaValue = 0.4
+        XCTAssertEqual(NativeVisibility.opacity(probe), 0.2, accuracy: 0.001)
+        document.isHidden = true
+        XCTAssertTrue(NativeVisibility.localClip(probe).isNull)
+        document.isHidden = false; viewport.alphaValue = 0
+        XCTAssertTrue(NativeVisibility.localClip(probe).isNull)
+    }
     func testProductionRegionOwnershipWinsOverIntersectingBackgroundRegions() {
         XCTAssertEqual(ElementCapture.assignedRegion(identifier: "relic-region/dialog", textRegion: nil, inherited: "conversation", geometric: "right-pane"), "dialog")
         XCTAssertEqual(ElementCapture.assignedRegion(identifier: "", textRegion: "dialog", inherited: "window", geometric: "conversation"), "dialog")

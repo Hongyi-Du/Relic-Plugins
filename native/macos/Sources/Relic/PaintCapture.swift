@@ -18,13 +18,14 @@ struct ElementPaintProbe: NSViewRepresentable {
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor, let source = ReferenceIcons.paths[view.name] else { return nil }
             let screen = window.convertToScreen(view.convert(view.bounds, to: nil))
             let rect = ElementCapture.topLeft(screen, in: content)
+            let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content) } ?? .null
             var foreground: Any = NSNull()
             window.effectiveAppearance.performAsCurrentDrawingAppearance { foreground = ElementCapture.rgba(view.color) }
             let dimension = String(format: "%g", Double(view.size))
             func json(_ value: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]), encoding: .utf8)! }
             let glyph = #"{"tag":"svg","attributes":"# + json(["height": dimension, "viewBox": "0 0 24 24", "width": dimension]) + #","children":[{"tag":"path","attributes":"# + json(["d": source]) + #","children":[]}]}"#
             return ["id": "paint/" + view.identity, "owner": view.owner as Any? ?? NSNull(), "rect": ElementCapture.box(rect), "region": view.region,
-                    "screenRect": NSValue(rect: screen), "foreground": foreground, "opacity": view.opacity,
+                    "screenRect": NSValue(rect: screen), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "foreground": foreground, "opacity": view.opacity * NativeVisibility.opacity(view),
                     "icon": ["source": "svg", "glyph": glyph],
                     "evidence": ["source": "live-NSView-shape-probe", "renderer": "SwiftUI.Shape/CoreGraphics", "resource": view.name, "path": source, "viewBox": "0 0 24 24", "stroke_width": 1.7 * Double(view.size) / 24, "line_cap": "round", "line_join": "round"]]
         }

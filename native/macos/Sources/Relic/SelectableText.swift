@@ -107,8 +107,8 @@ enum NativeTextStyle {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight ?? baseSize * 1.65; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
-        // Explicit zero disables the font's automatic tracking. Browser shaping
-        // uses nominal advances rather than CoreText's size-dependent trak table.
+        // Keep character spacing explicit in both drawing and intrinsic sizing.
+        // The CI advance regression separately checks the resolved font metrics.
         rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0], range: range)
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         for run in value.runs {

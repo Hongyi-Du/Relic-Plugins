@@ -13,6 +13,10 @@ import CoreText
     static func box(_ rect: NSRect) -> [String: Double] {
         ["x": Double(rect.minX), "y": Double(rect.minY), "width": Double(rect.width), "height": Double(rect.height)]
     }
+    static func rect(_ value: Any?) -> NSRect {
+        guard let box = value as? [String: Double], let x = box["x"], let y = box["y"], let width = box["width"], let height = box["height"] else { return .null }
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
     static func assignedRegion(identifier: String, textRegion: String?, inherited: String, geometric: String) -> String {
         if identifier.hasPrefix("relic-region/") { return String(identifier.dropFirst("relic-region/".count)) }
         if let textRegion { return textRegion }
@@ -187,7 +191,9 @@ import CoreText
             let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
-            let visibleRect = rect.intersection(clip)
+            let nativeClip = (object as? NSView).flatMap { NativeVisibility.screenClip($0, limitingToBounds: false) }
+            let activeClip = nativeClip.map { $0.isNull ? NSRect.null : clip.intersection(topLeft($0, in: contentScreen)) } ?? clip
+            let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
             let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : kind(role)
@@ -203,6 +209,7 @@ import CoreText
             node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "indeterminate": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 2 } as Any? ?? NSNull() : NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
+            node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
             let textView = (object as? NSTextView).flatMap { $0.isEditable ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
@@ -212,7 +219,7 @@ import CoreText
             if let textView, !suppressElements, let textWindow = textView.window {
                 for (index, run) in textRuns(textView).enumerated() {
                     let screen = textWindow.convertToScreen(textView.convert((run["local_rect"] as! NSValue).rectValue, to: nil))
-                    let boxRect = topLeft(screen, in: contentScreen), visible = boxRect.intersection(clip)
+                    let boxRect = topLeft(screen, in: contentScreen), visible = boxRect.intersection(activeClip)
                     var projected: [String: Any] = ["id": path + "/text-" + String(index), "parent": path, "kind": run["kind"]!, "region": assignedRegion,
                         "text": run["text"]!, "name": "", "rect": box(boxRect), "visibleRect": visible.isNull ? NSNull() : box(visible),
                         "style": run["style"]!, "layout": run["layout"]!, "source": "live-TextKit-layout",
@@ -230,7 +237,7 @@ import CoreText
                     if projected["visible"] as? Bool == true { elements.append(projected) }
                 }
             }
-            let childClip = role == "AXScrollArea" ? clip.intersection(rect) : clip
+            let childClip = role == "AXScrollArea" ? activeClip.intersection(rect) : activeClip
             for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil) }
             // Embedded AppKit controls can be absent from the hosting view's AX
             // children. Inspect their real view ancestry too; identity deduplication
@@ -275,8 +282,9 @@ import CoreText
         }
         let surfaces = SurfacePaintProbe.snapshots(in: contentScreen)
         for surface in surfaces {
-            let rect = (surface["rectValue"] as! NSValue).rectValue, visible = rect.intersection(viewport)
+            let rect = (surface["rectValue"] as! NSValue).rectValue, visible = rect.intersection(Self.rect(surface["nativeVisibleBounds"])).intersection(viewport)
             guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }
+            guard (surface["style"] as? [String: Any])?["opacity"] as? Double != 0 else { continue }
             let owner = surface["owner"] as? String
             let candidates = elements.indices.filter { index in
                 if let owner { return elements[index]["identifier"] as? String == owner }
@@ -295,6 +303,7 @@ import CoreText
                 }
                 if let measuredRegion = surface["region"] as? String { elements[index]["region"] = measuredRegion }
                 elements[index]["surface_evidence"] = surface["evidence"]!
+                elements[index]["native_visible_bounds"] = surface["nativeVisibleBounds"]!
                 if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
                 if let selected = surface["selected"] as? Bool { elements[index]["recorded_selected"] = selected }
@@ -305,7 +314,7 @@ import CoreText
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
                 let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
                     "text": "", "name": "", "region": surface["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
-                    "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!,
+                    "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!, "native_visible_bounds": surface["nativeVisibleBounds"]!,
                     "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                     "pixelSamples": samples(visible, bitmap: bitmap)]
                 raw.append(node); elements.append(node)
@@ -315,15 +324,16 @@ import CoreText
         }
         let paint = ElementPaintProbe.snapshots(in: contentScreen)
         for sample in paint {
-            let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(viewport)
+            let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(Self.rect(sample["nativeVisibleBounds"])).intersection(viewport)
             guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }
+            guard sample["opacity"] as? Double != 0 else { continue }
             let owner = (sample["owner"] as? String).flatMap { identifier in elements.firstIndex { $0["identifier"] as? String == identifier } }
             let parent = owner.map { elements[$0]["id"]! } ?? NSNull()
             var evidence = sample["evidence"] as! [String: Any]
             evidence["owner_accessibility_identifier"] = sample["owner"]!
             let node: [String: Any] = ["id": sample["id"]!, "parent": parent, "kind": "icon", "text": "", "name": "",
                 "region": sample["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
-                "visible": true, "source": "live-NSView-shape-probe", "projection": evidence,
+                "visible": true, "source": "live-NSView-shape-probe", "projection": evidence, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
                           "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
@@ -335,18 +345,21 @@ import CoreText
         }
 
         var chartEdges: [[String: Any]] = []
-        for sample in ChartEdgeProbe.snapshots(in: contentScreen) {
+        let edgeSamples = ChartEdgeProbe.snapshots(in: contentScreen)
+        for sample in edgeSamples {
             let rect = (sample["rectValue"] as! NSValue).rectValue, width = sample["width"] as! Double
             // A vertical or horizontal path can have a zero-area geometric box
             // while its stroked paint is visible. Keep the actual path bounds.
-            let painted = rect.insetBy(dx: -width / 2, dy: -width / 2).intersection(viewport)
+            let nativeClip = Self.rect(sample["nativeVisibleBounds"]).intersection(viewport)
+            let painted = rect.insetBy(dx: -width / 2, dy: -width / 2).intersection(nativeClip)
             guard !painted.isNull && painted.width > 0 && painted.height > 0 else { continue }
+            guard sample["opacity"] as? Double != 0 else { continue }
             let evidence = sample["evidence"] as! [String: Any]
             let sx = evidence["scale_x"] as! Double, sy = evidence["scale_y"] as! Double
             if abs(sx - sy) > 0.0001 { surfaceGaps.append("Nonuniform chart edge transform needs directional stroke geometry: " + (sample["id"] as! String)) }
-            let clipped = rect.intersection(viewport)
+            let clipped = rect.intersection(nativeClip)
             let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
-                "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false,
+                "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any,
                           "stroke_dash": abs(sx - sy) > 0.0001 ? NSNull() : (evidence["stroke_dash"] as! [Double]).map { $0 * sx } as Any, "stroke_dash_offset": 0, "stroke_linecap": evidence["stroke_linecap"]!, "stroke_linejoin": evidence["stroke_linejoin"]!],
@@ -411,6 +424,8 @@ import CoreText
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
         audit["surface_probes"] = surfaces.map { surface in var value = surface; value.removeValue(forKey: "rectValue"); return value }
+        audit["icon_probes"] = paint.map { sample in var value = sample; value.removeValue(forKey: "screenRect"); return value }
+        audit["edge_probes"] = edgeSamples.map { sample in var value = sample; value.removeValue(forKey: "rectValue"); return value }
         try JSONSerialization.data(withJSONObject: audit, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreText
 
 // app.css tokens expressed as native dynamic colors; no secondary vocabulary.
 enum RelicStyle {
@@ -52,7 +53,13 @@ enum RelicStyle {
         // app.css reaches PingFang SC on macOS after the Windows-only faces.
         // Select its real installed face, including the CSS 500/550 boundary.
         let face = weight >= 550 ? "Semibold" : weight >= 500 ? "Medium" : weight >= 400 ? "Regular" : weight >= 300 ? "Light" : weight >= 200 ? "Ultralight" : "Thin"
-        if let font = NSFont(name: "PingFangSC-" + face, size: size) { return font }
+        if let font = NSFont(name: "PingFangSC-" + face, size: size) {
+            // PingFangUI resolves to a variable font on current macOS. The same
+            // PostScript face has different advances without optical sizing;
+            // use its public automatic optical-size setting, as the reference does.
+            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: "auto"] as CFDictionary)
+            return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, descriptor) as NSFont
+        }
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
         var value = CGFloat.zero
         for index in 1..<points.count where weight >= points[index - 1].0 && weight <= points[index].0 {
