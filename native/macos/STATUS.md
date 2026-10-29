@@ -1,48 +1,64 @@
 # macOS 原生 Relic App：功能记录与视觉重做
 
-## Amendment 3：当前视觉证据
+## Amendment 3：macOS 已验证，完整三方验收被共享问题阻塞
 
-更新：2026-10-29。本会话只修改 `native/macos/**`，继续使用共享 Python 引擎、
-HTTP/SSE 契约与 `/api/i18n` 词库。以下功能清单的“完成”表示实现覆盖；
-**最终三方全矩阵与真 Mac 的交互验收尚未全部完成，PR #4 仍不应据此合并。**
+更新：2026-10-29。分支 `native-macos`；本会话只修改 `native/macos/**`。
+已包含本次核验时本地及 origin 最新的 `native-apps`（`5e02738`）。应用使用共享
+Python 引擎、HTTP/SSE 契约与 `/api/i18n` 词库。没有浏览器或 WebView 界面。
+**不能宣布 Amendment 3 全部完成：完整三方视觉工作流仍失败，真 Mac 交互尚待验收。**
 
-已按参考重做：紧凑组织树及头像/状态点、图标工具栏、消息气泡/安静事件行、
-收件人标签/引用/@ 候选、三栏及原生分页、决策和协议卡片、文件与轨迹、
-成员表单/秘书选择、全部七节设置。采用参考色板、头像哈希、密度与层次；
-长文字换行或省略并提供 tooltip，输入框的麦克风和发送按钮保持紧凑。
-原始词条键不再作为显示回退，双语言词条完整性由 XCTest 验证。
+已按实际截图重做：紧凑组织树及参考头像色板/状态点、图标工具栏、消息气泡/事件行、
+收件人标签/引用/@ 候选、三栏及原生分页、决策/协议/抄送卡片、文件与轨迹、
+成员表单/已有会话列表/秘书选择、全部七节设置。长说明换行，长名称/路径提供
+省略或完整 tooltip。输入框的麦克风、发送和收件人保持紧凑；空输入框没有滚动条。
+任务筛选和抄送显示数量。修复了长摘要越界、短代码居中、聊天缩放后丢失末尾、
+成员配置空选项、协议代码重复显示及 @ 候选偏离光标。原始词条键不作为显示回退。
 
-已验证的证据：
+本次代码证据：
 
-- `072c9de` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880036877)
-  构建、测试、打包和 parity 全部通过，macOS **56 个 XCTest，0 失败**。
-  [共享 Python/package CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880036630)
-  也全部通过；本机没有运行这些测试或启动应用。
-- `fc4fd58` 的 [完整截图运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40877623363)
-  macOS 四个作业全部成功：**42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
-  Windows 三个变体成功，中文深色在启动 HTTP 请求中失败，三方合成被跳过。
-- 已实际查看 42 场景英文深色的三方对照，并复核新版七节设置、中文群聊、
-  中英明暗主题和三种尺寸的重点页面。按图修复了摘要越界、文件预览居中、
-  轨迹和报告层次、成员空选项、已有会话列表、协议规则重复显示、引用标记、
-  表单按钮/说明排列和浮层缺失。局部对照位于本地 `iteration-10/review-contacts`
-  和 `iteration-11/review-contacts`，这些是诊断图，尚非最终完整交付集。
-- 当前完整运行：[40880037477](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40880037477)。
-  同样的 Windows 中文深色 HTTP 错误再次出现；已在 `REQUESTS.md` 提交
-  Content-Length / chunked 请求体的具体诊断与 CI 回归建议。
-- 本地真实截图总目录：`S:\Codex\Outputs\Relic-native-visual\`。
-  没有在本机启动应用、浏览器、编辑器或可见终端；所有窗口捕获发生在 CI。
+- 代码 `f7a6bfd` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519547)
+  三个作业全部通过：macOS、Windows、parity。macOS 为 **57 个 XCTest，0 失败**，
+  包含双词库完整性、真实 payload/SSE、输入/草稿/导航以及 @ 锚点与 UTF-16 测试。
+- 同代码的 [共享 Python/package CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519557)
+  全部通过。parity 覆盖 **52 条路由、686 个词条、214 个参考函数**，缺失项为 0。
+- 同代码的 [完整视觉运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519398)
+  macOS 四个作业全部通过：**42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
+  Reference 也有 504 张；Windows 仅中文浅色 126 张完成，其他三个变体启动失败，
+  compare 作业被跳过。**504 组三方合成 gate 没有通过。**
+- 已逐页查看 42 场景中文浅色、42 场景英文深色的三方诊断对照；另外复核了
+  七节新设置、各尺寸文件/摘要/群聊、明暗主题与最新 @ 弹出位置、数量徽标。
+  没有把“自动生成 504 张”写成“人工逐像素验收了全部 504 张”。
 
-与参考仍有的差别：
+下载与审阅入口（均未在本机打开窗口）：
 
-- macOS 使用系统菜单和 SF Symbols 工具栏；网页中的 File/Edit/View/Help
-  横排入口在应用内收进紧凑菜单，完整快捷键同时保留在系统菜单栏。
-- 成员卡片使用居中原生 sheet，设置、下拉框、开关及日期格式遵循 macOS 控件。
-  组织图的节点图标、任务元数据的排布和部分行高仍与网页存在视觉差别。
-- 适配器诊断包含原生桌面连接能力；平台路径、可用工具和系统语音提示会因
-  操作系统不同而不同。文档场景的参考/Windows 先前未选中正文，已请求统一。
-- CI 捕获真实 NSHostingView/AppKit 内容及 sheet/popover，输出一像素/点；
-  不包含 Dock、系统菜单栏和原生标题栏，也不能验证权限提示、真实麦克风、
-  通知投递、输入法、VoiceOver 或实际提供方会话。这些留给本人/HaochenGu 的 Mac。
+- `S:\Codex\Outputs\Relic-native-visual\review-40882519398\index.html`：同一完整 CI 的
+  **504 场景诊断图**，由下载的原图本地合成。126 组有三列实际图片；另外 378 组
+  Windows 空位明确写出捕获失败。没有混入旧版本填补缺失，不是最终验收通过集。
+  `coverage.json` 记录全部缺失文件及来源。
+- `S:\Codex\Outputs\Relic-native-visual\smoke-40881418693\index.html`：下载的
+  [已通过七场景三方 CI artifact](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40881418693)。
+  该轮代码 `b0dbc3d`，早于最后的数量徽标和 @ 锚点修复，不能代替完整矩阵。
+- `S:\Codex\Outputs\Relic-native-visual\macos-app-f7a6bfd\relic-native-macos-v0.7.1-beta.1.zip`：
+  CI 产出的 unsigned arm64 应用包，未在这台电脑安装或启动。
+- 原始图片和各轮审阅图在 `iteration-10` 至 `iteration-13`；旧轮次仅作问题诊断证据。
+
+共享阻塞与剩余差别：
+
+1. Windows 启动连续三轮出现 `Received an invalid status line: '<!DOCTYPE HTML>'`。
+   `REQUESTS.md` 已记录调用栈及静态诊断：`PostAsJsonAsync` 的 chunked 请求体与
+   仅读取 Content-Length 的服务端不匹配；请求改用缓冲 JSON 请求体并加 CI 回归。
+   该修复在 Windows/共享代码所有权范围内，本分支没有越界修改。
+2. `documents` 场景中参考与 Windows 未选择文档正文，macOS 已加载首篇文档；
+   已请求共享捕获脚本通过真实控件选中文档后截图，API 不变。
+3. macOS 使用系统菜单/SF Symbols、原生分页和控件。应用内 File/Edit/View/Help
+   收进紧凑菜单；成员名片是居中 sheet。组织图图标、任务元数据位置、部分行高
+   和日期格式仍与网页不同，未宣称逐像素一致。
+4. CI 捕获真实 NSHostingView/AppKit 内容及 sheet/popover，一像素/点；不包含
+   Dock、系统菜单栏和标题栏，也不能验证真实权限提示、麦克风、通知、输入法、
+   VoiceOver 或提供方会话。本人或 HaochenGu 的 Mac 仍须按文末清单验收。
+
+本机没有启动应用、浏览器、编辑器、可见终端、权限弹窗或本地 Python/native 测试。
+未创建/合并 PR；Windows 会话仍负责合入本分支、共享修复和唯一 PR #4。
 
 ## 先前功能/契约验证记录
 
