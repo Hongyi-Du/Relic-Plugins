@@ -38,9 +38,11 @@ struct SplitPersistence: NSViewRepresentable {
             guard signature != next, found.bounds.width > 0 else { return }
             signature = next; panelKey = key; hasSidebar = model.sidebarOpen; hasPanel = model.panelOpen
             restoring = true; defer { restoring = false }
-            for index in found.subviews.indices {
-                let flexible = index == (hasSidebar ? 1 : 0)
-                found.setHoldingPriority(NSLayoutConstraint.Priority(flexible ? 250 : 750), forSubviewAt: index)
+            if let controller = found.delegate as? NSSplitViewController {
+                for (index, item) in controller.splitViewItems.enumerated() {
+                    let flexible = index == (hasSidebar ? 1 : 0)
+                    item.holdingPriority = NSLayoutConstraint.Priority(flexible ? 250 : 750)
+                }
             }
             if hasSidebar, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: "width.sidebar")

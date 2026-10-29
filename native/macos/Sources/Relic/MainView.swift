@@ -63,8 +63,8 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
-    private var width: CGFloat { min([Model.Sheet.settings, .chart, .details].contains(sheet) ? 920 : sheet == .forward ? 720 : 620, max(560, m.windowSize.width - 80)) }
-    private var height: CGFloat { min(sheet == .create ? 420 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 80)) }
+    private var width: CGFloat { min(sheet == .chart ? m.windowSize.width - 40 : [Model.Sheet.settings, .details].contains(sheet) ? 920 : sheet == .forward ? 720 : sheet == .create ? 520 : 620, max(480, m.windowSize.width - 40)) }
+    private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 440 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
         VStack(spacing: 12) {
             HStack { Spacer(); IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction) }
@@ -82,7 +82,8 @@ struct SheetContent: View {
             case .shortcuts: ShortcutsView()
             }
         }.padding(20).frame(width: width, height: height)
-            .background(RelicStyle.background).buttonStyle(.bordered).controlSize(.regular)
+            .background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).background(SheetSurface()).buttonStyle(.bordered).controlSize(.regular)
+            .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : .light).environment(\.locale, Locale(identifier: m.words.language))
     }
 }
 

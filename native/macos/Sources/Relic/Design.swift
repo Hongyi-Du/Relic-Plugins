@@ -78,3 +78,14 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.line, lineWidth: 1))
     }
 }
+
+// A native sheet retains its window/shadow, while its SwiftUI surface defines
+// the reference's corner radius. This also renders faithfully into the CI PNG.
+struct SheetSurface: NSViewRepresentable {
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {}
+    final class Probe: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { window?.isOpaque = false; window?.backgroundColor = .clear; window?.hasShadow = true }
+    }
+}

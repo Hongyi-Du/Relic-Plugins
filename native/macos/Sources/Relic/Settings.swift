@@ -39,11 +39,11 @@ struct SettingsView: View {
     }
     private var appearance: some View {
         Section(m.t("settings.appearance")) {
-            Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(Choices.themes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
+            Picker(m.t("settings.theme"), selection: preference("theme")) { ForEach(Choices.themes, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)
             HStack { Text(m.t("settings.accent")); ForEach(["clay", "ink", "indigo", "blue", "rose", "amber"], id: \.self) { color in Button { m.run { try await m.savePreferences(["accent": color]) } } label: { Circle().fill(accent(color)).frame(width: 24, height: 24).overlay { if m.preferences["accent"].text == color { Image(systemName: "checkmark").foregroundStyle(.white) } } }.buttonStyle(.plain).accessibilityLabel(color) } }
             Text(m.t("settings.accent_hint")).font(.caption)
-            Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(Choices.fonts, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
-            Picker(m.t("settings.density"), selection: preference("density")) { ForEach(Choices.densities, id: \.0) { value, key in Text(m.t(key)).tag(value) } }
+            Picker(m.t("settings.font_size"), selection: preference("font")) { ForEach(Choices.fonts, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)
+            Picker(m.t("settings.density"), selection: preference("density")) { ForEach(Choices.densities, id: \.0) { value, key in Text(m.t(key)).tag(value) } }.pickerStyle(.segmented)
         }
     }
     private var language: some View {
