@@ -111,7 +111,7 @@ struct ReferenceInput: View {
     var voice = true
     var suggestions: [String] = []
     var controlID = ""
-    @State private var showingSuggestions = false
+    @State private var suggestionAnchor = CGRect.zero
     @FocusState private var focused: Bool
     @State private var identity = "relic-input/" + UUID().uuidString
     @EnvironmentObject var m: Model
@@ -122,19 +122,30 @@ struct ReferenceInput: View {
             .focused($focused).onSubmit { focused = false }
             .onKeyPress(.downArrow) {
                 guard !suggestions.isEmpty else { return .ignored }
-                showingSuggestions = true; return .handled
+                if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions?.move(1) } else { openSuggestions() }
+                return .handled
             }
-            .onChange(of: focused) { old, new in if old && !new { commit() } }
+            .onKeyPress(.upArrow) { guard m.inputSuggestions?.id == inputIdentity else { return .ignored }; m.inputSuggestions?.move(-1); return .handled }
+            .onKeyPress(.return) {
+                guard let menu = m.inputSuggestions, menu.id == inputIdentity, menu.values.indices.contains(menu.selected) else { return .ignored }
+                menu.choose(menu.values[menu.selected]); m.inputSuggestions = nil; return .handled
+            }
+            .onKeyPress(.escape) { guard m.inputSuggestions?.id == inputIdentity else { return .ignored }; m.inputSuggestions = nil; return .handled }
+            .onChange(of: focused) { old, new in if old && !new { closeSuggestions(); commit() } }
+            .onChange(of: text) { if m.inputSuggestions?.id == inputIdentity { openSuggestions() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
             .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
-            .popover(isPresented: $showingSuggestions, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(suggestions.filter { text.isEmpty || $0.localizedCaseInsensitiveContains(text) }, id: \.self) { value in
-                        TextButton(value, weight: 400, height: 28, padding: 10) { text = value; showingSuggestions = false; commit() }.buttonStyle(QuietButtonStyle())
-                    }
-                }.padding(4).background(RelicStyle.card)
-                    .accessibilityIdentifier("relic-suggestions/" + controlID)
-            }
+            .background(GeometryReader { proxy in Color.clear.preference(key: InputSuggestionAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
+            .onPreferenceChange(InputSuggestionAnchor.self) { suggestionAnchor = $0 }
+            .onDisappear { closeSuggestions() }
+    }
+    private func closeSuggestions() { if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions = nil } }
+    private func openSuggestions() {
+        let values = suggestions.filter { text.isEmpty || $0.localizedCaseInsensitiveContains(text) }
+        guard !values.isEmpty else { closeSuggestions(); return }
+        m.inputSuggestions = InputSuggestionsState(id: inputIdentity, controlID: controlID, anchor: suggestionAnchor, values: values) { value in
+            text = value; m.inputSuggestions = nil; commit()
+        }
     }
 }

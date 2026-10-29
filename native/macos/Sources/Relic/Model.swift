@@ -8,6 +8,7 @@ import RelicCore
     @Published var messages: [Node] = []
     @Published var liveItems: [Node] = []
     @Published var liveStatus = Node()
+    @Published var inputSuggestions: InputSuggestionsState?
     @Published var conversation = Node()
     @Published var copies: [Node] = []
     @Published var snapshot = Node()
@@ -174,7 +175,7 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
+    func stop() { inputSuggestions = nil; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
     func schedule() {
         pending = true
         guard refreshTask == nil else { return }
@@ -235,6 +236,7 @@ import RelicCore
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        inputSuggestions = nil
         mentionEditor?.closeMentions()
         activeSpeech?.stop()
         plainTask?.cancel(); plainTask = nil; plainQueue = []

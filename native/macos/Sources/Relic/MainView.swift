@@ -31,7 +31,7 @@ struct MainView: View {
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
-        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.recipientPicker = false; m.appMenu = nil }
+        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }
@@ -41,6 +41,7 @@ struct MainView: View {
         .overlay { if !m.mentionItems.isEmpty { MentionSuggestions() } }
         .overlay { if m.recipientPicker { RecipientLayer() } }
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
+        .overlay { if m.inputSuggestions != nil { InputSuggestionsLayer() } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))
         .tracking(0)
