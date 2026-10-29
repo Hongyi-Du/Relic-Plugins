@@ -49,6 +49,8 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
       - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+      - name: Set CI desktop size without a settings window
+        run: ./scripts/visual/windows-display.ps1
       - run: python -X utf8 scripts/visual/capture.py --client windows --exe native-build/windows/Relic.exe --matrix ${{ inputs.matrix || 'smoke' }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()

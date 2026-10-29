@@ -165,11 +165,11 @@ public sealed partial class MainWindow
         string day = ""; JsonNode? previous = null;
         foreach (var item in items)
         {
-            var date = item.Text("at").Split('T')[0]; if (date != day && date.Length > 0) { stream.Children.Add(Text(Day(item.Text("at")), 12)); day = date; }
+            var date = item.Text("at").Split('T')[0]; if (date != day && date.Length > 0) { var label = Quiet(Day(item.Text("at")), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); day = date; }
             stream.Children.Add(Message(item!, false, Transcript.SameMessageGroup(previous, item!))); previous = item;
         }
         if (member.Length > 0) DrawLive(stream);
-        if (atBottom) DispatcherQueue.TryEnqueue(() => chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null));
+        if (atBottom) ScrollToLatest();
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }

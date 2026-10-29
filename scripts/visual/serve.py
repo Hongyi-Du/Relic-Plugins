@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins/relic"))
@@ -36,6 +37,10 @@ def seed(folder, lang):
         draw.rounded_rectangle((176, y, 346, y + 28), 8, fill="#f6e8e0")
     image.save(workspace / "layout.png")
     store = Store()
+    import itertools
+    ids = itertools.count(1)
+    stores.short_id = lambda prefix="": prefix + ("%06d" % next(ids))
+    stores.now = lambda: "2026-10-29T11:00:00Z"
     lead, design, build = "visual-lead-session", "visual-design-session", "visual-build-session"
     parent = store.create("visual-parent", word("Relic 工作室", "Relic Studio"), word("让协作有据可查", "Make collaboration traceable"), "director")["id"]
     store.issue_by_person(parent, {"title": word("重要变更先评审", "Review important changes"), "rationale": word("保持团队行动一致", "Keep the team aligned"), "trigger": word("发布或修改共享行为时", "Before release or shared behavior changes"), "guidance": word("提交证据并等待本人确认。", "Present evidence and wait for the person's decision."), "inherit": True})
@@ -56,11 +61,15 @@ def seed(folder, lang):
     done = store.work(lead, "task", {"title": word("检查消息与线程", "Review messages and threads"), "owner": "secretary"})
     # Fixture storage contains completed historical records; no tool or check program runs.
     with store.change(oid) as (o, db):
+        o["episodes"]["E1"] = {"id": "E1", "title": word("原生页面复核", "Native screen review"), "status": "open", "participants": ["engineer"], "reflections": {}, "kind": "shared", "opened_at": stores.now()}
+        o["members"]["engineer"]["turn_episode"] = "E1"
         o["tasks"][done["id"]].update(status="done", report=word("消息、引用与线程已逐项核对。", "Messages, quotes, and threads have been reviewed."), evidence=[str(workspace / "README.md")], done_at=stores.now())
         p = dict(o["protocols"]["P1"], id="P2", title=word("交付须附检查记录", "Attach checks to deliveries"), author="engineer", issued_by=None, strength="strong", summary_for_person=word("发送交付前确认附有检查结果；需要额外确认时交给本人决定。", "Before delivery, require check evidence and route exceptions to the person."), rules=[{"effect": "check", "tools": ["Bash"], "code": "result = {'decision': 'allow', 'reason': 'Evidence attached'}", "examples": []}], votes={"designer": {"vote": "approve"}}, inherit=True)
         o["protocols"]["P2"] = p
         o["counters"]["protocol"] = 2
         store._copy_to_person(db, o, p)
+    store.record_activity(build, "Read", {"file_path": str(workspace / "README.md")}, cwd=str(workspace))
+    store.record_activity(design, "Read", {"file_path": str(workspace / "layout.png")}, cwd=str(workspace))
     store.work(lead, "doc_write", {"key": "review-plan", "body": (workspace / "README.md").read_text(encoding="utf-8")})
     store.file_request(design, "leader", {"org": oid, "member": "engineer"}, word("让工程师协调本轮集成。", "Let the engineer coordinate this integration."))
     root_message = store.send_from_human(oid, ["all"], word("这轮请把两个平台的页面放在一起看。布局要一致，也要像各自系统里完成度高的应用。", "Please compare both platforms side by side. Keep the layout consistent and make each feel like a finished desktop app."), channel="group")

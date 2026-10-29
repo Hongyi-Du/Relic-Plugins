@@ -76,7 +76,7 @@ public sealed partial class MainWindow
                 {
                     if (orgMatch || Match(T("common.group_chat"))) Chat("", T("common.group_chat"), LastLine("group").Length > 0 ? LastLine("group") : T("side.group_sub"), "");
                     var secretary = snap["org"].Text("secretary"); var sec = snap.Rows("members").FirstOrDefault(m => m.Text("name") == secretary);
-                    if (secretary.Length == 0) Add(Quiet(T("side.set_secretary")), SecretarySetup, false, 14);
+                    if (secretary.Length == 0) { var setup = Quiet(T("side.set_secretary")); ToolTipService.SetToolTip(setup, T("side.secretary_hint")); Add(setup, SecretarySetup, false, 14); }
                     else if (orgMatch || members.Contains(sec)) Chat(secretary, T("common.secretary") + " · " + Display(secretary), LastLine("member:" + secretary), sec.Text("avatar"), sec.Text("state"));
                     foreach (var m in (orgMatch ? snap.Rows("members").ToArray() : members).Where(m => !m.Flag("secretary")))
                         Chat(m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")), m.Text("avatar"), m.Text("state"));
@@ -89,7 +89,7 @@ public sealed partial class MainWindow
         foreach (var item in orgs.Where(o => o.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == o.Text("parent")))) Node(item, 0);
         foreach (var item in orgs) if (!visited.Contains(item.Text("id")) && !orgs.Any(o => folded.Contains(o.Text("id")))) Node(item, 0);
         if (orgs.Count == 0) side.Children.Add(Quiet(T("side.no_orgs")));
-        var profile = QuietButton(Display("human"), Settings); ToolTipService.SetToolTip(profile, T("side.profile"));
+        var profile = QuietButton(Display("human"), Settings); ToolTipService.SetToolTip(profile, T("side.profile")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, T("page.me"));
         sidebarFooter.Children.Add(TwoColumns(profile, IconButton("\uE713", "common.settings", Settings)));
         sidebarFooter.Children.Add(QuietButton(T("chart.title"), Chart));
     }
@@ -128,7 +128,7 @@ public sealed partial class MainWindow
                 try { await api!.Post("/api/cc/" + c.Text("id") + "/retire", new { }); await Refresh(); Note(T("cc.retired", ("id", c.Text("protocol_id")), ("title", c.Text("title")))); await ShowCopies(); }
                 catch (Exception ex) { Note(T("cc.retire_failed", ("error", ex.Message))); }
             }));
-            content.Children.Add(Card(card));
+            InlineActions(card); content.Children.Add(Card(card));
         }
     }
     private string CopyState(JsonNode c) => c.Text("org_status") is not ("" or "active") ? T("cc.status_ended") : c.Text("status") == "active" ? T("cc.status_active") : c.Text("status") == "retired" && c.Text("retired_by") == "human" ? T("cc.status_retired_person") : c.Text("status") == "superseded" ? T("cc.status_superseded", ("id", c.Text("superseded_by"))) : T("cc.status_retired");

@@ -71,6 +71,8 @@ public sealed partial class MainWindow
                     }
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
                     root.UpdateLayout(); await Task.Delay(250);
+                    if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
+                        throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     count++;
                 }
