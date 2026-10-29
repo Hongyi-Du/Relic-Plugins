@@ -6,6 +6,7 @@ visibility or typography measurements fail coverage instead of being guessed.
 import copy
 import json
 import math
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -22,7 +23,7 @@ CONTROL_KINDS = {
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
 }
-TEXT_TYPES = {"TextBlock", "RichTextBlock"}
+TEXT_TYPES = {"TextBlock", "RichTextBlock", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
 UIA_KINDS = {"Button": {"button", "icon-button"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
@@ -251,16 +252,169 @@ def measured_occlusion(raw, by_id):
 
 def uia_kind_matches(node, kind):
     control_type = (node.get("control_type") or "").removeprefix("ControlType.")
+    class_name = (node.get("class_name") or "").rsplit(".", 1)[-1]
     if control_type == "Button" and kind == "toggle":
-        return node.get("class_name") in {"ToggleButton", "ToggleSwitch"} and any("Toggle" in p for p in node.get("supported_patterns", []))
+        return class_name in {"ToggleButton", "ToggleSwitch"} and any(isinstance(p, str) and "Toggle" in p for p in node.get("supported_patterns", []))
+    if control_type == "ListItem" and kind == "tab":
+        return class_name == "SelectorBarItem"
     return kind in UIA_KINDS.get(control_type, set())
+
+
+def measured_text_boxes(boxes):
+    return [copy.deepcopy(b) for b in boxes if isinstance(b, dict)
+            and all(finite(b.get(k)) for k in ("x", "y", "width", "height"))
+            and b["width"] >= 0 and b["height"] > 0]
+
+
+def union_boxes(boxes):
+    if not boxes:
+        return None
+    x, y = min(b["x"] for b in boxes), min(b["y"] for b in boxes)
+    right, bottom = max(b["x"] + b["width"] for b in boxes), max(b["y"] + b["height"] for b in boxes)
+    return {"x": x, "y": y, "width": right - x, "height": bottom - y}
+
+
+def text_line_boxes(boxes):
+    lines = []
+    for b in sorted(boxes, key=lambda item: (item["y"], item["x"])):
+        overlapping = next((line for line in lines if min(line["y"] + line["height"], b["y"] + b["height"])
+                            > max(line["y"], b["y"])), None)
+        if overlapping is None:
+            lines.append(copy.deepcopy(b))
+        else:
+            overlapping.update(union_boxes([overlapping, b]))
+    return sorted(lines, key=lambda b: (b["y"], b["x"]))
+
+
+def project_text_leaves(raw, unmeasured, pointer):
+    """Expose actual TextElement Run records, not one guessed paragraph font."""
+    result = []
+    for source in raw:
+        node = copy.deepcopy(source)
+        runs = node.get("layout", {}).get("rich_text_runs")
+        if node["type"] not in {"TextBlock", "RichTextBlock"} or not isinstance(runs, list) or not runs or node.get("hidden_reason"):
+            result.append(node)
+            continue
+        leaves = [(index, run) for index, run in enumerate(runs) if run.get("type", "Run") != "LineBreak" and run.get("text")]
+        if not leaves:
+            result.append(node)
+            continue
+        node["text_before_run_projection"] = node.get("text", "")
+        node["text"] = ""
+        node["text_container_projection"] = True
+        node["projected_run_ids"] = []
+        result.append(node)
+        for index, run in leaves:
+            rid = node["id"] + ":run:" + str(index)
+            node["projected_run_ids"].append(rid)
+            boxes = measured_text_boxes(run.get("bounds", []))
+            bounds = union_boxes(boxes)
+            clipped = intersection(bounds, node.get("visible_bounds"))
+            if not boxes:
+                unmeasured.append({"id": rid, "property": "rich_text_runs", "reason": "The recorded visible Run has no finite measured glyph rectangles",
+                                   "source_owner": node["id"], "run_index": index})
+            if run.get("geometry_complete") is False:
+                unmeasured.append({"id": rid, "property": "rich_text_runs", "reason": "The actual Run reports incomplete glyph geometry",
+                                   "source_owner": node["id"], "run_index": index})
+            if run.get("coordinate_space", node.get("layout", {}).get("character_boxes_coordinate_space")) != "content-window":
+                unmeasured.append({"id": rid, "property": "rich_text_runs", "reason": "The recorded Run's glyph coordinate space is not measured in content-window pixels"})
+            style = {
+                "font_size": run.get("font_size"), "font_weight": run.get("font_weight"), "foreground": run.get("foreground"),
+                "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0,
+                "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)],
+                "corner_radius": 0, "corner_radii": [0, 0, 0, 0], "background_image": "none", "shadow": [],
+                "opacity": node.get("opacity"),
+            }
+            # Run is an actual glyph-only TextElement. Its parent's background
+            # is retained on the owner, never duplicated on every leaf.
+            state = {key: None for key in STATE_KEYS}
+            state["hovered"] = node.get("state", {}).get("hovered")
+            if isinstance(pointer, dict) and all(finite(pointer.get(k)) for k in ("x", "y")):
+                state["hovered"] = bool(state["hovered"] and clipped and
+                                        clipped["x"] <= pointer["x"] < clipped["x"] + clipped["width"] and
+                                        clipped["y"] <= pointer["y"] < clipped["y"] + clipped["height"])
+            leaf = {key: copy.deepcopy(node.get(key)) for key in
+                    ("region", "opacity", "paint_order", "paint_layer", "canvas_z_index", "transform",
+                     "axis_aligned_transform", "ancestor_clip", "clip")}
+            leaf.update(id=rid, parent=node["id"], type="Run", text=run["text"], accessible_name="",
+                        bounds=bounds, visible_bounds=clipped, hidden_reason=node.get("hidden_reason"),
+                        render_sibling_order=index, style=style, state=state, icon=None, paint_kind="glyphs",
+                        font_family=run.get("font_family"),
+                        text_run_source={"owner": node["id"], "index": index, "start_offset": run.get("start_offset"),
+                                         "end_offset": run.get("end_offset")},
+                        layout={"wrap": node["layout"].get("wrap"), "truncation": node["layout"].get("truncation"),
+                                "line_count": len(text_line_boxes(boxes)) if boxes else None,
+                                "character_boxes": boxes, "character_boxes_coordinate_space": "content-window",
+                                "rich_text_runs": [copy.deepcopy(run)]})
+            if boxes and not positive(clipped):
+                leaf["hidden_reason"] = "glyph rectangles fully outside the measured text-owner clip"
+            result.append(leaf)
+    return result
+
+
+def run_font_witnesses(uia_nodes, owner, glyph_boxes):
+    """Match actual UIA format ranges to the measured leaf's glyph positions."""
+    candidates = []
+    for candidate in uia_nodes:
+        if candidate.get("control_type") not in {"ControlType.Text", "ControlType.Document"} or not positive(owner.get("bounds")):
+            continue
+        if distance(candidate["bounds"], owner["bounds"]) > 8:
+            continue
+        candidates.append(candidate)
+    original_text = owner.get("text_before_run_projection", owner.get("text", ""))
+    named = [candidate for candidate in candidates if original_text and
+             (candidate.get("name") == original_text or
+              (candidate.get("text_pattern") or {}).get("document", {}).get("text") == original_text)]
+    providers = named or candidates
+    if len(providers) != 1:
+        # Same-position unrelated provider data is not a font fallback. Preserve
+        # the candidates as raw evidence, but require unambiguous correspondence.
+        return providers, []
+    records = []
+    for candidate in providers:
+        for visible_range in (candidate.get("text_pattern") or {}).get("visible_ranges", []):
+            for run in visible_range.get("format_runs") or [visible_range]:
+                run_boxes = measured_text_boxes(run.get("bounds", []))
+                relevant = [b for b in glyph_boxes if any(intersection(b, measured) for measured in run_boxes)]
+                if not relevant:
+                    continue
+                records.append({"uia_id": candidate["id"], "attributes": copy.deepcopy(run.get("attributes", {})),
+                                "attribute_status": copy.deepcopy(run.get("attribute_status", {})),
+                                "bounds": run_boxes, "glyph_boxes": relevant, "text": run.get("text")})
+    return providers, records
+
+
+def visible_uia_errors(uia):
+    """Retain raw diagnostics, separating only nodes proven UIA-offscreen."""
+    nodes = uia.get("raw_nodes", [])
+    by_id = {n["id"]: n for n in nodes}
+    errors, nonvisible = [], copy.deepcopy(uia.get("nonvisible_diagnostics", []))
+    for error in uia.get("extraction_errors", []):
+        text = str(error)
+        source = by_id.get(text.split(":", 1)[0])
+        path_match = re.match(r"^/raw_nodes/(\d+)(?:/|:)", text)
+        numeric_measurement = False
+        if source is None and path_match and int(path_match[1]) < len(nodes):
+            source = nodes[int(path_match[1])]
+            numeric_measurement = True
+        own_measurement = source and (numeric_measurement or any(
+            text == source["id"] + ": " + str(measurement) for measurement in source.get("measurement_errors", [])))
+        # An offscreen parent's subtree may still contain visible controls.
+        # Only its own measured property errors are known to be nonvisible.
+        if own_measurement and source.get("state", {}).get("offscreen") is True:
+            nonvisible.append({"source": "UIA", "id": source["id"], "diagnostic": error,
+                               "reason": "The provider measured IsOffscreen=true; this node has no visible element"})
+        else:
+            errors.append(error)
+    return errors, nonvisible
 
 
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
     image = Image.open(png_path).convert("RGBA")
-    errors = list(xaml.get("extraction_errors", [])) + list(uia.get("extraction_errors", []))
+    uia_errors, nonvisible_diagnostics = visible_uia_errors(uia)
+    errors = list(xaml.get("extraction_errors", [])) + uia_errors
     unmeasured = []
     if xaml["viewport"]["scale"] != 1:
         errors.append("XAML rasterization scale differs from the required 1:1 screenshot")
@@ -270,9 +424,10 @@ def project(xaml_path, uia_path, png_path):
         errors.append("UIA and XAML viewports differ")
     if image.size != (xaml["viewport"]["width"], xaml["viewport"]["height"]):
         errors.append("Screenshot size differs from measured viewport")
-    raw = xaml["raw_nodes"]
-    if not raw or not uia.get("raw_nodes"):
+    source_raw = xaml["raw_nodes"]
+    if not source_raw or not uia.get("raw_nodes"):
         errors.append("Independent UIA and XAML source trees must both be nonempty")
+    raw = project_text_leaves(source_raw, unmeasured, xaml.get("pointer"))
     by_id = {n["id"]: n for n in raw}
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
@@ -336,7 +491,11 @@ def project(xaml_path, uia_path, png_path):
     uia_nodes = [n for n in uia.get("raw_nodes", []) if positive(n.get("bounds")) and not n.get("state", {}).get("offscreen")]
     for node in uia.get("raw_nodes", []):
         for error in node.get("measurement_errors", []):
-            unmeasured.append({"id": node["id"], "property": "UIA measurement", "reason": error})
+            if node.get("state", {}).get("offscreen") is True:
+                nonvisible_diagnostics.append({"source": "UIA", "id": node["id"], "diagnostic": error,
+                                               "reason": "The provider measured IsOffscreen=true; this node has no visible element"})
+            else:
+                unmeasured.append({"id": node["id"], "property": "UIA measurement", "reason": error})
         if node in uia_nodes and not node.get("control_type"):
             unmeasured.append({"id": node["id"], "property": "UIA control_type", "reason": "Visible provider node did not report its control type"})
     order = defaultdict(int)
@@ -354,7 +513,10 @@ def project(xaml_path, uia_path, png_path):
         kind = CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
-            kind = "text" if text else None
+            if node.get("text_container_projection"):
+                kind = "card" if painted(style.get("background")) or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0 else None
+            else:
+                kind = "text" if text else None
         elif typ in ICON_TYPES:
             kind = "icon"
         elif typ in {"Image", "PersonPicture"}:
@@ -390,7 +552,9 @@ def project(xaml_path, uia_path, png_path):
         else:
             value = None
         if kind == "button" and not text:
-            kind = "icon-button" if any(c["type"] in ICON_TYPES for c in descendants(node)) else "button"
+            has_label = any(c["type"] in TEXT_TYPES and c.get("text") and visible(c)
+                            and not ancestor(c, icons) for c in descendants(node))
+            kind = "icon-button" if not has_label and any(c["type"] in ICON_TYPES for c in descendants(node)) else "button"
         # Measure template paint closest to the actual control box; retain every
         # source id. Do not substitute a reference color or a presumed theme value.
         paints = sorted(control_paint[node["id"]], key=lambda c: distance(c["bounds"], node["bounds"]))
@@ -428,30 +592,51 @@ def project(xaml_path, uia_path, png_path):
         if not actual_text_boxes and witness:
             actual_text_boxes = [copy.deepcopy(b) for r in (witness.get("text_pattern") or {}).get("visible_ranges", [])
                                  for b in r.get("bounds", []) if positive(b)]
-        font_witnesses = [witness] if witness else []
-        if label:
+        text_source = label or node
+        run_source = text_source.get("text_run_source")
+        actual_run_font_records = []
+        font_witnesses = [] if run_source else [witness] if witness else []
+        if run_source:
+            text_owner = by_id[run_source["owner"]]
+            run_providers, actual_run_font_records = run_font_witnesses(uia_nodes, text_owner, actual_text_boxes)
+            for provider in run_providers:
+                if actual_text_boxes:
+                    used_uia.add(provider["id"])
+                    projection.append({"source": provider["id"], "owner": text_owner["id"], "element": node["id"],
+                                       "reason": "UIA text owner represented by measured TextElement Run",
+                                       "run_source": copy.deepcopy(run_source)})
+        elif label:
             font_witnesses += [n for n in uia_nodes if n.get("control_type") == "ControlType.Text"
                                and n.get("name") == text and distance(n["bounds"], label["bounds"]) <= 8]
         rendered_fonts = []
+        font_records = list(actual_run_font_records)
         for font_source in font_witnesses:
             for text_range in (font_source.get("text_pattern") or {}).get("visible_ranges", []):
                 for run in text_range.get("format_runs") or [text_range]:
-                    family = run.get("attributes", {}).get("font_family")
-                    if run.get("attribute_status", {}).get("font_family") != "measured" or not isinstance(family, str) or not family:
-                        continue
-                    identity = {"family_name": family, "postscript_name": None, "is_custom_font": None, "glyph_count": None,
-                                "source": "UIA.TextPattern.FontNameAttribute", "uia_id": font_source["id"]}
-                    if not any(f["family_name"] == family for f in rendered_fonts):
-                        rendered_fonts.append(identity)
+                    font_records.append(dict(run, uia_id=font_source["id"]))
+        for record in font_records:
+            family = record.get("attributes", {}).get("font_family")
+            if record.get("attribute_status", {}).get("font_family") != "measured" or not isinstance(family, str) or not family:
+                continue
+            identity = {"family_name": family, "postscript_name": None, "is_custom_font": None, "glyph_count": None,
+                        "source": "UIA.TextPattern.FontNameAttribute", "uia_id": record["uia_id"]}
+            if not any(f["family_name"] == family for f in rendered_fonts):
+                rendered_fonts.append(identity)
         style["rendered_fonts"] = rendered_fonts if text and rendered_fonts else None
         if text and not actual_text_boxes:
             unmeasured.append({"id": node["id"], "property": "evidence.text_bounds", "reason": "Actual window-relative text rectangles are unavailable"})
         if text and not rendered_fonts:
             unmeasured.append({"id": node["id"], "property": "style.rendered_fonts", "reason": "UIA did not measure the rendered font; declared XAML family is not substituted"})
+        if run_source and actual_text_boxes:
+            font_rectangles = [b for record in actual_run_font_records
+                               if record.get("attribute_status", {}).get("font_family") == "measured"
+                               and isinstance(record.get("attributes", {}).get("font_family"), str)
+                               and record["attributes"]["font_family"]
+                               for b in record.get("bounds", [])]
+            if any(b["width"] > 0 and not any(intersection(b, font_box) for font_box in font_rectangles) for b in actual_text_boxes):
+                unmeasured.append({"id": node["id"], "property": "style.rendered_fonts",
+                                   "reason": "Some measured Run glyph positions have no independent UIA font-range correspondence"})
         rich_runs = layout.get("rich_text_runs", [])
-        rich_styles = {json.dumps({k: r.get(k) for k in ("font_size", "font_weight", "foreground")}, sort_keys=True) for r in rich_runs if r.get("text", "").strip()}
-        if len(rich_styles) > 1:
-            unmeasured.append({"id": node["id"], "property": "rich_text_runs", "reason": "Actual mixed run typography retained; separate visible run projection is still required"})
         if not text:
             layout = {"wrap": None, "truncation": None, "line_count": None}
             style["font_size"] = style["font_weight"] = None
@@ -481,6 +666,8 @@ def project(xaml_path, uia_path, png_path):
                                 "placeholder": node.get("layout", {}).get("placeholder"),
                                 "text_bounds": actual_text_boxes, "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(node["id"]),
+                                "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
+                                "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
         order[region] += 1
@@ -517,5 +704,7 @@ def project(xaml_path, uia_path, png_path):
         element["parent"] = parent
     return {"schema_version": 1, "scene_id": xaml["scene_id"], "client": "windows", "viewport": xaml["viewport"],
             "elements": elements, "extraction_errors": errors,
-            "coverage": {"raw_nodes": len(raw) + len(uia.get("raw_nodes", [])), "emitted_elements": len(elements), "unmeasured": unmeasured},
-            "projection": projection, "raw_evidence": {"xaml": Path(xaml_path).name, "uia": Path(uia_path).name}}
+            "coverage": {"raw_nodes": len(source_raw) + len(uia.get("raw_nodes", [])), "recorded_text_leaves": len(raw) - len(source_raw),
+                         "emitted_elements": len(elements), "unmeasured": unmeasured},
+            "projection": projection, "nonvisible_diagnostics": nonvisible_diagnostics,
+            "raw_evidence": {"xaml": Path(xaml_path).name, "uia": Path(uia_path).name}}

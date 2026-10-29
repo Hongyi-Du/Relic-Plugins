@@ -145,6 +145,34 @@ class ElementComparisonTests(unittest.TestCase):
         b["icon"] = {"source": "font", "glyph": "E123"}
         self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
 
+    def test_svg_identity_compares_parsed_tree_without_json_serialization_noise(self):
+        a, b = element(), element("n")
+        shape = {"tag": "svg", "attributes": {"viewBox": "0 0 24 24", "data-label": "<>&中文"},
+                 "children": [{"tag": "path", "attributes": {"d": "M4 5h16v14H4z"}, "children": []}]}
+        a["icon"] = {"source": "svg", "glyph": json.dumps(shape, ensure_ascii=False, separators=(",", ":"))}
+        serialized = json.dumps(shape, ensure_ascii=True, sort_keys=True, indent=2).replace("<", "\\u003C").replace(">", "\\u003E").replace("&", "\\u0026")
+        b["icon"] = {"source": "svg", "glyph": serialized}
+        result = compare_elements([a], [b])
+        self.assertFalse(result["icon_mismatch"])
+        self.assertEqual(result["matched_elements"], 1)
+        self.assertEqual(a["icon"]["glyph"], json.dumps(shape, ensure_ascii=False, separators=(",", ":")))
+        self.assertEqual(b["icon"]["glyph"], serialized)  # Source evidence is not rewritten.
+
+    def test_svg_path_values_and_child_order_remain_exact(self):
+        a, b = element(), element("n")
+        shape = {"tag": "svg", "attributes": {"viewBox": "0 0 24 24"},
+                 "children": [{"tag": "path", "attributes": {"d": "M0 0L1 1"}, "children": []},
+                              {"tag": "circle", "attributes": {"r": "2"}, "children": []}]}
+        a["icon"] = {"source": "svg", "glyph": json.dumps(shape)}
+        changed = deepcopy(shape); changed["children"][0]["attributes"]["d"] = "M0 0L2 2"
+        b["icon"] = {"source": "svg", "glyph": json.dumps(changed)}
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+        changed = deepcopy(shape); changed["children"].reverse()
+        b["icon"]["glyph"] = json.dumps(changed)
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+        b["icon"] = {"source": "font", "glyph": a["icon"]["glyph"]}
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
     def test_invisible_rgb_and_unpainted_border_color_do_not_create_false_mismatches(self):
         a, b = element(), element("n")
         b["style"]["background"] = [255, 255, 255, 0]
@@ -297,6 +325,13 @@ class ExtractionContractTests(unittest.TestCase):
             data = capture(elements=[element(text="", kind=kind)])
             data["elements"][0]["state"]["enabled"] = True
             self.assertTrue(any("identity" in error["reason"] or "owned icon" in error["reason"] for error in self.validate(data)))
+
+    def test_unparseable_svg_does_not_pass_even_if_both_bad_strings_are_equal(self):
+        a, b = element(), element("n")
+        for value in ("not JSON", '{"tag":"path","attributes":{"d":"M0 0"}}'):
+            a["icon"] = b["icon"] = {"source": "svg", "glyph": value}
+            self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+            self.assertTrue(any("SVG glyph" in error["reason"] for error in self.validate(capture(elements=[a]))))
 
     def test_textless_code_container_does_not_require_nonexistent_font_or_lines(self):
         item = element(text="", kind="code")

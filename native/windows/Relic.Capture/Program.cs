@@ -49,6 +49,7 @@ internal static class Program
             };
         }
         NumericEvidence.Sanitize(result, result["extraction_errors"]!.AsArray());
+        SeparateKnownOffscreenDiagnostics(result);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
@@ -60,6 +61,42 @@ internal static class Program
     {
         Console.Error.WriteLine("Relic.Capture --request request.json --output scene.uia.json");
         return 2;
+    }
+
+    private static void SeparateKnownOffscreenDiagnostics(JsonObject result)
+    {
+        var nodes = result["raw_nodes"]!.AsArray();
+        var byId = nodes.OfType<JsonObject>().Where(node => node["id"] != null).ToDictionary(node => node["id"]!.GetValue<string>());
+        var rawErrors = result["extraction_errors"]!.AsArray();
+        result["raw_extraction_errors"] = rawErrors.DeepClone();
+        var visibleErrors = new JsonArray(); var nonvisible = new JsonArray();
+        foreach (var error in rawErrors)
+        {
+            var text = error?.ToString() ?? "";
+            var colon = text.IndexOf(':'); var id = colon >= 0 ? text[..colon] : text;
+            byId.TryGetValue(id, out var source);
+            var numericMeasurement = false;
+            if (source == null && text.StartsWith("/raw_nodes/", StringComparison.Ordinal))
+            {
+                var indexText = text["/raw_nodes/".Length..].Split('/', ':')[0];
+                if (int.TryParse(indexText, out var index) && index >= 0 && index < nodes.Count)
+                {
+                    source = nodes[index] as JsonObject;
+                    numericMeasurement = true;
+                }
+            }
+            var offscreen = source?["state"]?["offscreen"] is JsonValue flag && flag.TryGetValue<bool>(out var value) && value;
+            var ownMeasurement = numericMeasurement || source?["measurement_errors"] is JsonArray measurements &&
+                measurements.Any(measurement => text == source["id"]!.GetValue<string>() + ": " + measurement?.ToString());
+            // Offscreen describes this node only. An identity/tree-walk failure
+            // can conceal visible descendants, so it must still fail coverage.
+            if (offscreen && ownMeasurement)
+                nonvisible.Add(new JsonObject { ["source"] = "UIA", ["id"] = source!["id"]!.DeepClone(), ["diagnostic"] = error?.DeepClone(),
+                    ["reason"] = "The provider measured IsOffscreen=true; this node has no visible element" });
+            else visibleErrors.Add(error?.DeepClone());
+        }
+        result["extraction_errors"] = visibleErrors;
+        result["nonvisible_diagnostics"] = nonvisible;
     }
 }
 
@@ -170,7 +207,7 @@ internal sealed class Capture
                 child = walker.GetNextSibling(child);
             }
         }
-        catch (Exception error) { errors.Add(id + ": " + error.GetType().Name + ": " + error.Message); }
+        catch (Exception error) { errors.Add(id + ": tree traversal/identity: " + error.GetType().Name + ": " + error.Message); }
     }
 
     private void ReadPatterns(AutomationElement element, JsonObject node, JsonArray nodeErrors)

@@ -12,6 +12,7 @@
           <SolidColorBrush x:Key="RelicControlHover" Color="#EFEEEA" />
           <SolidColorBrush x:Key="RelicControlPressed" Color="#E7E5DF" />
           <SolidColorBrush x:Key="RelicControlDisabled" Color="#B8B5AF" />
+          <SolidColorBrush x:Key="RelicControlMuted" Color="#8F8C86" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Default">
           <SolidColorBrush x:Key="RelicControlInk" Color="#ECEAE5" />
@@ -20,6 +21,7 @@
           <SolidColorBrush x:Key="RelicControlHover" Color="#262624" />
           <SolidColorBrush x:Key="RelicControlPressed" Color="#2F2E2B" />
           <SolidColorBrush x:Key="RelicControlDisabled" Color="#5F5D58" />
+          <SolidColorBrush x:Key="RelicControlMuted" Color="#8A877F" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
       <!-- Native template: retain Button/UIA/keyboard semantics while matching
@@ -52,6 +54,46 @@
             </ControlTemplate>
           </Setter.Value>
         </Setter>
+      </Style>
+      <Style x:Key="RelicMenuItemStyle" TargetType="MenuFlyoutItem">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{ThemeResource RelicControlInk}" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="MenuFlyoutItem">
+              <Grid x:Name="MenuRow" Padding="{TemplateBinding Padding}" ColumnSpacing="10" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <ContentPresenter Content="{TemplateBinding Tag}" VerticalAlignment="Center" />
+                <TextBlock x:Name="MenuLabel" Grid.Column="1" Text="{TemplateBinding Text}" FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}" Foreground="{TemplateBinding Foreground}" LineHeight="20.8" LineStackingStrategy="BlockLineHeight" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{TemplateBinding KeyboardAcceleratorTextOverride}" FontFamily="Cascadia Code, Cascadia Mono, Consolas" FontSize="11" Foreground="{ThemeResource RelicControlMuted}" VerticalAlignment="Center" />
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="MenuRow.Background" Value="{ThemeResource RelicControlHover}" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="MenuRow.Background" Value="{ThemeResource RelicControlPressed}" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="MenuLabel.Foreground" Value="{ThemeResource RelicControlDisabled}" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style TargetType="MenuFlyoutPresenter">
+        <Setter Property="Background" Value="{ThemeResource RelicControlCard}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource RelicControlLine}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="6" />
+        <Setter Property="MinWidth" Value="250" />
+      </Style>
+      <Style TargetType="MenuFlyoutSeparator">
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuFlyoutSeparator"><Border Height="1" Margin="6,4" Background="{ThemeResource RelicControlLine}" /></ControlTemplate></Setter.Value></Setter>
       </Style>
     </ResourceDictionary>
   </Application.Resources>

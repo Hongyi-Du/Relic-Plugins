@@ -164,6 +164,30 @@ def rendered_fonts(element: dict) -> dict[str, set[str] | None] | None:
     return families
 
 
+def icon_identity(icon: Any) -> tuple[Any, str | None]:
+    """Compare the actual SVG tree, not JS/.NET JSON serialization choices.
+
+    Attribute/path values and child order remain exact. No geometric rewriting,
+    icon equivalence mapping, or tolerance is introduced; raw glyphs survive in
+    the extraction file and every mismatch record.
+    """
+    if not isinstance(icon, dict) or icon.get("source") != "svg":
+        return icon, None
+    glyph = icon.get("glyph")
+    try:
+        tree = json.loads(glyph) if isinstance(glyph, str) else None
+    except (ValueError, TypeError) as exc:
+        return None, "SVG glyph is not a parseable canonical JSON tree: " + str(exc)
+    def valid_tree(node):
+        return (isinstance(node, dict) and isinstance(node.get("tag"), str)
+                and isinstance(node.get("attributes"), dict)
+                and isinstance(node.get("children"), list)
+                and all(valid_tree(child) for child in node["children"]))
+    if not valid_tree(tree):
+        return None, "SVG glyph must preserve tag, attributes and ordered children"
+    return dict(icon, glyph=tree), None
+
+
 def lab(color: list[float]) -> tuple[float, float, float]:
     """sRGB/D65 -> CIE Lab; alpha is compared independently, never discarded."""
     rgb = [v / 255 for v in color[:3]]
@@ -307,6 +331,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         icon = element.get("icon")
         if icon is not None and (not isinstance(icon, dict) or not isinstance(icon.get("source"), str) or not isinstance(icon.get("glyph"), str) or not icon.get("glyph")):
             error("Invalid icon identity", eid)
+        _, icon_error = icon_identity(icon)
+        if icon_error: error(icon_error, eid)
         if not isinstance(element.get("evidence"), dict):
             error("Evidence must be an object", eid)
     for element in elements:
@@ -518,8 +544,10 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                         tolerance = geometry_tolerance(left["width" if axis in ("x", "width") else "height"])
                         if abs(left[axis] - right[axis]) > tolerance + 1e-8:
                             mismatch("geometry_out_of_tolerance", f"text_bounds[{index}].{axis}", left[axis], right[axis], tolerance=tolerance)
-        if a.get("icon") != b.get("icon"):
-            mismatch("icon_mismatch", "icon", a.get("icon"), b.get("icon"), reason="No person-approved icon equivalence is configured")
+        icon_a, error_a = icon_identity(a.get("icon"))
+        icon_b, error_b = icon_identity(b.get("icon"))
+        if error_a or error_b or icon_a != icon_b:
+            mismatch("icon_mismatch", "icon", a.get("icon"), b.get("icon"), reason=error_a or error_b or "No person-approved icon equivalence is configured")
         pair_results.append({"reference": a["id"], "native": b["id"], "status": "mismatch" if failures else "match", "categories": failures})
     # Reading order is relative to counterparts, not the number of internal
     # template wrappers. Missing/extra objects are already separate failures.

@@ -357,6 +357,59 @@
       reason: 'This gradient/image placement has no measured canonical representation; it is not treated as an absent background.' });
     return null;
   };
+  const svgStrokes = new WeakMap();
+  const svgStrokeData = el => {
+    if (!(el instanceof SVGElement)) return null;
+    if (svgStrokes.has(el)) return svgStrokes.get(el);
+    const matrixValue = matrix => matrix && ['a', 'b', 'c', 'd', 'e', 'f'].every(key => Number.isFinite(matrix[key]))
+      ? Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map(key => [key, matrix[key]])) : null;
+    const shapes = el instanceof SVGGeometryElement ? [el] : Array.from(el.querySelectorAll('path,circle,ellipse,line,polyline,polygon,rect'));
+    const records = [];
+    for (const shape of shapes) {
+      if (shape.closest('defs,clipPath,mask,marker,pattern,symbol')) continue;
+      const s = styleOf(shape);
+      if (s.display === 'none' || s.visibility !== 'visible' || cumulativeOpacity(shape) === 0) continue;
+      const record = { selector: pathOf(shape), source_width_css: s.strokeWidth, source_width: null, vector_effect: s.vectorEffect,
+        screen_ctm: matrixValue(shape.getScreenCTM()), effective_width: null, coordinate_space: 'viewport-css-pixels' };
+      records.push(record);
+      if (s.stroke === 'none' || color(s.stroke, pathOf(shape))?.[3] === 0 || Number(s.strokeOpacity) === 0) { record.effective_width = 0; continue; }
+      if (!/^(?:\d*\.)?\d+(?:px)?$/.test(s.strokeWidth)) { record.problem = 'Unresolved SVG source stroke unit.'; continue; }
+      record.source_width = Number.parseFloat(s.strokeWidth);
+      if (record.source_width === 0) { record.effective_width = 0; continue; }
+      let mapping = record.screen_ctm;
+      if (s.vectorEffect === 'non-scaling-stroke') {
+        // SVG 2 defines this stroke in the furthest SVG viewport's host
+        // coordinate system. Measured CTMs remove its viewBox/user transform
+        // while retaining the host-to-window transform (including CSS zoom).
+        let host = shape.ownerSVGElement;
+        while (host?.ownerSVGElement) host = host.ownerSVGElement;
+        const hostToScreen = host?.getScreenCTM(), userToHost = host?.getCTM();
+        record.host_selector = host ? pathOf(host) : null;
+        record.host_screen_ctm = matrixValue(hostToScreen); record.host_user_ctm = matrixValue(userToHost);
+        if (!record.host_screen_ctm || !record.host_user_ctm || userToHost.a * userToHost.d - userToHost.b * userToHost.c === 0) {
+          record.problem = 'Non-scaling stroke has no invertible measured host transform.'; continue;
+        }
+        mapping = matrixValue(hostToScreen.multiply(userToHost.inverse()));
+      }
+      else if (s.vectorEffect !== 'none') { record.problem = 'Unsupported actual SVG vector effect.'; continue; }
+      record.stroke_to_window = mapping;
+      if (!mapping) { record.problem = 'No finite measured stroke-to-window transform.'; continue; }
+      const xSquared = mapping.a ** 2 + mapping.b ** 2, ySquared = mapping.c ** 2 + mapping.d ** 2;
+      const dot = mapping.a * mapping.c + mapping.b * mapping.d;
+      // A scalar width is valid for a similarity transform only. Nonuniform
+      // scaling/shear needs a full stroked path, not a guessed mean scale.
+      if (xSquared !== ySquared || dot !== 0) { record.problem = 'Nonuniform stroke transform cannot be represented by a universal scalar width.'; continue; }
+      record.effective_width = record.source_width * Math.sqrt(xSquared);
+    }
+    const painted = records.filter(record => record.effective_width !== 0);
+    const widths = Array.from(new Set(painted.map(record => record.effective_width)));
+    const width = records.some(record => record.problem) || widths.length > 1 ? null : widths[0] ?? 0;
+    const result = { width, source: 'getComputedStyle + SVGGraphicsElement.getScreenCTM/getCTM', shapes: records };
+    svgStrokes.set(el, result);
+    if (width === null) unmeasured.push({ element: nodeIds.get(el), property: 'style.stroke_width', evidence: result,
+      reason: 'Actual SVG strokes do not have one measurable content-window width; no source-space width is substituted.' });
+    return result;
+  };
   const styleData = (el, s, text, pseudo = null, measuredBox = null) => {
     const sides = ['Top', 'Right', 'Bottom', 'Left'];
     const widths = sides.map(side => number(s['border' + side + 'Width']) || 0);
@@ -370,7 +423,7 @@
       border_colors: sides.map((side, i) => widths[i] > 0 ? color(s['border' + side + 'Color'], pathOf(el)) : [0, 0, 0, 0]),
       opacity: cumulativeOpacity(el) * (pseudo ? Number(s.opacity) : 1), shadow: shadowData(el, s.boxShadow), background_image: backgroundData(el, s, measuredBox),
       text_align: s.textAlign, letter_spacing: s.letterSpacing, line_height: s.lineHeight,
-      stroke_width: el instanceof SVGElement ? number(s.strokeWidth) : null,
+      stroke_width: svgStrokeData(el)?.width ?? null,
       pseudo };
   };
   const stateOf = el => {
@@ -402,10 +455,9 @@
     const textStyle = styleData(el, s, text, options.pseudo || null, options.unclippedBounds);
     for (const field of ['font_size', 'font_weight', 'font_family', 'foreground', 'letter_spacing', 'line_height', 'text_align']) paintStyle[field] = textStyle[field];
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
-    if (kind === 'icon' && el.localName === 'svg' && el.firstElementChild) {
-      const shapeStyle = styleOf(el.firstElementChild);
+    if (kind === 'icon' && el.localName === 'svg' && el.querySelector('path,circle,ellipse,line,polyline,polygon,rect')) {
+      const shapeStyle = styleOf(el.querySelector('path,circle,ellipse,line,polyline,polygon,rect'));
       paintStyle.foreground = color(shapeStyle.stroke !== 'none' ? shapeStyle.stroke : shapeStyle.fill, pathOf(el));
-      paintStyle.stroke_width = number(shapeStyle.strokeWidth);
     }
     if (kind === 'text' && !options.pseudo) {
       paintStyle.background = [0, 0, 0, 0]; paintStyle.border_color = [0, 0, 0, 0]; paintStyle.border_width = 0; paintStyle.corner_radius = 0;
@@ -422,7 +474,7 @@
         truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : boxes.length ? lineCount(boxes) : null },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()), text_bounds: boxes,
-        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence,
+        placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el),
         occlusion_masks: occlusionMasks.get(el) || [], css_paint: { font_family: s.fontFamily, own_opacity: s.opacity, box_shadow: s.boxShadow, background_image: s.backgroundImage,
           background_size: s.backgroundSize, background_position: s.backgroundPosition, background_repeat: s.backgroundRepeat, background_origin: s.backgroundOrigin, background_clip: s.backgroundClip }, ...options.evidence } };
     regionOrders.set(region, item.order + 1);
@@ -517,18 +569,20 @@
   };
   const paintBoundsOf = (el, layout) => {
     if (!(el instanceof SVGGeometryElement) || layout.width > 0 && layout.height > 0) return layout;
-    const s = styleOf(el), strokeWidth = number(s.strokeWidth) || 0;
-    if (s.stroke === 'none' || color(s.stroke, pathOf(el))?.[3] === 0 || strokeWidth <= 0) return layout;
-    const matrix = el.getScreenCTM();
-    if (!matrix) {
+    const s = styleOf(el);
+    if (s.stroke === 'none' || color(s.stroke, pathOf(el))?.[3] === 0 || Number(s.strokeOpacity) === 0) return layout;
+    const measured = svgStrokeData(el)?.shapes[0], strokeWidth = measured?.source_width;
+    if (strokeWidth === 0) return layout;
+    const matrix = measured?.stroke_to_window;
+    if (!matrix || !Number.isFinite(strokeWidth)) {
       unmeasured.push({ element: nodeIds.get(el), property: 'visibility.svg_stroke', reason: 'Visible SVG stroke has no measured screen transform.' });
       return layout;
     }
     // DOMRect excludes stroke. A zero-width vertical edge (or zero-height
     // horizontal edge) still paints a strip. Its transverse half-width follows
     // the actual screen matrix; round/square caps also extend the endpoints.
-    const sx = s.vectorEffect === 'non-scaling-stroke' ? 1 : Math.hypot(matrix.a, matrix.c);
-    const sy = s.vectorEffect === 'non-scaling-stroke' ? 1 : Math.hypot(matrix.b, matrix.d);
+    const sx = Math.hypot(matrix.a, matrix.c);
+    const sy = Math.hypot(matrix.b, matrix.d);
     const capped = s.strokeLinecap === 'round' || s.strokeLinecap === 'square';
     const dx = layout.width === 0 || capped && layout.height === 0 ? strokeWidth * sx / 2 : 0;
     const dy = layout.height === 0 || capped && layout.width === 0 ? strokeWidth * sy / 2 : 0;

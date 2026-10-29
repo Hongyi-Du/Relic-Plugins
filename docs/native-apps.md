@@ -8,6 +8,31 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (CI evidence): `dffd7c4` passes all 67 shared extractor/
+matcher regression tests in visual run 40935113052; Windows build/unit tests
+also pass in Native apps run 40935124389. Its macOS build succeeds, but
+`testCompoundNativeButtonRetainsIndividuallyVisibleLabels` fails at lines
+65/75/76: AX error -25208 instead of 0 and both labels absent (job 123664233936).
+The macOS owner must fix that test/runtime accessibility setup; it is not an
+accepted empty tree. The earlier 03c03a5 matrix completes all four Windows
+capture shards after the JSON serialization repair; its older projector still
+fails on the missing UIA ControlType, fixed in dffd7c4. Neither run passes the
+element gate. Latest downloadable failed baseline is parity-5997153, including
+summary.json, full JSON, outlined HTML and heatmaps; no exception is approved.
+
+Changes for the clients (`cc405c1` shared requests): reference evidence now
+records actual URL, display mode, navigator standalone flag and navigator
+platform. The reference remains browser mode, so its Install button is still
+present and its absent native counterpart remains a failure, not an exception.
+Fixture activity summaries now use real cwd-relative file inputs, and their
+stored numeric activity timestamps are fixed before the server accepts clients.
+This fixes `record_activity` using wall time independently of `stores.now()`;
+no exported text or API response is rewritten. Workspace file APIs still use
+real platform paths and each native app shares its platform's exact fixture.
+Vector stroke width is measured in content-window pixels; source width and
+actual transform remain in raw evidence. A 1.7-unit stroke scaled from a 24-unit
+viewBox to 16px is measured as 1.7 * 16 / 24, without changing any tolerance.
+
 Changes for the clients: the macOS reference-platform request in `26d77529` is
 implemented by capturing the unchanged reference on **each** native runner,
 against that runner's exact fixture/server. Windows uses `visual/reference`;

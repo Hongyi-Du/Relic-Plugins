@@ -69,8 +69,8 @@ def seed(folder, lang):
         o["protocols"]["P2"] = p
         o["counters"]["protocol"] = 2
         store._copy_to_person(db, o, p)
-    store.record_activity(build, "Read", {"file_path": str(workspace / "README.md")}, cwd=str(workspace))
-    store.record_activity(design, "Read", {"file_path": str(workspace / "layout.png")}, cwd=str(workspace))
+    store.record_activity(build, "Read", {"file_path": "README.md"}, cwd=str(workspace))
+    store.record_activity(design, "Read", {"file_path": "layout.png"}, cwd=str(workspace))
     # Real transcript/session discovery formats, written as fixture data only.
     # No CLI, provider, peer bridge, or member session is started.
     project = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "visual-workspace"
@@ -87,6 +87,10 @@ def seed(folder, lang):
     from app import views
     from types import SimpleNamespace
     fixture_now = datetime.datetime(2026, 10, 29, 11, 2, tzinfo=datetime.timezone.utc).timestamp()
+    # record_activity stores numeric wall time separately from stores.now().
+    # These are historical fixture records, set before any client loads them.
+    with store.db() as db:
+        db.execute("UPDATE activity SET at = ?", (fixture_now - 120,))
     for path in (workspace / "README.md", workspace / "review.py", workspace / "layout.png", project / (lead + ".jsonl"), project / "visual-existing-session.jsonl"):
         os.utime(path, (fixture_now - 120, fixture_now - 120))
     views.time = SimpleNamespace(time=lambda: fixture_now, strptime=time.strptime, strftime=time.strftime, gmtime=time.gmtime)
