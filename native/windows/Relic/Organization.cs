@@ -11,16 +11,24 @@ public sealed partial class MainWindow
     {
         if (org.Length == 0) return;
         var o = snap["org"]; var members = snap.Rows("members"); var tasks = snap.Rows("tasks");
-        detail.Children.Add(Heading(o.Text("name"), 17));
-        var mode = Choice(detail, "org.view_mode", [("direct", T("org.mode_direct")), ("transparent", T("org.mode_transparent")), ("liaison", T("org.mode_liaison"))]); SetChoice(mode, viewMode);
-        mode.SelectionChanged += async (_, _) => { viewMode = Value(mode); SaveViewState(); if (viewMode == "liaison" && o.Text("secretary").Length > 0) await Run(() => Select(org, o.Text("secretary"))); else DrawDetail(); };
-        var purpose = Text(o.Text("purpose").Length > 0 ? o.Text("purpose") : T("org.no_purpose"), 13); purpose.MaxLines = 5; purpose.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(purpose, o.Text("purpose")); detail.Children.Add(purpose);
-        detail.Children.Add(Text(T(o.Text("kind") == "subgroup" ? "org.kind_subgroup" : "org.kind_formal") + " · " + T(o.Text("governance") == "peer" ? "org.gov_peer" : "org.gov_leader") + " · " + T("common.members", ("n", members.Count)), 12));
-        if (o.Flag("cabinet")) detail.Children.Add(Badge(T("org.cabinet_chip"), true));
-        if (o.Text("leader").Length > 0) detail.Children.Add(Text(T(o.Flag("cabinet") ? "org.secretary_general_chip" : "org.leader_chip", ("name", Display(o.Text("leader"))))));
-        if (o.Text("secretary").Length > 0) detail.Children.Add(QuietButton(T("org.secretary_chip", ("name", Display(o.Text("secretary")))), () => Select(org, o.Text("secretary"))));
+        var modes = new ActionRow { Spacing = 2 };
+        foreach (var (id, key) in new[] { ("direct", "org.mode_direct"), ("transparent", "org.mode_transparent"), ("liaison", "org.mode_liaison") })
+        {
+            var pick = new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton { Content = T(key), IsChecked = viewMode == id, Padding = new Thickness(5, 3, 5, 3), MinWidth = 0, MinHeight = 24, FontSize = 11, CornerRadius = new CornerRadius(5) };
+            ToolTipService.SetToolTip(pick, T("org.view_mode")); pick.Click += async (_, _) => { viewMode = id; SaveViewState(); if (id == "liaison" && o.Text("secretary").Length > 0) await Run(() => Select(org, o.Text("secretary"))); else DrawDetail(); }; modes.Children.Add(pick);
+        }
+        detail.Children.Add(TwoColumns(Quiet(T("org.heading"), 11), modes)); detail.Children.Add(Heading(o.Text("name"), 17));
+        var purpose = Text(o.Text("purpose").Length > 0 ? o.Text("purpose") : T("org.no_purpose"), 13); purpose.MaxLines = 3; purpose.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(purpose, T("org.click_expand"));
+        var purposeButton = QuietButton("", () => { purpose.MaxLines = purpose.MaxLines == 0 ? 3 : 0; return Task.CompletedTask; }); purposeButton.Content = purpose; purposeButton.HorizontalAlignment = HorizontalAlignment.Stretch; purposeButton.Padding = new Thickness(0); detail.Children.Add(purposeButton);
+        var metadata = new ActionRow { Spacing = 4 };
+        metadata.Children.Add(Badge(T(o.Text("kind") == "subgroup" ? "org.kind_subgroup" : "org.kind_formal"))); metadata.Children.Add(Badge(T(o.Text("governance") == "peer" ? "org.gov_peer" : "org.gov_leader"))); metadata.Children.Add(Badge(T("common.members", ("n", members.Count))));
+        if (o.Flag("cabinet")) metadata.Children.Add(Badge(T("org.cabinet_chip"), true));
+        if (o.Text("leader").Length > 0) metadata.Children.Add(Badge(T(o.Flag("cabinet") ? "org.secretary_general_chip" : "org.leader_chip", ("name", Display(o.Text("leader"))))));
+        if (o.Text("secretary").Length > 0) { var secretary = QuietButton("", () => Select(org, o.Text("secretary"))); secretary.Padding = new Thickness(0); secretary.Content = Badge(T("org.secretary_chip", ("name", Display(o.Text("secretary")))), true); metadata.Children.Add(secretary); }
+        detail.Children.Add(metadata);
         if (o.Text("status") is "closed" or "dissolved") detail.Children.Add(Text(T(o.Text("status") == "closed" ? "org.ended_closed" : "org.ended_dissolved")));
-        var wake = new ToggleSwitch { Header = T("org.auto_wake"), IsOn = o.Flag("auto_wake") }; detail.Children.Add(wake);
+        var wake = new ToggleSwitch { IsOn = o.Flag("auto_wake"), OnContent = "", OffContent = "", MinWidth = 42 }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(wake, T("org.auto_wake"));
+        var wakeRow = new Grid { ColumnSpacing = 8 }; wakeRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); wakeRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); wakeRow.Children.Add(wake); var wakeText = Text(T("org.auto_wake"), 12); Grid.SetColumn(wakeText, 1); wakeText.VerticalAlignment = VerticalAlignment.Center; wakeRow.Children.Add(wakeText); detail.Children.Add(wakeRow);
         wake.Toggled += async (_, _) => await Run(() => Post("/auto_wake", new { on = wake.IsOn }));
         detail.Children.Add(Heading(T("decision.title")));
         if (snap.Rows("decisions").Count == 0) detail.Children.Add(Quiet(T("decision.none")));
@@ -108,6 +116,7 @@ public sealed partial class MainWindow
         else if (kind == "task") { card.Children.Add(Text(T("decision.task_blocked", ("id", d.Text("id")), ("title", d.Text("title"))))); card.Children.Add(Text(T("decision.task_owner", ("name", who)))); card.Children.Add(Button(T("decision.view_task"), () => Details("tasks", taskId: d.Text("id")))); if (d.Text("member").Length > 0) card.Children.Add(Button(T("decision.ask", ("name", who)), () => Select(org, d.Text("member")))); }
         else if (kind == "wake") { card.Children.Add(Text(T("decision.wake_failed", ("name", who)))); card.Children.Add(Text(d.Text("error"))); card.Children.Add(Button(T("decision.open_chat"), () => Select(org, d.Text("member")))); }
         else card.Children.Add(Text(d.ToJsonString()));
+        InlineActions(card); if (card.Children.FirstOrDefault() is TextBlock title) title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         return Card(card, true);
     }
     private string MemberState(string state) => state is "starting" or "running" or "working" or "waiting" or "error" or "vacant" or "idle" or "active" ? T(state switch { "starting" => "state.starting", "running" => "state.running", "working" => "state.working", "waiting" => "state.waiting", "error" => "state.error", "vacant" => "state.vacant", "idle" => "state.idle", _ => "state.active" }) : state;

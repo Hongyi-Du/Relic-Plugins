@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Relic.Core;
+using System.Text.Json.Nodes;
 
 namespace Relic;
 
@@ -23,7 +24,7 @@ public sealed partial class MainWindow
     private SolidColorBrush Ink => Paint("1B1B1A", "ECEAE5");
     private SolidColorBrush Muted => Paint("8F8C86", "8A877F");
     private SolidColorBrush Line => Paint("ECEAE6", "2C2B29");
-    private SolidColorBrush Accent => Paint("C8643F");
+    private SolidColorBrush Accent => Paint(preferences.Text("accent") switch { "ink" => Dark ? "D9D6CF" : "3A3936", "indigo" => "5B61D6", "blue" => "2F6BD8", "rose" => "C4456C", "amber" => "B9821D", _ => "C8643F" });
     private TextBlock Quiet(string value, double size = 12) { var t = Text(value, size); t.Foreground = Muted; return t; }
     private TextBlock Ellipsis(string value, double size = 13)
     {
@@ -74,6 +75,8 @@ public sealed partial class MainWindow
         composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");
         menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918");
         editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
+        root.Resources["AccentTextFillColorPrimaryBrush"] = Accent; root.Resources["AccentFillColorDefaultBrush"] = Accent;
+        if (sendButton != null) sendButton.Background = Accent;
     }
     private void DrawPaneHeader()
     {
@@ -93,6 +96,34 @@ public sealed partial class MainWindow
         var row = new Grid { ColumnSpacing = 8 };
         row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.Children.Add(left); Grid.SetColumn((FrameworkElement)right, 1); row.Children.Add(right); return row;
+    }
+    private void InlineActions(StackPanel content)
+    {
+        var buttons = content.Children.OfType<Button>().ToArray(); if (buttons.Length == 0) return;
+        var row = new ActionRow(); foreach (var b in buttons) { content.Children.Remove(b); row.Children.Add(b); }
+        content.Children.Add(row);
+    }
+    private void SegmentedPreference(StackPanel target, string title, string field, params (string, string)[] options)
+    {
+        var controls = new ActionRow { Spacing = 2 }; var toggles = new List<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>();
+        foreach (var (value, label) in options)
+        {
+            var button = new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton { Content = label, IsChecked = preferences.Text(field) == value, Tag = value, FontSize = 12, MinWidth = 0, MinHeight = 28, Padding = new Thickness(8, 4, 8, 4), CornerRadius = new CornerRadius(6) };
+            button.Click += async (_, _) => await Run(async () => { foreach (var item in toggles) item.IsChecked = item == button; await SavePreferences(new JsonObject { [field] = value }); });
+            controls.Children.Add(button); toggles.Add(button);
+        }
+        var heading = Heading(T(title), 13); heading.VerticalAlignment = VerticalAlignment.Center;
+        target.Children.Add(new Border { Child = TwoColumns(heading, controls), Padding = new Thickness(0, 12, 0, 20), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line });
+    }
+    private void AccentPreference(StackPanel target)
+    {
+        var controls = new ActionRow { Spacing = 8 };
+        foreach (var (value, hex) in new[] { ("clay", "C8643F"), ("ink", "3A3936"), ("indigo", "5B61D6"), ("blue", "2F6BD8"), ("rose", "C4456C"), ("amber", "B9821D") })
+        {
+            var b = Button("", () => SavePreferences(new JsonObject { ["accent"] = value })); b.Width = b.Height = 28; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(14); b.Background = Paint(hex); b.BorderBrush = Ink; b.BorderThickness = new Thickness(preferences.Text("accent") == value ? 2 : 0);
+            AutomationProperties.SetName(b, T("settings.accent") + " " + value); ToolTipService.SetToolTip(b, T("settings.accent") + " " + value); controls.Children.Add(b);
+        }
+        target.Children.Add(new Border { Child = TwoColumns(Stack(Heading(T("settings.accent"), 13), Quiet(T("settings.accent_hint"))), controls), Padding = new Thickness(0, 12, 0, 20), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line });
     }
 }
 

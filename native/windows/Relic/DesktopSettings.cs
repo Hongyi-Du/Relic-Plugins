@@ -109,10 +109,10 @@ public sealed partial class MainWindow
                     break;
                 case "appearance":
                     content.Children.Add(Text(T("settings.appearance"), 20));
-                    PreferenceChoice(content, "settings.theme", "", "theme", ("system", T("common.theme_system")), ("light", T("common.theme_light")), ("dark", T("common.theme_dark")));
-                    PreferenceChoice(content, "settings.accent", "settings.accent_hint", "accent", ("clay", "clay"), ("ink", "ink"), ("indigo", "indigo"), ("blue", "blue"), ("rose", "rose"), ("amber", "amber"));
-                    PreferenceChoice(content, "settings.font_size", "", "font", ("small", T("common.size_small")), ("medium", T("common.size_medium")), ("large", T("common.size_large")));
-                    PreferenceChoice(content, "settings.density", "", "density", ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact")));
+                    SegmentedPreference(content, "settings.theme", "theme", ("system", T("common.theme_system")), ("light", T("common.theme_light")), ("dark", T("common.theme_dark")));
+                    AccentPreference(content);
+                    SegmentedPreference(content, "settings.font_size", "font", ("small", T("common.size_small")), ("medium", T("common.size_medium")), ("large", T("common.size_large")));
+                    SegmentedPreference(content, "settings.density", "density", ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact")));
                     break;
                 case "language":
                     content.Children.Add(Text(T("settings.language.title"), 20));

@@ -215,6 +215,7 @@ public sealed partial class MainWindow : Window
         SaveViewState();
         await Refresh();
         if (different && digestOpen) await LoadDigest(false);
+        ScrollToLatest();
     }
     private void DrawMenu() => BuildMenus();
     private async Task LoadPreferences()
@@ -226,6 +227,7 @@ public sealed partial class MainWindow : Window
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
+    private void ScrollToLatest() => DispatcherQueue.TryEnqueue(async () => { await Task.Delay(40); stream.UpdateLayout(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true); });
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {
@@ -259,7 +261,10 @@ public sealed partial class MainWindow : Window
     }
     private async Task Show(string title, UIElement content)
     {
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(content), CloseButtonText = T("common.close") };
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot };
+        var layout = new Grid { RowSpacing = 20 }; layout.RowDefinitions.Add(new() { Height = GridLength.Auto }); layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        layout.Children.Add(TwoColumns(Heading(title, 18), IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; })));
+        var scroll = Scroll(content); scroll.MaxHeight = Math.Max(320, root.ActualHeight - 180); Grid.SetRow(scroll, 1); layout.Children.Add(scroll); dialog.Content = layout;
         await Dialog(dialog);
     }
     private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null)
