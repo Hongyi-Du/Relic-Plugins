@@ -40,6 +40,8 @@ struct MainView: View {
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(.system(size: m.preferences["font"].text == "large" ? 16 : m.preferences["font"].text == "small" ? 12 : 14))
         .tint(accent(m.preferences["accent"].text))
+        .environment(\.locale, Locale(identifier: m.words.language))
+        .accessibilityLabel(m.t("page.titlebar"))
     }
 }
 
@@ -155,7 +157,9 @@ struct RightPane: View {
     var body: some View {
         VStack {
             Picker("", selection: $m.pane) {
-                Text(m.t("panel.overview")).tag("overview"); Text(m.t("panel.workspace")).tag("workspace"); Text(m.t("common.file")).tag("files")
+                Text(m.t("panel.overview")).tag("overview").help(m.t("appbar.pane_shortcut", ["pane": m.t("panel.overview"), "key": "⌥1"]))
+                Text(m.t("panel.workspace")).tag("workspace").help(m.t("appbar.pane_shortcut", ["pane": m.t("panel.workspace"), "key": "⌥2"]))
+                Text(m.t("common.file")).tag("files").help(m.t("appbar.pane_shortcut", ["pane": m.t("common.file"), "key": "⌥3"]))
                 if !m.threadID.isEmpty { Text(m.t("panel.thread")).tag("thread") }
             }.pickerStyle(.segmented)
             switch m.pane {

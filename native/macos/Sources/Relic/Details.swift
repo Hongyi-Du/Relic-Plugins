@@ -3,7 +3,6 @@ import RelicCore
 
 struct DetailsView: View {
     @EnvironmentObject var m: Model
-    @State private var filter = "open"
     var body: some View {
         VStack(alignment: .leading) {
             Text(m.snapshot["org"]["name"].text).font(.title2)
@@ -12,11 +11,11 @@ struct DetailsView: View {
             }.pickerStyle(.segmented)
             switch m.detailTab {
             case "tasks":
-                Picker(m.t("common.tasks"), selection: $filter) { Text(m.t("task.working")).tag("open"); Text(m.t("task.blocked")).tag("blocked"); Text(m.t("details.filter_done")).tag("done"); Text(m.t("common.all")).tag("all") }.pickerStyle(.segmented)
+                Picker(m.t("common.tasks"), selection: $m.detailFilter) { Text(m.t("task.working")).tag("open"); Text(m.t("task.blocked")).tag("blocked"); Text(m.t("details.filter_done")).tag("done"); Text(m.t("common.all")).tag("all") }.pickerStyle(.segmented)
                 ScrollView { VStack(alignment: .leading, spacing: 12) {
                     if m.snapshot["tasks"].rows.isEmpty { Text(m.t("details.no_tasks")) }
-                    Rows(Array(m.snapshot["tasks"].rows.filter { filter == "all" || (filter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == filter) }.reversed())) { TaskCard(task: $0) }
-                } }.onAppear { if !m.detailTask.isEmpty { filter = "all" } }
+                    Rows(Array(m.snapshot["tasks"].rows.filter { m.detailFilter == "all" || (m.detailFilter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == m.detailFilter) }.reversed())) { TaskCard(task: $0) }
+                } }
             case "protocols": ScrollView { ProtocolList() }
             case "docs": DocumentsView()
             default: TraceView()

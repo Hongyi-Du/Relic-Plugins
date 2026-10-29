@@ -96,6 +96,7 @@ public struct Words {
 }
 
 public enum Composer {
+    public static func sendsReturn(shift: Bool, composing: Bool, completing: Bool) -> Bool { !shift && !composing && !completing }
     public static func message(body: String, member: String, selected: [String], members: [Node], quote: String = "", replyTo: String = "") -> [String: Any] {
         let body = quote.isEmpty ? body : quote + "\n\n" + body
         if !replyTo.isEmpty { return ["body": body, "channel": member.isEmpty ? "group" : "private", "reply_to": Int(replyTo).map { $0 as Any } ?? replyTo] }

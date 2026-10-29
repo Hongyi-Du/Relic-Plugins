@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 import Foundation
 @testable import RelicCore
 
@@ -149,5 +150,33 @@ final class ContractTests: XCTestCase {
         var draft = ChatDraft(); draft.text = "你好"; draft.quote = "> Earlier"; draft.recipients = ["a", "b"]
         let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
         XCTAssertEqual(decoded, draft)
+    }
+    func testSendKeyPreservesIMECompletionAndNewline() {
+        XCTAssertTrue(Composer.sendsReturn(shift: false, composing: false, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: true, composing: false, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: false, composing: true, completing: false))
+        XCTAssertFalse(Composer.sendsReturn(shift: false, composing: false, completing: true))
+    }
+    func testParallelToolResultsPairWithOldestPendingCall() {
+        let rows = ToolActivity.pair([Node(["role": "tool_result", "text": "orphan"]), Node(["role": "tool_call", "tool": "mcp__plugin_relic_org__org_status", "text": #"{"command":"pwd"}"#]), Node(["role": "tool_call", "tool": "mcp__Read", "text": #"{"file_path":"/tmp/a"}"#]), Node(["role": "tool_result", "text": "first", "error": true]), Node(["role": "tool_result", "text": "second"])])
+        XCTAssertEqual(rows.count, 3); XCTAssertNil(rows[0].call)
+        XCTAssertEqual(rows[1].title, "Relic org_status"); XCTAssertEqual(rows[1].argument, "pwd"); XCTAssertEqual(rows[1].result?["text"].text, "first"); XCTAssertTrue(rows[1].failed)
+        XCTAssertEqual(rows[2].title, "Read"); XCTAssertEqual(rows[2].argument, "/tmp/a"); XCTAssertEqual(rows[2].result?["text"].text, "second")
+    }
+    func testChartParentCentersChildrenAndOrdersCabinetBeforeSubgroups() {
+        let graph = OrganizationLayout([Node(["id": "root", "status": "active"]), Node(["id": "sub", "parent": "root", "kind": "subgroup", "status": "active"]), Node(["id": "cab", "parent": "root", "cabinet": true, "status": "active"]), Node(["id": "formal", "parent": "root", "status": "active"])])
+        XCTAssertEqual(graph.nodes.map { $0["id"].text }, ["root", "cab", "formal", "sub"])
+        XCTAssertEqual(graph.centers["root"]!.x, (graph.centers["cab"]!.x + graph.centers["sub"]!.x) / 2, accuracy: 0.01)
+        XCTAssertLessThan(graph.centers["root"]!.y, graph.centers["formal"]!.y)
+        XCTAssertGreaterThan(graph.centers["formal"]!.x - graph.centers["cab"]!.x, OrganizationLayout.card.width)
+        XCTAssertEqual(graph.parents["cab"], "root")
+    }
+    func testChartCyclesOrphansAndFocusedBoundsStayReachable() {
+        let graph = OrganizationLayout([Node(["id": "a", "parent": "b"]), Node(["id": "b", "parent": "a"]), Node(["id": "orphan", "parent": "filtered"]), Node(["id": "self", "parent": "self"])])
+        XCTAssertEqual(Set(graph.nodes.map { $0["id"].text }), Set(["a", "b", "orphan", "self"]))
+        XCTAssertEqual(graph.nodes.count, 4); XCTAssertEqual(graph.parents.count, 1)
+        let focus = graph.bounds(focus: "orphan"), all = graph.bounds()
+        XCTAssertEqual(focus.width, OrganizationLayout.card.width); XCTAssertTrue(all.contains(focus))
+        XCTAssertEqual(OrganizationLayout([]).bounds().width, OrganizationLayout.card.width + 48)
     }
 }

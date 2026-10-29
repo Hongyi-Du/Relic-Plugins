@@ -39,6 +39,7 @@ import RelicCore
     @Published var detailTab = "trace"
     @Published var detailMember = ""
     @Published var detailTask = ""
+    @Published var detailFilter = "open"
     @Published var cardMember = ""
     @Published var memberMode = "app"
     @Published var editMember = ""
@@ -65,6 +66,8 @@ import RelicCore
     var client: Client?
     private let host = ServerHost()
     private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
+    private var plainTask: Task<Void, Never>?
+    private var plainQueue: Set<String> = []
     private var refreshing = false, pending = false, starting = false
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
@@ -113,12 +116,16 @@ import RelicCore
                 guard let client = self?.client else { return }
                 await client.events { [weak self] event in await self?.receive(event) }
             }
-        } catch { self.error = error.localizedDescription; client = nil; host.stop() }
+        } catch { self.error = error.localizedDescription; ready = false; client = nil; host.stop() }
     }
     func receive(_ event: Node) async {
         let type = event["type"].text
         if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
-        if type == "reconnect" { plainPending = []; if digestOpen { run { try await self.loadDigest(false) } } }
+        if type == "reconnect" {
+            let retry = Array(plainPending); plainPending = []
+            for id in retry { enqueuePlain(id) }
+            if digestOpen { run { try await self.loadDigest(false) } }
+        }
         if type == "prefs" {
             do { preferences = try await get("/api/prefs"); words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
             catch { self.error = error.localizedDescription }
@@ -145,7 +152,7 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); host.stop() }
+    func stop() { persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
     func schedule() {
         pending = true
         guard refreshTask == nil else { return }
@@ -162,7 +169,7 @@ import RelicCore
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
         copies = try await get("/api/cc")["items"].rows
         let unreadCopies = copies.filter { !$0["read"].flag }.count
-        if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text])) }
+        if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text]), org: copy["org"].text, member: "") }
         previousCopies = unreadCopies
         if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }
         if organization.isEmpty, let first = organizations.first { setSelection(ChatSelection(first["id"].text)) }
@@ -184,12 +191,13 @@ import RelicCore
         previousDecisions[organization] = ids
         for (chatKey, raw) in snap["chats"].object {
             let last = Node(raw)["last"], key = organization + "/" + chatKey
-            if let previous = previousMessages[key], previous != last["id"].text, last["from"].text != "human" { backgroundNotify(t("notify.new_messages")) }
+            if let previous = previousMessages[key], previous != last["id"].text, last["from"].text != "human" { backgroundNotify(t("notify.new_messages"), org: organization, member: chatKey.hasPrefix("member:") ? String(chatKey.dropFirst(7)) : "") }
             previousMessages[key] = last["id"].text
         }
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        plainTask?.cancel(); plainTask = nil; plainQueue = []
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
@@ -224,7 +232,10 @@ import RelicCore
         catch { throw RelicError.message(t("composer.send_failed", ["error": error.localizedDescription])) }
         if selected == selection {
             if draft == body { draft = "" }; if quote == quoted { quote = "" }; recipients = ["all"]; persistDraft()
-        } else if drafts[selected.key]?.text == body { drafts[selected.key] = ChatDraft() }
+        } else if drafts[selected.key]?.text == body {
+            drafts[selected.key] = ChatDraft()
+            if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
+        }
         try await refresh()
     }
     func savePreferences(_ changes: [String: Any]) async throws {
@@ -233,22 +244,30 @@ import RelicCore
     }
     func saveSettings(language: String, notify: Bool) async throws {
         try await savePreferences(["lang": Words.normalize(language), "notify": notify])
-        if notify { _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        if notify { try await authorizeNotifications() }
         try await refresh()
     }
-    func notify(_ message: String) {
-        let content = UNMutableNotificationContent(); content.title = "Relic"; content.body = message; content.userInfo = ["org": organization, "member": member]
+    func authorizeNotifications() async throws {
+        let allowed: Bool
+        do { allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        catch { throw RelicError.message(t("settings.notify_unsupported") + " " + error.localizedDescription) }
+        guard allowed else { throw RelicError.message(t("settings.notify_denied")) }
+    }
+    func notify(_ message: String, org: String? = nil, member: String? = nil) {
+        let content = UNMutableNotificationContent(); content.title = "Relic"; content.body = message; content.userInfo = ["org": org ?? organization, "member": member ?? self.member]
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
-    private func backgroundNotify(_ message: String) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message) } }
+    private func backgroundNotify(_ message: String, org: String? = nil, member: String? = nil) { if preferences["notify"].flag, NSApp != nil, !NSApp.isActive { notify(message, org: org, member: member) } }
     func openMemberForm(mode: String = "app", edit: String = "", secretary: Bool = false) { memberMode = mode; editMember = edit; newSecretary = secretary; sheet = .member }
     func openCard(_ name: String) { cardMember = name; sheet = .card }
-    func openDetails(_ tab: String, member: String = "", task: String = "") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; sheet = .details }
+    func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
     func toggleFold(_ id: String) { Tree.toggle(id, folded: &folded); defaults.set(Array(folded), forKey: "folded") }
-    func setQuote(_ body: String, from: String) {
-        var lines = body.components(separatedBy: "\n"); while lines.first?.hasPrefix(">") == true { lines.removeFirst() }
+    func setQuote(_ body: String, from: String, stripExisting: Bool = false) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines = trimmed.components(separatedBy: "\n"); if stripExisting { while lines.first?.hasPrefix(">") == true { lines.removeFirst() } }
         while lines.first?.isEmpty == true { lines.removeFirst() }; guard !lines.isEmpty else { return }
+        let text = lines.joined(separator: "\n"); lines = (text.count > 1200 ? String(text.prefix(1200)) + "…" : text).components(separatedBy: "\n")
         lines[0] = t("sel.quote_line", ["who": name(from), "text": lines[0]])
         quote = lines.map { "> " + $0 }.joined(separator: "\n"); persistDraft()
     }
@@ -277,6 +296,17 @@ import RelicCore
     func acceptPlain(_ items: Node, ids: [String]) {
         for (id, value) in items.object { plain[id] = Node(value) }
         for id in ids { plainPending.remove(id); if plain[id] == nil { plainFailed.insert(id) } }
+    }
+    func enqueuePlain(_ id: String) {
+        guard Int(id) != nil, plain[id] == nil, !plainPending.contains(id) else { return }; plainQueue.insert(id)
+        guard plainTask == nil else { return }
+        let selected = selection
+        plainTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            guard let self, !Task.isCancelled, self.selection == selected else { return }
+            let ids = Array(self.plainQueue).sorted { (Int($0) ?? 0) < (Int($1) ?? 0) }; self.plainQueue = []; self.plainTask = nil
+            do { try await self.requestPlain(ids) } catch { self.error = self.t("plain.failed", ["error": error.localizedDescription]) }
+        }
     }
     func requestPlain(_ ids: [String]) async throws {
         let ids = Array(ids.filter { Int($0) != nil && plain[$0] == nil && !plainPending.contains($0) }.prefix(200))

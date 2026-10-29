@@ -63,7 +63,7 @@ struct SettingsView: View {
             Toggle(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } }))
             Text(m.t("settings.desktop_notify_hint"))
             Text(m.t("settings.notify_test")).font(.caption)
-            Button(m.t("settings.notify_send_test")) { m.run { let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]); if allowed { m.notify(m.t("settings.notify_on")) } else { throw RelicError.message(m.t("settings.notify_denied")) } } }
+            Button(m.t("settings.notify_send_test")) { m.run { try await m.authorizeNotifications(); m.notify(m.t("settings.notify_on")) } }
         }
     }
     private var about: some View {

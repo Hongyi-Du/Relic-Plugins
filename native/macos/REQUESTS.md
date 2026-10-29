@@ -2,6 +2,26 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
+## Current shared-owner action (2026-10-29, after `fe453f6`)
+
+The macOS Release build, **30 tests**, and unsigned app packaging passed in
+https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40831000291/job/123304950300.
+Every reference HTTP route is implemented (the forbidden browser installer is
+already exempt). The remaining literal-key misses below are exclusively native
+platform substitutions. Please review and add per-platform justified exceptions
+in `native/parity-allowlist.json`, then update **all 23 screen rows and 214 function
+rows** in the macOS column of `docs/native-apps.md` from the implementation mapping
+in `STATUS.md`. These shared-file gates currently make parity fail even though the
+macOS build/tests/package succeed. The native screens still need real-Mac review;
+the table should distinguish implementation/CI from that human acceptance.
+
+The next commit restores exact reference Enter/Shift-Enter behavior, keeps IME
+composition safe, and retains Command/Control-Enter as additional send gestures.
+**No new send-shortcut i18n keys or exceptions are needed.**
+
+Resolved in shared commits through `184b381`: speech bundle metadata and native
+speech keys, per-platform CI reporting, and inventory corrections listed below.
+
 ## Native speech bundle metadata (required)
 
 The SwiftUI composer uses `SFSpeechRecognizer` and `AVAudioEngine`, only after the
@@ -68,10 +88,10 @@ requiring dead strings in Swift. The macOS alternatives are:
   explicit message/file copy buttons.
 * `appbar.menus`, `appmenu.edit`, `appmenu.view`, `appmenu.help`: native macOS menu
   groups replace the web toolbar's menu-popup scaffolding.
-* `shortcuts.send_newline`, `composer.send_title`: reference says Enter sends,
-  but the agreed native contract uses Command-Enter / Control-Enter. Please add
-  `native.send_shortcut` and `native.send_newline` and exempt these misleading
-  browser labels for macOS. Current code uses the shared `common.send` action.
+Notification authorization now handles both denial and UserNotifications service
+errors with shared `settings.notify_denied` / `settings.notify_unsupported` keys;
+no notification-key exception is required.
 
-All other missing vocabulary is being integrated into the actual matching
-controls, status formatting, accessibility labels, error and success states.
+All other vocabulary is integrated into matching controls, status formatting,
+accessibility labels, errors and success states. The Enter/Shift-Enter labels
+are used directly and require no exemption.

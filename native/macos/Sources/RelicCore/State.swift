@@ -106,7 +106,7 @@ public enum Timeline {
             items.append(Node(["type": "message", "from": from, "fromLabel": label, "to": [role == "user" ? name : "human"], "body": text, "at": step["at"].raw]))
         }
         flush()
-        if !member["embedded"].flag || steps.isEmpty { items += chat }
+        if !member["embedded"].flag || steps.isEmpty && live.isEmpty { items += chat }
         return items.enumerated().sorted { a, b in
             let first = date(a.element["at"]) ?? .distantPast, second = date(b.element["at"]) ?? .distantPast
             return first == second ? a.offset < b.offset : first < second

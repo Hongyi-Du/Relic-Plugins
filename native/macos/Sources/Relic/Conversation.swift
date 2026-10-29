@@ -104,19 +104,7 @@ struct ChatView: View {
                 if m.snapshot["org"]["status"].text == "closed" { Text(m.t("org.ended_closed")) }
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
                 Divider()
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 8 : 16) {
-                            if m.moreChat { Button(m.t("trace.load_older")) { m.run { try await m.loadOlder() } } }
-                            if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
-                            Rows(m.displayMessages) { MessageView(item: $0) }
-                            if !m.displayLiveItems.isEmpty { DisclosureGroup(m.t("live.turn_actions")) { Rows(m.displayLiveItems.filter { $0["type"].text != "assistant" }) { LiveItem(item: $0) } }; if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) } }
-                            if ["running", "working"].contains(m.liveStatus["state"].text) { Label(m.t("live.replying"), systemImage: "ellipsis") }
-                            Color.clear.frame(height: 1).id("end")
-                        }.padding(.vertical, 8)
-                    }.onChange(of: m.selection) { proxy.scrollTo("end", anchor: .bottom) }
-                    ComposerView { m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
-                }
+                ConversationStream()
             }
         }.padding(16)
     }
@@ -146,16 +134,61 @@ struct ChatView: View {
     }
 }
 
+private struct StreamBottom: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+struct ConversationStream: View {
+    @EnvironmentObject var m: Model
+    @State private var followsBottom = true
+    @State private var initialLoad = true
+    var body: some View {
+        ScrollViewReader { proxy in
+            VStack(spacing: 8) {
+                GeometryReader { viewport in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 8 : 16) {
+                            if m.moreChat { Button(m.t("trace.load_older")) { followsBottom = false; m.run { try await m.loadOlder() } } }
+                            if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
+                            Rows(m.displayMessages) { MessageView(item: $0) }
+                            if !m.displayLiveItems.isEmpty { LiveTurnView() }
+                            Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: end.frame(in: .named("conversation")).maxY) })
+                        }.padding(.vertical, 8)
+                    }.coordinateSpace(name: "conversation")
+                        .onPreferenceChange(StreamBottom.self) { followsBottom = $0 <= viewport.size.height + 90 }
+                }
+                ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }
+            }.onChange(of: m.selection) { initialLoad = true; followsBottom = true }
+                .onChange(of: m.revision) {
+                    if initialLoad || followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
+                }
+                .onAppear { proxy.scrollTo("end", anchor: .bottom) }
+        }
+    }
+}
+
 struct MessageView: View {
     @EnvironmentObject var m: Model
     let item: Node
     var inThread = false
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
-    private var wantsPlain: Bool { (m.plainMode && m.member.isEmpty || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
+    private var groupPlain: Bool { m.plainMode && m.member.isEmpty && !inThread }
+    private var wantsPlain: Bool { (groupPlain || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
     var body: some View {
         if item["type"].text == "notice" { Text(item["text"].text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         else if item["type"].text == "acts" {
-            DisclosureGroup(m.t("step.actions", ["n": String(item["steps"].rows.count)])) { Rows(item["steps"].rows) { StepView(step: $0, member: item["member"].text) } }
+            let actions = ToolActivity.pair(item["steps"].rows)
+            DisclosureGroup {
+                ForEach(Array(actions.enumerated()), id: \.offset) { _, row in ActivityRow(row: row, member: item["member"].text) }
+            } label: {
+                HStack {
+                    Text(m.t("step.actions", ["n": String(actions.count)]))
+                    Text(actions.compactMap { $0.call == nil ? nil : $0.title }.prefix(4).joined(separator: " · ")).lineLimit(1).foregroundStyle(.secondary)
+                    let failed = actions.filter(\.failed).count
+                    if failed > 0 { Text(m.t("step.failed", ["n": String(failed)])).foregroundStyle(.red) }
+                }
+            }
         } else {
             HStack(alignment: .top, spacing: 10) {
                 Button { if item["from"].text != "human" { m.openCard(item["from"].text) } } label: { Avatar(member: item["from"].text) }.buttonStyle(.plain)
@@ -176,13 +209,57 @@ struct MessageView: View {
                     }
                     if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": item["thread"]["last_at"].text])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
                     HStack {
-                        if item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } } }
-                        Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["from"].text) }
+                        if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
+                        Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
+            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
+        }
+    }
+}
+
+struct ActivityRow: View {
+    @EnvironmentObject var m: Model
+    let row: ToolActivity
+    let member: String
+    @State private var expanded = false
+    @State private var full: [String: Node] = [:]
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ForEach(Array([row.call, row.result].compactMap { $0 }.enumerated()), id: \.offset) { _, step in
+                Text((full[step["i"].text] ?? step)["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            }
+        } label: {
+            HStack { Text(row.call == nil ? m.t("common.result") : row.title).bold(); Text(row.argument).lineLimit(1); Spacer(); Text(m.clock((row.call ?? row.result ?? Node())["at"])).font(.caption) }
+        }.foregroundStyle(row.failed ? .red : .secondary).task(id: expanded) {
+            guard expanded else { return }
+            for step in [row.call, row.result].compactMap({ $0 }) where step["cut"].flag && !step["i"].isNull && full[step["i"].text] == nil {
+                if let result = try? await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) { full[step["i"].text] = result }
+            }
+        }
+    }
+}
+
+struct LiveTurnView: View {
+    @EnvironmentObject var m: Model
+    @State private var expanded = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if m.selectedMember["embedded"].flag, m.selectedMember["has_transcript"].flag, let prompt = m.displayLiveItems.first(where: { $0["type"].text == "prompt" }) {
+                HStack(alignment: .top) { Avatar(member: "human"); RichText(prompt["text"].text) }.environment(\.selectedAuthor, "human")
+            }
+            HStack(alignment: .top) {
+                Avatar(member: m.member)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack { Text(m.name(m.member)).bold(); Text(m.liveStatus["state"].text == "running" ? m.t("live.replying") : m.stateLabel(m.liveStatus["state"].text)).foregroundStyle(.secondary) }.font(.caption)
+                    let actions = m.displayLiveItems.filter { ["tool", "tool_call", "tool_result", "permission", "error"].contains($0["type"].text) }
+                    if !actions.isEmpty { DisclosureGroup(m.t("live.turn_actions"), isExpanded: $expanded) { Rows(actions) { LiveItem(item: $0) } } }
+                    if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) }
+                    else if m.liveStatus["state"].text == "running" { ProgressView().controlSize(.small) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.environment(\.selectedAuthor, m.member)
         }
     }
 }
@@ -211,7 +288,7 @@ struct LiveItem: View {
         if item["type"].text == "permission" { DecisionView(decision: Node(item.object.merging(["kind": "permission", "member": m.member]) { _, new in new })) }
         else if ["tool", "tool_call", "tool_result"].contains(item["type"].text) {
             DisclosureGroup(item["title"].text + " · " + m.t(item["status"].text == "pending" ? "live.pending" : item["status"].text == "completed" ? "task.done" : item["status"].text == "failed" ? "common.failed" : "task.working")) { Text(item["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-        } else { RichText(item["text"].text) }
+        } else { RichText(item["text"].text).foregroundStyle(item["type"].text == "error" ? .red : .primary) }
     }
 }
 
@@ -226,7 +303,7 @@ struct ComposerView: View {
                     Rows(m.members) { who in Toggle(who.display, isOn: Binding(get: { m.recipients.contains(who["name"].text) }, set: { on in m.recipients.removeAll { $0 == "all" || $0 == who["name"].text }; if on { m.recipients.append(who["name"].text) }; if m.recipients.isEmpty { m.recipients = ["all"] }; m.persistDraft() })) }
                 }.fixedSize()
             }
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting")); Spacer(); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.padding(8).background(.quaternary) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.caption).lineLimit(3).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.padding(8).background(.quaternary) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(minHeight: 70, maxHeight: 140).overlay(RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.3)))
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
@@ -246,11 +323,12 @@ struct ThreadView: View {
                 Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
                 if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
             } }
-            TextEditor(text: $m.threadDraft).frame(height: 100).accessibilityLabel(m.t("thread.reply_placeholder"))
+            MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 100).accessibilityLabel(m.t("thread.reply_placeholder"))
             if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.font(.caption) }
-            HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send")) { sending = true; m.run { defer { sending = false }; try await m.sendThread() } }.disabled(sending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send"), action: send).help(m.t("composer.send_title")).disabled(sending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }
+    private func send() { guard !sending else { return }; sending = true; m.run { defer { sending = false }; try await m.sendThread() } }
 }
 
 struct DigestCard: View {
@@ -265,7 +343,11 @@ struct DigestCard: View {
             }
             if m.digestPending { Text(m.t("digest.pending")) }
             if m.digest["text"].text.isEmpty { Text(m.t(m.digestPending ? "digest.reading" : "digest.none")) }
-            else { RichText(m.digest["text"].text); Text(m.t("digest.read", ["n": m.digest["count"].text, "when": m.digest["at"].text])).font(.caption) }
+            else {
+                RichText(m.digest["text"].text)
+                let newer = m.messages.filter { $0["id"].integer > m.digest["last_id"].integer }.count
+                Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(.caption)
+            }
         }.padding(10).background(.tint.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
     }
 }
