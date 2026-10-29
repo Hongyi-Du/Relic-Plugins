@@ -471,6 +471,12 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 
 ## Changes for the clients
 
+- 2026-10-29: validate.yml now cancels superseded checks per branch, matching native-apps.yml, so simultaneous push/pull_request runs do not keep two identical four-platform matrices queued. Tests still run on each latest branch/PR head.
+
+
+- 2026-10-29: Implemented the final REQUESTS.md bundle metadata: shared packaging copies native/macos/Resources/Relic.icns and sets CFBundleIconFile, CFBundleDevelopmentRegion=en, CFBundleLocalizations=[en, zh-Hans]. Shared native.episodes is Episode in both lists. Windows uses the unchanged reference PNG in an ICO container. native-install.md now distinguishes macOS Close Window (keep Dock/engine, reopen) from Quit (release owned engine), versus closing the Windows window.
+
+
 - 2026-10-29: Merged and reviewed native-macos 467fa95: verified credential renewal, quote-only sends, thread-send lock, speech stop and protocol payload/labels now match; their pending implementation rows are done. REQUESTS.md contains no new shared changes. Shared list templates still require macOS implementation and remain enforced by vocabulary CI.
 - 2026-10-29: CI also rejects browser controls and HTML/JavaScript rendering calls in native implementation sources. Windows history uses the existing before cursor and merges pages without losing older notices or updated read receipts; expanding the initial limit alone would stop at the server's bounded history window.
 

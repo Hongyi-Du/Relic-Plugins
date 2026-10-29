@@ -38,12 +38,15 @@ def assemble(root, build, platform, output, files):
         executable.chmod(0o755)
         engine = app / "Contents/Resources/engine"
         engine.mkdir(parents=True)
+        shutil.copy2(root / "native/macos/Resources/Relic.icns", app / "Contents/Resources/Relic.icns")
         locales = root / "plugins/relic/relic_core/locales"
         words = json.loads((locales / "en-US.json").read_text(encoding="utf-8"))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": "ai.hongyidu.relic", "CFBundleName": "Relic",
             "CFBundleDisplayName": "Relic", "CFBundleExecutable": "Relic",
             "CFBundlePackageType": "APPL", "CFBundleVersion": version.split("-")[0],
+            "CFBundleIconFile": "Relic.icns", "CFBundleDevelopmentRegion": "en",
+            "CFBundleLocalizations": ["en", "zh-Hans"],
             "CFBundleShortVersionString": version.split("-")[0],
             "LSMinimumSystemVersion": "14.0", "LSArchitecturePriority": ["arm64"],
             "NSHighResolutionCapable": True,

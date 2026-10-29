@@ -45,7 +45,7 @@ public sealed partial class MainWindow
             var protocols = snap.Rows("protocols").Where(p => p.Text("status") is "active" or "proposed").Concat(snap.Rows("inherited_protocols")).Concat(snap.Rows("replaced_protocols")).ToArray();
             if (protocols.Length == 0) detail.Children.Add(Text(T("org.no_protocols")));
             foreach (var p in protocols) detail.Children.Add(Button(p.Text("id") + " " + p.Text("title") + " · " + T(p.Text("strength") == "strong" ? "common.strong" : "common.weak") + "\n" + (p.Text("from").Length > 0 ? T("org.inherited_from", ("name", p.Text("from"))) : p.Text("status") == "proposed" ? T("org.protocol_voting", ("n", p.Text("votes"))) : T("org.protocol_used", ("n", p.Text("uses")))), () => Details("protocols")));
-            detail.Children.Add(Text("Episode", 18));
+            detail.Children.Add(Text(T("native.episodes"), 18));
             var episodes = snap.Rows("episodes"); if (episodes.Count == 0) detail.Children.Add(Text(T("org.no_episodes")));
             foreach (var e in episodes.Where(e => e.Text("status") == "open").Concat(episodes.Where(e => e.Text("status") == "closed").Reverse().Take(3)))
                 detail.Children.Add(Text(e.Text("id") + " " + e.Text("title") + " · " + T(e.Text("status") == "open" ? "task.working" : e.Text("outcome") switch { "success" => "org.episode_success", "partial" => "org.episode_partial", "cancelled" => "org.episode_cancelled", _ => "common.failed" }) + "\n" + T("org.episode_reflections", ("reflections", e.Text("reflections")), ("participants", e.Text("participants")))));

@@ -54,12 +54,12 @@ Opening via scripts/open_app.py or plugins/relic/scripts/relic_app.py now finds 
 ## Lifecycle / 退出行为
 
 The App starts its local engine without a console. When it owns that engine,
-closing the last window / quitting closes it and its App-managed sessions. If an
+closing the Windows window or choosing Quit on macOS closes it and its App-managed sessions. Closing the last macOS window keeps the Dock app and its engine running; click the Dock icon to reopen its window. If an
 authenticated engine was already running, it connects to it and leaves it running
 on exit. The running server is never restarted merely to open a native window.
 `RELIC_HOME` still selects the data directory. Default: `~/.relic`.
 
-应用启动自己管理的本地服务时不显示控制台；退出后清理自己启动的服务。
+应用启动自己管理的本地服务时不显示控制台。关闭 Windows 窗口或在 macOS 选择「退出」会清理自己的服务；macOS 只关闭窗口时保留 Dock 应用及其服务，点击 Dock 图标可重新打开窗口。
 若连接的是原先已运行的服务，退出时保留它。现有组织数据及核心功能继续由同一引擎管理。
 
 ## Build packages / 构建包

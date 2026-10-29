@@ -6,6 +6,7 @@
  "native.voice_hint": "使用 Windows 已安装的语音识别引擎听写。请在 Windows 设置中允许桌面应用访问麦克风。",
  "native.voice_language_missing": "请在 Windows 设置 \u003e 时间和语言中安装 {language} 的语音识别组件后重试。",
  "native.voice_system": "系统语音识别",
+ "native.episodes": "Episode",
  "native.protocol_strength": "协议强度",
  "native.protocol_rules": "可执行规则（JSON）",
  "native.protocol_rules_hint": "填写 Relic 协议使用的规则对象；检查规则须包含代码和示例。共享核心会在生效前验证。",

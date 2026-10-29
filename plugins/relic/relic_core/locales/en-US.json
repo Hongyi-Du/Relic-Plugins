@@ -6,6 +6,7 @@
  "native.voice_hint": "Dictation uses the installed Windows speech recognizer. Enable microphone access for desktop apps in Windows Settings.",
  "native.voice_language_missing": "Install the Windows speech-recognition language {language} in Settings \u003e Time \u0026 language, then try again.",
  "native.voice_system": "System speech recognition",
+ "native.episodes": "Episode",
  "native.protocol_strength": "Protocol strength",
  "native.protocol_rules": "Executable rules (JSON)",
  "native.protocol_rules_hint": "Enter the same rule objects used by Relic protocols, including code and examples for check rules. The shared engine validates them before activation.",
