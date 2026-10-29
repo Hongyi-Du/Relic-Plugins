@@ -217,23 +217,19 @@ class Runner(unittest.TestCase):
                          ["codex-url", "codex://threads/th-1"])
 
     def test_created_session_opens_for_the_person(self):
+        state = self.turn("alice", "Introduce yourself", new=True)
+        config = self.store.seat_config(self.oid, "alice")
+        # Test the explicit open action without ever starting a native terminal.
+        with mock.patch.object(runner.platform_support, "open_terminal") as terminal, \
+                mock.patch.object(runner.subprocess, "Popen") as launch, \
+                mock.patch.object(runner.shutil, "which", return_value="wt.exe"):
+            args = runner.open_session(config, state["session"], "claude-code", str(self.ws))
+        self.assertEqual(args[1:3], ["--resume", state["session"]])
         if sys.platform == "darwin":
-            state = self.turn("alice", "Introduce yourself", new=True)
-            config = self.store.seat_config(self.oid, "alice")
-            with mock.patch.object(runner.platform_support, "open_terminal") as terminal:
-                args = runner.open_session(config, state["session"], "claude-code", str(self.ws))
-            self.assertEqual(args[1:3], ["--resume", state["session"]])
             terminal.assert_called_once()
             self.assertEqual(terminal.call_args.args[:2], (args, str(self.ws)))
-            return
-        org = self.store.get(self.oid)
-        runner.start_turn(self.oid, "alice", runner.introduction(org, "alice"), new_session=True, open_after=True)
-        deadline = time.time() + 30
-        while len(self.calls("claude")) < 2:
-            self.assertLess(time.time(), deadline, "session was not opened")
-            time.sleep(0.1)
-        opened = self.calls("claude")[1]["args"]
-        self.assertEqual(opened[:2], ["--resume", runner.run_state(self.oid, "alice")["session"]])
+        else:
+            launch.assert_called_once()
 
     def test_each_harness_keeps_its_own_models(self):
         for config in ({"harness": "claude-code", "model": "gpt-6-sol"},

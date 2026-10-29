@@ -223,7 +223,8 @@ def main():
             session, reply, failed, approvals = run(store, org, a.member, config, prompt, a.new, cwd)
         state.update(status="failed" if failed else "done", session=session, reply=reply[-4000:], cwd=cwd, error=None,
                      approvals=approvals)
-        if a.open and not failed and harness != "chatgpt" and config.get("surface") != "gui":
+        if (a.open and not a.wake_from and not state.get("wake_hop") and not state.get("wake_from")
+                and not failed and harness != "chatgpt" and config.get("surface") != "gui"):
             harness = "codex" if session.startswith("codex:") else "claude-code"
             try:
                 runner.open_session(config, session.split(":", 1)[1] if harness == "codex" else session, harness, cwd)

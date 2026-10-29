@@ -29,7 +29,7 @@ from relic_core.store import data_home  # noqa: E402
 from relic_core import platform_support  # noqa: E402
 
 WINDOWS = os.name == "nt"
-NO_WINDOW = 0x08000000 if WINDOWS else 0
+NO_WINDOW = platform_support.creation_flags()
 
 
 def saved_info():
@@ -252,7 +252,7 @@ def open_window(url):
         try:
             subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              close_fds=True, start_new_session=not WINDOWS,
-                             creationflags=0x00000200 if WINDOWS else 0)
+                             creationflags=platform_support.creation_flags(0x00000200))
             return
         except OSError:
             pass  # the browser may have moved or been removed after discovery

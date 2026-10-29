@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import subprocess
+from .process import creation_flags
 import sys
 import tempfile
 import threading
@@ -46,7 +47,7 @@ DECISIONS = ("allow", "deny", "review")
 ON_ERROR = ("allow", "deny")
 ERRORS = ("timeout", "raised", "load", "invalid", "crashed", "unavailable", "tampered")
 WINDOWS = os.name == "nt"
-NO_WINDOW = 0x08000000 if WINDOWS else 0
+NO_WINDOW = creation_flags()
 
 # Runs in the child: read {"code", "call"} from stdin, load the code, call check(call) and write one JSON answer:
 # {"result": <what check returned>} or {"error": "load" | "raised" | "invalid", "detail": "..."}. What the program

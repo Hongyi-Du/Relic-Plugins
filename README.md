@@ -4,7 +4,7 @@
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
-**v0.7.0-beta.1 candidate (plugin 0.18.0-beta.1)** brings HaochenGu's macOS Apple silicon port together with
+**v0.7.1-beta.1 candidate (plugin 0.18.1-beta.1)** brings HaochenGu's macOS Apple silicon port together with
 v0.6.0. Relic is one product and one feature source: the Relic App and plugin for Claude Code and Codex, packaged for
 Windows and macOS. Both keep check programs, Copies to the person, rules on the reply that ends a turn, protocols
 issued by the person, sidebar subtree folding and the movable organization chart. The original macOS commits and
@@ -39,7 +39,7 @@ older store adds `activity.paths`; this automatic migration has no automatic dow
 to roll back. Then install from a permanent folder, run `/reload-plugins` in existing Claude Code sessions and restart
 Codex. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
 
-**macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.0-beta.1.tar.gz` (optional ZIP). Use native
+**macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.1-beta.1.tar.gz` (optional ZIP). Use native
 arm64 Python 3.11+ and Node.js 22+, extract it permanently, then run `bash install.command --host none --open`.
 The installer creates `~/Applications/Relic.app`; retain the extracted folder. The source installer is unsigned and
 not notarized; Intel/Rosetta are unsupported. See the [macOS guide](docs/macos.en.md) for host registration, desktop

@@ -1,6 +1,6 @@
 # Windows 安装说明
 
-本指南也适用于统一的 v0.7.0-beta.1 候选版（插件 0.18.0-beta.1）。可运行
+本指南也适用于统一的 v0.7.1-beta.1 候选版（插件 0.18.1-beta.1）。可运行
 `python -X utf8 scripts/package.py --platform windows --output dist` 构建。升级前备份数据：
 打开旧库会不可逆地添加 `activity.paths` 列，没有自动降级；回退需恢复升级前备份。
 v0.7.0 尚未发布 GitHub Release。

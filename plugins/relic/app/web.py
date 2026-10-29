@@ -867,7 +867,7 @@ def open_install_window(port):
     if exe:
         try:
             subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True)
+                             stderr=subprocess.DEVNULL, close_fds=True, creationflags=platform_support.creation_flags())
         except OSError:
             exe = None  # an application removed since discovery: try the default browser
     if not exe:
