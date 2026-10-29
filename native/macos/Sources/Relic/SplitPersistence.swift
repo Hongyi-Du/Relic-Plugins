@@ -16,6 +16,7 @@ struct SplitPersistence: NSViewRepresentable {
         private var hasPanel = false
         private var restoring = false
         private var queued = false
+        private var restoreAttempts = 0
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         func configure(_ model: Model) { self.model = model; schedule() }
         override func viewDidMoveToWindow() { schedule() }
@@ -37,7 +38,13 @@ struct SplitPersistence: NSViewRepresentable {
             }
             let key = model.pane == "files" ? "width.files" : "width.panel"
             let next = "\(model.sidebarOpen)/\(model.panelOpen)/\(Int(found.bounds.width))/" + key
-            guard signature != next, found.bounds.width > 0 else { return }
+            guard found.bounds.width > 0 else { return }
+            if signature != next { restoreAttempts = 0 }
+            let expectedPanel = model.defaults.double(forKey: key)
+            let panelWidth = expectedPanel > 0 ? expectedPanel : key == "width.files" ? 520 : 340
+            let panelDiffers = model.panelOpen && abs((found.subviews.last?.frame.width ?? 0) - min(740, max(280, panelWidth), max(280, found.bounds.width - (model.sidebarOpen ? 276 : 0) - 320))) > 1
+            guard signature != next || panelDiffers && restoreAttempts < 3 else { return }
+            restoreAttempts += 1
             signature = next; panelKey = key; hasSidebar = model.sidebarOpen; hasPanel = model.panelOpen
             restoring = true; defer { restoring = false }
             if let controller = found.delegate as? NSSplitViewController {
@@ -55,6 +62,7 @@ struct SplitPersistence: NSViewRepresentable {
                 let available = max(280, found.bounds.width - (hasSidebar ? 276 : 0) - 320)
                 found.setPosition(found.bounds.width - min(740, available, max(280, width)) - found.dividerThickness, ofDividerAt: found.subviews.count - 2)
             }
+            if VisualCapture.enabled { print("Split restoration \(restoreAttempts): target=\(panelWidth), actual=\(found.subviews.map { $0.frame.width }), bounds=\(found.bounds)") }
         }
         @objc private func resized() {
             guard !restoring, !signature.isEmpty, let model, let split, split.subviews.count >= 2 else { return }

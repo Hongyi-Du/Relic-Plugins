@@ -26,7 +26,7 @@ struct ActionMenu: View {
         Button { m.appMenu = nil; action() } label: {
             HStack(spacing: 10) {
                 Group { if check { ReferenceIcon(name: "check", size: 14, color: RelicStyle.accent) } else { Color.clear.frame(width: 14, height: 14) } }
-                Text(title).font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading)
+                Text(title).font(RelicStyle.font(13, weight: 400)).frame(maxWidth: .infinity, alignment: .leading)
                 if !shortcut.isEmpty { Text(shortcut).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted) }
             }.padding(.horizontal, 10).frame(height: 34.8).frame(maxWidth: .infinity, alignment: .leading)
         }.buttonStyle(QuietButtonStyle())

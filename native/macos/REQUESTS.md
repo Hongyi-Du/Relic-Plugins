@@ -4,6 +4,39 @@ The macOS session owns only `native/macos/**`. Please merge this branch regularl
 
 ## Amendment 4 — element extraction / strict machine gate (active)
 
+2026-10-29 restart update: d4a4e44 builds and passes 70 XCTest cases in
+40938288562. Full visual 40938288684 captures all 504 macOS cases, including
+1024x700 and the real-app compound-label integration assertion. The strict
+report still fails. Native fixes continue; no exception or tolerance change.
+
+The platform-specific reference request is resolved by e9488e1 and merged.
+The actual macOS reference font is PingFangSC-Regular/Semibold, including English;
+the native font configuration is being aligned to that existing CSS fallback.
+Please review these measurement-unit/coverage issues without treating them as
+exceptions or filtering any visible element:
+
+- Font weight: macOS reference `group` sidebar `Group chat` reports computed CSS
+  weight 550 but CDP's actual face is PingFangSC-Semibold. Native public font APIs
+  report the resolved face weight, not the requested CSS weight. Define separate
+  requested and resolved weight evidence, and compare equivalent quantities;
+  do not normalize away an actual face/axis difference. Native will retain both
+  production configuration and actual CoreText run evidence.
+- Truncation geometry: `en-US-dark-1440x900-group` reference sidebar preview has
+  a DOMRange width of 459.578125 even though its ellipsis box is about 140 px.
+  Native TextKit's actual truncated glyph bounds are about 140 px. Please audit
+  `bounds`, `visible_bounds`, and `text_bounds` so invisible characters beyond a
+  CSS ellipsis are not reported as painted glyphs. Retain raw DOM ranges.
+- Scrollbars are visible in both clients. Reference CSS specifies a 10 px track
+  and a 4 px painted thumb, but DOM extraction appears to omit scrollbar parts.
+  Please include real UA scrollbar paint and define canonical kinds for the
+  scrollbar and thumb. Native AXScrollBar/AXValueIndicator are retained as
+  explicit unresolved kinds until that common shape is defined.
+
+Shared Windows failure in 40938288684: en-US/light stopped at
+1280x800-settings-notify with COM E_FAIL in DrawConversation(), Conversation.cs
+line 209. Other three Windows shards and all Mac shards completed. Please fix
+on native-apps; this branch does not edit Windows files.
+
 Latest macOS implementation is b7e6962. It includes the shared 237f254/4db4aa6
 work, adopts RELIC_VISUAL_NOW and UTC only in CI, emits the version 1 schema,
 and renders the reference icon path assets through CoreGraphics. Actual path

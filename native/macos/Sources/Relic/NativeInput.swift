@@ -17,7 +17,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false; editor.isVerticallyResizable = true
         editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
-        editor.textContainerInset = NSSize(width: 6, height: 6); editor.font = .systemFont(ofSize: 14)
+        editor.textContainerInset = NSSize(width: 6, height: 6); editor.font = RelicStyle.nativeFont(14, weight: 400)
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
         scroll.documentView = editor; return scroll
@@ -124,8 +124,8 @@ private struct MentionSuggestions: View {
             ForEach(Array(members.enumerated()), id: \.offset) { index, member in
                 Button { choose(index) } label: {
                     HStack(spacing: 9) {
-                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(member["secretary"].flag ? RelicStyle.violet : RelicStyle.avatar(member["name"].text, background: false, dark: scheme == .dark)).background(member["secretary"].flag ? RelicStyle.violetSoft : RelicStyle.avatar(member["name"].text, background: true, dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 7))
-                        VStack(alignment: .leading, spacing: 2) { Text(member.display).font(.system(size: 13, weight: .medium)); Text(member["role"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                        Text(String(member.display.prefix(1))).font(RelicStyle.font(13, weight: 600)).frame(width: 28, height: 28).foregroundStyle(member["secretary"].flag ? RelicStyle.violet : RelicStyle.avatar(member["name"].text, background: false, dark: scheme == .dark)).background(member["secretary"].flag ? RelicStyle.violetSoft : RelicStyle.avatar(member["name"].text, background: true, dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 7))
+                        VStack(alignment: .leading, spacing: 2) { Text(member.display).font(RelicStyle.font(13, weight: 500)); Text(member["role"].text).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
                         Spacer(minLength: 0)
                     }.padding(7).frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(QuietButtonStyle(selected: index == selected)).help(member.display + " · " + member["role"].text)

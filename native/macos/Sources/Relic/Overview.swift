@@ -10,11 +10,11 @@ struct Overview: View {
         VStack(alignment: .leading, spacing: 0) {
             OverviewBlock {
                 HStack(spacing: 8) {
-                    Text(m.t("org.heading")).font(.system(size: 12)).foregroundStyle(RelicStyle.muted); Spacer(minLength: 0)
+                    Text(m.t("org.heading")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); Spacer(minLength: 0)
                     HStack(spacing: 2) {
                         ForEach(Choices.modes, id: \.0) { value, key in
                             Button { m.overviewMode = value } label: {
-                                Text(m.t(key)).font(.system(size: 12)).foregroundStyle(m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary)
+                                Text(m.t(key)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary)
                                     .padding(.horizontal, 9).frame(height: 23.2)
                                     .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6))
                             }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
@@ -22,9 +22,9 @@ struct Overview: View {
                     }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
                         .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
                 }
-                Text(org["name"].text).font(.system(size: 16, weight: .bold)).frame(minHeight: 21.6)
+                Text(org["name"].text).font(RelicStyle.font(16, weight: 700)).frame(minHeight: 21.6)
                 Text(org["purpose"].text.isEmpty ? m.t("org.no_purpose") : org["purpose"].text)
-                    .font(.system(size: 12.5)).foregroundStyle(RelicStyle.secondary).lineSpacing(5)
+                    .font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).lineSpacing(5)
                     .lineLimit(purposeOpen ? nil : 3).fixedSize(horizontal: false, vertical: true)
                     .help(m.t("org.click_expand")).onTapGesture { purposeOpen.toggle() }
                 FlowLayout {
@@ -36,11 +36,11 @@ struct Overview: View {
                     OverviewChip(text: m.t("common.members", ["n": String(m.members.count)]))
                     if !m.secretary.isEmpty { OverviewChip(text: m.t("org.secretary_chip", ["name": roleName(m.secretary, "common.secretary")]), tone: "sec") }
                 }
-                if !["", "active"].contains(org["status"].text) { Text(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved")).font(.system(size: 12)).foregroundStyle(RelicStyle.muted) }
+                if !["", "active"].contains(org["status"].text) { Text(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
                 Toggle(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } })).toggleStyle(OverviewToggleStyle())
             }
             OverviewBlock {
-                HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { Text(String(m.snapshot["decisions"].rows.count)).font(.system(size: 11, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).modifier(RecordedSurface(background: RelicStyle.accent, radius: 9, kind: "badge")) } }
+                HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { Text(String(m.snapshot["decisions"].rows.count)).font(RelicStyle.font(11, weight: 700)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).modifier(RecordedSurface(background: RelicStyle.accent, radius: 9, kind: "badge")) } }
                 if m.snapshot["decisions"].rows.isEmpty { empty("decision.none") }
                 Rows(m.snapshot["decisions"].rows) { DecisionView(decision: $0) }
             }
@@ -54,14 +54,14 @@ struct Overview: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "mode." + m.organization); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
     }
-    private func sectionTitle(_ key: String) -> some View { Text(m.t(key)).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2) }
-    private func empty(_ key: String) -> some View { Text(m.t(key)).font(.system(size: 12.5)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
+    private func sectionTitle(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2) }
+    private func empty(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
     private var currentWork: some View {
         let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
         return OverviewBlock {
             HStack { OverviewLink(text: m.t("org.current_work")) { m.openDetails("tasks", filter: "open") }; Spacer(); OverviewLink(text: m.t("org.done_count", ["n": String(done.count)])) { m.openDetails("tasks", filter: "done") } }
             if tasks.isEmpty { empty("org.no_tasks") }
-            else if open.isEmpty { Text(m.t("org.nothing_open", ["n": String(done.count)])).font(.system(size: 12.5)).foregroundStyle(RelicStyle.muted) }
+            else if open.isEmpty { Text(m.t("org.nothing_open", ["n": String(done.count)])).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted) }
             Rows(Array(open.prefix(8))) { overviewTask($0, report: false) }
             if open.count > 8 { OverviewLink(text: m.t("common.more_items", ["n": String(open.count - 8)]), icon: "") { m.openDetails("tasks", filter: "open") } }
             let reports = done.filter { !$0["report"].text.isEmpty }.sorted { $0["done_at"].text > $1["done_at"].text }
@@ -90,7 +90,7 @@ struct Overview: View {
     private var protocols: some View {
         let live = m.snapshot["protocols"].rows.filter { ["active", "proposed"].contains($0["status"].text) }
         return OverviewBlock {
-            HStack { OverviewLink(text: m.t("org.protocols")) { m.openDetails("protocols") }; Spacer(); Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(.system(size: 12)).foregroundStyle(RelicStyle.muted) }
+            HStack { OverviewLink(text: m.t("org.protocols")) { m.openDetails("protocols") }; Spacer(); Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
             if live.isEmpty && m.snapshot["inherited_protocols"].rows.isEmpty && m.snapshot["replaced_protocols"].rows.isEmpty { empty("org.no_protocols") }
             ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { kind in
                 Rows(kind == "protocols" ? live : m.snapshot[kind].rows) { p in
@@ -131,11 +131,11 @@ struct HierarchyView: View {
             ($0["id"].text == parent || $0["status"].text == "active" && (org["kind"].text == "subgroup" || $0["kind"].text != "subgroup"))
         }.map { ($0["id"].text, $0["name"].text) }
     }
-    private func note(_ value: String) -> some View { Text(value).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineSpacing(4.6).fixedSize(horizontal: false, vertical: true) }
+    private func note(_ value: String) -> some View { Text(value).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineSpacing(4.6).fixedSize(horizontal: false, vertical: true) }
     private func stats(_ child: Node) -> String { m.t("org.child_stats", ["decisions": child["decisions"].text, "blocked": child["blocked"].text, "working": child["working"].text]) }
     var body: some View {
         OverviewBlock {
-            HStack { Text(m.t("org.hierarchy")).font(.system(size: 12)).foregroundStyle(RelicStyle.muted); Spacer(); OverviewLink(text: m.t("chart.title")) { m.sheet = .chart } }
+            HStack { Text(m.t("org.hierarchy")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); Spacer(); OverviewLink(text: m.t("chart.title")) { m.sheet = .chart } }
             OverviewPicker(title: m.t("org.parent_label"), selection: Binding(get: { parent }, set: { value in m.run {
                 do { try await m.post(m.path("/parent"), ["parent": value.isEmpty ? NSNull() : value as Any]); try await m.refresh() }
                 catch { throw RelicError.message(m.t("org.parent_failed", ["error": error.localizedDescription])) }
@@ -175,7 +175,7 @@ struct HierarchyView: View {
     private func childRow(_ node: Node, subtitle: String) -> some View {
         Button { m.run { try await m.select(node["id"].text) } } label: {
             OverviewRow(title: node["name"].text, subtitle: subtitle) {
-                Text(String(node["name"].text.prefix(1)).uppercased()).font(.system(size: 11, weight: .bold)).frame(width: 22, height: 22)
+                Text(String(node["name"].text.prefix(1)).uppercased()).font(RelicStyle.font(11, weight: 700)).frame(width: 22, height: 22)
                     .foregroundStyle(RelicStyle.avatar(node["id"].text, background: false, dark: false))
                     .modifier(RecordedSurface(background: RelicStyle.avatar(node["id"].text, background: true, dark: false), radius: 6))
             } trailing: { Color.clear.frame(width: 0, height: 0) }
@@ -201,7 +201,7 @@ struct DecisionView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(m.decisionTitle(decision)).font(.system(size: 12.5, weight: .bold)).fixedSize(horizontal: false, vertical: true)
+            Text(m.decisionTitle(decision)).font(RelicStyle.font(12.5, weight: 700)).fixedSize(horizontal: false, vertical: true)
             switch decision["kind"].text {
             case "permission":
                 if !decision["detail"].text.isEmpty { Text(decision["detail"].text).foregroundStyle(RelicStyle.muted).lineLimit(1).help(decision["detail"].text) }
@@ -216,7 +216,7 @@ struct DecisionView: View {
                 FlowLayout { Button(m.t("decision.approve_redacted")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
             case "approval":
                 if !decision["reason"].text.isEmpty { Text(m.t("decision.reason", ["reason": decision["reason"].text])).fixedSize(horizontal: false, vertical: true) }
-                Text([m.shortWhen(decision["at"]), m.approvalNote(decision)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(RelicStyle.muted)
+                Text([m.shortWhen(decision["at"]), m.approvalNote(decision)].filter { !$0.isEmpty }.joined(separator: " · ")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted)
                 FlowLayout { Button(m.t("decision.approve")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
             case "wake":
                 Text(m.clippedDecisionError(decision["error"].text)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
@@ -229,7 +229,7 @@ struct DecisionView: View {
                 }
             default: Text(pretty(decision)).textSelection(.enabled)
             }
-        }.font(.system(size: 12.5)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 8)
+        }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 8)
             .modifier(RecordedSurface(background: RelicStyle.amberSoft, border: RelicStyle.amber.opacity(0.4), borderWidth: 1, radius: 10, kind: "card"))
             .disabled(sending)
     }
@@ -243,7 +243,7 @@ struct TaskCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(m.t("details.label_title") + task["title"].text)
                 if !task["created_by"].text.isEmpty { Text(m.t("details.label_created_by") + m.name(task["created_by"].text)) }
-                if !task["report"].text.isEmpty { VStack(alignment: .leading, spacing: 8) { HStack { Label(m.t("report.title"), systemImage: "checkmark").font(.system(size: 12, weight: .semibold)); Text(m.day(task["done_at"]) + " " + m.clock(task["done_at"])).font(.caption).foregroundStyle(RelicStyle.muted) }; RichText(task["report"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.green.opacity(0.3))) }
+                if !task["report"].text.isEmpty { VStack(alignment: .leading, spacing: 8) { HStack { Label(m.t("report.title"), systemImage: "checkmark").font(RelicStyle.font(12, weight: 600)); Text(m.day(task["done_at"]) + " " + m.clock(task["done_at"])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }; RichText(task["report"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.green.opacity(0.3))) }
                 if !task["at"].text.isEmpty { Text(m.t("details.updated", ["when": m.day(task["at"]) + " " + m.clock(task["at"])])) }
                 Text(m.t("details.label_evidence")).bold()
                 if task["evidence"].rows.isEmpty { Text(m.t("details.no_evidence")) }
@@ -252,9 +252,9 @@ struct TaskCard: View {
             }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             VStack(alignment: .leading) {
-                HStack(alignment: .top) { Text(task["id"].text + " " + task["title"].text).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 4); SmallBadge(text: m.taskLabel(task["status"].text), color: task["status"].text == "blocked" ? RelicStyle.amber : task["status"].text == "done" ? RelicStyle.green : RelicStyle.violet) }
-                Text((task["owner"].text.isEmpty ? m.t(m.sheet == .details ? "details.no_owner" : "org.no_owner") : m.name(task["owner"].text)) + " · " + m.taskLabel(task["status"].text)).font(.caption).foregroundStyle(.secondary)
-                if !task["report"].text.isEmpty { Text(m.t("details.has_report")).font(.caption).help(m.t("org.report")) }
+                HStack(alignment: .top) { Text(task["id"].text + " " + task["title"].text).font(RelicStyle.font(13, weight: 600)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 4); SmallBadge(text: m.taskLabel(task["status"].text), color: task["status"].text == "blocked" ? RelicStyle.amber : task["status"].text == "done" ? RelicStyle.green : RelicStyle.violet) }
+                Text((task["owner"].text.isEmpty ? m.t(m.sheet == .details ? "details.no_owner" : "org.no_owner") : m.name(task["owner"].text)) + " · " + m.taskLabel(task["status"].text)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary)
+                if !task["report"].text.isEmpty { Text(m.t("details.has_report")).font(RelicStyle.font(12, weight: 400)).help(m.t("org.report")) }
             }
         }.relicCard()
     }
@@ -292,24 +292,24 @@ struct ProtocolCard: View {
                 if !p["retire_target"].text.isEmpty { Text(m.t("details.label_retires") + p["retire_target"].text) }
                 if !p["trigger"].text.isEmpty { Text(m.t("details.label_applies") + p["trigger"].text) }
                 RichText(p["guidance"].text)
-                if !p["summary_for_person"].text.isEmpty { VStack(alignment: .leading, spacing: 5) { Text(m.t("details.label_summary")).font(.caption).foregroundStyle(RelicStyle.muted); RichText(p["summary_for_person"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
+                if !p["summary_for_person"].text.isEmpty { VStack(alignment: .leading, spacing: 5) { Text(m.t("details.label_summary")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); RichText(p["summary_for_person"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
                 if !p["rules"].rows.isEmpty {
                     let metadata = p["rules"].rows.map { rule in rule["effect"].text == "check" ? rule.object.filter { !["code", "examples", "code_sha256"].contains($0.key) } : rule.object }
                     Text(pretty(Node(metadata))).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8))
                 }
                 RulesView(rules: p["rules"].rows)
-                if p["rules"].rows.contains(where: { $0["effect"].text == "check" }) { Text(m.t("org.protocol_check")).font(.caption) }
+                if p["rules"].rows.contains(where: { $0["effect"].text == "check" }) { Text(m.t("org.protocol_check")).font(RelicStyle.font(12, weight: 400)) }
                 if p["status"].text == "active" { Text(m.t("org.protocol_used", ["n": p["uses"].text])) }
                 if p["status"].text == "proposed" { Text(m.t("org.protocol_voting", ["n": p["votes"].text])) }
                 if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
-                Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
+                Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(RelicStyle.font(12, weight: 400))
             }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(RelicStyle.font(13, weight: 600)).fixedSize(horizontal: false, vertical: true)
                 if !expanded {
                     if !p["issued_by"].isNull { SmallBadge(text: m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text]), color: RelicStyle.violet) }
-                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(.caption).foregroundStyle(RelicStyle.muted) }
+                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
                 }
             }
         }.relicCard().onAppear { expanded = m.sheet == .details }

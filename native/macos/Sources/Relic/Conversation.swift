@@ -16,7 +16,7 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else { Text(String(m.name(member).prefix(1))).font(.system(size: size * 0.43, weight: .semibold)).frame(maxWidth: .infinity, maxHeight: .infinity)
+            else { Text(String(m.name(member).prefix(1))).font(RelicStyle.font(size * 0.43, weight: 600)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundStyle(member == "human" ? RelicStyle.background : secretary ? RelicStyle.violet : RelicStyle.avatar(member, background: false, dark: scheme == .dark))
                 .background(member == "human" ? RelicStyle.ink : secretary ? RelicStyle.violetSoft : RelicStyle.avatar(member, background: true, dark: scheme == .dark)) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.25))
@@ -94,16 +94,16 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
                 VStack(spacing: 6) {
-                    Text(m.t("chat.no_orgs")).font(.system(size: 18, weight: .semibold))
-                    Text(m.t("chat.no_orgs_hint")).font(.system(size: 14)).foregroundStyle(RelicStyle.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    Text(m.t("chat.no_orgs")).font(RelicStyle.font(18, weight: 600))
+                    Text(m.t("chat.no_orgs_hint")).font(RelicStyle.font(14, weight: 400)).foregroundStyle(RelicStyle.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 }.padding(30).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7)
             } else {
                 header.measuredRegion("conversation")
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty {
-                    Text(m.banner(m.selectedMember)).font(.caption).padding(8).background(.quaternary.opacity(0.4))
+                    Text(m.banner(m.selectedMember)).font(RelicStyle.font(12, weight: 400)).padding(8).background(.quaternary.opacity(0.4))
                     Rows(m.snapshot["decisions"].rows.filter { $0["member"].text == m.member }) { DecisionView(decision: $0) }
-                    if !m.selectedMember["detail"].text.isEmpty { Text(m.selectedMember["detail"].text).font(.caption).foregroundStyle(.secondary) }
+                    if !m.selectedMember["detail"].text.isEmpty { Text(m.selectedMember["detail"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary) }
                 }
                 if m.snapshot["org"]["status"].text == "closed" { Text(m.t("org.ended_closed")) }
                 if m.snapshot["org"]["status"].text == "dissolved" { Text(m.t("org.ended_dissolved")) }
@@ -118,15 +118,15 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
-                    Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1).help(title)
-                    if m.member.isEmpty { Text(m.t("common.members", ["n": String(m.members.count)])).font(.system(size: 15)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                    Text(title).font(RelicStyle.font(15, weight: 600)).lineLimit(1).help(title)
+                    if m.member.isEmpty { Text(m.t("common.members", ["n": String(m.members.count)])).font(RelicStyle.font(15, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
                     else {
                         if !m.selectedMember["display"].text.isEmpty && m.selectedMember["display"].text != m.member { Text(m.member).font(.system(size: 13.8, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
                         if m.selectedMember["leader"].flag { SmallBadge(text: m.t("common.leader"), color: RelicStyle.accent) }
                     }
                 }.frame(height: 19.5, alignment: .leading)
                 let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : [m.snapshot["org"]["name"].text, m.selectedMember["harness_label"].text, m.selectedMember["surface_label"].text, m.selectedMember["model"].text, m.stateLabel(m.selectedMember["state"].text)].filter { !$0.isEmpty }.joined(separator: " · ")
-                Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta).frame(height: 16.8, alignment: .leading)
+                Text(meta).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta).frame(height: 16.8, alignment: .leading)
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 2) {
             if m.member.isEmpty {
@@ -211,7 +211,7 @@ struct MessageView: View {
         return m.t("msg.to", ["names": !everyone.isEmpty && everyone.allSatisfy(recipients.contains) ? m.t("msg.everyone") : m.list(item["to"].rows.map { m.name($0.text) })])
     }
     var body: some View {
-        if item["type"].text == "notice" { Text(item["text"].text).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 4).background(RelicStyle.sidebar, in: Capsule()).frame(maxWidth: .infinity).padding(.vertical, 6) }
+        if item["type"].text == "notice" { Text(item["text"].text).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 4).background(RelicStyle.sidebar, in: Capsule()).frame(maxWidth: .infinity).padding(.vertical, 6) }
         else if item["type"].text == "acts" {
             let actions = ToolActivity.pair(item["steps"].rows)
             DisclosureGroup {
@@ -233,29 +233,29 @@ struct MessageView: View {
                         Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold().lineLimit(1)
                         if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
                         Text(m.clock(item["at"])).foregroundStyle(RelicStyle.muted).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
-                    }.font(.system(size: 12))
+                    }.font(RelicStyle.font(12, weight: 400))
                     VStack(alignment: .leading, spacing: 6) {
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
-                    else if wantsPlain, let plain = m.plain[item["id"].text] { Label(m.t("common.plain_words"), systemImage: "sparkles").font(.system(size: 11)).foregroundStyle(RelicStyle.violet); RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
+                    else if wantsPlain, let plain = m.plain[item["id"].text] { Label(m.t("common.plain_words"), systemImage: "sparkles").font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.violet); RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
                     else { RichText(bodyText) }
                     if wantsPlain && m.plain[item["id"].text] == nil {
                         if m.plainFailed.contains(item["id"].text) { Button(m.t("plain.retry")) { m.run { try await m.requestPlain([item["id"].text]) } } }
-                        else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(.caption) }
+                        else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(RelicStyle.font(12, weight: 400)) }
                     }
                     }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
                     if item["from"].text == "human" && !item["read_by"].isNull {
                         DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
-                            Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(.caption)
-                        }.font(.caption)
+                            Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(RelicStyle.font(12, weight: 400))
+                        }.font(RelicStyle.font(12, weight: 400))
                     }
-                    if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": m.clock(item["thread"]["last_at"])])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
+                    if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": m.clock(item["thread"]["last_at"])])) { m.run { try await m.openThread(item["id"].text) } }.font(RelicStyle.font(12, weight: 400)) }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading).overlay(alignment: .topTrailing) {
                     if hovering { HStack {
                         if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
                         Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
-                    }.buttonStyle(.link).font(.system(size: 11)).padding(5).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(RelicStyle.line)).offset(y: -14) }
+                    }.buttonStyle(.link).font(RelicStyle.font(11, weight: 400)).padding(5).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(RelicStyle.line)).offset(y: -14) }
                 }
                 if mine { Avatar(member: "human", size: 36) }
                 else { Spacer(minLength: 16) }
@@ -276,7 +276,7 @@ struct ActivityRow: View {
                 Text((full[step["i"].text] ?? step)["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
             }
         } label: {
-            HStack { Text(row.call == nil ? m.t("common.result") : row.title).bold(); Text(row.argument).lineLimit(1); Spacer(); Text(m.clock((row.call ?? row.result ?? Node())["at"])).font(.caption) }
+            HStack { Text(row.call == nil ? m.t("common.result") : row.title).bold(); Text(row.argument).lineLimit(1); Spacer(); Text(m.clock((row.call ?? row.result ?? Node())["at"])).font(RelicStyle.font(12, weight: 400)) }
         }.foregroundStyle(row.failed ? .red : .secondary).task(id: expanded) {
             guard expanded else { return }
             for step in [row.call, row.result].compactMap({ $0 }) where step["cut"].flag && !step["i"].isNull && full[step["i"].text] == nil {
@@ -297,7 +297,7 @@ struct LiveTurnView: View {
             HStack(alignment: .top) {
                 Avatar(member: m.member)
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text(m.name(m.member)).bold(); Text(m.liveStatus["state"].text == "running" ? m.t("live.replying") : m.stateLabel(m.liveStatus["state"].text)).foregroundStyle(.secondary) }.font(.caption)
+                    HStack { Text(m.name(m.member)).bold(); Text(m.liveStatus["state"].text == "running" ? m.t("live.replying") : m.stateLabel(m.liveStatus["state"].text)).foregroundStyle(.secondary) }.font(RelicStyle.font(12, weight: 400))
                     let actions = m.displayLiveItems.filter { ["tool", "tool_call", "tool_result", "permission", "error"].contains($0["type"].text) }
                     if !actions.isEmpty { DisclosureGroup(m.t("live.turn_actions"), isExpanded: $expanded) { Rows(actions) { LiveItem(item: $0) } } }
                     if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) }
@@ -329,10 +329,10 @@ struct StepView: View {
         } label: {
             HStack(spacing: 6) {
                 Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.muted).frame(width: 6, height: 6)
-                Text(title).font(.system(size: 12, weight: .semibold)).fixedSize()
+                Text(title).font(RelicStyle.font(12, weight: 600)).fixedSize()
                 Text(summary).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(step["text"].text)
                 Spacer(minLength: 4)
-                Text(m.clock(step["at"])).font(.system(size: 10.5)).foregroundStyle(RelicStyle.muted).fixedSize().help(step["at"].text)
+                Text(m.clock(step["at"])).font(RelicStyle.font(10.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize().help(step["at"].text)
             }
         }.padding(.vertical, 3).onAppear { expanded = ["assistant", "user"].contains(step["role"].text) }
     }
@@ -355,7 +355,7 @@ struct PermissionCard: View {
     @State private var sending = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) { ReferenceIcon(name: "bell", size: 14, color: RelicStyle.amber); Text(m.t("perm.ask")).font(.system(size: 12, weight: .bold)) }.foregroundStyle(RelicStyle.amber)
+            HStack(spacing: 6) { ReferenceIcon(name: "bell", size: 14, color: RelicStyle.amber); Text(m.t("perm.ask")).font(RelicStyle.font(12, weight: 700)) }.foregroundStyle(RelicStyle.amber)
             Text(item["title"].text).fixedSize(horizontal: false, vertical: true)
             FlowLayout {
                 Rows(item["options"].rows) { option in
@@ -375,18 +375,18 @@ struct ComposerView: View {
     let send: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(RelicStyle.font(12, weight: 400)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
+                .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
             HStack {
             if m.member.isEmpty {
                 Button { m.recipientPicker.toggle() } label: {
-                    HStack(spacing: 4) { Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).lineLimit(1); Image(systemName: "chevron.down").font(.system(size: 9)) }
-                }.buttonStyle(.plain).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
+                    HStack(spacing: 4) { Text(m.t("composer.send_to", ["to": m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) })])).lineLimit(1); Image(systemName: "chevron.down").font(RelicStyle.font(9, weight: 400)) }
+                }.buttonStyle(.plain).font(RelicStyle.font(12, weight: 400)).padding(.horizontal, 8).padding(.vertical, 4).background(RelicStyle.hover, in: Capsule())
                     .popover(isPresented: $m.recipientPicker, arrowEdge: .top) { RecipientPicker().environmentObject(m) }
             }
-                Spacer(minLength: 4); VoiceButton(text: $m.draft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(.system(size: 12, weight: .semibold)) }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
+                Spacer(minLength: 4); VoiceButton(text: $m.draft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up").font(RelicStyle.font(12, weight: 600)) }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
         }.padding(12).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(RelicStyle.border, lineWidth: 1)).padding(.horizontal, 20).padding(.bottom, 16).onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
@@ -395,16 +395,16 @@ struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(.system(size: 13, weight: .semibold)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "x") { m.closeThread() } }
+            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(RelicStyle.font(13, weight: 600)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "x") { m.closeThread() } }
             ScrollView { LazyVStack(alignment: .leading, spacing: 16) {
                 if !m.threadData["root"].isNull { MessageView(item: m.threadData["root"], inThread: true) }
                 Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
                 if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
             } }
             VStack(alignment: .leading, spacing: 6) {
-                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(.caption) }
+                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(RelicStyle.font(12, weight: 400)) }
                 MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
-                    .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
+                    .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
                 HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
             }.padding(10).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(RelicStyle.border))
         }.padding(14).onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
@@ -419,10 +419,10 @@ struct DigestCard: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(RelicStyle.violet)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(m.t("digest.title")).font(.system(size: 13, weight: .semibold))
+                    Text(m.t("digest.title")).font(RelicStyle.font(13, weight: 600))
                     if !m.digest["text"].text.isEmpty {
                         let newer = m.messages.filter { $0["id"].integer > m.digest["last_id"].integer }.count
-                        Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
+                        Text(m.t(newer > 0 ? "digest.read_newer" : "digest.read", ["n": m.digest["count"].text, "when": m.ago(m.digest["at"]), "newer": String(newer)])).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 4)
@@ -435,6 +435,6 @@ struct DigestCard: View {
             else {
                 RichText(m.digest["text"].text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.font(.system(size: 12)).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.violet.opacity(0.3))).padding(.horizontal, 20).padding(.vertical, 10)
+        }.font(RelicStyle.font(12, weight: 400)).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.violet.opacity(0.3))).padding(.horizontal, 20).padding(.vertical, 10)
     }
 }
