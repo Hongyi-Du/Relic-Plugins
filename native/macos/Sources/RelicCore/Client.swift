@@ -66,6 +66,7 @@ public final class Client {
             if (response as? HTTPURLResponse)?.statusCode == 403, error == "missing token", await refreshRecord() { return try await callOnce(path, body: body) }
             return try decode(data, response)
         } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             if body == nil, !Task.isCancelled, await refreshRecord() { return try await callOnce(path, body: nil) }
             throw error
         }

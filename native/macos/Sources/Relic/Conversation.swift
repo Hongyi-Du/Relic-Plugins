@@ -62,9 +62,11 @@ struct RichText: View {
                 HStack(alignment: .top) { Text(item.marker); inline(item.text) }.padding(.leading, item.indented ? 20 : 0)
             } }
         case "table":
-            ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+            ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in inline(index == 0 ? "**" + cell + "**" : cell).padding(4) }
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        Text((try? AttributedString(markdown: index == 0 ? "**" + cell + "**" : cell)) ?? AttributedString(cell)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).frame(minWidth: 70, alignment: .leading).padding(8).background(index == 0 ? RelicStyle.hover : RelicStyle.card).overlay(Rectangle().stroke(RelicStyle.border, lineWidth: 0.5))
+                    }
                 } }
             }.padding(4) }
         default: inline(block.text)
@@ -168,6 +170,11 @@ struct MessageView: View {
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
     private var groupPlain: Bool { m.plainMode && m.member.isEmpty && !inThread }
     private var wantsPlain: Bool { (groupPlain || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
+    private var recipientLabel: String {
+        let recipients = Set(item["to"].rows.map(\.text))
+        let everyone = m.members.map { $0["name"].text }.filter { $0 != item["from"].text }
+        return m.t("msg.to", ["names": !everyone.isEmpty && everyone.allSatisfy(recipients.contains) ? m.t("msg.everyone") : m.list(item["to"].rows.map { m.name($0.text) })])
+    }
     var body: some View {
         if item["type"].text == "notice" { Text(item["text"].text).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 4).background(RelicStyle.sidebar, in: Capsule()).frame(maxWidth: .infinity).padding(.vertical, 6) }
         else if item["type"].text == "acts" {
@@ -187,8 +194,11 @@ struct MessageView: View {
                 if !mine { Button { m.openCard(item["from"].text) } label: { Avatar(member: item["from"].text, size: 36) }.buttonStyle(.plain) }
                 else { Spacer(minLength: 16) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 5) {
-                    HStack { Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold(); Text(m.day(item["at"]) + " " + m.clock(item["at"])).foregroundStyle(.secondary) }.font(.caption)
-                    if !item["to"].rows.isEmpty { Text(m.t("msg.to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])).font(.caption).foregroundStyle(.secondary) }
+                    HStack(spacing: 6) {
+                        Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold().lineLimit(1)
+                        if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
+                        Text(m.clock(item["at"])).foregroundStyle(RelicStyle.muted).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
+                    }.font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 6) {
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
                     else if wantsPlain, let plain = m.plain[item["id"].text] { RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
@@ -204,13 +214,14 @@ struct MessageView: View {
                         }.font(.caption)
                     }
                     if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": m.clock(item["thread"]["last_at"])])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
-                    HStack {
+                }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading).overlay(alignment: .topTrailing) {
+                    if hovering { HStack {
                         if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
                         Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
-                    }.buttonStyle(.link).font(.system(size: 11)).opacity(hovering ? 1 : 0).accessibilityHidden(!hovering)
-                }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
+                    }.buttonStyle(.link).font(.system(size: 11)).padding(5).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(RelicStyle.line)).offset(y: -14) }
+                }
                 if mine { Avatar(member: "human", size: 36) }
                 else { Spacer(minLength: 16) }
             }.onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }

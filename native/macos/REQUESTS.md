@@ -22,17 +22,45 @@ and the vocabulary XCTest rejects missing source keys in either list.
 The original requests below are addressed by the shared harness; no different
 manifest format is now requested. Further shared failures will be listed here.
 
-### Active shared capture failure — full matrix `40866009267`
+### Shared capture failure resolved in `536d5d9`; native mention fix `44486d8`
 
 Reference job `123420849114` fails at `member-card` before the remaining scenes:
 `Page.evaluate: TypeError: Cannot read properties of null (reading 'getBoundingClientRect')`,
 `openCard(app.js:1990)`, called by `reference-hook.js` using
 `document.querySelector('#head') || document.querySelector('#chat')` (both null).
 Please anchor the existing production card to the actual chat header/member control,
-with a verified non-null element. No production markup replacement is requested.
+with a verified non-null element (`index.html:30` defines `#chat-head`, not `#head`).
+No production markup replacement is requested.
 The macOS/Windows full captures continue in that run; the seven-scene smoke comparison
 passed at `40865319424`. Native apps build/tests passed at `40866008575` (51 macOS tests).
 The full 504-case comparison must be rerun after this shared fix.
+
+`536d5d9` is merged; the real `#chat-head` anchor is fixed and the reference now
+runs on the Windows runner against its fixture server. macOS independently
+confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote`).
+`44486d8` replaces the blocking OS spell-completion service with a native
+NSPopover/SwiftUI member list, including avatars and keyboard selection. No
+mock screen or screenshot-only UI is used. Full capture is being rerun.
+
+### Shared localized platform diagnostic request (visual evidence)
+
+The Chinese `settings-harness` capture shows the English built-in diagnostic
+`No private host-supplied desktop socket; open a chat with the Relic plugin loaded`.
+This is `GET /api/platform` → `desktop_transport.reason`, displayed by both native
+clients as server content. Please move this fixed diagnostic to the shared word
+lists and localize the existing `reason` field using the selected language. Keep
+the current response shape; macOS calls `/api/platform` and reads
+`platform["desktop_transport"]["reason"]`. Do the same for other fixed diagnostic
+reasons in that response. Provider IDs and user-supplied paths remain data.
+
+### Shared Windows capture regression `40868069780`
+
+With shared `536d5d9`, reference capture now completes the first 126 zh-CN/light
+cases. The Windows client then reports `COMException (0x800F1000): No installed
+components were detected` at `UIElementCollection.Add`, `DrawSidebar()` in
+`SidebarCopies.cs:41`, via `Select`/`Refresh` for each scene. macOS is still
+capturing independently. Please repair the Windows capture failure before the
+full comparison rerun; the reference anchor issue itself is resolved.
 
 Original shared owner requests (superseded by `docs/native-visual.md`):
 

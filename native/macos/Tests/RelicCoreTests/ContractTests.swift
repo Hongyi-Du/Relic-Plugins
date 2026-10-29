@@ -18,6 +18,18 @@ final class Stub: URLProtocol {
 }
 
 final class ContractTests: XCTestCase {
+    func testCancelledReadIsTaskCancellationAndDoesNotRenewOrRetry() async throws {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+        var renewed = false
+        let client = try Client(port: 39321, token: "fixture", session: URLSession(configuration: configuration), serverRecord: { renewed = true; return Node() })
+        var calls = 0
+        Stub.handle = { _ in calls += 1; throw URLError(.cancelled) }
+        do { _ = try await client.get("/api/org/a/document?key=review-plan"); XCTFail("Expected task cancellation") }
+        catch is CancellationError {} catch { XCTFail("Unexpected user-visible error: \(error)") }
+        XCTAssertEqual(calls, 1)
+        XCTAssertFalse(renewed)
+    }
+
     func client() throws -> Client {
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
         return try Client(port: 39321, token: "fixture", session: URLSession(configuration: configuration))

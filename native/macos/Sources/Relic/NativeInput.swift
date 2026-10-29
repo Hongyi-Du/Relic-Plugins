@@ -25,26 +25,25 @@ struct MentionEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? ComposerTextView else { return }
-        if editor.string != text && !editor.hasMarkedText() { editor.string = text }
+        if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
     }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MentionEditor
         init(_ parent: MentionEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) { if let editor = notification.object as? NSTextView { parent.text = editor.string } }
-        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange range: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            guard let editor = textView as? ComposerTextView else { return [] }
-            let query = (editor.string as NSString).substring(with: range).dropFirst().lowercased()
-            return editor.members.filter { $0.display.lowercased().hasPrefix(query) || $0["name"].text.lowercased().hasPrefix(query) }.prefix(8).map { "@" + $0.display }
-        }
     }
 }
 
-final class ComposerTextView: NSTextView {
+final class ComposerTextView: NSTextView, NSPopoverDelegate {
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
     var members: [Node] = []
     private var completing = false
+    private var mentionPopover: NSPopover?
+    private var suggestions: [Node] = []
+    private var suggestionIndex = 0
     override var rangeForUserCompletion: NSRange {
         let cursor = selectedRange().location
         guard cursor != NSNotFound, cursor <= (string as NSString).length else { return NSRange(location: NSNotFound, length: 0) }
@@ -53,14 +52,69 @@ final class ComposerTextView: NSTextView {
         return NSRange(location: NSNotFound, length: 0)
     }
     override func keyDown(with event: NSEvent) {
+        if completing {
+            if event.keyCode == 53 { closeMentions(); return }
+            if event.keyCode == 125 || event.keyCode == 126 {
+                suggestionIndex = min(max(0, suggestionIndex + (event.keyCode == 125 ? 1 : -1)), max(0, suggestions.count - 1)); renderMentions(); return
+            }
+            if event.keyCode == 36 || event.keyCode == 48 { chooseMention(suggestionIndex); return }
+        }
         if event.keyCode == 36 && Composer.sendsReturn(shift: event.modifierFlags.contains(.shift), composing: hasMarkedText(), completing: completing) { send?(); return }
         super.keyDown(with: event)
-        if event.keyCode == 53 || rangeForUserCompletion.location == NSNotFound { completing = false }
-        if event.characters == "@", !members.isEmpty, !hasMarkedText() { completing = true; complete(nil) }
+        if rangeForUserCompletion.location == NSNotFound || hasMarkedText() { closeMentions() }
+        else if !members.isEmpty { showMentionSuggestions() }
     }
-    override func insertCompletion(_ word: String, forPartialWordRange range: NSRange, movement: Int, isFinal: Bool) {
-        super.insertCompletion(word, forPartialWordRange: range, movement: movement, isFinal: isFinal)
-        if isFinal { completing = false; if let member = members.first(where: { "@" + $0.display == word }) { onMention?(member["name"].text) } }
+    func showMentionSuggestions() {
+        let range = rangeForUserCompletion
+        guard range.location != NSNotFound, let window else { closeMentions(); return }
+        let query = String((string as NSString).substring(with: range).dropFirst()).lowercased()
+        suggestions = Array(members.filter { $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
+        guard !suggestions.isEmpty else { closeMentions(); return }
+        completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
+        if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
+        renderMentions()
+        if mentionPopover?.isShown != true {
+            let caret = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
+            let rect = convert(window.convertFromScreen(caret), from: nil)
+            mentionPopover?.show(relativeTo: rect, of: self, preferredEdge: .minY)
+            window.makeFirstResponder(self)
+        }
+    }
+    private func renderMentions() {
+        mentionPopover?.contentViewController = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
+    }
+    private func chooseMention(_ index: Int) {
+        guard suggestions.indices.contains(index) else { closeMentions(); return }
+        acceptMention(suggestions[index])
+    }
+    func acceptMention(_ member: Node) {
+        let range = rangeForUserCompletion
+        guard range.location != NSNotFound else { closeMentions(); return }
+        insertText("@" + member.display + " ", replacementRange: range)
+        onMention?(member["name"].text); closeMentions(); window?.makeFirstResponder(self)
+    }
+    func closeMentions() {
+        completing = false; mentionPopover?.close(); mentionPopover = nil; suggestions = []; suggestionIndex = 0
+    }
+    func popoverDidClose(_ notification: Notification) { completing = false; mentionPopover = nil; suggestions = []; suggestionIndex = 0 }
+}
+
+private struct MentionSuggestions: View {
+    let members: [Node]
+    let selected: Int
+    let choose: (Int) -> Void
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(Array(members.enumerated()), id: \.offset) { index, member in
+                Button { choose(index) } label: {
+                    HStack(spacing: 9) {
+                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 7))
+                        VStack(alignment: .leading, spacing: 2) { Text(member.display).font(.system(size: 13, weight: .medium)); Text(member["role"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
+                        Spacer(minLength: 0)
+                    }.padding(7).frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(QuietButtonStyle(selected: index == selected)).help(member.display + " · " + member["role"].text)
+            }
+        }.padding(6).frame(width: 280).background(RelicStyle.card).foregroundStyle(RelicStyle.ink)
     }
 }
 

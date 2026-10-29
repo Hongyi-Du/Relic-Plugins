@@ -18,6 +18,21 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testSavingPreferencesRetainsGetOnlyServerMetadata() async throws {
+        let model = try model()
+        model.preferences = Node(["version": "0.6", "port": 39321, "data": "/fixture/.relic", "theme": "light"])
+        ModelTransport.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/prefs")
+            return (200, #"{"theme":"dark","lang":"en-US"}"#)
+        }
+        try await model.savePreferences(["theme": "dark"])
+        XCTAssertEqual(model.preferences["theme"].text, "dark")
+        XCTAssertEqual(model.preferences["version"].text, "0.6")
+        XCTAssertEqual(model.preferences["port"].integer, 39321)
+        XCTAssertEqual(model.preferences["data"].text, "/fixture/.relic")
+    }
+
     func model() throws -> Model {
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ModelTransport.self]
         let defaults = UserDefaults(suiteName: "RelicTests." + UUID().uuidString)!

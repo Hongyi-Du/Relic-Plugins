@@ -203,33 +203,33 @@ struct ProtocolCard: View {
     @State private var expanded = false
     private var p: Node { protocolItem }
     var body: some View {
-                        DisclosureGroup(isExpanded: $expanded) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])) }
-                                if !p["issued_by"].isNull { Text(m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text])) }
-                                if !p["how"].text.isEmpty { Text(m.t(p["how"].text == "retired" ? "org.protocol_retired" : "org.protocol_overridden", ["from": p["from"].text, "at": p["at"].text, "by": p["by"].text])) }
-                                if p["inherit"].flag { Text(m.t("org.protocol_inherits")) }
-                                if !p["supersedes"].text.isEmpty { Text(m.t("details.label_supersedes") + p["supersedes"].text) }
-                                if p["supersedes"].text.contains("/") { Text(m.t("org.protocol_overrides", ["ref": m.protocolReference(p["supersedes"].text)])) }
-                                if !p["retire_target"].text.isEmpty { Text(m.t("details.label_retires") + p["retire_target"].text) }
-                                if !p["trigger"].text.isEmpty { Text(m.t("details.label_applies") + p["trigger"].text) }
-                                RichText(p["guidance"].text); RichText(p["summary_for_person"].text)
-                                RulesView(rules: p["rules"].rows)
-                                if p["rules"].rows.contains(where: { $0["effect"].text == "check" }) { Text(m.t("org.protocol_check")).font(.caption) }
-                                if p["status"].text == "active" { Text(m.t("org.protocol_used", ["n": p["uses"].text])) }
-                                if p["status"].text == "proposed" { Text(m.t("org.protocol_voting", ["n": p["votes"].text])) }
-                                if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
-                                Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
-                            }.padding(6)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-                                if !expanded {
-                                    if !p["issued_by"].isNull { SmallBadge(text: m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text]), color: RelicStyle.violet) }
-                                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(.caption).foregroundStyle(RelicStyle.muted) }
-                                }
-                            }
-                        }.relicCard().onAppear { expanded = m.sheet == .details }
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])) }
+                if !p["issued_by"].isNull { Text(m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text])) }
+                if !p["how"].text.isEmpty { Text(m.t(p["how"].text == "retired" ? "org.protocol_retired" : "org.protocol_overridden", ["from": p["from"].text, "at": p["at"].text, "by": p["by"].text])) }
+                if p["inherit"].flag { Text(m.t("org.protocol_inherits")) }
+                if !p["supersedes"].text.isEmpty { Text(m.t("details.label_supersedes") + p["supersedes"].text) }
+                if p["supersedes"].text.contains("/") { Text(m.t("org.protocol_overrides", ["ref": m.protocolReference(p["supersedes"].text)])) }
+                if !p["retire_target"].text.isEmpty { Text(m.t("details.label_retires") + p["retire_target"].text) }
+                if !p["trigger"].text.isEmpty { Text(m.t("details.label_applies") + p["trigger"].text) }
+                RichText(p["guidance"].text); RichText(p["summary_for_person"].text)
+                RulesView(rules: p["rules"].rows)
+                if p["rules"].rows.contains(where: { $0["effect"].text == "check" }) { Text(m.t("org.protocol_check")).font(.caption) }
+                if p["status"].text == "active" { Text(m.t("org.protocol_used", ["n": p["uses"].text])) }
+                if p["status"].text == "proposed" { Text(m.t("org.protocol_voting", ["n": p["votes"].text])) }
+                if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
+                Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
+            }.padding(6)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                if !expanded {
+                    if !p["issued_by"].isNull { SmallBadge(text: m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text]), color: RelicStyle.violet) }
+                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(.caption).foregroundStyle(RelicStyle.muted) }
+                }
+            }
+        }.relicCard().onAppear { expanded = m.sheet == .details }
     }
 }
 

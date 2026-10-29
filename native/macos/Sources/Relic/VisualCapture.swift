@@ -35,6 +35,7 @@ import RelicCore
             NSApp.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
             for item in manifest["cases"].rows {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
+                for editor in textEditors(window.contentView) { editor.closeMentions() }
                 model.sheet = nil; model.error = ""; model.notice = ""; model.search = ""
                 model.sidebarOpen = true; model.panelOpen = width > 1180; model.folded = []
                 model.digestOpen = false; model.plainMode = false; model.quote = ""; model.draft = ""
@@ -83,7 +84,7 @@ import RelicCore
                 }
                 try await Task.sleep(for: .milliseconds(1100))
                 if scene == "mention", let editor = textEditors(window.contentView).first {
-                    window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.complete(nil)
+                    window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
                     try await Task.sleep(for: .milliseconds(350))
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }

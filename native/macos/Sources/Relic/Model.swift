@@ -251,7 +251,7 @@ import RelicCore
         try await refresh()
     }
     func savePreferences(_ changes: [String: Any]) async throws {
-        do { preferences = try await post("/api/prefs", changes) } catch { throw RelicError.message(t("prefs.save_failed", ["error": error.localizedDescription])) }
+        do { let saved = try await post("/api/prefs", changes); preferences = Node(preferences.object.merging(saved.object) { _, new in new }) } catch { throw RelicError.message(t("prefs.save_failed", ["error": error.localizedDescription])) }
         if changes["lang"] != nil { words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
     }
     func saveSettings(language: String, notify: Bool) async throws {
