@@ -8,6 +8,22 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (latest integration): macOS `952ba3a` is merged, including
+its compact Settings rows, exact reference avatar palette, task/copy counts and
+mention-popup positioning. Both remaining shared requests are implemented:
+Windows buffers JSON POST bodies with a computable Content-Length (including the
+authenticated token-renewal retry), preventing chunked bytes from corrupting the
+next HTTP/1.1 response. A real loopback keep-alive POST→GET regression is added to
+the C# suite for CI. The reference `documents` scene now clicks its production
+document row and waits for the real body; Windows selects the corresponding
+native ListView row and awaits the same existing document GET. No API changed.
+Windows documents use the reference's list/detail columns, task filters include
+their counts, and capture input leaves the pointer outside the client between
+scenes so stale toolbar hover tooltips cannot cover unrelated pages.
+These fixes require the next full visual CI; the earlier failures remain evidence,
+not a completed visual gate. Existing sidebar ownership and platform-reason
+localization fixes are retained.
+
 `e4bb502` passes native builds/tests/parity and all four Python CI jobs. Real
 desktop captures now include menus and popovers; the reviewed dark and English
 images show them correctly. A subsequent visual fix keeps digest/private-chat

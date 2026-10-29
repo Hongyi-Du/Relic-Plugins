@@ -42,6 +42,10 @@ public sealed partial class MainWindow
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
                     SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+                    // Previous menu cases leave the desktop pointer over the
+                    // toolbar. Move it off-window so hover tooltips cannot mask
+                    // an unrelated screen in the next capture.
+                    SetCursorPos(1900, 1040);
                     sideWidth = 276; panelWidth = 320; fileWidth = 460; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     await Select(fixture.Text("org")); LayoutColumns();
@@ -86,6 +90,13 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene == "documents" && visibleDialog != null)
+                    {
+                        var list = CaptureDocumentList(visibleDialog) ?? throw new InvalidOperationException("Document list is missing");
+                        if (list.Items.Count == 0) throw new InvalidOperationException("Document fixture is empty");
+                        list.SelectedIndex = 0; await documentSelection;
+                        if (error.IsOpen) throw new InvalidOperationException("Document selection failed");
+                    }
                     if (scene == "copy-rules" && visibleDialog != null) ExpandCaptureRules(visibleDialog);
                     root.UpdateLayout(); await Task.Delay(250);
                     if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
@@ -107,6 +118,13 @@ public sealed partial class MainWindow
     {
         if (parent is Expander expander) expander.IsExpanded = true;
         for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++) ExpandCaptureRules(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index));
+    }
+    private static ListView? CaptureDocumentList(DependencyObject parent)
+    {
+        if (parent is ListView list && list.Tag?.ToString() == "document-list") return list;
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+            if (CaptureDocumentList(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index)) is { } found) return found;
+        return null;
     }
 
     private async Task CaptureClient(string path, int width, int height)

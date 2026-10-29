@@ -111,6 +111,7 @@ public sealed partial class MainWindow
         var quote = new MenuFlyoutItem { Text = T("common.quote") }; quote.Click += (_, _) => Quote(T("common.quote"), text.SelectedText.Length > 0 ? text.SelectedText : value); menu.Items.Add(quote); text.ContextFlyout = menu;
         return text;
     }
+    private Task documentSelection = Task.CompletedTask;
     private async Task Details(string tab = "trace", string? who = null, string? taskId = null)
     {
         if (org.Length == 0) return;
@@ -136,14 +137,25 @@ public sealed partial class MainWindow
                     break;
                 case "docs":
                     if (snap.Rows("documents").Count == 0) content.Children.Add(Text(T("details.no_docs")));
-                    var document = new StackPanel { Spacing = 8 };
-                    foreach (var d in snap.Rows("documents")) content.Children.Add(Button(d.Text("key") + " · " + T("details.revision", ("n", d.Text("revision"))) + " · " + Display(d.Text("author")), async () =>
+                    var documents = new Grid { ColumnSpacing = 22 };
+                    documents.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); documents.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                    var document = new StackPanel { Spacing = 8 }; Grid.SetColumn(document, 1); documents.Children.Add(document);
+                    var documentList = new ListView { Tag = "document-list", SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                    foreach (var d in snap.Rows("documents"))
                     {
-                        var doc = await api!.Get(PathFor("/document?key=" + Client.Segment(d.Text("key")))); document.Children.Clear();
-                        document.Children.Add(Text(d.Text("key") + " · " + T("details.revision", ("n", doc.Text("revision"))), 20));
-                        document.Children.Add(Text(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12)); document.Children.Add(Rich(doc.Text("body")));
-                    }));
-                    content.Children.Add(document); break;
+                        var label = Stack(Heading(d.Text("key")), Quiet(T("details.revision", ("n", d.Text("revision"))) + " · " + Display(d.Text("author")), 12)); label.Spacing = 3;
+                        documentList.Items.Add(new ListViewItem { Tag = d.Text("key"), Content = label, Padding = new Thickness(10, 8, 10, 8), HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(7) });
+                    }
+                    async Task LoadDocument(string key)
+                    {
+                        var doc = await api!.Get(PathFor("/document?key=" + Client.Segment(key)));
+                        if ((documentList.SelectedItem as ListViewItem)?.Tag?.ToString() != key) return;
+                        document.Children.Clear();
+                        document.Children.Add(Heading(key + " · " + T("details.revision", ("n", doc.Text("revision"))), 20));
+                        document.Children.Add(Quiet(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12)); document.Children.Add(Rich(doc.Text("body")));
+                    }
+                    documentList.SelectionChanged += (_, _) => { if ((documentList.SelectedItem as ListViewItem)?.Tag is string key) documentSelection = Run(() => LoadDocument(key)); };
+                    documents.Children.Add(documentList); content.Children.Add(documents); break;
             }
         }
         foreach (var (key, label) in new[] { ("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs") }) tabs.Items.Add(new SelectorBarItem { Text = T(label), Tag = key, IsSelected = tab == key, FontSize = 13 });
@@ -153,7 +165,12 @@ public sealed partial class MainWindow
     private void DrawTasks(StackPanel box, string? focus)
     {
         var filters = new SelectorBar(); var selected = focus == "done" ? "done" : focus == null ? "open" : "all";
-        foreach (var (id, key) in new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") }) filters.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = selected == id, FontSize = 12 }); box.Children.Add(filters);
+        foreach (var (id, key) in new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") })
+        {
+            var count = snap.Rows("tasks").Count(t => id == "all" || (id == "open" ? t.Text("status") is not ("done" or "dropped") : t.Text("status") == id));
+            filters.Items.Add(new SelectorBarItem { Text = T(key) + " " + count, Tag = id, IsSelected = selected == id, FontSize = 12 });
+        }
+        box.Children.Add(filters);
         var list = new StackPanel { Spacing = 10 }; box.Children.Add(list);
         void Draw()
         {

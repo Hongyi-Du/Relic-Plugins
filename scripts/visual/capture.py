@@ -55,6 +55,10 @@ def reference(manifest):
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
             page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], manifest["fixture"]])
+            if case["scene"] == "documents":
+                # Exercise the production selection handler and its real GET.
+                page.locator(".details .left .chat-row").first.click()
+                page.locator(".details .doc-body").wait_for(state="visible")
             page.wait_for_timeout(700)
             page.screenshot(path=Path(manifest["output"]) / case["file"], animations="disabled")
             if errors:

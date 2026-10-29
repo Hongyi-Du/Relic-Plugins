@@ -1,5 +1,6 @@
 using System.Diagnostics;
-using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Relic.Core;
@@ -66,12 +67,18 @@ public sealed class Client : IDisposable
     public async Task<JsonNode> Post(string path, object body, CancellationToken ct = default)
     {
         var connection = http;
-        using var response = await connection.PostAsJsonAsync(path, body, ct);
+        // The loopback server reads Content-Length. Streaming JsonContent can
+        // send chunked HTTP/1.1, leaving unread chunks to corrupt the next GET.
+        // Buffer once, preserving PostAsJsonAsync's web serialization defaults.
+        var json = JsonSerializer.Serialize(body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await connection.PostAsync(path, content, ct);
         try { return await Decode(response, ct); }
         catch (HttpRequestException error) when (error.StatusCode == System.Net.HttpStatusCode.Forbidden && error.Message == "missing token")
         {
             if (!await RefreshRecord(ct) && ReferenceEquals(connection, http)) throw;
-            using var retry = await http.PostAsJsonAsync(path, body, ct); return await Decode(retry, ct);
+            using var retryContent = new StringContent(json, Encoding.UTF8, "application/json");
+            using var retry = await http.PostAsync(path, retryContent, ct); return await Decode(retry, ct);
         }
     }
     private static async Task<JsonNode> Decode(HttpResponseMessage response, CancellationToken ct)
