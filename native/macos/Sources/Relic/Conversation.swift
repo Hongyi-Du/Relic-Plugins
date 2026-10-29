@@ -162,7 +162,7 @@ struct ChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
-                ReferenceLabel("Relic", size: 15, weight: 650, lineHeight: 19.5).frame(maxWidth: .infinity, alignment: .leading)
+                ReferenceLabel(m.t("common.app_name"), size: 15, weight: 650, lineHeight: 19.5).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 20).frame(height: 56)
                     .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
                 ScrollView {

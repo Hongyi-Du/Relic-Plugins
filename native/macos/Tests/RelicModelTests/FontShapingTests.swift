@@ -34,7 +34,8 @@ import CoreText
                     let value = NSAttributedString(string: text, attributes: [.font: variant])
                     print("FONT OPTICAL \(optical) width=\(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(value), nil, nil, nil))")
                 }
-                for attributes: [NSAttributedString.Key: Any] in [[.font: font, .kern: 0], [.font: font, .tracking: 0, .kern: 0], [.font: font, NSAttributedString.Key(kCTTrackingAttributeName as String): 0]] {
+                let variants: [[NSAttributedString.Key: Any]] = [[.font: font, .kern: 0], [.font: font, .tracking: 0, .kern: 0], [.font: font, NSAttributedString.Key(kCTTrackingAttributeName as String): 0]]
+                for attributes in variants {
                     let value = NSAttributedString(string: text, attributes: attributes)
                     print("FONT ATTRIBUTES \(attributes) width=\(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(value), nil, nil, nil))")
                 }

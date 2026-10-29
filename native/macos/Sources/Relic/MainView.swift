@@ -49,6 +49,7 @@ struct MainView: View {
         .accessibilityIdentifier("relic-root")
         .coordinateSpace(name: "relic-window")
         .background(ScrollAppearance())
+        .background(InitialWindowFocus().frame(width: 0, height: 0))
         }
     }
     private var inspector: some View {

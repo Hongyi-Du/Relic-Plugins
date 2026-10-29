@@ -12,6 +12,13 @@ the member form will consume that key. Until it exists, the existing
 `common.harness` label remains an explicit text mismatch. No client string fork
 or raw-key fallback is introduced.
 
+`cd6c840` also resolves the ordered file `display_text`, `common.app_name`, and
+reference code-line reading-order requests below. macOS consumes both additive
+fields. Native capture now recreates its Model, UserDefaults suite and SwiftUI
+view identity for each case, matching reference capture's new page and cleared
+local/session storage. This fixes unread/disclosure state leaking from preceding
+cases; no fixture state is injected into the element exporter.
+
 Please extend the matrix with the reference's open model and seat-name
 `datalist` popups in the member host/existing forms. macOS retains both value
 suggestion lists through the native input's Down Arrow action; their open
