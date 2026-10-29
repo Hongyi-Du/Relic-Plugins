@@ -7,47 +7,74 @@ struct DetailsView: View {
         m.snapshot["tasks"].rows.filter { filter == "all" || (filter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == filter) }
     }
     var body: some View {
-        VStack(alignment: .leading) {
-            Text(m.snapshot["org"]["name"].text).font(.title2)
-            Picker(m.t("details.dialog"), selection: $m.detailTab) {
-                Text(m.t("common.context_trace")).tag("trace"); Text(m.t("common.tasks")).tag("tasks"); Text(m.t("details.tab_protocols")).tag("protocols"); Text(m.t("details.tab_docs")).tag("docs")
-            }.pickerStyle(.segmented)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                ReferenceLabel(m.snapshot["org"]["name"].text, size: 15.5, weight: 650).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 2) {
+                    ForEach([("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs")], id: \.0) { key, title in
+                        TextButton(m.t(title), size: 12.5, weight: m.detailTab == key ? 600 : 400, color: m.detailTab == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 12) { m.detailTab = key }
+                            .buttonStyle(QuietButtonStyle(selected: m.detailTab == key)).accessibilityAddTraits(m.detailTab == key ? .isSelected : [])
+                    }
+                }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 9, kind: "region"))
+            }.padding(.leading, 16).padding(.trailing, 58).frame(height: 57)
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
             switch m.detailTab {
             case "tasks":
-                Picker(m.t("common.tasks"), selection: $m.detailFilter) { Text(m.t("task.working") + " " + String(tasks("open").count)).tag("open"); Text(m.t("task.blocked") + " " + String(tasks("blocked").count)).tag("blocked"); Text(m.t("details.filter_done") + " " + String(tasks("done").count)).tag("done"); Text(m.t("common.all") + " " + String(tasks("all").count)).tag("all") }.pickerStyle(.segmented)
-                ScrollView { VStack(alignment: .leading, spacing: 12) {
-                    if m.snapshot["tasks"].rows.isEmpty { Text(m.t("details.no_tasks")) }
-                    Rows(Array(tasks(m.detailFilter).reversed())) { TaskCard(task: $0) }
-                } }
-            case "protocols": ScrollView { ProtocolList() }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        SettingsSegments(options: [("open", m.t("task.working") + " " + String(tasks("open").count)), ("blocked", m.t("task.blocked") + " " + String(tasks("blocked").count)), ("done", m.t("details.filter_done") + " " + String(tasks("done").count)), ("all", m.t("common.all") + " " + String(tasks("all").count))], selection: $m.detailFilter).padding(.bottom, 12)
+                        if tasks(m.detailFilter).isEmpty { ReferenceLabel(m.t("details.no_tasks"), size: 13, color: RelicStyle.muted).padding(22) }
+                        Rows(Array(tasks(m.detailFilter).reversed())) { TaskCard(task: $0).padding(.bottom, 8) }
+                    }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            case "protocols": ScrollView { ProtocolList().padding(.vertical, 16).padding(.horizontal, 20) }
             case "docs": DocumentsView()
             default: TraceView()
             }
-        }.frame(minWidth: 600, idealWidth: 840, maxWidth: 900, minHeight: 380, idealHeight: 520, maxHeight: 550)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .contain).accessibilityLabel(m.t("details.dialog"))
     }
+
 }
 
 struct DocumentsView: View {
     @EnvironmentObject var m: Model
-    @State private var key = ""
     @State private var doc = Node()
     @State private var error = ""
     var body: some View {
-        HSplitView {
-            ScrollView { VStack(alignment: .leading, spacing: 12) {
-                Rows(m.snapshot["documents"].rows) { item in Button { key = item["key"].text } label: { VStack(alignment: .leading, spacing: 5) { Label(item["key"].text, systemImage: "doc.text").font(RelicStyle.font(13, weight: 500)).lineLimit(2); Text(m.t("details.revision", ["n": item["revision"].text]) + " · " + m.name(item["author"].text)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }.padding(9).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(QuietButtonStyle(selected: key == item["key"].text)).help(item["key"].text) }
-            }.padding(8) }.frame(width: 220)
-            ScrollView { VStack(alignment: .leading, spacing: 10) {
-                if m.snapshot["documents"].rows.isEmpty || doc["missing"].flag { Text(m.t("details.no_docs")) }
-                Text(key + " · " + m.t("details.revision", ["n": doc["revision"].text])).font(.headline)
-                Text(m.t("details.written", ["name": m.name(doc["author"].text), "when": m.day(doc["at"]) + " " + m.clock(doc["at"])])).font(RelicStyle.font(12, weight: 400))
-                RichText(doc["body"].text.isEmpty ? doc["text"].text : doc["body"].text)
-                if !error.isEmpty { Text(error).foregroundStyle(.red) }
-            }.padding(8).frame(maxWidth: .infinity, alignment: .leading) }
-        }.task(id: key) {
-            guard !key.isEmpty else { return }; error = ""
-            do { let loaded = try await m.get(m.path("/document?key=" + Client.segment(key))); try Task.checkCancellation(); doc = loaded } catch is CancellationError {} catch { self.error = error.localizedDescription }
-        }.onAppear { key = m.snapshot["documents"].rows.first?["key"].text ?? "" }
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    Rows(m.snapshot["documents"].rows) { item in
+                        Button { m.detailDocument = item["key"].text } label: {
+                            HStack(spacing: 9) {
+                                ReferenceIcon(name: "folder", size: 14).frame(width: 28, height: 28).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "avatar"))
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ReferenceLabel(item["key"].text, size: 13.3, weight: 550, lineHeight: 17.955)
+                                    ReferenceLabel(m.t("details.revision", ["n": item["revision"].text]) + " · " + m.name(item["author"].text), size: 12, color: RelicStyle.muted, lineHeight: 16.2)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.padding(.horizontal, 8).padding(.vertical, 6)
+                        }.buttonStyle(QuietButtonStyle()).help(item["key"].text)
+                    }
+                }.padding(8)
+            }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if m.snapshot["documents"].rows.isEmpty || doc["missing"].flag { ReferenceLabel(m.t("details.no_docs"), size: 13, color: RelicStyle.muted).padding(22) }
+                    if !m.detailDocument.isEmpty, !doc.isNull {
+                        ReferenceLabel(m.detailDocument + " · " + m.t("details.revision", ["n": doc["revision"].text]), size: 16.38, weight: 700, lines: 0).padding(.bottom, 4)
+                        ReferenceLabel(m.t("details.written", ["name": m.name(doc["author"].text), "when": m.day(doc["at"]) + " " + m.clock(doc["at"])]), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.bottom, 10)
+                        SelectableText(value: AttributedString(doc["body"].text.isEmpty ? doc["text"].text : doc["body"].text), pointSize: 12.5, lineHeight: 20.625, monospaced: true)
+                            .padding(15).frame(maxWidth: .infinity, alignment: .leading)
+                            .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "code"))
+                    }
+                    if !error.isEmpty { Text(error).foregroundStyle(RelicStyle.red) }
+                }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxWidth: .infinity)
+        }.task(id: m.detailDocument) {
+            guard !m.detailDocument.isEmpty else { doc = Node(); return }; error = ""
+            do { let loaded = try await m.get(m.path("/document?key=" + Client.segment(m.detailDocument))); try Task.checkCancellation(); doc = loaded } catch is CancellationError {} catch { self.error = error.localizedDescription }
+        }
     }
 }
 

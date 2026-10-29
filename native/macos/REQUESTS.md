@@ -1,3 +1,16 @@
+## 2026-10-29: ordered protocol JSON display from the shared engine
+
+The reference shows `JSON.stringify(plainRules(p.rules), null, 2)` in the
+protocol details code block. Foundation JSONSerialization does not preserve
+wire object-member order; sorting native keys changes visible text. Please add
+`rules_display: string` to protocol rows in the snapshot's `protocols` and
+`inherited_protocols`, containing the exact indented display JSON of plainRules:
+for check rules omit `code`, `examples`, `code_sha256`, preserve all remaining
+wire key order, use two-space indentation and unescaped Unicode. The native
+client now consumes this field, falling back to its existing serialization for
+older servers; fallback differences remain reportable failures. Keep the
+existing rules array and payloads unchanged.
+
 ## 2026-10-29: measured chart paths and dashed stroke evidence
 
 The macOS chart now draws the reference's orthogonal parent connectors and

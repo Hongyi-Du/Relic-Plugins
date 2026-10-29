@@ -16,7 +16,7 @@ struct ChartChip: View {
     var tone = ""
     var body: some View {
         ReferenceLabel(text, size: 10.5, color: tone == "sec" ? RelicStyle.violet : tone == "warn" ? RelicStyle.amber : RelicStyle.secondary)
-            .padding(.horizontal, 6).frame(height: 17)
+            .padding(.horizontal, 6).frame(height: 20)
             .modifier(RecordedSurface(background: tone == "sec" ? RelicStyle.violetSoft : tone == "warn" ? RelicStyle.amberSoft : RelicStyle.hover, radius: 10, kind: "chip"))
     }
 }
