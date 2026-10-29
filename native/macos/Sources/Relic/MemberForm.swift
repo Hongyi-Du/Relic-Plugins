@@ -74,7 +74,8 @@ struct MemberForm: View {
     private func field(_ key: String, placeholder: String, text: Binding<String>) -> some View {
         NativeFormField(title: m.t(key)) {
             ReferenceInput(placeholder: m.t(placeholder), text: text, height: 36, pointSize: 12.5,
-                           suggestions: key == "member.which_seat" ? m.members.map { $0["name"].text } : key == "common.model" && mode == "host" && hostHarness == "claude-code" ? options["claude_models"].rows.map(\.text).filter { !$0.isEmpty } : [])
+                           suggestions: key == "member.which_seat" ? m.members.map { $0["name"].text } : key == "common.model" && mode == "host" && hostHarness == "claude-code" ? options["claude_models"].rows.map(\.text).filter { !$0.isEmpty } : [],
+                           controlID: key == "member.which_seat" ? "member-seat-name" : key == "common.model" ? "member-model" : "")
         }
     }
     private func toggle(_ key: String, value: Binding<Bool>) -> some View {
@@ -117,7 +118,7 @@ struct MemberForm: View {
 
     @ViewBuilder private var appFields: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ReferenceLabel(m.t("common.harness"), size: 12.5, color: RelicStyle.muted)
+            ReferenceLabel(m.t("member.harness_label"), size: 12.5, color: RelicStyle.muted)
             Rows(harnesses.filter { !$0["later"].flag }) { option in
                 HStack(spacing: 10) {
                     NativeRadio(selected: Binding(get: { harness == option["id"].text }, set: { if $0 { harness = option["id"].text } }))

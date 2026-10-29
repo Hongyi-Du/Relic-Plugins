@@ -82,6 +82,8 @@ import RelicAX
                     case "chart": model.sheet = .chart
                     case "new-org": model.sheet = .create
                     case "member-app", "member-host", "member-existing": model.openMemberForm(mode: String(scene.dropFirst(7)))
+                    case "member-host-model-suggestions": model.openMemberForm(mode: "host")
+                    case "member-existing-seat-suggestions": model.openMemberForm(mode: "existing")
                     case "member-card": model.openCard(fixture["member"].text)
                     case "member-edit": model.editMember = fixture["member"].text; model.memberMode = "host"; model.sheet = .member
                     case "forward": model.cardMember = "advisor"; model.sheet = .forward
@@ -101,6 +103,9 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
+                if scene == "member-host-model-suggestions" || scene == "member-existing-seat-suggestions" {
+                    try await openInputSuggestions(scene == "member-host-model-suggestions" ? "member-model" : "member-seat-name", window: window)
+                }
                 if scene == "mention" {
                     let candidates = textEditors(window.contentView).filter { $0.composerID == "main" && !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty }
                     guard candidates.count == 1, let editor = candidates.first else { throw RelicError.message("Mention scene requires one visible main composer, found " + String(candidates.count)) }
@@ -166,6 +171,44 @@ import RelicAX
     }
     private static func textEditors(_ view: NSView?) -> [ComposerTextView] {
         guard let view else { return [] }; return (view as? ComposerTextView).map { [$0] } ?? view.subviews.flatMap { textEditors($0) }
+    }
+    private static func accessibilityFrame(identifier: String, root: AnyObject) -> NSRect? {
+        var seen = Set<ObjectIdentifier>()
+        func walk(_ object: AnyObject) -> NSRect? {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return nil }
+            let attributes = RelicAXRead(object)
+            if attributes["identifier"] as? String == identifier,
+               attributes["hidden"] as? Bool != true,
+               let frame = (attributes["frame"] as? NSValue)?.rectValue, !frame.isEmpty { return frame }
+            for child in RelicAXChildren(object) { if let frame = walk(child as AnyObject) { return frame } }
+            if let view = object as? NSView { for child in view.subviews { if let frame = walk(child) { return frame } } }
+            return nil
+        }
+        return walk(root)
+    }
+    private static func openInputSuggestions(_ identifier: String, window: NSWindow) async throws {
+        guard let content = window.contentView,
+              let screen = accessibilityFrame(identifier: "relic-input/" + identifier, root: content) else {
+            throw RelicError.message("Suggestion scene has no visible input: " + identifier)
+        }
+        // Exercise the real control through its measured location and native
+        // event dispatch. The capture never constructs a substitute popup.
+        let point = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+                throw RelicError.message("Cannot create input focus event")
+            }
+            window.sendEvent(event)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125) else {
+            throw RelicError.message("Cannot create Down Arrow event")
+        }
+        window.sendEvent(down)
+        try await Task.sleep(for: .milliseconds(350))
+        guard NSApp.windows.contains(where: { candidate in
+            candidate.isVisible && candidate.contentView.map { accessibilityFrame(identifier: "relic-suggestions/" + identifier, root: $0) != nil } == true
+        }) else { throw RelicError.message("Down Arrow did not open the native suggestions: " + identifier) }
     }
     private static func receipt(_ errors: [String], count: Int, beside manifest: URL) throws {
         try JSONSerialization.data(withJSONObject: ["errors": errors, "count": count], options: [.prettyPrinted, .sortedKeys]).write(to: manifest.deletingLastPathComponent().appendingPathComponent("complete.json"))

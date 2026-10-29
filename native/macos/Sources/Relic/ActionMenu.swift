@@ -86,8 +86,8 @@ struct RecipientLayer: View {
     @State private var height: CGFloat = 0
     private var width: CGFloat {
         max(220, m.members.map { who in
-            let name = (who.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400)]).width
-            let sub = who.display == who["name"].text ? 0 : (who["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96)]).width + 10
+            let name = (who.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400), .tracking: 0]).width
+            let sub = who.display == who["name"].text ? 0 : (who["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96), .tracking: 0]).width + 10
             return 14 + 20 + 20 + 20 + 20 + name + sub
         }.max() ?? 220)
     }
@@ -155,8 +155,8 @@ struct NativeMenuRow: View {
     @Environment(\.isEnabled) private var enabled
     @State private var identity = "relic-menu-item/" + UUID().uuidString
     private var intrinsicWidth: CGFloat {
-        let label = (title as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400)]).width
-        let key = shortcut.isEmpty ? 0 : (shortcut as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11)]).width + 10
+        let label = (title as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400), .tracking: 0]).width
+        let key = shortcut.isEmpty ? 0 : (shortcut as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11), .tracking: 0]).width + 10
         return 20 + 14 + 10 + label + key
     }
     var body: some View {
@@ -175,14 +175,16 @@ struct NativeMenuRow: View {
 }
 
 struct MenuItemStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { StyledContent(configuration: configuration) }
+    var selected = false
+    func makeBody(configuration: Configuration) -> some View { StyledContent(configuration: configuration, selected: selected) }
     private struct StyledContent: View {
         let configuration: Configuration
+        let selected: Bool
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: 8))
-                .modifier(RecordedSurface(background: enabled && (hovered || configuration.isPressed) ? RelicStyle.hover : .clear, radius: 8, hovered: hovered))
+                .modifier(RecordedSurface(background: enabled && (selected || hovered || configuration.isPressed) ? RelicStyle.hover : .clear, radius: 8, hovered: hovered))
                 .onHover { hovered = $0 }
         }
     }

@@ -26,7 +26,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.textContainerInset = NSSize(width: 0, height: 2); editor.textContainer?.lineFragmentPadding = 0; editor.font = RelicStyle.nativeFont(14, weight: 400)
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
-        editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
+        editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         scroll.documentView = editor; return scroll
@@ -36,19 +36,20 @@ struct MentionEditor: NSViewRepresentable {
         guard let editor = scroll.documentView as? ComposerTextView else { return }
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
-        editor.composerID = contextID
+        editor.presentationModel = m; editor.composerID = contextID
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
         editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
-        editor.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.typingAttributes[.tracking] = 0
+        editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0], range: NSRange(location: 0, length: (editor.string as NSString).length))
         editor.needsDisplay = true
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let editor = nsView.documentView as? ComposerTextView else { return nil }
         let width = max(1, proposal.width ?? 400), font = editor.font ?? RelicStyle.nativeFont(14, weight: 400)
-        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default])
+        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0])
         let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
         return CGSize(width: width, height: min(260, max(26, layout.usedRect(for: container).height + 4)))
@@ -61,7 +62,8 @@ struct MentionEditor: NSViewRepresentable {
     }
 }
 
-final class ComposerTextView: NSTextView, NSPopoverDelegate {
+final class ComposerTextView: NSTextView {
+    weak var presentationModel: Model?
     var composerID = "main"
     var sendsOnReturn = true
     var placeholder = ""
@@ -73,7 +75,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         super.draw(dirtyRect)
         if string.isEmpty {
             let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-            NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph])
+        NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph, .tracking: 0])
                 .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
         }
     }
@@ -81,10 +83,10 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     var onMention: ((String) -> Void)?
     var members: [Node] = []
     private var completing = false
-    private var mentionPopover: NSPopover?
+    private var mentionMouseMonitor: Any?
     private var suggestions: [Node] = []
     private var suggestionIndex = 0
-    var mentionSuggestionsVisible: Bool { mentionPopover?.isShown == true }
+    var mentionSuggestionsVisible: Bool { presentationModel?.mentionEditor === self && presentationModel?.mentionVisible == true }
     override var rangeForUserCompletion: NSRange {
         let cursor = selectedRange().location
         guard cursor != NSNotFound, cursor <= (string as NSString).length else { return NSRange(location: NSNotFound, length: 0) }
@@ -96,7 +98,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         if completing {
             if event.keyCode == 53 { closeMentions(); return }
             if event.keyCode == 125 || event.keyCode == 126 {
-                suggestionIndex = min(max(0, suggestionIndex + (event.keyCode == 125 ? 1 : -1)), max(0, suggestions.count - 1)); renderMentions(); return
+                suggestionIndex = Self.nextSuggestion(suggestionIndex, direction: event.keyCode == 125 ? 1 : -1, count: suggestions.count); renderMentions(); return
             }
             if event.keyCode == 36 || event.keyCode == 48 { chooseMention(suggestionIndex); return }
         }
@@ -107,15 +109,22 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     }
     func showMentionSuggestions() {
         let range = rangeForUserCompletion
-        guard range.location != NSNotFound, window != nil else { closeMentions(); return }
+        guard range.location != NSNotFound, window != nil, presentationModel != nil else { closeMentions(); return }
         suggestions = mentionCandidates()
         guard !suggestions.isEmpty else { closeMentions(); return }
-        completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
-        if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
-        renderMentions()
-        if mentionPopover?.isShown != true {
-            mentionPopover?.show(relativeTo: mentionAnchorRect(), of: self, preferredEdge: .minY)
+        completing = true; suggestionIndex = 0
+        if mentionMouseMonitor == nil {
+            mentionMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let model = self.presentationModel, let window = self.window, let content = window.contentView else { return event }
+                if event.window !== window { self.closeMentions(); return event }
+                let screen = window.convertPoint(toScreen: event.locationInWindow)
+                let canvas = window.convertToScreen(content.convert(content.bounds, to: nil))
+                let point = CGPoint(x: screen.x - canvas.minX, y: canvas.maxY - screen.y)
+                if !model.mentionMenuBounds.contains(point) && !model.mentionAnchor.contains(point) { self.closeMentions() }
+                return event
+            }
         }
+        renderMentions()
     }
     func mentionAnchorRect() -> NSRect {
         let range = rangeForUserCompletion
@@ -130,15 +139,18 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         let range = rangeForUserCompletion
         guard range.location != NSNotFound else { return [] }
         let query = String((string as NSString).substring(with: range).dropFirst()).lowercased()
-        return Array(members.filter { query.isEmpty || $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
+        return Array(members.filter { query.isEmpty || $0.display.lowercased().hasPrefix(query) || $0["name"].text.lowercased().hasPrefix(query) }.prefix(8))
     }
+    static func nextSuggestion(_ index: Int, direction: Int, count: Int) -> Int { count > 0 ? (index + direction + count) % count : 0 }
     private func renderMentions() {
-        let controller = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
-        controller.view.layoutSubtreeIfNeeded()
-        mentionPopover?.contentViewController = controller
-        mentionPopover?.contentSize = controller.view.fittingSize
+        guard let model = presentationModel, let window, let content = window.contentView else { return }
+        let source: NSView = enclosingScrollView ?? self
+        let screen = window.convertToScreen(source.convert(source.bounds, to: nil))
+        let canvas = window.convertToScreen(content.convert(content.bounds, to: nil))
+        model.mentionAnchor = CGRect(x: screen.minX - canvas.minX, y: canvas.maxY - screen.maxY, width: screen.width, height: screen.height)
+        model.mentionEditor = self; model.mentionIndex = suggestionIndex; model.mentionItems = suggestions
     }
-    private func chooseMention(_ index: Int) {
+    func chooseMention(_ index: Int) {
         guard suggestions.indices.contains(index) else { closeMentions(); return }
         acceptMention(suggestions[index])
     }
@@ -149,29 +161,53 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         onMention?(member["name"].text); closeMentions(); window?.makeFirstResponder(self)
     }
     func closeMentions() {
-        completing = false; mentionPopover?.close(); mentionPopover = nil; suggestions = []; suggestionIndex = 0
+        completing = false; suggestions = []; suggestionIndex = 0
+        if let mentionMouseMonitor { NSEvent.removeMonitor(mentionMouseMonitor); self.mentionMouseMonitor = nil }
+        if let model = presentationModel, model.mentionEditor === self { model.mentionItems = []; model.mentionEditor = nil; model.mentionVisible = false }
     }
-    func popoverDidClose(_ notification: Notification) { completing = false; mentionPopover = nil; suggestions = []; suggestionIndex = 0 }
 }
 
-private struct MentionSuggestions: View {
-    @Environment(\.colorScheme) private var scheme
-    let members: [Node]
-    let selected: Int
-    let choose: (Int) -> Void
-    var body: some View {
-        VStack(spacing: 2) {
-            ForEach(Array(members.enumerated()), id: \.offset) { index, member in
-                Button { choose(index) } label: {
-                    HStack(spacing: 9) {
-                        Text(String(member.display.prefix(1))).font(RelicStyle.font(13, weight: 600)).frame(width: 28, height: 28).foregroundStyle(member["secretary"].flag ? RelicStyle.violet : RelicStyle.avatar(member["name"].text, background: false, dark: scheme == .dark)).background(member["secretary"].flag ? RelicStyle.violetSoft : RelicStyle.avatar(member["name"].text, background: true, dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 7))
-                        VStack(alignment: .leading, spacing: 2) { Text(member.display).font(RelicStyle.font(13, weight: 500)); Text(member["role"].text).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
-                        Spacer(minLength: 0)
-                    }.padding(7).frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(QuietButtonStyle(selected: index == selected)).help(member.display + " · " + member["role"].text)
-            }
-        }.padding(6).frame(width: 280).background(RelicStyle.card).foregroundStyle(RelicStyle.ink)
+// The native completion menu shares the application's coordinate space. It has
+// no system-popover arrow, separate window chrome or unrelated role subtitle.
+struct MentionSuggestions: View {
+    @EnvironmentObject var m: Model
+    private var width: CGFloat {
+        max(220, m.mentionItems.map {
+            74 + ($0.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400), .tracking: 0]).width
+                + ($0["name"].text as NSString).size(withAttributes: [.font: RelicStyle.monoFont(11.96), .tracking: 0]).width
+        }.max() ?? 220)
     }
+    private var height: CGFloat { min(m.windowSize.height * 0.6, CGFloat(m.mentionItems.count) * 34.8 + 14) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(m.mentionItems.enumerated()), id: \.offset) { index, member in
+                        Button { m.mentionEditor?.chooseMention(index) } label: {
+                            HStack(spacing: 10) {
+                                Avatar(member: member["name"].text, size: 20)
+                                ReferenceLabel(member.display, size: 13)
+                                ReferenceLabel(member["name"].text, size: 11.96, color: RelicStyle.muted, monospaced: true)
+                                Spacer(minLength: 0)
+                            }.padding(.horizontal, 10).frame(height: 34.8)
+                        }.buttonStyle(MenuItemStyle(selected: index == m.mentionIndex)).accessibilityIdentifier("relic-menu-item/mention/" + member["name"].text)
+                    }
+                }.padding(7)
+            }.frame(width: width, height: height)
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
+                .background(GeometryReader { proxy in Color.clear.preference(key: MentionMenuBounds.self, value: proxy.frame(in: .named("relic-window"))) })
+                .offset(x: m.mentionAnchor.minX, y: m.mentionAnchor.minY - 8 - height)
+                .measuredRegion("menu")
+                .onPreferenceChange(MentionMenuBounds.self) { m.mentionMenuBounds = $0 }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear { m.mentionVisible = true }.onDisappear { m.mentionVisible = false }
+            .onExitCommand { m.mentionEditor?.closeMentions() }
+    }
+}
+
+private struct MentionMenuBounds: PreferenceKey {
+    static var defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 @MainActor final class SpeechInput: ObservableObject {

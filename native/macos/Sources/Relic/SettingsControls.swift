@@ -110,13 +110,15 @@ struct ReferenceInput: View {
     var monospaced = false
     var voice = true
     var suggestions: [String] = []
+    var controlID = ""
     @State private var showingSuggestions = false
     @FocusState private var focused: Bool
     @State private var identity = "relic-input/" + UUID().uuidString
     @EnvironmentObject var m: Model
+    private var inputIdentity: String { controlID.isEmpty ? identity : "relic-input/" + controlID }
     var body: some View {
         TextField(placeholder, text: $text).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400))
-            .accessibilityIdentifier(identity)
+            .accessibilityIdentifier(inputIdentity)
             .focused($focused).onSubmit { focused = false }
             .onKeyPress(.downArrow) {
                 guard !suggestions.isEmpty else { return .ignored }
@@ -124,7 +126,7 @@ struct ReferenceInput: View {
             }
             .onChange(of: focused) { old, new in if old && !new { commit() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: identity))
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
             .popover(isPresented: $showingSuggestions, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -132,6 +134,7 @@ struct ReferenceInput: View {
                         TextButton(value, weight: 400, height: 28, padding: 10) { text = value; showingSuggestions = false; commit() }.buttonStyle(QuietButtonStyle())
                     }
                 }.padding(4).background(RelicStyle.card)
+                    .accessibilityIdentifier("relic-suggestions/" + controlID)
             }
     }
 }
