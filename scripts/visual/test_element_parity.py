@@ -10,7 +10,7 @@ import unittest
 
 from element_parity import (CATEGORIES, STATE_FIELDS, compare_elements, delta_e,
                             expected_cases, geometry_tolerance, match_elements,
-                            run, validate_capture)
+                            outlines, run, validate_capture)
 
 
 def element(eid="r0", text="今天 11:00", order=0, kind="text", region="conversation"):
@@ -40,6 +40,17 @@ def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group
 
 
 class ElementComparisonTests(unittest.TestCase):
+    def test_unknown_glyph_bounds_show_only_a_dashed_audit_envelope(self):
+        item = element()
+        item["bounds"] = {axis: None for axis in ("x", "y", "width", "height")}
+        item["evidence"]["clipped_range_envelope"] = {"x": 10, "y": 12, "width": 80, "height": 20}
+        rendered = outlines([item], {}, {"width": 1440, "height": 900}, None, "Reference")
+        self.assertIn('stroke-dasharray="5 3"', rendered)
+        self.assertIn("UNMEASURED", rendered)
+        self.assertIn("not actual glyph bounds", rendered)
+        self.assertTrue(compare_elements([item], [element("native")])["geometry_out_of_tolerance"])
+        self.assertTrue(validate_capture(capture(elements=[item]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1}))
+
     def test_identical_independent_ids_match(self):
         a, b = element(), element("unrelated-native-id")
         result = compare_elements([a], [b])

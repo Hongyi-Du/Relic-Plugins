@@ -107,11 +107,16 @@ until physical-face evidence exists. System-font cmap inspection may disprove
 an impossible family but cannot prove which face WinUI rendered. See the
 [actual WinUI implementation](https://github.com/microsoft/microsoft-ui-xaml/blob/0a03f68d586d1c100f753ca3221597c3ee550f4a/dxaml/xcp/core/text/common/textrangeadapter.cpp#L1987).
 
-For reference text, `bounds` is the DOMRange envelope after its own text
-container's content clipping; `visible_bounds` additionally applies ancestor
-and window clips. Preserve unmodified ranges in `evidence.text_measurements`
-(`raw_bounds`, `raw_rectangles`). CSS ellipsis-generated glyph geometry remains
-an explicit coverage error until independently measured. Raw scrollbar records
+For non-ellipsized reference text, `bounds` is the DOMRange advance envelope
+after content clipping; `visible_bounds` also applies ancestor and window
+clips. These are font-metric/advance rectangles, not glyph-ink contours.
+Preserve unmodified ranges in `evidence.text_measurements` (`raw_bounds`,
+`raw_rectangles`). When CSS ellipsis leaves actual painted text geometry
+unknown, standalone text bounds keep their rectangle shape with null axes,
+and `evidence.text_bounds` is null. A control's directly measured border box
+is retained. The diagnostic `evidence.clipped_range_envelope` may locate the
+unknown text in HTML using a dashed outline; it never establishes parity.
+See [reference evidence audit](native-reference-evidence.md). Raw scrollbar records
 retain actual scroll metrics and UA styles; unknown thumb/track paint geometry
 cannot be replaced with scroll-ratio estimates. Requested/computed CSS font
 weight and actually resolved font-face evidence are separate quantities. The

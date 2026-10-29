@@ -506,6 +506,50 @@ def host_container_ownership(uia, raw):
             for node in (primary, bridge, sites[0])]
 
 
+def transparent_uia_ownership(uia_nodes, raw):
+    """Reconcile a provider which stays onscreen for an actually transparent control.
+
+    IsOffscreen does not measure opacity. This owns only the individual raw
+    render node, never a provider subtree. Exact native runtime class, reported
+    name and box must establish a unique pair in both independent trees; any
+    visible or duplicate candidate keeps the coverage failure.
+    """
+    pairs = []
+    for provider in uia_nodes:
+        if provider.get("measurement_errors") or provider.get("state", {}).get("offscreen") is not False:
+            continue
+        name = provider.get("name")
+        native_class = (provider.get("class_name") or "").rsplit(".", 1)[-1]
+        if not isinstance(name, str) or not name or not native_class:
+            continue
+        candidates = [node for node in raw
+                      if node.get("type") in CONTROL_KINDS
+                      and node["type"] == native_class
+                      and uia_kind_matches(provider, CONTROL_KINDS[node["type"]])
+                      and node.get("accessible_name") == name
+                      and positive(node.get("bounds"))
+                      and node["bounds"] == provider.get("bounds")]
+        if len(candidates) != 1:
+            continue
+        rendered = candidates[0]
+        if (rendered.get("hidden_reason") != "zero opacity"
+                or not finite(rendered.get("opacity")) or rendered["opacity"] != 0
+                or rendered.get("measurement_error")):
+            continue
+        pairs.append((provider, rendered))
+    counts = defaultdict(int)
+    for _, rendered in pairs:
+        counts[rendered["id"]] += 1
+    return [{"source": provider["id"], "owner": rendered["id"],
+             "reason": "Unique native control has measured cumulative XAML opacity zero despite UIA IsOffscreen=false",
+             "visibility_evidence": {"opacity": rendered["opacity"], "hidden_reason": rendered["hidden_reason"],
+                                     "uia_offscreen": provider.get("state", {}).get("offscreen"),
+                                     "native_class": rendered["type"], "accessible_name": rendered["accessible_name"],
+                                     "xaml_bounds": copy.deepcopy(rendered["bounds"]), "uia_bounds": copy.deepcopy(provider["bounds"]),
+                                     "scope": "this exact node only; no descendant or popup ownership"}}
+            for provider, rendered in pairs if counts[rendered["id"]] == 1]
+
+
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
@@ -614,6 +658,9 @@ def project(xaml_path, uia_path, png_path):
     projection.extend(host_ownership)
     used_uia = {record["source"] for record in host_ownership}
     uia_nodes = [n for n in uia.get("raw_nodes", []) if positive(n.get("bounds")) and not n.get("state", {}).get("offscreen")]
+    transparent_ownership = transparent_uia_ownership(uia_nodes, raw)
+    projection.extend(transparent_ownership)
+    used_uia.update(record["source"] for record in transparent_ownership)
     for node in uia.get("raw_nodes", []):
         for error in node.get("measurement_errors", []):
             if node.get("state", {}).get("offscreen") is True:

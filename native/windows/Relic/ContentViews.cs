@@ -152,154 +152,222 @@ public sealed partial class MainWindow
     private async Task Details(string tab = "trace", string? who = null, string? taskId = null)
     {
         if (org.Length == 0) return;
-        var box = new Grid { Width = Math.Min(1120, root.ActualWidth - 96), Height = Math.Max(380, root.ActualHeight - 190), RowSpacing = 16 }; var tabs = new SelectorBar(); var content = new StackPanel { Spacing = 12 };
-        box.RowDefinitions.Add(new() { Height = GridLength.Auto }); box.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); box.Children.Add(tabs); var bodyScroll = Scroll(content); Grid.SetRow(bodyScroll, 1); box.Children.Add(bodyScroll);
+        var box = new Grid { Width = Math.Min(1180, root.ActualWidth - 40), Height = Math.Max(0, root.ActualHeight - 56), Background = Paint("FFFFFF", "252523"), CornerRadius = new CornerRadius(16) };
+        box.RowDefinitions.Add(new() { Height = GridLength.Auto }); box.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = box }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("details.dialog"));
+        var bar = new Grid { Padding = new Thickness(16, 12, 16, 12), ColumnSpacing = 12, BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1) };
+        bar.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); bar.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var title = OverviewText(snap["org"].Text("name"), 15.5, weight: 650); title.VerticalAlignment = VerticalAlignment.Center; bar.Children.Add(title); box.Children.Add(bar);
+        var content = new Grid(); Grid.SetRow(content, 1); box.Children.Add(content); var current = who ?? member;
+        if (current.Length == 0) current = snap.Rows("members").FirstOrDefault().Text("name");
         async Task Draw(string key)
         {
-            content.Children.Clear();
+            content.Children.Clear(); content.ColumnDefinitions.Clear();
+            var twoColumns = key is "trace" or "docs";
+            if (twoColumns) content.ColumnDefinitions.Add(new() { Width = new GridLength(250) });
+            content.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var right = new StackPanel { Spacing = 0, Padding = new Thickness(20, 16, 20, 16) }; var rightScroll = Scroll(right); if (twoColumns) Grid.SetColumn(rightScroll, 1); content.Children.Add(rightScroll);
+            ListView LeftList(string tag)
+            {
+                var list = new ListView { Tag = tag, Padding = new Thickness(8), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 0), Background = Paint("F8F7F5", "191918"), SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                content.Children.Add(list); return list;
+            }
             switch (key)
             {
                 case "trace":
-                    var traceColumns = new Grid { ColumnSpacing = 22 };
-                    traceColumns.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); traceColumns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                    var pick = new ListView { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-                    var traceHost = new Grid(); Grid.SetColumn(traceHost, 1); traceColumns.Children.Add(pick); traceColumns.Children.Add(traceHost); content.Children.Add(traceColumns);
-                    foreach (var m in snap.Rows("members"))
-                    {
-                        var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                        row.Children.Add(SmallAvatar(m.Text("avatar"), m.Text("display").Length > 0 ? m.Text("display") : m.Text("name")));
-                        var label = Stack(Ellipsis(Display(m.Text("name"))), Quiet(m.Text("harness_label") + " · " + m.Text("surface_label"), 11)); label.Spacing = 2; Grid.SetColumn(label, 1); row.Children.Add(label);
-                        pick.Items.Add(new ListViewItem { Tag = m.Text("name"), Content = row, Padding = new Thickness(8, 6, 8, 6), CornerRadius = new CornerRadius(7), HorizontalContentAlignment = HorizontalAlignment.Stretch });
-                    }
+                    var pick = LeftList("trace-members");
+                    foreach (var m in snap.Rows("members")) pick.Items.Add(DetailsListRow(m.Text("name"), OverviewAvatar(m.Text("name"), true, 28), Display(m.Text("name")), string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label") }.Where(value => value.Length > 0)), m.Text("name") == current));
+                    pick.SelectedItem = pick.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag?.ToString() == current) ?? pick.Items.FirstOrDefault();
                     async Task SelectTrace(string name)
                     {
-                        // Give each selection its own container, so a late HTTP
-                        // response cannot overwrite the newly selected member.
-                        var trace = new StackPanel { Spacing = 8 }; traceHost.Children.Clear(); traceHost.Children.Add(trace); await Trace(trace, name);
+                        current = name; foreach (var item in pick.Items.OfType<ListViewItem>()) item.Background = item.Tag?.ToString() == name ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Colors.Transparent);
+                        // A late response stays in its detached selection container.
+                        var trace = new StackPanel(); right.Children.Clear(); right.Children.Add(trace); await Trace(trace, name);
                     }
-                    pick.SelectedItem = pick.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag?.ToString() == (who ?? member)) ?? pick.Items.FirstOrDefault();
                     pick.SelectionChanged += async (_, _) => { if ((pick.SelectedItem as ListViewItem)?.Tag is string name) await Run(() => SelectTrace(name)); };
                     if ((pick.SelectedItem as ListViewItem)?.Tag is string initial) await SelectTrace(initial);
                     break;
-                case "tasks": DrawTasks(content, taskId); break;
+                case "tasks": DrawTasks(right, taskId); break;
                 case "protocols":
-                    if (snap.Rows("protocols").Count + snap.Rows("inherited_protocols").Count + snap.Rows("replaced_protocols").Count == 0) content.Children.Add(Text(T("details.no_protocols")));
-                    foreach (var p in snap.Rows("protocols").Reverse()) content.Children.Add(Protocol(p!, false));
-                    if (snap.Rows("inherited_protocols").Count > 0) content.Children.Add(Text(T("details.inherited_title"), 18));
-                    foreach (var p in snap.Rows("inherited_protocols")) content.Children.Add(Protocol(p!, true));
-                    if (snap.Rows("replaced_protocols").Count > 0) content.Children.Add(Text(T("details.replaced_title"), 18));
-                    foreach (var p in snap.Rows("replaced_protocols")) content.Children.Add(Stack(Text(p.Text("id") + " " + p.Text("title")), Text(T(p.Text("how") == "retired" ? "org.protocol_retired" : "org.protocol_overridden", ("from", p.Text("from")), ("at", p.Text("at")), ("by", p.Text("by"))))));
+                    if (snap.Rows("protocols").Count + snap.Rows("inherited_protocols").Count + snap.Rows("replaced_protocols").Count == 0) right.Children.Add(DetailsEmpty(T("details.no_protocols")));
+                    foreach (var p in snap.Rows("protocols").Reverse()) right.Children.Add(Protocol(p!, false));
+                    void Section(string label) { var heading = OverviewText(T(label), 13, weight: 650); heading.Foreground = Paint("5A5853", "B8B5AE"); heading.Margin = new Thickness(0, 18, 0, 8); right.Children.Add(heading); }
+                    if (snap.Rows("inherited_protocols").Count > 0) Section("details.inherited_title");
+                    foreach (var p in snap.Rows("inherited_protocols")) right.Children.Add(Protocol(p!, true));
+                    if (snap.Rows("replaced_protocols").Count > 0) Section("details.replaced_title");
+                    foreach (var p in snap.Rows("replaced_protocols"))
+                    {
+                        var name = OverviewText(p.Text("id") + " " + p.Text("title"), 13, weight: 700); name.TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough;
+                        var inner = new StackPanel { Spacing = 8, Padding = new Thickness(14, 10, 14, 12) }; inner.Children.Add(name); inner.Children.Add(OverviewText(T(p.Text("how") == "retired" ? "org.protocol_retired" : "org.protocol_overridden", ("from", p.Text("from")), ("at", p.Text("at")), ("by", p.Text("by"))), 13, true));
+                        var card = DetailsCard(inner); card.Opacity = .6; right.Children.Add(card);
+                    }
                     break;
                 case "docs":
-                    if (snap.Rows("documents").Count == 0) content.Children.Add(Text(T("details.no_docs")));
-                    var documents = new Grid { ColumnSpacing = 22 };
-                    documents.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); documents.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                    var document = new StackPanel { Spacing = 8 }; Grid.SetColumn(document, 1); documents.Children.Add(document);
-                    var documentList = new ListView { Tag = "document-list", SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                    var documents = LeftList("document-list");
+                    if (snap.Rows("documents").Count == 0) right.Children.Add(DetailsEmpty(T("details.no_docs")));
                     foreach (var d in snap.Rows("documents"))
                     {
-                        var label = Stack(Heading(d.Text("key")), Quiet(T("details.revision", ("n", d.Text("revision"))) + " · " + Display(d.Text("author")), 12)); label.Spacing = 3;
-                        documentList.Items.Add(new ListViewItem { Tag = d.Text("key"), Content = label, Padding = new Thickness(10, 8, 10, 8), HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(7) });
+                        var folder = new Border { Width = 28, Height = 28, Background = Paint("EFEEEA", "262624"), CornerRadius = new CornerRadius(8), Child = ReferenceIcon("folder", 14) };
+                        ((FrameworkElement)folder.Child).HorizontalAlignment = HorizontalAlignment.Center; ((FrameworkElement)folder.Child).VerticalAlignment = VerticalAlignment.Center;
+                        documents.Items.Add(DetailsListRow(d.Text("key"), SidebarPicture("", folder, 28), d.Text("key"), T("details.revision", ("n", d.Text("revision"))) + " · " + Display(d.Text("author"))));
                     }
-                    async Task LoadDocument(string key)
+                    async Task LoadDocument(string documentKey)
                     {
-                        var doc = await api!.Get(PathFor("/document?key=" + Client.Segment(key)));
-                        if ((documentList.SelectedItem as ListViewItem)?.Tag?.ToString() != key) return;
-                        document.Children.Clear();
-                        document.Children.Add(Heading(key + " · " + T("details.revision", ("n", doc.Text("revision"))), 20));
-                        document.Children.Add(Quiet(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12.5));
-                        var source = Text(doc.Text("body"), 12.5); source.FontFamily = new FontFamily("Cascadia Code"); source.LineHeight = 12.5 * 1.65;
-                        document.Children.Add(new Border { Child = source, Background = Paint("F6F5F2", "232321"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14) });
+                        var doc = await api!.Get(PathFor("/document?key=" + Client.Segment(documentKey)));
+                        if ((documents.SelectedItem as ListViewItem)?.Tag?.ToString() != documentKey) return;
+                        right.Children.Clear(); var heading = OverviewText(documentKey + " · " + T("details.revision", ("n", doc.Text("revision"))), 16.38, weight: 700); heading.Margin = new Thickness(0, 0, 0, 4); right.Children.Add(heading);
+                        var written = OverviewText(T("details.written", ("name", Display(doc.Text("author"))), ("when", When(doc.Text("at")))), 12.5, true); written.Margin = new Thickness(0, 0, 0, 10); right.Children.Add(written); right.Children.Add(DetailsCode(doc.Text("body")));
                     }
-                    documentList.SelectionChanged += (_, _) => { if ((documentList.SelectedItem as ListViewItem)?.Tag is string key) documentSelection = Run(() => LoadDocument(key)); };
-                    documents.Children.Add(documentList); content.Children.Add(documents); break;
+                    documents.SelectionChanged += (_, _) => { if ((documents.SelectedItem as ListViewItem)?.Tag is string documentKey) documentSelection = Run(() => LoadDocument(documentKey)); }; break;
             }
         }
-        foreach (var (key, label) in new[] { ("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs") }) tabs.Items.Add(new SelectorBarItem { Text = T(label), Tag = key, IsSelected = tab == key, FontSize = 13 });
-        tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem?.Tag is string key) await Run(() => Draw(key)); };
-        await Draw(tab); await Show(T("details.dialog") + " · " + snap["org"].Text("name"), box);
+        var tabs = DetailsTabs(new[] { ("trace", T("common.context_trace")), ("tasks", T("common.tasks")), ("protocols", T("details.tab_protocols")), ("docs", T("details.tab_docs")) }, tab, Draw, true); Grid.SetColumn(tabs, 1); bar.Children.Add(tabs);
+        var close = IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; }); close.Content = ReferenceIcon("x", 18); close.Padding = new Thickness(6); Grid.SetColumn(close, 2); bar.Children.Add(close);
+        void Resize(object sender, SizeChangedEventArgs args) { box.Width = Math.Min(1180, Math.Max(0, args.NewSize.Width - 40)); box.Height = Math.Max(0, args.NewSize.Height - 56); }
+        root.SizeChanged += Resize;
+        dialog.Opened += (_, _) =>
+        {
+            dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0); dialog.Resources["ContentDialogMaxHeight"] = box.Height;
+            if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
+            if (DialogPart<Border>(dialog, "BackgroundElement") is { } background) { background.Padding = new Thickness(0); background.CornerRadius = new CornerRadius(16); background.MaxHeight = box.Height; }
+            if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } scroll) { scroll.Padding = new Thickness(0); scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.MaxHeight = box.Height; }
+            if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
+        };
+        try { await Draw(tab); await Dialog(dialog); } finally { root.SizeChanged -= Resize; }
     }
     private void DrawTasks(StackPanel box, string? focus)
     {
-        var filters = new SelectorBar(); var selected = focus == "done" ? "done" : focus == null ? "open" : "all";
-        foreach (var (id, key) in new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") })
-        {
-            var count = snap.Rows("tasks").Count(t => id == "all" || (id == "open" ? t.Text("status") is not ("done" or "dropped") : t.Text("status") == id));
-            filters.Items.Add(new SelectorBarItem { Text = T(key) + " " + count, Tag = id, IsSelected = selected == id, FontSize = 12 });
-        }
-        box.Children.Add(filters);
-        var list = new StackPanel { Spacing = 10 }; box.Children.Add(list);
+        var selected = focus == "done" ? "done" : focus == null ? "open" : "all"; var list = new StackPanel();
+        var choices = new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") }.Select(pair => (pair.Item1, T(pair.Item2) + " " + snap.Rows("tasks").Count(task => pair.Item1 == "all" || (pair.Item1 == "open" ? task.Text("status") is not ("done" or "dropped") : task.Text("status") == pair.Item1))));
         void Draw()
         {
-            list.Children.Clear(); var filter = filters.SelectedItem?.Tag?.ToString() ?? selected;
-            var tasks = snap.Rows("tasks").Where(t => filter == "all" || (filter == "open" ? t.Text("status") is not ("done" or "dropped") : t.Text("status") == filter)).Reverse().ToArray();
-            if (tasks.Length == 0) list.Children.Add(Text(T("details.no_tasks")));
+            list.Children.Clear(); var tasks = snap.Rows("tasks").Where(task => selected == "all" || (selected == "open" ? task.Text("status") is not ("done" or "dropped") : task.Text("status") == selected)).Reverse().ToArray();
+            if (tasks.Length == 0) list.Children.Add(DetailsEmpty(T("details.no_tasks")));
             foreach (var task in tasks)
             {
-                var detail = Stack(Text(T("details.label_title") + " " + task.Text("title")), Text(T("details.label_created_by") + " " + Display(task.Text("created_by"))));
-                if (task.Text("report").Length > 0) detail.Children.Add(new Border { Child = Stack(Heading(T("report.title") + " · " + When(task.Text("done_at")), 13), Rich(task.Text("report"))), Background = Paint("F2F8F4", "223129"), BorderBrush = Paint("C9E4D4", "345343"), BorderThickness = new Thickness(1), Padding = new Thickness(10), CornerRadius = new CornerRadius(8) });
-                detail.Children.Add(Text(T("details.label_evidence")));
-                if (task.Rows("evidence").Count == 0) detail.Children.Add(Text(T("details.no_evidence"))); else foreach (var ev in task.Rows("evidence")) detail.Children.Add(Rich(ev.Text()));
-                if (task.Text("owner").Length > 0) detail.Children.Add(Button(T("details.ask", ("name", Display(task.Text("owner")))), async () => { visibleDialog?.Hide(); await Select(org, task.Text("owner")); }));
-                var header = new Grid { ColumnSpacing = 10, Width = Math.Min(1000, root.ActualWidth - 250), HorizontalAlignment = HorizontalAlignment.Left };
-                header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-                var owner = snap.Rows("members").FirstOrDefault(m => m.Text("name") == task.Text("owner")); header.Children.Add(SmallAvatar(owner.Text("avatar"), Display(task.Text("owner"))));
-                var labels = Stack(Heading(task.Text("title")), Quiet(task.Text("id") + " · " + (task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + " · " + T("details.updated", ("when", When(task.Text("at")))), 11)); labels.Spacing = 3; Grid.SetColumn(labels, 1); header.Children.Add(labels);
-                var badges = new ActionRow { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; if (task.Text("report").Length > 0) badges.Children.Add(Badge(T("details.has_report"), true));
-                var status = Badge(T("task." + task.Text("status")), task.Text("status") == "blocked");
-                if (task.Text("status") == "done") { status.Background = Paint("EAF5EE", "263B2D"); ((TextBlock)status.Child).Foreground = Paint("387A50", "83C49B"); }
-                badges.Children.Add(status); Grid.SetColumn(badges, 2); header.Children.Add(badges);
-                list.Children.Add(new Expander { IsExpanded = task.Text("id") == focus, MinHeight = 36, Padding = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Header = header, Content = detail });
+                var inner = new StackPanel { Spacing = 8, Padding = new Thickness(14, 10, 14, 12) }; inner.Children.Add(DetailsLabeled(T("details.label_title"), task.Text("title")));
+                if (task.Text("created_by").Length > 0) inner.Children.Add(DetailsLabeled(T("details.label_created_by"), Display(task.Text("created_by"))));
+                if (task.Text("status") == "done" && task.Text("report").Length > 0) inner.Children.Add(DetailsReport(task!));
+                var evidence = new StackPanel(); evidence.Children.Add(DetailsLabeled(T("details.label_evidence"), task.Rows("evidence").Count == 0 ? T("details.no_evidence") : ""));
+                foreach (var ev in task.Rows("evidence"))
+                {
+                    var row = new Grid(); row.ColumnDefinitions.Add(new() { Width = new GridLength(18) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(OverviewText("•", 13)); var text = InlineText(ev.Text(), 13); text.LineHeight = 20.8; Grid.SetColumn(text, 1); row.Children.Add(text); evidence.Children.Add(row);
+                }
+                inner.Children.Add(evidence);
+                if (task.Text("owner").Length > 0) { var ask = OverviewAction(T("details.ask", ("name", Display(task.Text("owner")))), async () => { visibleDialog?.Hide(); await Select(org, task.Text("owner")); }); ask.HorizontalAlignment = HorizontalAlignment.Left; inner.Children.Add(ask); }
+                var header = new Grid { ColumnSpacing = 10 }; header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                if (task.Text("owner").Length > 0) { var owner = snap.Rows("members").FirstOrDefault(m => m.Text("name") == task.Text("owner")); var picture = (FrameworkElement)Avatar(owner.Text("avatar"), Display(task.Text("owner")), 28); picture.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(picture); }
+                var labels = new StackPanel(); var name = OverviewText(task.Text("title"), 14, weight: 600); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(name);
+                labels.Children.Add(OverviewText(task.Text("id") + " · " + (task.Text("owner").Length > 0 ? Display(task.Text("owner")) : T("details.no_owner")) + (task.Text("at").Length > 0 ? " · " + T("details.updated", ("when", When(task.Text("at")))) : ""), 12, true)); Grid.SetColumn(labels, 1); header.Children.Add(labels);
+                var chips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+                if (task.Text("status") == "done" && task.Text("report").Length > 0) { var reportChip = OverviewChip(T("details.has_report")); reportChip.Foreground = Accent; reportChip.Background = OverviewAlpha(Accent, .12); if (reportChip.Content is TextBlock text) text.Foreground = Accent; chips.Children.Add(reportChip); }
+                var state = task.Text("status"); var stateText = state is "open" or "working" or "blocked" or "done" or "dropped" ? T("task." + state) : state; chips.Children.Add(OverviewChip(stateText, state switch { "done" => "ok", "blocked" => "bad", "working" => "warn", _ => "" })); Grid.SetColumn(chips, 2); header.Children.Add(chips);
+                var headerFrame = new Border { Child = header, Padding = new Thickness(12, 10, 12, 10), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, task.Text("id") == focus ? 1 : 0) };
+                var disclosure = DetailsDisclosure(headerFrame, inner, task.Text("id") == focus); disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => headerFrame.BorderThickness = new Thickness(0, 0, 0, disclosure.IsExpanded ? 1 : 0)); list.Children.Add(DetailsCard(disclosure));
+                if (task.Text("id") == focus) disclosure.Loaded += (_, _) => disclosure.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = .5, AnimationDesired = false });
             }
         }
-        filters.SelectionChanged += (_, _) => Draw(); Draw();
+        var filters = DetailsTabs(choices, selected, value => { selected = value; Draw(); return Task.CompletedTask; }); filters.Margin = new Thickness(0, 0, 0, 12); box.Children.Add(filters); box.Children.Add(list); Draw();
+    }
+    private UIElement DetailsReport(JsonNode task)
+    {
+        var content = new StackPanel { Spacing = 6 }; var header = new ActionRow { Spacing = 6 }; var icon = (ReferenceVectorIcon)ReferenceIcon("check", 14); icon.Foreground = Paint("3E9B5E", "6CC287"); icon.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(icon); header.Children.Add(OverviewText(T("report.title"), 12.5, weight: 700)); if (task.Text("done_at").Length > 0) header.Children.Add(OverviewText(When(task.Text("done_at")), 12.5, true)); content.Children.Add(header); content.Children.Add(DetailsMarkdown(task.Text("report")));
+        var background = Paint("FFFFFF", "252523").Color; var green = Paint("3E9B5E", "6CC287").Color;
+        var blend = Windows.UI.Color.FromArgb(255, (byte)Math.Round(background.R * .94 + green.R * .06), (byte)Math.Round(background.G * .94 + green.G * .06), (byte)Math.Round(background.B * .94 + green.B * .06));
+        return new Border { Child = content, BorderBrush = OverviewAlpha(Paint("3E9B5E", "6CC287"), .3), BorderThickness = new Thickness(1), Background = new SolidColorBrush(blend), Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(10) };
+    }
+    private UIElement DetailsMarkdown(string value)
+    {
+        var body = Rich(value);
+        void Style(DependencyObject element)
+        {
+            if (element is RichTextBlock text) { text.FontSize = 13.5; text.LineHeight = 22.95; }
+            if (element is Panel panel) foreach (var child in panel.Children) Style(child);
+            else if (element is Border border && border.Child != null) Style(border.Child);
+        }
+        Style(body); return body;
     }
     private UIElement Protocol(JsonNode p, bool inherited)
     {
-        var state = p.Text("status") switch { "active" => T("details.status_active"), "proposed" => T("details.status_proposed"), "rejected" => T("details.status_rejected"), "superseded" => T("details.status_superseded"), "retired" => T("details.status_retired"), "enacted" => T("details.status_enacted"), _ => p.Text("status") };
-        var box = Stack(Heading(T("details.protocol_head", ("id", p.Text("id")), ("title", p.Text("title")), ("kind", p.Text("strength") == "strong" ? T("details.strong_protocol") : T("details.weak_protocol")), ("status", state)), 14)); box.Spacing = 8;
-        if (inherited) box.Children.Add(Badge(T("org.inherited_from", ("name", p.Text("from")))));
-        if (p["issued_by"] != null) box.Children.Add(Badge(p["issued_by"].Flag("person") ? T("org.issued_by_person") : T("org.issued_by", ("name", p["issued_by"].Text("name"))), p["issued_by"].Flag("person")));
-        if (p.Text("retire_target").Length > 0) box.Children.Add(Text(T("details.label_retires") + " " + p.Text("retire_target")));
-        if (p.Text("supersedes").Length > 0) box.Children.Add(Text(T("details.label_supersedes") + " " + p.Text("supersedes")));
-        var attributes = new ActionRow { Spacing = 5 };
-        if (p.Flag("inherit")) attributes.Children.Add(Badge(T("org.protocol_inherits")));
-        if (p.Flag("check")) attributes.Children.Add(Badge(T("org.protocol_check")));
-        if (attributes.Children.Count > 0) box.Children.Add(attributes);
-        if (p.Flag("replaces_above") && p["supersedes"] != null) box.Children.Add(Text(T("org.protocol_overrides", ("ref", p["supersedes"] is JsonObject reference ? T("org.protocol_ref", ("id", reference.Text("id")), ("org", reference.Text("org"))) : p.Text("supersedes")))));
-        if (p.Text("trigger").Length > 0) box.Children.Add(InlineText(T("details.label_applies") + " **" + p.Text("trigger") + "**", 13));
-        box.Children.Add(Rich(p.Text("guidance")));
-        if (p.Text("summary_for_person").Length > 0) box.Children.Add(new Border { Child = Stack(Quiet(T("details.label_summary")), Rich(p.Text("summary_for_person"))), Background = Paint("F8F7F5", "2A2A28"), Padding = new Thickness(10), CornerRadius = new CornerRadius(8) });
+        var state = inherited ? T("details.status_active") : p.Text("status") switch { "active" => T("details.status_active"), "proposed" => T("details.status_proposed"), "rejected" => T("details.status_rejected"), "superseded" => T("details.status_superseded"), "retired" => T("details.status_retired"), "enacted" => T("details.status_enacted"), _ => p.Text("status") };
+        var box = new StackPanel { Spacing = 8, Padding = new Thickness(14, 10, 14, 12) }; box.Children.Add(OverviewText(T("details.protocol_head", ("id", p.Text("id")), ("title", p.Text("title")), ("kind", p.Text("strength") == "strong" ? T("details.strong_protocol") : T("details.weak_protocol")), ("status", state)), 13, weight: 700));
+        string ProtocolName(string reference)
+        {
+            var split = reference.Split('/', 2); if (split.Length < 2) return reference; var above = orgs.FirstOrDefault(o => o.Text("id") == split[0]); return T("org.protocol_ref", ("org", above.Text("name").Length > 0 ? above.Text("name") : split[0]), ("id", split[1]));
+        }
+        if (inherited)
+        {
+            var origin = T("org.inherited_from", ("name", p.Text("from"))); if (p["issued_by"].Text("name").Length > 0) origin += " · " + (p["issued_by"].Flag("person") ? T("org.issued_by_person") : T("org.issued_by", ("name", p["issued_by"].Text("name")))); box.Children.Add(OverviewText(origin, 13, true));
+        }
+        else
+        {
+            if (p.Text("retire_target").Length > 0) box.Children.Add(DetailsLabeled(T("details.label_retires"), ProtocolName(p.Text("retire_target"))));
+            if (p.Text("supersedes").Length > 0) box.Children.Add(DetailsLabeled(T("details.label_supersedes"), ProtocolName(p.Text("supersedes"))));
+            if (p.Flag("inherit")) box.Children.Add(OverviewText(T("org.protocol_inherits"), 13, true));
+        }
+        if (p.Text("trigger").Length > 0) box.Children.Add(DetailsLabeled(T("details.label_applies"), p.Text("trigger")));
+        if (p.Text("guidance").Length > 0) box.Children.Add(OverviewText(p.Text("guidance"), 13));
+        if (p.Text("summary_for_person").Length > 0)
+        {
+            var summary = new StackPanel { Spacing = 2 }; summary.Children.Add(OverviewText(T("details.label_summary"), 13.5, true, lineHeight: 22.95)); summary.Children.Add(DetailsMarkdown(p.Text("summary_for_person")));
+            box.Children.Add(new Border { Child = summary, Background = Paint("F8F7F5", "191918"), BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10) });
+        }
         if (p.Rows("rules").Count > 0)
         {
-            var rules = new JsonArray();
-            foreach (var original in p.Rows("rules")) { var rule = original?.DeepClone(); if (rule is JsonObject obj && rule.Text("effect") == "check") { obj.Remove("code"); obj.Remove("examples"); obj.Remove("code_sha256"); } rules.Add(rule); }
             var display = p.Text("rules_display");
-            if (display.Length == 0) display = rules.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-            box.Children.Add(Rich("```json\n" + display + "\n```"));
-            if (p.Rows("rules").Any(r => r.Text("effect") == "check")) box.Children.Add(CheckRules(p.Rows("rules")));
+            if (display.Length == 0) { var rules = new JsonArray(); foreach (var original in p.Rows("rules")) { var rule = original?.DeepClone(); if (rule is JsonObject fields && rule.Text("effect") == "check") { fields.Remove("code"); fields.Remove("examples"); fields.Remove("code_sha256"); } rules.Add(rule); } display = rules.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }); }
+            box.Children.Add(DetailsCode(display, true)); if (p.Rows("rules").Any(rule => rule.Text("effect") == "check")) box.Children.Add(CheckRules(p.Rows("rules")));
         }
-        box.Children.Add(Quiet(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 12)); return Card(box);
+        if (!inherited) box.Children.Add(OverviewText(T("details.proposed_by", ("name", Display(p.Text("author")))) + " · " + T("details.votes", ("n", p.Text("votes"))) + " · " + T("details.uses", ("n", p.Text("uses"))) + (p.Flag("retired_by_person") ? " · " + T("details.retired_by_person") : ""), 13, true)); return DetailsCard(box);
     }
     private UIElement CheckRules(JsonArray rules)
     {
-        var body = new StackPanel { Spacing = 10 };
+        var body = new StackPanel { Spacing = 0 };
         foreach (var rule in rules.Where(r => r.Text("effect") == "check"))
         {
+            var block = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) }; body.Children.Add(block);
             var scope = new List<string> { rule.Rows("tools").Count == 1 && rule.Rows("tools")[0].Text() == "Reply" ? T("cc.scope_reply") : string.Join(" / ", rule.Rows("tools").Select(x => x.Text())) };
             if (rule.Text("path_glob").Length > 0) scope.Add(T("cc.scope_path", ("glob", rule.Text("path_glob"))));
-            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", words.List(rule.Rows("input_contains").Select(x => x.Text())))));
+            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", string.Join(",", rule.Rows("input_contains").Select(x => x.Text())))));
             var who = rule.Rows("roles").Concat(rule.Rows("members")).ToArray(); var except = rule.Rows("except_roles").Concat(rule.Rows("except_members")).ToArray();
-            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", words.List(who.Select(x => x.Text())))));
-            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", words.List(except.Select(x => x.Text())))));
-            body.Children.Add(Text(T("cc.scope", ("what", string.Join(" · ", scope)))));
-            body.Children.Add(Text(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow")));
-            body.Children.Add(Rich("```python\n" + rule.Text("code") + "\n```"));
-            if (rule.Text("code_sha256").Length > 0) body.Children.Add(Quiet("sha256 " + rule.Text("code_sha256"), 11));
-            if (rule.Rows("examples").Count > 0) body.Children.Add(Heading(T("cc.examples")));
-            foreach (var example in rule.Rows("examples")) body.Children.Add(new Expander { Header = T(example.Text("expect") switch { "deny" => "cc.decision_deny", "review" => "cc.decision_review", _ => "cc.decision_allow" }) + " · " + example?["call"].Text("tool"), Content = Stack(Rich("```json\n" + (example?["call"]?.ToJsonString(new() { WriteIndented = true }) ?? "") + "\n```"), Text(example.Text("note"))), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", string.Join(",", who.Select(x => x.Text())))));
+            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", string.Join(",", except.Select(x => x.Text())))));
+            block.Children.Add(OverviewText(T("cc.scope", ("what", string.Join(" · ", scope))), 12, true));
+            block.Children.Add(OverviewText(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow"), 12, true));
+            var program = OverviewText(rule.Text("code"), 12, lineHeight: 18.6); program.FontFamily = new FontFamily("Cascadia Code"); program.TextWrapping = TextWrapping.NoWrap;
+            var codeScroll = new ScrollViewer { Content = program, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 322 };
+            block.Children.Add(new Border { Child = codeScroll, Padding = new Thickness(10, 8, 10, 8), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8), Background = Paint("F6F5F2", "232321") });
+            if (rule.Text("code_sha256").Length > 0) { var sha = OverviewText("sha256 " + rule.Text("code_sha256")[..Math.Min(16, rule.Text("code_sha256").Length)] + "…", 12, true); sha.FontFamily = new FontFamily("Cascadia Code"); block.Children.Add(sha); }
+            if (rule.Rows("examples").Count > 0)
+            {
+                var examples = new StackPanel { Spacing = 4 }; examples.Children.Add(OverviewText(T("cc.examples"), 12, true)); block.Children.Add(examples);
+                foreach (var example in rule.Rows("examples"))
+                {
+                    var row = new Grid { ColumnSpacing = 8, RowSpacing = 2 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                    row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                    var decision = example.Text("expect"); row.Children.Add(OverviewChip(decision switch { "allow" => T("cc.decision_allow"), "deny" => T("cc.decision_deny"), "review" => T("cc.decision_review"), _ => decision }, decision switch { "allow" => "ok", "deny" => "bad", "review" => "warn", _ => "" }));
+                    var call = example?["call"];
+                    var display = example.Text("call_display");
+                    if (example?["call_display"] == null)
+                    {
+                        var input = call?["input"]; var argument = input.Text("command"); if (argument.Length == 0) argument = input.Text("file_path"); if (argument.Length == 0) argument = input.Text("path");
+                        if (argument.Length == 0 && input is JsonObject fields && fields.Count > 0) argument = input.ToJsonString(new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+                        display = Regex.Replace(string.Join(" ", new[] { call.Text("tool"), argument }.Where(value => value.Length > 0)), @"\s+", " ").Trim(); if (display.Length > 160) display = display[..159] + "…";
+                    }
+                    var command = OverviewText(display, 11.5); command.Foreground = Paint("5A5853", "B8B5AE"); command.FontFamily = new FontFamily("Cascadia Code"); command.TextWrapping = TextWrapping.NoWrap; command.TextTrimming = TextTrimming.CharacterEllipsis;
+                    ToolTipService.SetToolTip(command, example.Text("call_json").Length > 0 ? example.Text("call_json") : call?.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) ?? "{}");
+                    Grid.SetColumn(command, 1); row.Children.Add(command);
+                    if (example.Text("note").Length > 0) { var note = OverviewText(example.Text("note"), 12, true); Grid.SetColumn(note, 1); Grid.SetRow(note, 1); row.Children.Add(note); }
+                    examples.Children.Add(row);
+                }
+            }
         }
-        return new Expander { Header = T("cc.code"), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, HorizontalAlignment = HorizontalAlignment.Left };
+        var chevron = (ReferenceVectorIcon)ReferenceIcon("chev", 13); chevron.Foreground = Paint("5A5853", "B8B5AE"); chevron.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(chevron);
+        var title = OverviewText(T("cc.code"), 12.5); title.IsTextSelectionEnabled = false; title.Foreground = Paint("5A5853", "B8B5AE"); header.Children.Add(title);
+        var disclosure = DetailsDisclosure(header, body); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(disclosure, T("cc.code"));
+        disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => { chevron.RenderTransformOrigin = new(.5, .5); chevron.RenderTransform = new RotateTransform { Angle = disclosure.IsExpanded ? 90 : 0 }; });
+        return disclosure;
     }
     private async Task Trace(StackPanel box, string who)
     {

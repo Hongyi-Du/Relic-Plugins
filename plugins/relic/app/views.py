@@ -9,6 +9,7 @@ import copy
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -452,12 +453,19 @@ def protocol_rules(rules):
     """Expose the engine's effective check fallback, including legacy records.
 
     Clients must display the same outcome as Store._check_outcome rather than
-    each interpreting an absent on_error field. This never rewrites the store.
+    each interpreting an absent on_error field. Example labels and tooltips
+    follow the reference's formatting. This never rewrites the store.
     """
-    result = copy.deepcopy(rules or [])
+    # A caller may reuse an example object in separate rules. Add display
+    # fields only to the check rule, without leaking across that alias.
+    result = [copy.deepcopy(rule) for rule in rules or []]
     for rule in result:
         if rule.get("effect") == "check":
             rule["on_error"] = "deny" if rule.get("on_error") == "deny" else "allow"
+            for example in rule.get("examples") or []:
+                call = example.get("call") or {}
+                example["call_display"] = _example_call_display(call)
+                example["call_json"] = _display_json(call)
     return result
 
 
@@ -492,16 +500,12 @@ def _display_json_number(value):
     return ("-" if number < 0 else "") + body
 
 
-def protocol_rules_display(rules):
-    """JSON.stringify(plainRules(wire.rules), null, 2), solely for UI text.
+def _display_json(value, indent=2):
+    """JSON.stringify for the wire JSON data used by protocol UI labels.
 
-    The input is the already-normalized rules sent in the same snapshot. Keep
-    ordinary property insertion order; JavaScript enumerates array-index keys
-    first in numeric order. No executable rule or nested payload is modified.
+    Keep ordinary property insertion order; JavaScript enumerates array-index
+    keys first in numeric order. None selects JSON.stringify's compact format.
     """
-    plain = [{key: value for key, value in rule.items() if key not in ("code", "examples", "code_sha256")}
-             if rule.get("effect") == "check" else rule for rule in rules or []]
-
     def quoted(text):
         # JSON.stringify emits Unicode directly, but escapes lone surrogates.
         return "".join("\\u%04x" % ord(char) if 0xD800 <= ord(char) <= 0xDFFF else char
@@ -517,10 +521,10 @@ def protocol_rules_display(rules):
         if isinstance(value, str):
             return quoted(value)
         if isinstance(value, dict):
-            indices = sorted((key for key in value if key.isascii() and key.isdecimal()
+            indices = sorted((key for key in value if len(key) <= 10 and key.isascii() and key.isdecimal()
                               and str(int(key)) == key and int(key) < 2 ** 32 - 1), key=int)
             keys = indices + [key for key in value if key not in indices]
-            items = [quoted(key) + ": " + encode(value[key], depth + 1) for key in keys]
+            items = [quoted(key) + (":" if indent is None else ": ") + encode(value[key], depth + 1) for key in keys]
             opening, closing = "{", "}"
         elif isinstance(value, list):
             items = [encode(item, depth + 1) for item in value]
@@ -529,10 +533,52 @@ def protocol_rules_display(rules):
             raise TypeError("Protocol display requires JSON values")
         if not items:
             return opening + closing
-        indent = "  " * (depth + 1)
-        return opening + "\n" + indent + (",\n" + indent).join(items) + "\n" + "  " * depth + closing
+        if indent is None:
+            return opening + ",".join(items) + closing
+        padding = " " * (indent * (depth + 1))
+        return opening + "\n" + padding + (",\n" + padding).join(items) + "\n" + " " * (indent * depth) + closing
 
-    return encode(plain)
+    return encode(value)
+
+
+def protocol_rules_display(rules):
+    """JSON.stringify(plainRules(wire.rules), null, 2), without editing rules."""
+    plain = [{key: value for key, value in rule.items() if key not in ("code", "examples", "code_sha256")}
+             if rule.get("effect") == "check" else rule for rule in rules or []]
+    return _display_json(plain)
+
+
+def _example_call_display(call):
+    """The reference exampleText/clip label, including UTF-16 slice semantics."""
+    def truthy(value):
+        # In JavaScript empty arrays/objects remain true, unlike Python.
+        return not (value is None or value is False or isinstance(value, (int, float, str))
+                    and (not value or isinstance(value, float) and math.isnan(value)))
+
+    def text(value):
+        # Array.join converts selected command/path values to JS strings.
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return "[object Object]"
+        if isinstance(value, list):
+            return ",".join("" if item is None else text(item) for item in value)
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        number = _display_json_number(value)
+        if number == "null":
+            return "NaN" if isinstance(value, float) and math.isnan(value) else "-Infinity" if value < 0 else "Infinity"
+        return number
+
+    inputs = call.get("input") or {}
+    argument = next((inputs.get(key) for key in ("command", "file_path", "path") if truthy(inputs.get(key))), None)
+    if argument is None:
+        argument = _display_json(inputs, indent=None) if inputs else ""
+    joined = " ".join(text(value) for value in (call.get("tool"), argument) if truthy(value))
+    # ECMAScript \s includes BOM, but excludes Python's NEL and C0 separators.
+    joined = re.sub(r"[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+", " ", joined).strip(" ")
+    units = joined.encode("utf-16-le", "surrogatepass")
+    return units[:318].decode("utf-16-le", "surrogatepass") + "…" if len(units) > 320 else joined
 
 
 def copies(store, lang=None):

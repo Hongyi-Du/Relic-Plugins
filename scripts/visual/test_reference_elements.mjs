@@ -69,6 +69,9 @@ test('ellipsis evidence preserves both original ranges and unresolved generated-
   const ranges = [logical, { x: 80, y: 262.125, width: 131.59375, height: 17 }];
   const measure = vm.runInNewContext('(' + expression('textMeasurement', 'textNodes') + ')', {
     ...context, visibleRect, measuredText: new WeakMap(), snapshotBackend: new WeakMap([[node, 144]]),
+    snapshotTextLayouts: new WeakMap([[node, { source: 'CDP.DOMSnapshot.captureSnapshot', node_index: 136,
+      layout_rows: [{ layout_index: 102, bounds: logical, text: node.nodeValue }],
+      text_boxes: [{ layout_index: 102, bounds: logical, start: 0, length: node.nodeValue.length }] }]]),
     axByBackend: new Map([[144, [{ childIds: ['original', 'prefix', 'ellipsis'] }]]]),
     axById: new Map([
       ['original', { nodeId: 'original', parentId: '144', ignored: false, role: { value: 'InlineTextBox' }, name: { value: node.nodeValue } }],
@@ -79,13 +82,17 @@ test('ellipsis evidence preserves both original ranges and unresolved generated-
     document: { createRange: () => ({ selectNodeContents() {}, getBoundingClientRect: () => logical, getClientRects: () => ranges }) },
   });
   const result = normalize(measure(node));
-  assert.deepEqual(result.bounds, { x: 80, y: 263.125, width: 144, height: 16 });
+  assert.deepEqual(result.range_bounds, { x: 80, y: 263.125, width: 144, height: 16 });
+  assert.deepEqual(result.clipped_range_envelope, { x: 80, y: 263.125, width: 144, height: 16 });
+  assert.equal(result.glyph_bounds, null);
   assert.deepEqual(result.evidence.raw_bounds, logical);
   assert.deepEqual(result.evidence.raw_rectangles, ranges);
   assert.equal(result.evidence.source_text, node.nodeValue);
   assert.equal(result.evidence.css_ellipsis_active, true);
-  assert.equal(result.evidence.geometry_kind, 'clipped-range-envelope-with-unresolved-ellipsis-ink');
-  assert.deepEqual(result.boxes.map(box => box.width), [144, 131.59375]);
+  assert.equal(result.evidence.geometry_kind, 'unmeasured-painted-ellipsis-with-retained-range-evidence');
+  assert.deepEqual(result.range_boxes.map(box => box.width), [144, 131.59375]);
+  assert.equal(result.evidence.owner_element_box.width, 144.28125, 'Direct element box is retained separately from rounded client metrics');
+  assert.equal(result.evidence.dom_snapshot_layout.text_boxes[0].bounds.width, 459.578125, 'Unclipped CDP layout evidence is not relabeled as glyph paint');
   assert.deepEqual(result.evidence.ax_inline_text_boxes.map(box => box.name), [node.nodeValue, "Designer: I'll check all ", '…']);
   assert.ok(result.evidence.ax_inline_text_boxes.every(box => box.bounds === null), 'AX names never stand in for actual glyph coordinates');
 });
@@ -98,6 +105,7 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
   owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto' };
   const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'all') + ')', {
     styleOf: context.styleOf, rect: box => ({ ...box }),
+    pseudoByOwner: new WeakMap(),
     getComputedStyle: (_owner, pseudo) => ({ display: 'inline', visibility: 'visible', opacity: '1',
       width: '10px', height: '10px', backgroundColor: pseudo.endsWith('-thumb') ? 'rgba(143, 140, 134, 0.35)' : 'rgba(0, 0, 0, 0)' }),
   });
@@ -106,7 +114,11 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
   assert.equal(result.scroll_height, 1320);
   assert.equal(result.client_width, 329);
   assert.equal(result.scroll_top, 17);
-  assert.equal(result.parts.length, 4);
+  assert.equal(result.parts.length, 7);
+  assert.ok(result.parts.some(part => part.pseudo === '::-webkit-scrollbar-button'));
+  assert.ok(result.parts.every(part => part.painted_presence === null && part.painted_bounds === null));
+  assert.equal(result.actual_ua_parts_presence, null);
+  assert.deepEqual(result.dom_snapshot_parts, []);
   assert.equal(result.measured_part_bounds, null);
   assert.equal(result.measured_part_pixels, null);
   owner.style.scrollbarWidth = 'none';
@@ -279,4 +291,81 @@ test('current chart organization is distinct from selection and uses actual aria
   assert.equal(read(chart('true')).current, true);
   assert.equal(read(chart(null)).current, false);
   assert.equal(read(chart('true')).selected, null);
+});
+
+function geometryReader() {
+  const lineCount = vm.runInNewContext('(' + expression('lineCount', 'inputTextMeasurement') + ')');
+  return vm.runInNewContext('(' + expression('textGeometry', 'lineCount') + ')', { lineCount });
+}
+
+test('ellipsis projection does not call its clipped envelope measured glyph geometry', () => {
+  const read = geometryReader();
+  const envelope = { x: 80, y: 263.125, width: 144, height: 16 };
+  const result = normalize(read([{ evidence: { css_ellipsis_active: true }, clipped_range_envelope: envelope }], [envelope], 'text', envelope, envelope));
+  assert.deepEqual(result.bounds, { x: null, y: null, width: null, height: null });
+  assert.deepEqual(result.visible_bounds, { x: null, y: null, width: null, height: null });
+  assert.equal(result.text_bounds, null);
+  assert.deepEqual(result.clipped_range_envelope, envelope);
+  assert.deepEqual(result.text_layout_bounds, [envelope]);
+  assert.equal(result.line_count, 1, 'A known single layout line is retained independently of unknown ellipsis glyph extents');
+  assert.equal(result.text_bounds_quantity, 'unmeasured-painted-ellipsis-text');
+});
+
+test('an ellipsized control keeps its directly measured control box', () => {
+  const read = geometryReader();
+  const control = { x: 10, y: 20, width: 236, height: 80 };
+  const envelope = { x: 48, y: 26, width: 120, height: 17 };
+  const result = normalize(read([{ evidence: { css_ellipsis_active: true }, clipped_range_envelope: envelope }], [envelope], 'button', control, control));
+  assert.deepEqual(result.bounds, control); assert.deepEqual(result.visible_bounds, control);
+  assert.equal(result.text_bounds, null); assert.deepEqual(result.clipped_range_envelope, envelope);
+});
+
+test('plain text retains measured advance rectangles without claiming glyph ink', () => {
+  const read = geometryReader();
+  const bounds = { x: 10, y: 20, width: 80, height: 17 };
+  const result = normalize(read([{ evidence: { css_ellipsis_active: false }, clipped_range_envelope: bounds }], [bounds], 'text', bounds, bounds));
+  assert.deepEqual(result.bounds, bounds); assert.deepEqual(result.text_bounds, [bounds]);
+  assert.equal(result.text_bounds_quantity, 'font-metric-text-advance-range');
+  assert.equal(result.unknown_ellipsis, false);
+});
+
+test('unresolved multiline ellipsis does not invent an actual painted line count', () => {
+  const read = geometryReader();
+  const boxes = [{ x: 10, y: 20, width: 80, height: 17 }, { x: 10, y: 40, width: 80, height: 17 }];
+  const result = normalize(read([{ evidence: { css_ellipsis_active: true }, clipped_range_envelope: boxes[0] }], boxes, 'text', boxes[0], boxes[0]));
+  assert.equal(result.line_count, null); assert.equal(result.line_count_source, null);
+  assert.deepEqual(result.text_layout_bounds, boxes); assert.equal(result.text_bounds, null);
+});
+
+test('inline child text retains an ancestor ellipsis coverage gap', () => {
+  const owner = element({ x: 10, y: 20, width: 150, height: 17 });
+  const block = element({ x: 10, y: 20, width: 80, height: 17 }, { clientWidth: 80, scrollWidth: 150 });
+  block.style = { ...block.style, overflowX: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  owner.parentElement = block;
+  const node = { parentElement: owner, nodeValue: 'Actual longer inline label' };
+  const logical = { x: 10, y: 20, width: 150, height: 17 };
+  const read = vm.runInNewContext('(' + expression('textMeasurement', 'textNodes') + ')', {
+    ...context, visibleRect, measuredText: new WeakMap(), snapshotBackend: new WeakMap(), snapshotTextLayouts: new WeakMap(),
+    axByBackend: new Map(), axById: new Map(), pathOf: value => value === block ? '#real-block' : '#real-inline', rect: box => ({ ...box }),
+    document: { createRange: () => ({ selectNodeContents() {}, getBoundingClientRect: () => logical, getClientRects: () => [logical] }) },
+  });
+  const result = normalize(read(node));
+  assert.equal(result.evidence.css_ellipsis_active, true);
+  assert.equal(result.evidence.ellipsis_overflow_owners[0].selector, '#real-block');
+  assert.equal(result.evidence.ellipsis_overflow_owners[0].direct_owner, false);
+  assert.equal(result.clipped_range_envelope.width, 80);
+  assert.equal(result.glyph_bounds, null);
+});
+
+test('zero scrollbar gutter is not proof that overlay scrollbars are absent', () => {
+  const owner = element({ x: 10, y: 20, width: 200, height: 300 }, { offsetWidth: 200, clientWidth: 200, offsetHeight: 300, clientHeight: 300, scrollHeight: 900 });
+  owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto', direction: 'ltr', writingMode: 'horizontal-tb' };
+  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'all') + ')', {
+    styleOf: context.styleOf, rect: box => ({ ...box }), pseudoByOwner: new WeakMap(),
+    getComputedStyle: () => ({ display: 'inline', visibility: 'visible', opacity: '1', width: '10px', height: '10px' }),
+  });
+  const result = normalize(read(owner));
+  assert.deepEqual(result.axes, ['vertical']); assert.equal(result.offset_width - result.client_width, 0);
+  assert.equal(result.actual_ua_parts_presence, null); assert.equal(result.measured_part_bounds, null);
+  assert.equal(result.measured_part_pixels, null);
 });

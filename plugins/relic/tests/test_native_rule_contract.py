@@ -8,11 +8,71 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import views
+from app import views, web
 from relic_core.store import Store
 
 
 class RuleDisplayContract(unittest.TestCase):
+    def test_check_examples_add_labels_without_changing_calls_or_source(self):
+        call = {"input": {"file_path": "文档/说明.md", "command": ""}, "tool": "Read"}
+        example = {"call": call, "expect": "allow", "note": "保留说明"}
+        rules = [{"effect": "check", "examples": [example]}, {"effect": "allow", "examples": [example]}]
+        original = copy.deepcopy(rules)
+        shown = views.protocol_rules(rules)
+        self.assertEqual(shown[0]["examples"][0], dict(example, call_display="Read 文档/说明.md", call_json='''{
+  "input": {
+    "file_path": "文档/说明.md",
+    "command": ""
+  },
+  "tool": "Read"
+}'''))
+        self.assertEqual(shown[1], rules[1])
+        self.assertEqual(rules, original)
+
+    def test_example_argument_priority_and_javascript_truthiness(self):
+        for inputs, expected in [
+            ({"command": " first ", "file_path": "second", "path": "third"}, "Read first"),
+            ({"command": "", "file_path": "second", "path": "third"}, "Read second"),
+            ({"command": False, "file_path": 0, "path": "third"}, "Read third"),
+            ({"command": [], "file_path": "must not win"}, "Read"),
+            ({"command": {}, "path": "must not win"}, "Read [object Object]"),
+            ({"command": ["one", None, "two"]}, "Read one,,two"),
+            ({}, "Read"),
+            ({"z": "中文", "10": 1.0, "2": -0.0, "enabled": False}, 'Read {"2":0,"10":1,"z":"中文","enabled":false}'),
+        ]:
+            with self.subTest(inputs=inputs):
+                example = views.protocol_rules([{"effect": "check", "examples": [{"call": {"tool": "Read", "input": inputs}}]}])[0]["examples"][0]
+                self.assertEqual(example["call_display"], expected)
+        missing = views.protocol_rules([{"effect": "check", "examples": [{}]}])[0]["examples"][0]
+        self.assertEqual((missing["call_display"], missing["call_json"]), ("", "{}"))
+
+    def test_example_whitespace_matches_reference_not_python_whitespace(self):
+        call = {"tool": "Read", "input": {"command": "\ufeff 汉字\t\n说明\u00a0🧭\u2028末尾\u0085保留\u001c保留 "}}
+        example = views.protocol_rules([{"effect": "check", "examples": [{"call": call}]}])[0]["examples"][0]
+        self.assertEqual(example["call_display"], "Read 汉字 说明 🧭 末尾\u0085保留\u001c保留")
+        self.assertEqual(json.loads(example["call_json"]), call)
+
+    def test_example_clip_counts_utf16_units_and_keeps_full_tooltip(self):
+        for argument, expected in [("x" * 200, "Tool " + "x" * 154 + "…"),
+                                   ("汉" * 153 + "😀尾", "Tool " + "汉" * 153 + "\ud83d…"),
+                                   ("a" * 153 + "😀", "Tool " + "a" * 153 + "😀")]:
+            with self.subTest(argument=argument):
+                call = {"tool": "Tool", "input": {"command": argument}}
+                example = views.protocol_rules([{"effect": "check", "examples": [{"call": call}]}])[0]["examples"][0]
+                self.assertEqual(example["call_display"], expected)
+                self.assertEqual(json.loads(example["call_json"]), call)
+
+    def test_json_response_escapes_lone_surrogates_without_escaping_unicode(self):
+        handler = mock.Mock(spec=web.Handler)
+        payload = {"call_display": "Tool \ud83d…", "note": "中文 🧭"}
+        web.Handler._json(handler, payload, 201)
+        code, body = handler._send.call_args.args
+        self.assertEqual(code, 201)
+        self.assertIsInstance(body, bytes)
+        self.assertIn(b"\\ud83d", body)
+        self.assertIn("中文 🧭".encode("utf-8"), body)
+        self.assertEqual(json.loads(body), payload)
+
     def test_plain_display_only_hides_check_source_and_preserves_wire_order(self):
         rules = [{"tools": ["Bash"], "effect": "check", "code": "hidden()", "examples": [{"code": "hidden"}],
                   "code_sha256": "digest", "note": "给人看的规则 🧭", "on_error": "allow",
@@ -104,7 +164,7 @@ class RuleDisplayContract(unittest.TestCase):
         self.assertEqual(rules, original)
 
     def test_copies_expose_the_effective_fallback_without_mutating_store_rows(self):
-        rows = [{"id": "c1", "org": "o", "rules": [{"effect": "check"}]}]
+        rows = [{"id": "c1", "org": "o", "rules": [{"effect": "check", "examples": [{"call": {"tool": "Read", "input": {}}}]}]}]
         original = copy.deepcopy(rows)
         store = mock.Mock()
         store.copies.return_value = rows
@@ -112,12 +172,14 @@ class RuleDisplayContract(unittest.TestCase):
         store.unread_copies.return_value = 1
         result = views.copies(store, "en-US")
         self.assertEqual(result["items"][0]["rules"][0]["on_error"], "allow")
+        self.assertEqual(result["items"][0]["rules"][0]["examples"][0]["call_display"], "Read")
+        self.assertEqual(json.loads(result["items"][0]["rules"][0]["examples"][0]["call_json"]), {"tool": "Read", "input": {}})
         self.assertEqual(result["unread"], 1)
         self.assertEqual(rows, original)
 
     def test_snapshot_normalizes_owned_and_inherited_rules(self):
         protocol = {"id": "P1", "title": "Check", "strength": "strong", "status": "active",
-                    "rules": [{"effect": "check", "code": "return True", "examples": [{"input": "fixture"}],
+                    "rules": [{"effect": "check", "code": "return True", "examples": [{"call": {"tool": "Read"}, "expect": "allow"}],
                                "code_sha256": "digest"}]}
         org = {"id": "o", "name": "Organization", "protocols": {"P1": protocol}}
         original = copy.deepcopy(org)
@@ -135,7 +197,10 @@ class RuleDisplayContract(unittest.TestCase):
         self.assertEqual(result["protocols"][0]["rules"][0]["on_error"], "allow")
         self.assertEqual(result["inherited_protocols"][0]["rules"][0]["on_error"], "allow")
         for field in ("protocols", "inherited_protocols"):
-            self.assertEqual(result[field][0]["rules"][0], dict(protocol["rules"][0], on_error="allow"))
+            expected_rule = copy.deepcopy(protocol["rules"][0])
+            expected_rule["on_error"] = "allow"
+            expected_rule["examples"][0].update(call_display="Read", call_json='{\n  "tool": "Read"\n}')
+            self.assertEqual(result[field][0]["rules"][0], expected_rule)
         expected = '[\n  {\n    "effect": "check",\n    "on_error": "allow"\n  }\n]'
         self.assertEqual(result["protocols"][0]["rules_display"], expected)
         self.assertEqual(result["inherited_protocols"][0]["rules_display"], expected)

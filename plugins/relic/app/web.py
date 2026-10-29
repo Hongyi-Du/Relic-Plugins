@@ -552,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _json(self, obj, code=200):
-        self._send(code, json.dumps(obj, ensure_ascii=False))
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace"))
 
     def _error(self, code, text):
         self._json({"error": text}, code)
