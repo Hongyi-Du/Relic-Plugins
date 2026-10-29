@@ -18,6 +18,76 @@ const intersect = (a, b) => {
     height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
 };
 const normalize = value => JSON.parse(JSON.stringify(value));
+const readingOrderIds = vm.runInNewContext('(' + expression('readingOrderIds', 'assignReadingOrder') + ')', {
+  Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+});
+const assignReadingOrder = vm.runInNewContext('(' + expression('assignReadingOrder', 'all') + ')');
+const readingElement = (...children) => ({ nodeType: 1, childNodes: children });
+const readingText = () => ({ nodeType: 3 });
+
+test('recorded file-code line number precedes source text without changing either measurement', () => {
+  // Actual en-US/light/1440x900 file-code evidence from 1e3b7c5. The number's
+  // CDP pseudo box is left of the source range; the old emission was reversed.
+  const line = readingElement(readingText());
+  const items = [
+    { id: 'dom-344:text-0', parent: 'dom-342', region: 'right-pane', kind: 'text', text: 'def review(platform: str) -> str:', order: 21,
+      bounds: { x: 981, y: 173.9375, width: 232.03125, height: 14 }, style: { font_size: 12, font_weight: 400 },
+      evidence: { source: 'dom', source_text: 'def review(platform: str) -> str:' } },
+    { id: 'dom-344::before', parent: 'dom-342', region: 'right-pane', kind: 'text', text: '1', order: 22,
+      bounds: { x: 959.96875, y: 173.9375, width: 7.03125, height: 14 }, style: { font_size: 12, font_weight: 400, pseudo: '::before' },
+      evidence: { source: 'CDP.DOMSnapshot' } },
+  ];
+  const original = new Map(items.map(({ order, ...item }) => [item.id, structuredClone(item)]));
+  const raw = [{ id: 'dom-344', emitted: items.map(item => item.id) }], errors = [];
+  assignReadingOrder(items, raw, readingOrderIds(line, new Map([[line, 'dom-344']])), errors);
+  assert.deepEqual(items.map(item => item.text), ['1', 'def review(platform: str) -> str:']);
+  assert.deepEqual(items.map(item => item.order), [0, 1]);
+  assert.deepEqual(raw[0].emitted, ['dom-344::before', 'dom-344:text-0']);
+  assert.deepEqual(errors, []);
+  assert.equal(items.length, original.size);
+  for (const { order, ...item } of items) assert.deepEqual(item, original.get(item.id), 'Only reading order changes; source text, identity, bounds, styles and evidence survive');
+});
+
+test('nested pseudos and mixed inline children keep their actual source-tree order', () => {
+  const nested = readingElement(readingText());
+  const parent = readingElement(readingText(), nested, readingText());
+  const ids = new Map([[parent, 'parent'], [nested, 'nested']]);
+  const positions = normalize(readingOrderIds(parent, ids));
+  assert.deepEqual(positions, ['parent', 'parent::marker', 'parent::before', 'parent:text-0',
+    'nested', 'nested::marker', 'nested::before', 'nested:text-0', 'nested::after', 'parent:text-1', 'parent::after']);
+  const items = ['parent:text-0', 'parent:text-1', 'parent::before', 'parent::after', 'parent::marker',
+    'nested:text-0', 'nested::before', 'nested::after'].map(id => ({ id, region: 'dialog', order: -1 }));
+  const errors = [];
+  assignReadingOrder(items, [], positions, errors);
+  assert.deepEqual(items.map(item => item.id), ['parent::marker', 'parent::before', 'parent:text-0',
+    'nested::before', 'nested:text-0', 'nested::after', 'parent:text-1', 'parent::after']);
+  assert.deepEqual(items.map(item => item.order), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(errors, []);
+});
+
+test('ordering does not create hidden pseudos or suppressed owned-label elements', () => {
+  const button = readingElement(readingText());
+  const nested = readingElement(readingText());
+  const root = readingElement(button, nested);
+  const ids = new Map([[root, 'body'], [button, 'button'], [nested, 'nested']]);
+  const items = [{ id: 'nested:text-0', region: 'sidebar', order: 2 }, { id: 'button', region: 'header', order: 5 }];
+  const errors = [];
+  assignReadingOrder(items, [], readingOrderIds(root, ids), errors);
+  assert.deepEqual(items.map(item => [item.id, item.order]), [['button', 0], ['nested:text-0', 0]]);
+  assert.equal(items.length, 2, 'Only actually measured emitted elements are ordered');
+  assert.deepEqual(errors, []);
+});
+
+test('unmapped emitted identities remain visible failures rather than being discarded', () => {
+  const items = [{ id: 'unknown-painted-item', region: 'dialog', order: 0 }, { id: 'known', region: 'dialog', order: 1 }];
+  const errors = [];
+  assignReadingOrder(items, [{ emitted: ['unknown-painted-item', 'known'] }], ['known'], errors);
+  assert.deepEqual(items.map(item => item.id), ['known', 'unknown-painted-item']);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].type, 'reading_order_source_unavailable');
+  assert.equal(errors[0].node, 'unknown-painted-item');
+});
+
 const context = {
   innerWidth: 1440, innerHeight: 900, intersect,
   nonempty: box => box.width > 0 && box.height > 0,

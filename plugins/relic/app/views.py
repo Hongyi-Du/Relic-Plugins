@@ -501,7 +501,7 @@ def _display_json_number(value):
 
 
 def _display_json(value, indent=2):
-    """JSON.stringify for the wire JSON data used by protocol UI labels.
+    """JSON.stringify for shared protocol and file preview display values.
 
     Keep ordinary property insertion order; JavaScript enumerates array-index
     keys first in numeric order. None selects JSON.stringify's compact format.
@@ -530,7 +530,7 @@ def _display_json(value, indent=2):
             items = [encode(item, depth + 1) for item in value]
             opening, closing = "[", "]"
         else:
-            raise TypeError("Protocol display requires JSON values")
+            raise TypeError("Display requires JSON values")
         if not items:
             return opening + closing
         if indent is None:
@@ -539,6 +539,25 @@ def _display_json(value, indent=2):
         return opening + "\n" + padding + (",\n" + padding).join(items) + "\n" + " " * (indent * depth) + closing
 
     return encode(value)
+
+
+def json_file_display(text):
+    """The reference file preview's JSON.parse / JSON.stringify(..., null, 2).
+
+    Parsing numbers directly as binary64 also handles integer tokens beyond
+    Python's integer-string limit, as the browser does. JSON.parse rejects
+    Python's optional NaN/Infinity syntax; overflow from valid JSON numbers
+    instead becomes Infinity and is stringified as null. Invalid or cut-off
+    JSON retains the exact text returned by the existing file reader.
+    """
+    def invalid_constant(value):
+        raise ValueError("Not a JSON number: " + value)
+
+    try:
+        value = json.loads(text, parse_int=float, parse_float=float, parse_constant=invalid_constant)
+        return _display_json(value)
+    except (ValueError, RecursionError):
+        return text
 
 
 def protocol_rules_display(rules):

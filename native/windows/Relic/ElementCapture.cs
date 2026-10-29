@@ -116,7 +116,7 @@ public sealed partial class MainWindow
                     node["paint_kind"] = element switch
                     {
                         Border or ContentPresenter => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
-                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or IconElement => "glyphs",
+                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or WorkspaceCodeView or IconElement => "glyphs",
                         Control => "template", _ => "none"
                     };
                     node["render_type_evidence"] = new JsonObject { ["is_panel"] = element is Panel,
@@ -295,11 +295,13 @@ public sealed partial class MainWindow
             result["start"] = new JsonObject { ["x"] = linear.StartPoint.X, ["y"] = linear.StartPoint.Y };
             result["end"] = new JsonObject { ["x"] = linear.EndPoint.X, ["y"] = linear.EndPoint.Y };
         }
+        if (brush is ImageBrush image) result["image"] = CaptureImageBrush(image);
         return result;
     }
     private static string CaptureText(FrameworkElement element) => element switch
     {
         TextBlock text => text.Text,
+        WorkspaceCodeView code => code.ReadSourceText(),
         TextBox box => box.Text,
         PasswordBox => "", // Password values are never evidence.
         ContentControl control when control.Content is string label => label,
@@ -444,6 +446,7 @@ public sealed partial class MainWindow
     }
     private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors, UIElement captureRoot, bool visible)
     {
+        if (element is WorkspaceCodeView code) return CaptureCodeDocument(code, id, errors, captureRoot, visible);
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
         int? lines = null; var boxes = new JsonArray(); var localBoxes = new JsonArray(); var runs = new JsonArray();

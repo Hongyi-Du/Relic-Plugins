@@ -215,7 +215,7 @@ public sealed partial class MainWindow
         if (org.Length == 0)
         {
             chatHead.ColumnDefinitions.Clear();
-            var header = Heading(Title, 15); header.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
+            var header = Heading(T("common.app_name"), 15); header.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
             header.LineHeight = 19.5; header.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; header.VerticalAlignment = VerticalAlignment.Center;
             chatHead.Children.Add(header);
             var title = Heading(T("chat.no_orgs"), 18); title.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; title.TextAlignment = TextAlignment.Center;
@@ -426,25 +426,36 @@ public sealed partial class MainWindow
     }
     private void DrawLive(StackPanel target)
     {
-        var all = liveData.Rows("items").ToArray(); var busy = liveData["status"].Text("state") is "running" or "waiting" or "starting";
+        if (member.Length == 0) return;
+        var all = liveData.Rows("items").OrderBy(i => long.TryParse(i.Text("seq"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var seq) ? seq : 0).ToArray();
+        var state = liveData["status"].Text("state"); var busy = state is "running" or "waiting" or "starting";
         var start = Array.FindLastIndex(all, i => i.Flag("start"));
-        var current = busy ? all.Skip(Math.Max(start, 0)) : all.Where(i => i.Text("type") == "permission" && snap.Rows("decisions").Any(d => d.Text("id") == i.Text("id")));
-        var actions = new StackPanel { Spacing = 8 }; string text = "";
+        var current = (busy ? all.Skip(Math.Max(start, 0)) : all.Where(i => i.Text("type") == "permission" && snap.Rows("decisions").Any(d => d.Text("kind") == "permission" && d.Text("id") == i.Text("id")))).ToArray();
+        if (current.Length == 0) return;
+        var who = member; var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who);
+        var prompt = current.FirstOrDefault(i => i.Text("type") == "prompt");
+        if (prompt != null && speaker.Flag("embedded") && speaker.Flag("has_transcript")) target.Children.Add(LivePrompt(prompt.Text("text")));
+        var actions = new StackPanel { Padding = new Thickness(0, 4, 0, 4) }; string text = "";
         foreach (var item in current)
         {
             switch (item.Text("type"))
             {
                 case "assistant": text = item.Text("text"); break;
-                case "prompt": target.Children.Add(Rich(item.Text("text"))); break;
-                case "tool": actions.Children.Add(new Expander { Header = item.Text("title") + " · " + (item.Text("status") switch { "pending" => T("live.pending"), "in_progress" => T("task.working"), "completed" => T("task.done"), "failed" => T("common.failed"), _ => item.Text("status") }), Content = Text(item.Text("text")), HorizontalAlignment = HorizontalAlignment.Stretch }); break;
-                case "permission":
-                    var permission = Stack(Text(T("perm.ask")), Text(item.Text("title")));
-                    foreach (var option in item.Rows("options")) permission.Children.Add(Button(option.Text("name").Length > 0 ? option.Text("name") : option.Text("kind"), async () => { await api!.Post("/api/permission/" + Client.Segment(item.Text("id")), new { option = option.Text("id") }); await Refresh(); })); actions.Children.Add(permission); break;
-                case "error": actions.Children.Add(Text(item.Text("text"))); break;
+                case "tool": actions.Children.Add(LiveToolStep(item)); break;
+                case "permission": actions.Children.Add(LivePermissionCard(item)); break;
+                case "error": actions.Children.Add(LiveErrorNotice(item.Text("text"))); break;
             }
         }
-        if (actions.Children.Count > 0) target.Children.Add(new Expander { Header = T("live.turn_actions"), Content = actions, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch });
-        if (text.Length > 0) target.Children.Add(Rich(text)); else if (busy) target.Children.Add(Text(T("live.replying")));
+        var column = new StackPanel { Spacing = 4 };
+        var header = new ActionRow { Spacing = 6 };
+        header.Children.Add(ConversationMetadata(Display(who), 12.5, true));
+        header.Children.Add(ConversationMetadata(state == "running" ? T("live.replying") : MemberState(state)));
+        column.Children.Add(header);
+        if (actions.Children.Count > 0) column.Children.Add(LiveActions(actions));
+        if (text.Length > 0) column.Children.Add(LiveBubble(text)); else if (state == "running") column.Children.Add(LiveTyping());
+        var portrait = (FrameworkElement)Avatar(speaker.Text("avatar"), Display(who), 36); ToolTipService.SetToolTip(portrait, Display(who));
+        if (speaker != null) portrait.Tapped += async (_, e) => { e.Handled = true; await Run(() => MemberCard(who, portrait)); };
+        target.Children.Add(ConversationRow(column, portrait));
     }
     private Task TogglePlain() { plainMode = !plainMode; DrawConversation(); if (plainMode) Note(T("plain.on_hint")); SaveViewState(); return Task.CompletedTask; }
     private async Task RequestPlain(string[] ids)

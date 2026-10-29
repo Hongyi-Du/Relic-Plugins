@@ -207,7 +207,7 @@ public sealed partial class MainWindow
             if (fileMode == "preview") { detail.Children.Add(new Border { Child = Rich(fileData.Text("text"), true), Padding = new Thickness(18, 12, 18, 24), Background = Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0) }); return; }
         }
         var text = fileData.Text("text");
-        if (fileData.Text("kind") == "json") { try { text = JsonNode.Parse(text)?.ToJsonString(new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) ?? text; } catch (System.Text.Json.JsonException) { } }
+        if (fileData.Text("kind") == "json" && fileData["display_text"] != null) text = fileData.Text("display_text");
         DrawFileCode(text, fileLine);
     }
 }

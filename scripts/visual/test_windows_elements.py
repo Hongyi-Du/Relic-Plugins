@@ -598,6 +598,34 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(first["evidence"]["text_run_source"]["start_offset"], 1)
         self.assertEqual(result["coverage"]["recorded_text_leaves"], 2)
 
+    def test_real_readonly_code_document_keeps_owner_and_measured_ranges(self):
+        owner, witness = self.rich_fixture()
+        owner["type"] = "WorkspaceCodeView"
+        owner["interaction_evidence"] = {"is_control": True, "is_tab_stop": True, "is_hit_test_visible": True}
+        witness["class_name"] = "WorkspaceCodeView"
+        owner["layout"]["document_evidence"] = {"whole_story": owner["text"] + "\r", "whole_story_use_lf": owner["text"] + "\n"}
+        witness["name"] = ""
+        witness["text_pattern"]["document"] = {"text": owner["text"] + "\r"}
+        for run in owner["layout"]["rich_text_runs"]:
+            run["type"] = "RichEditTextRange"
+        result = self.capture(measured([owner]), [witness])
+        elements = self.by_id(result)
+        self.assertEqual(elements["rich"]["kind"], "code")
+        self.assertEqual(elements["rich"]["text"], "")
+        self.assertEqual(elements["rich:run:0"]["text"], "标题")
+        self.assertEqual(elements["rich:run:1"]["bounds"], box(40, 20, 30, 18))
+        self.assertIsNone(elements["rich:run:0"]["style"]["rendered_fonts"],
+                          "TOM/UIA requested font properties are not actual fallback-face evidence")
+        self.assertEqual(result["coverage"]["recorded_text_leaves"], 2)
+
+    def test_incomplete_native_code_range_still_fails_measurement_coverage(self):
+        owner, witness = self.rich_fixture()
+        owner["type"] = "WorkspaceCodeView"
+        owner["layout"]["rich_text_runs"][0]["geometry_complete"] = False
+        result = self.capture(measured([owner]), [witness])
+        self.assertTrue(any(issue.get("id") == "rich:run:0" and issue.get("property") == "rich_text_runs"
+                            for issue in result["coverage"]["unmeasured"]))
+
     def test_rich_run_font_identity_uses_only_intersecting_actual_uia_range(self):
         owner, witness = self.rich_fixture()
         result = self.capture(measured([owner]), [witness])

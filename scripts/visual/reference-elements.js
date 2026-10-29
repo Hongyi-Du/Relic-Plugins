@@ -766,6 +766,42 @@
       measurement_limit: 'CSS overflow and integer client/offset metrics establish a scroll container, not actual overlay visibility or individual track/thumb/button paint bounds. Computed pseudo styles do not establish part existence.',
       measured_part_bounds: null, measured_part_pixels: null };
   };
+  const readingOrderIds = (root, ids) => {
+    // CSS tree-abiding pseudo-elements occur at their originating element's
+    // content boundaries. Enumerate mixed text/element children, not separate
+    // text and element passes: ::after follows every descendant, while a code
+    // line's ::before number precedes its source text.
+    const ordered = [];
+    const visit = el => {
+      const id = ids.get(el);
+      if (id !== undefined) ordered.push(id, id + '::marker', id + '::before');
+      let textIndex = 0;
+      for (const child of el.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          if (id !== undefined) ordered.push(id + ':text-' + textIndex);
+          textIndex++;
+        } else if (child.nodeType === Node.ELEMENT_NODE) visit(child);
+      }
+      if (id !== undefined) ordered.push(id + '::after');
+    };
+    visit(root);
+    return ordered;
+  };
+  const assignReadingOrder = (items, rawNodes, orderedIds, errors) => {
+    const positions = new Map(orderedIds.map((id, position) => [id, position]));
+    // Every emitted identity must have a real source slot. Retain an unknown
+    // identity and fail extraction rather than dropping it to repair order.
+    for (const item of items) if (!positions.has(item.id)) errors.push({ type: 'reading_order_source_unavailable', node: item.id,
+      reason: 'Emitted identity has no DOM child/pseudo source position; it remains in the inventory.' });
+    const compare = (a, b) => (positions.get(a) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b) ?? Number.MAX_SAFE_INTEGER);
+    items.sort((a, b) => compare(a.id, b.id));
+    const regionPositions = new Map();
+    for (const item of items) {
+      item.order = regionPositions.get(item.region) || 0;
+      regionPositions.set(item.region, item.order + 1);
+    }
+    for (const raw of rawNodes) raw.emitted.sort(compare);
+  };
   const all = Array.from(document.body.querySelectorAll('*'));
   all.unshift(document.body);
   all.forEach((el, index) => nodeIds.set(el, 'dom-' + index));
@@ -836,10 +872,12 @@
     }
     raw.projection_reason = raw.emitted.length ? 'paint-or-semantic-or-text' : 'layout-only-wrapper-or-owned-label';
   }
+  assignReadingOrder(elements, raw_nodes, readingOrderIds(document.body, nodeIds), extraction_errors);
   return { schema_version: 1, scene_id: meta.scene_id, client: 'reference', viewport,
     lang: meta.lang || document.documentElement.lang, theme: meta.theme || document.documentElement.dataset.theme, reference_environment: meta.reference_environment || null,
     capture: { source: 'production-dom', coordinate_space: 'viewport-css-pixels', device_scale_factor: devicePixelRatio,
       text_policy: 'Uniform simple control labels are owned by the control; rich labels are independent text nodes.',
+      reading_order_policy: 'Actual DOM child-node order with CSS tree-abiding pseudo-elements: originating semantic container, ::marker, ::before, mixed text/element descendants, ::after. Regions have independent contiguous order. No element or measurement is removed to fix order.',
       visibility_policy: 'Viewport/ancestor clips, SVG stroke visibility, actual paint order, and analytic rounded-rectangle subtraction masks. visible_fragments are rectangular envelopes; occlusion_masks retain exact curved clipping. Unresolved compound masks remain failures.' },
     elements, raw_nodes, raw_ax_nodes, extraction_errors, coverage: { raw_nodes: raw_nodes.length, emitted_elements: elements.length, unmeasured },
     summary: { dom_nodes: raw_nodes.length, elements: elements.length, extraction_errors: extraction_errors.length } };
