@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public struct OrganizationLayout {
     public let nodes: [Node]

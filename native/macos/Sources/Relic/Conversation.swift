@@ -152,11 +152,7 @@ struct ConversationStream: View {
                             if m.moreChat { Button(m.t("trace.load_older")) { followsBottom = false; m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             Rows(m.displayMessages) { MessageView(item: $0) }
-                            if !m.displayLiveItems.isEmpty {
-                                DisclosureGroup(m.t("live.turn_actions")) { Rows(m.displayLiveItems.filter { $0["type"].text != "assistant" }) { LiveItem(item: $0) } }
-                                if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) }
-                            }
-                            if ["running", "working"].contains(m.liveStatus["state"].text) { Label(m.t("live.replying"), systemImage: "ellipsis") }
+                            if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: end.frame(in: .named("conversation")).maxY) })
                         }.padding(.vertical, 8)
                     }.coordinateSpace(name: "conversation")
@@ -182,12 +178,14 @@ struct MessageView: View {
     var body: some View {
         if item["type"].text == "notice" { Text(item["text"].text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         else if item["type"].text == "acts" {
+            let actions = ToolActivity.pair(item["steps"].rows)
             DisclosureGroup {
-                Rows(item["steps"].rows) { StepView(step: $0, member: item["member"].text) }
+                ForEach(Array(actions.enumerated()), id: \.offset) { _, row in ActivityRow(row: row, member: item["member"].text) }
             } label: {
                 HStack {
-                    Text(m.t("step.actions", ["n": String(item["steps"].rows.count)]))
-                    let failed = item["steps"].rows.filter { $0["error"].flag || $0["is_error"].flag }.count
+                    Text(m.t("step.actions", ["n": String(actions.count)]))
+                    Text(actions.compactMap { $0.call == nil ? nil : $0.title }.prefix(4).joined(separator: " · ")).lineLimit(1).foregroundStyle(.secondary)
+                    let failed = actions.filter(\.failed).count
                     if failed > 0 { Text(m.t("step.failed", ["n": String(failed)])).foregroundStyle(.red) }
                 }
             }
@@ -212,12 +210,56 @@ struct MessageView: View {
                     if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": item["thread"]["last_at"].text])) { m.run { try await m.openThread(item["id"].text) } }.font(.caption) }
                     HStack {
                         if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
-                        Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["from"].text) }
+                        Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
                         if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
+            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
+        }
+    }
+}
+
+struct ActivityRow: View {
+    @EnvironmentObject var m: Model
+    let row: ToolActivity
+    let member: String
+    @State private var expanded = false
+    @State private var full: [String: Node] = [:]
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ForEach(Array([row.call, row.result].compactMap { $0 }.enumerated()), id: \.offset) { _, step in
+                Text((full[step["i"].text] ?? step)["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            }
+        } label: {
+            HStack { Text(row.call == nil ? m.t("common.result") : row.title).bold(); Text(row.argument).lineLimit(1); Spacer(); Text(m.clock((row.call ?? row.result ?? Node())["at"])).font(.caption) }
+        }.foregroundStyle(row.failed ? .red : .secondary).task(id: expanded) {
+            guard expanded else { return }
+            for step in [row.call, row.result].compactMap({ $0 }) where step["cut"].flag && !step["i"].isNull && full[step["i"].text] == nil {
+                if let result = try? await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) { full[step["i"].text] = result }
+            }
+        }
+    }
+}
+
+struct LiveTurnView: View {
+    @EnvironmentObject var m: Model
+    @State private var expanded = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if m.selectedMember["embedded"].flag, m.selectedMember["has_transcript"].flag, let prompt = m.displayLiveItems.first(where: { $0["type"].text == "prompt" }) {
+                HStack(alignment: .top) { Avatar(member: "human"); RichText(prompt["text"].text) }.environment(\.selectedAuthor, "human")
+            }
+            HStack(alignment: .top) {
+                Avatar(member: m.member)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack { Text(m.name(m.member)).bold(); Text(m.liveStatus["state"].text == "running" ? m.t("live.replying") : m.stateLabel(m.liveStatus["state"].text)).foregroundStyle(.secondary) }.font(.caption)
+                    let actions = m.displayLiveItems.filter { ["tool", "tool_call", "tool_result", "permission", "error"].contains($0["type"].text) }
+                    if !actions.isEmpty { DisclosureGroup(m.t("live.turn_actions"), isExpanded: $expanded) { Rows(actions) { LiveItem(item: $0) } } }
+                    if let reply = m.displayLiveItems.last(where: { $0["type"].text == "assistant" }) { RichText(reply["text"].text) }
+                    else if m.liveStatus["state"].text == "running" { ProgressView().controlSize(.small) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.environment(\.selectedAuthor, m.member)
         }
     }
 }
@@ -246,7 +288,7 @@ struct LiveItem: View {
         if item["type"].text == "permission" { DecisionView(decision: Node(item.object.merging(["kind": "permission", "member": m.member]) { _, new in new })) }
         else if ["tool", "tool_call", "tool_result"].contains(item["type"].text) {
             DisclosureGroup(item["title"].text + " · " + m.t(item["status"].text == "pending" ? "live.pending" : item["status"].text == "completed" ? "task.done" : item["status"].text == "failed" ? "common.failed" : "task.working")) { Text(item["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-        } else { RichText(item["text"].text) }
+        } else { RichText(item["text"].text).foregroundStyle(item["type"].text == "error" ? .red : .primary) }
     }
 }
 

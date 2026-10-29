@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 import Foundation
 @testable import RelicCore
 
@@ -155,6 +156,12 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(Composer.sendsReturn(shift: true, composing: false, completing: false))
         XCTAssertFalse(Composer.sendsReturn(shift: false, composing: true, completing: false))
         XCTAssertFalse(Composer.sendsReturn(shift: false, composing: false, completing: true))
+    }
+    func testParallelToolResultsPairWithOldestPendingCall() {
+        let rows = ToolActivity.pair([Node(["role": "tool_result", "text": "orphan"]), Node(["role": "tool_call", "tool": "mcp__plugin_relic_org__org_status", "text": #"{"command":"pwd"}"#]), Node(["role": "tool_call", "tool": "mcp__Read", "text": #"{"file_path":"/tmp/a"}"#]), Node(["role": "tool_result", "text": "first", "error": true]), Node(["role": "tool_result", "text": "second"])])
+        XCTAssertEqual(rows.count, 3); XCTAssertNil(rows[0].call)
+        XCTAssertEqual(rows[1].title, "Relic org_status"); XCTAssertEqual(rows[1].argument, "pwd"); XCTAssertEqual(rows[1].result?["text"].text, "first"); XCTAssertTrue(rows[1].failed)
+        XCTAssertEqual(rows[2].title, "Read"); XCTAssertEqual(rows[2].argument, "/tmp/a"); XCTAssertEqual(rows[2].result?["text"].text, "second")
     }
     func testChartParentCentersChildrenAndOrdersCabinetBeforeSubgroups() {
         let graph = OrganizationLayout([Node(["id": "root", "status": "active"]), Node(["id": "sub", "parent": "root", "kind": "subgroup", "status": "active"]), Node(["id": "cab", "parent": "root", "cabinet": true, "status": "active"]), Node(["id": "formal", "parent": "root", "status": "active"])])

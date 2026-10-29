@@ -66,6 +66,8 @@ import RelicCore
     var client: Client?
     private let host = ServerHost()
     private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
+    private var plainTask: Task<Void, Never>?
+    private var plainQueue: Set<String> = []
     private var refreshing = false, pending = false, starting = false
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
@@ -121,7 +123,7 @@ import RelicCore
         if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
         if type == "reconnect" {
             let retry = Array(plainPending); plainPending = []
-            if !retry.isEmpty { run { try await self.requestPlain(retry) } }
+            for id in retry { enqueuePlain(id) }
             if digestOpen { run { try await self.loadDigest(false) } }
         }
         if type == "prefs" {
@@ -150,7 +152,7 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); host.stop() }
+    func stop() { persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
     func schedule() {
         pending = true
         guard refreshTask == nil else { return }
@@ -195,6 +197,7 @@ import RelicCore
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        plainTask?.cancel(); plainTask = nil; plainQueue = []
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
@@ -260,9 +263,11 @@ import RelicCore
     func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
     func toggleFold(_ id: String) { Tree.toggle(id, folded: &folded); defaults.set(Array(folded), forKey: "folded") }
-    func setQuote(_ body: String, from: String) {
-        var lines = body.components(separatedBy: "\n"); while lines.first?.hasPrefix(">") == true { lines.removeFirst() }
+    func setQuote(_ body: String, from: String, stripExisting: Bool = false) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines = trimmed.components(separatedBy: "\n"); if stripExisting { while lines.first?.hasPrefix(">") == true { lines.removeFirst() } }
         while lines.first?.isEmpty == true { lines.removeFirst() }; guard !lines.isEmpty else { return }
+        let text = lines.joined(separator: "\n"); lines = (text.count > 1200 ? String(text.prefix(1200)) + "…" : text).components(separatedBy: "\n")
         lines[0] = t("sel.quote_line", ["who": name(from), "text": lines[0]])
         quote = lines.map { "> " + $0 }.joined(separator: "\n"); persistDraft()
     }
@@ -291,6 +296,17 @@ import RelicCore
     func acceptPlain(_ items: Node, ids: [String]) {
         for (id, value) in items.object { plain[id] = Node(value) }
         for id in ids { plainPending.remove(id); if plain[id] == nil { plainFailed.insert(id) } }
+    }
+    func enqueuePlain(_ id: String) {
+        guard Int(id) != nil, plain[id] == nil, !plainPending.contains(id) else { return }; plainQueue.insert(id)
+        guard plainTask == nil else { return }
+        let selected = selection
+        plainTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            guard let self, !Task.isCancelled, self.selection == selected else { return }
+            let ids = Array(self.plainQueue).sorted { (Int($0) ?? 0) < (Int($1) ?? 0) }; self.plainQueue = []; self.plainTask = nil
+            do { try await self.requestPlain(ids) } catch { self.error = self.t("plain.failed", ["error": error.localizedDescription]) }
+        }
     }
     func requestPlain(_ ids: [String]) async throws {
         let ids = Array(ids.filter { Int($0) != nil && plain[$0] == nil && !plainPending.contains($0) }.prefix(200))

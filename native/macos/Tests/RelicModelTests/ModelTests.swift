@@ -92,4 +92,29 @@ final class ModelTransport: URLProtocol {
         model.defaults.set(1, forKey: "seen.a/member:ana"); XCTAssertEqual(model.unread("ana"), 1)
         model.defaults.set(3, forKey: "seen.a/member:ana"); XCTAssertEqual(model.unread("ana"), 0)
     }
+    func testPlainVisibleMessagesBatchAndCancelOnNavigation() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a"))
+        let sent = expectation(description: "visible messages share one request")
+        ModelTransport.handler = { request in
+            XCTAssertEqual(request.url!.path, "/api/org/b/plain")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? request.httpBodyStream!.readAll()) as! [String: Any]
+            XCTAssertEqual(body["ids"] as? [Int], [3, 4]); sent.fulfill()
+            return (200, #"{"items":{"3":"three","4":"four"}}"#)
+        }
+        model.enqueuePlain("1"); model.enqueuePlain("2"); model.setSelection(ChatSelection("b"))
+        model.enqueuePlain("3"); model.enqueuePlain("4"); model.enqueuePlain("3")
+        await fulfillment(of: [sent], timeout: 2)
+        try await Task.sleep(for: .milliseconds(30)); model.stop()
+        XCTAssertEqual(model.plain["3"]?.text, "three"); XCTAssertNil(model.plain["1"])
+    }
+    func testQuoteKeepsSelectedQuoteButStripsExistingWholeMessageQuote() throws {
+        let model = try model(); model.setSelection(ChatSelection("a")); model.words.load(Node(["lang": "en-US", "strings": ["sel.quote_line": "{who}: {text}"]]))
+        model.setQuote("> old\n\nnew", from: "ana", stripExisting: true); XCTAssertEqual(model.quote, "> ana: new")
+        model.setQuote("> old", from: "ana"); XCTAssertEqual(model.quote, "> ana: > old")
+        model.setQuote(String(repeating: "字", count: 1300), from: "ana"); XCTAssertTrue(model.quote.hasSuffix("…")); XCTAssertLessThan(model.quote.count, 1250)
+    }
+}
+
+private extension InputStream {
+    func readAll() -> Data { open(); defer { close() }; var result = Data(), buffer = [UInt8](repeating: 0, count: 4096); while hasBytesAvailable { let count = read(&buffer, maxLength: buffer.count); if count <= 0 { break }; result.append(contentsOf: buffer.prefix(count)) }; return result }
 }
