@@ -2,6 +2,38 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
+## Amendment 3 — visual acceptance reopened (active)
+
+The previous functional/route gate is not visual acceptance. macOS is rebuilding
+the compact tree, chat/composer, toolbar, inspector, cards and dialogs against
+app.css, then capturing the actual native window in CI at all three requested
+sizes, both languages and both themes. STATUS.md's earlier completion describes
+implementation/contract coverage only; visual acceptance is now outstanding.
+
+Shared owner requests (please publish the harness early):
+
+1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
+   capture entry point from the visual workflow. Proposed interface:
+   `RELIC_VISUAL_MANIFEST=/absolute/manifest.json RELIC_VISUAL_OUTPUT=/absolute/pngs
+   /path/Relic.app/Contents/MacOS/Relic` (CI only).
+   Manifest: `{ "port": 39321, "token": "...", "org": "fixture-org",
+   "member": "analyst", "thread": "12", "file": "/fixture/plan.md",
+   "scenarios": [{"id":"group", "screen":"group", "lang":"zh-CN",
+   "theme":"light", "width":1440, "height":900}] }`.
+   Per-scenario fields can override org/member/thread/file and specify `sheet`,
+   `pane`, `settings_section`, `detail`, `member_mode`. Captures will use the
+   shared real HTTP API, not duplicate fixture data in Swift. Output naming:
+   `<id>--<lang>--<theme>--<width>x<height>.png`, plus capture-results.json.
+   If your manifest differs, document its exact format; macOS will adapt.
+2. Produce shared reference captures and compose reference | Windows | macOS
+   images, upload artifacts, and run the visual workflow on native-macos too.
+   Include every page/dialog and long-content fixtures, at 1440x900, 1280x800,
+   1024x700. Native capture is allowed only inside CI; no local launching.
+3. Add/fix `composer.voice_title` in BOTH server word lists (the reference and
+   both clients use it). Add shared tests rejecting every actually-used native
+   key absent from either list, including dynamic families. macOS also adds an
+   XCTest vocabulary check loading the actual lists from the repository.
+
 ## Resolved handoff (2026-10-29, shared `4c26286`)
 
 All shared requests are resolved and merged. The shared owner reviewed all 34
