@@ -7,7 +7,8 @@ let package = Package(
     products: [.executable(name: "Relic", targets: ["Relic"])],
     targets: [
         .target(name: "RelicCore"),
-        .executableTarget(name: "Relic", dependencies: ["RelicCore"]),
+        .target(name: "RelicAX", publicHeadersPath: "include"),
+        .executableTarget(name: "Relic", dependencies: ["RelicCore", "RelicAX"]),
         .testTarget(name: "RelicCoreTests", dependencies: ["RelicCore"]),
         .testTarget(name: "RelicModelTests", dependencies: ["Relic", "RelicCore"])
     ]
