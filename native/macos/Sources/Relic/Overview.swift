@@ -190,8 +190,20 @@ struct ProtocolList: View {
             ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { key in
                 if !m.snapshot[key].rows.isEmpty {
                     if key != "protocols" { Text(m.t(key == "inherited_protocols" ? "details.inherited_title" : "details.replaced_title")).bold() }
-                    Rows(m.snapshot[key].rows) { p in
-                        DisclosureGroup(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])) {
+                    Rows(m.snapshot[key].rows) { p in ProtocolCard(protocolItem: p) }
+                }
+            }
+        }
+    }
+}
+
+struct ProtocolCard: View {
+    @EnvironmentObject var m: Model
+    let protocolItem: Node
+    @State private var expanded = false
+    private var p: Node { protocolItem }
+    var body: some View {
+                        DisclosureGroup(isExpanded: $expanded) {
                             VStack(alignment: .leading, spacing: 6) {
                                 if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])) }
                                 if !p["issued_by"].isNull { Text(m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text])) }
@@ -209,11 +221,15 @@ struct ProtocolList: View {
                                 if p["retired_by_person"].flag { Text(m.t("details.retired_by_person")) }
                                 Text(m.t("details.proposed_by", ["name": m.name(p["author"].text)]) + " · " + m.t("details.votes", ["n": p["votes"].text]) + " · " + m.t("details.uses", ["n": p["uses"].text])).font(.caption)
                             }.padding(6)
-                        }
-                    }
-                }
-            }
-        }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(m.t("details.protocol_head", ["id": p["id"].text, "title": p["title"].text, "kind": m.t(p["strength"].text == "strong" ? "details.strong_protocol" : "details.weak_protocol"), "status": m.protocolLabel(p["status"].text.isEmpty ? "active" : p["status"].text)])).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                                if !expanded {
+                                    if !p["issued_by"].isNull { SmallBadge(text: m.t(p["issued_by"]["person"].flag ? "org.issued_by_person" : "org.issued_by", ["name": p["issued_by"]["name"].text]), color: RelicStyle.violet) }
+                                    if !p["from"].text.isEmpty { Text(m.t("org.inherited_from", ["name": p["from"].text])).font(.caption).foregroundStyle(RelicStyle.muted) }
+                                }
+                            }
+                        }.relicCard().onAppear { expanded = m.sheet == .details }
     }
 }
 
