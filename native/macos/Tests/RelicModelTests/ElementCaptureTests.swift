@@ -1,6 +1,8 @@
 import XCTest
 import AppKit
 import RelicAX
+import SwiftUI
+import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
@@ -44,6 +46,34 @@ import RelicAX
         let last = try XCTUnwrap(rows.last?["layout"] as? [String: Any])
         XCTAssertEqual(last["wrap"] as? String, "word")
         XCTAssertGreaterThan(try XCTUnwrap(last["line_count"] as? Int), 1)
+    }
+    func testCompoundNativeButtonRetainsIndividuallyVisibleLabels() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = NSHostingView(rootView: Button {} label: {
+            HStack { Text("Visible title"); Text("Visible subtitle").font(.caption) }.accessibilityElement(children: .contain)
+        }.buttonStyle(.plain))
+        window.contentView = content; window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let result = await Task.detached {
+            let application = AXUIElementCreateApplication(getpid())
+            AXUIElementSetMessagingTimeout(application, 2)
+            var windows: CFTypeRef?
+            return AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows).rawValue
+        }.value
+        XCTAssertEqual(result, 0)
+        try await Task.sleep(for: .milliseconds(100))
+        var labels: [String] = [], seen = Set<ObjectIdentifier>()
+        func walk(_ object: AnyObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            let attributes = RelicAXRead(object)
+            for key in ["label", "title", "value"] { if let text = attributes[key] as? String { labels.append(text) } }
+            for child in RelicAXChildren(object) { walk(child as AnyObject) }
+        }
+        walk(content)
+        XCTAssertTrue(labels.contains("Visible title"), labels.description)
+        XCTAssertTrue(labels.contains("Visible subtitle"), labels.description)
     }
 }
 

@@ -194,7 +194,8 @@ import RelicAX
             guard let rect = node["rect"] as? [String: Double], let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"] else { return .null }
             return NSRect(x: x, y: y, width: width, height: height)
         }
-        for surface in SurfacePaintProbe.snapshots(in: contentScreen) {
+        let surfaces = SurfacePaintProbe.snapshots(in: contentScreen)
+        for surface in surfaces {
             let rect = (surface["rectValue"] as! NSValue).rectValue, visible = rect.intersection(viewport)
             guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }
             let owner = surface["owner"] as? String
@@ -295,6 +296,7 @@ import RelicAX
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
+        audit["surface_probes"] = surfaces.map { surface in var value = surface; value.removeValue(forKey: "rectValue"); return value }
         try JSONSerialization.data(withJSONObject: audit, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))
     }
 }

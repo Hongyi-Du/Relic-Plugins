@@ -76,6 +76,7 @@ struct OrgTree: View {
                         Text(node["name"].text).font(RelicStyle.font(13.44, weight: 600)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                         if !active { Text(m.shortWhen(node["last_at"])).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted) }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
+                        .accessibilityElement(children: .contain)
                 }.buttonStyle(QuietButtonStyle(selected: active)).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
@@ -145,6 +146,7 @@ struct SidebarChatRow: View {
                     if unread > 0 { Text(unread > 99 ? "99+" : String(unread)).font(.system(size: 11, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(RelicStyle.accent, in: Capsule()) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .contain)
         }.buttonStyle(QuietButtonStyle(selected: selected)).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }
