@@ -10,3 +10,7 @@ test-results/
 .venv/
 .DS_Store
 .native-fixtures/
+**/bin/
+**/obj/
+native/macos/.build/
+native/macos/.swiftpm/

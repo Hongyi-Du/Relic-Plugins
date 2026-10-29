@@ -1,0 +1,33 @@
+name: Native apps
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build WinUI 3 without launching
+        run: dotnet build native/windows/Relic/Relic.csproj -c Release -p:Platform=x64
+      - name: Test HTTP, events, composer and language contracts without UI
+        run: dotnet test native/windows/Relic.Core.Tests/Relic.Core.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-windows-test-results
+          path: test-results/native-windows
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native SwiftUI client for Apple silicon
+        run: swift build --package-path native/macos -c release --arch arm64
+      - name: Test client contracts without opening the App
+        run: swift test --package-path native/macos --arch arm64

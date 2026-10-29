@@ -1,0 +1,59 @@
+using System.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Relic.Core;
+using Xunit;
+
+public class ContractTests
+{
+    private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> reply) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => reply(request);
+    }
+    [Fact] public async Task WritesCarryTokenAndKeepUnicodeAndPrivateRecipient()
+    {
+        using var client = new Client(39321, "test-token", new Handler(async request =>
+        {
+            Assert.Equal("127.0.0.1", request.RequestUri!.Host);
+            Assert.Equal("test-token", request.Headers.GetValues("X-Relic-Token").Single());
+            Assert.Equal(HttpMethod.Post, request.Method);
+            var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync())!;
+            Assert.Equal("private", body.Text("channel"));
+            Assert.Equal("你好", body.Text("body"));
+            Assert.Equal("analyst", body.Rows("to")[0].Text());
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":42}") };
+        }));
+        var result = await client.Post(Client.Org("org space", "/send"), Composer.Message("你好", "analyst", ["all"], new()));
+        Assert.Equal("42", result.Text("id"));
+    }
+    [Fact] public void MentionsDoNotChangeGroupChannel()
+    {
+        var members = JsonNode.Parse("[{\"name\":\"ana\",\"display\":\"分析员\"}]")!.AsArray();
+        var value = JsonSerializer.SerializeToNode(Composer.Message("@分析员 请看", "", ["all"], members))!;
+        Assert.Equal("group", value.Text("channel")); Assert.Equal("ana", value.Rows("to")[0].Text());
+    }
+    [Fact] public async Task ErrorsAreNotMistakenForSuccessfulApprovals()
+    {
+        using var client = new Client(39321, "fixture", new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"error\":\"missing token\"}") })));
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.Post("/api/org/o/request", new { request_id = "r1", decision = "approve" }));
+        Assert.Equal("missing token", error.Message);
+    }
+    [Fact] public async Task EventsIgnoreHeartbeatsAndDispatchCompleteFrames()
+    {
+        using var cancel = new CancellationTokenSource();
+        using var client = new Client(39321, "fixture", new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(": relic\n\ndata: {\"type\":\"org\",\"org\":\"o\"}\n\n") })));
+        var received = new List<string>();
+        try { await client.Events(node => { received.Add(node.Text("type")); cancel.Cancel(); return Task.CompletedTask; }, cancel.Token); }
+        catch (OperationCanceledException) { }
+        Assert.Equal(new[] { "org" }, received);
+    }
+    [Theory]
+    [InlineData("zh-TW", "zh-CN")][InlineData("zh-Hant", "zh-CN")][InlineData("ja-JP", "en-US")][InlineData("en-GB", "en-US")]
+    public void OnlyTwoUiLanguages(string input, string expected) => Assert.Equal(expected, Words.Normalize(input));
+    [Fact] public void SharedWordListsSupportPluralAndSubstitution()
+    {
+        var words = new Words();
+        words.Load(JsonNode.Parse("{\"lang\":\"en-US\",\"strings\":{\"count\":{\"one\":\"{n} item\",\"other\":\"{n} items\"}}}")!);
+        Assert.Equal("1 item", words.T("count", ("n", 1))); Assert.Equal("2 items", words.T("count", ("n", 2)));
+    }
+}
