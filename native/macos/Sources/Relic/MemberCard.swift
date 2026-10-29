@@ -72,12 +72,14 @@ struct SecretarySetup: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(m.t("secretary.setup_title")).font(.title2); Text(m.t("secretary.setup_intro"))
-            Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
-                Button(m.t("secretary.make", ["name": who.display])) { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } }
-            }
-            Button(m.t("secretary.new_embedded")) { m.openMemberForm(secretary: true) }
-        }.padding(10)
+            Text(m.t("secretary.setup_title")).font(.system(size: 17, weight: .semibold)); Text(m.t("secretary.setup_intro")).font(.system(size: 13)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
+            ScrollView { VStack(spacing: 8) { Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
+                Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } } label: {
+                    HStack(spacing: 10) { Avatar(member: who["name"].text, size: 30); VStack(alignment: .leading, spacing: 3) { Text(m.t("secretary.make", ["name": who.display])).font(.system(size: 13, weight: .semibold)); Text([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(RelicStyle.muted) }; Spacer(minLength: 0) }.relicCard()
+                }.buttonStyle(QuietButtonStyle())
+            } } }
+            HStack { Spacer(); Button(m.t("common.cancel")) { m.sheet = nil }; Button(m.t("secretary.new_embedded")) { m.openMemberForm(secretary: true) }.buttonStyle(.borderedProminent) }
+        }.frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

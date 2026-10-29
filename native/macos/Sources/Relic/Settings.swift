@@ -50,7 +50,7 @@ struct SettingsView: View {
         Section(m.t("settings.language.title")) {
             Picker(m.t("settings.language.label"), selection: Binding(get: { m.words.language }, set: { value in m.run { try await m.saveSettings(language: value, notify: m.preferences["notify"].flag) } })) { Rows(m.words.languages) { Text($0["name"].text).tag($0["code"].text) } }
             Text(m.t("settings.language.hint")).font(.caption)
-            Button(m.t("settings.language.system", ["lang": Words.normalize(Locale.current.identifier)])) { m.run { try await m.savePreferences(["lang": Words.normalize(Locale.current.identifier)]) } }
+            Button(m.t("settings.language.system", ["lang": m.words.languages.first(where: { $0["code"].text == Words.normalize(Locale.current.identifier) })?["name"].text ?? Words.normalize(Locale.current.identifier)])) { m.run { try await m.savePreferences(["lang": Words.normalize(Locale.current.identifier)]) } }
             Toggle(m.t("settings.auto_names.label"), isOn: toggle("auto_names")); Text(m.t("settings.auto_names.hint")).font(.caption)
         }
     }

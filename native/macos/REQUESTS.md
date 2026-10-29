@@ -42,6 +42,17 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
+### Shared localized platform diagnostic request (visual evidence)
+
+The Chinese `settings-harness` capture shows the English built-in diagnostic
+`No private host-supplied desktop socket; open a chat with the Relic plugin loaded`.
+This is `GET /api/platform` → `desktop_transport.reason`, displayed by both native
+clients as server content. Please move this fixed diagnostic to the shared word
+lists and localize the existing `reason` field using the selected language. Keep
+the current response shape; macOS calls `/api/platform` and reads
+`platform["desktop_transport"]["reason"]`. Do the same for other fixed diagnostic
+reasons in that response. Provider IDs and user-supplied paths remain data.
+
 Original shared owner requests (superseded by `docs/native-visual.md`):
 
 1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
