@@ -100,7 +100,7 @@ import RelicAX
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
             if isIcon || ["region", "image", "divider"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }

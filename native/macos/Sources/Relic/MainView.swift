@@ -215,13 +215,23 @@ struct RightPane: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $m.pane) {
-                Text(m.t("panel.overview")).tag("overview").help(m.t("appbar.pane_shortcut", ["pane": m.t("panel.overview"), "key": "⌥1"]))
-                Text(m.t("panel.workspace")).tag("workspace").help(m.t("appbar.pane_shortcut", ["pane": m.t("panel.workspace"), "key": "⌥2"]))
-                Text(m.t("common.file")).tag("files").help(m.t("appbar.pane_shortcut", ["pane": m.t("common.file"), "key": "⌥3"]))
-                if !m.threadID.isEmpty { Text(m.t("panel.thread")).tag("thread") }
-            }.pickerStyle(.segmented).padding(.horizontal, 12).padding(.vertical, 10)
-            Divider().overlay(RelicStyle.line)
+            HStack(spacing: 6) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 2) {
+                        ForEach(Array((Choices.panes + (m.threadID.isEmpty ? [] : [("thread", "panel.thread")])).enumerated()), id: \.offset) { index, pane in
+                            Button { m.setPane(pane.0) } label: {
+                                HStack(spacing: 5) {
+                                    ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary)
+                                    Text(m.t(pane.1)).font(.system(size: 12.5, weight: m.pane == pane.0 ? .semibold : .regular)).lineLimit(1)
+                                    if pane.0 == "thread" { Button { m.closeThread() } label: { ReferenceIcon(name: "x", size: 12, color: RelicStyle.muted).frame(width: 16, height: 16) }.buttonStyle(.plain).help(m.t("panel.close_thread")) }
+                                }.padding(.horizontal, 9).frame(height: 28)
+                            }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
+                        }
+                    }
+                }.scrollIndicators(.hidden)
+                IconButton(title: m.t("panel.hide_title"), icon: "x", size: 16) { m.panelOpen = false }.accessibilityLabel(m.t("panel.hide"))
+            }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
+                .overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
             switch m.pane {
             case "workspace": WorkspaceView()
             case "files": FilePreview().padding(14)
