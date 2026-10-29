@@ -12,6 +12,9 @@ struct SelectableText: NSViewRepresentable {
     @Environment(\.openURL) private var openURL
     @Environment(\.selectedAuthor) private var author
     let value: AttributedString
+    var scale: CGFloat = 1
+    var weight: NSFont.Weight = .regular
+    var color: Color = RelicStyle.ink
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let view = QuoteTextView()
@@ -29,15 +32,18 @@ struct SelectableText: NSViewRepresentable {
         }
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
-        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 4
-        rendered.addAttributes([.font: NSFont.systemFont(ofSize: m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph], range: range)
+        let paragraph = NSMutableParagraphStyle()
+        let baseSize: CGFloat = (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
+        paragraph.minimumLineHeight = baseSize * 1.6; paragraph.maximumLineHeight = baseSize * 1.6
+        rendered.addAttributes([.font: NSFont.systemFont(ofSize: baseSize, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph], range: range)
+        view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         for run in value.runs {
             guard let intent = run.inlinePresentationIntent else { continue }
             let prefix = String(value.characters[..<run.range.lowerBound]), text = String(value.characters[run.range])
             let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
-            var font = NSFont.systemFont(ofSize: m.preferences["font"].text == "large" ? 16 : m.preferences["font"].text == "small" ? 12 : 14)
-            if intent.contains(.code) { font = .monospacedSystemFont(ofSize: font.pointSize, weight: .regular) }
+            var font = NSFont.systemFont(ofSize: baseSize, weight: weight)
+            if intent.contains(.code) { font = .monospacedSystemFont(ofSize: baseSize * 0.9, weight: .regular) }
             if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             rendered.addAttribute(.font, value: font, range: nsRange)

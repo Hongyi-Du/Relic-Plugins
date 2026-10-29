@@ -27,6 +27,24 @@ import RelicAX
         XCTAssertEqual(RelicAXChildren(root).count, 1)
         XCTAssertTrue((RelicAXChildren(root).first as AnyObject?) === child)
     }
+    func testTextKitCaptureUsesActualRunFontsAndWrappedLineFragments() throws {
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 90, height: 300))
+        view.isEditable = false; view.textContainerInset = .zero
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.containerSize = NSSize(width: 90, height: 300)
+        let source = NSMutableAttributedString(string: "Header. A longer description wraps onto several lines.",
+                                              attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.red])
+        source.addAttribute(.font, value: NSFont.systemFont(ofSize: 14, weight: .bold), range: NSRange(location: 0, length: 7))
+        view.textStorage?.setAttributedString(source)
+        let rows = ElementCapture.textRuns(view)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.compactMap { $0["text"] as? String }.joined(), source.string)
+        let first = try XCTUnwrap(rows.first?["style"] as? [String: Any])
+        XCTAssertEqual(first["fontSize"] as? Double, 14); XCTAssertEqual(first["fontWeight"] as? Int, 700)
+        let last = try XCTUnwrap(rows.last?["layout"] as? [String: Any])
+        XCTAssertEqual(last["wrap"] as? String, "word")
+        XCTAssertGreaterThan(try XCTUnwrap(last["line_count"] as? Int), 1)
+    }
 }
 
 private final class InformalAccessibilityNode: NSObject {

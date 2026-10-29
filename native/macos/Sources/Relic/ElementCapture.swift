@@ -37,7 +37,12 @@ import RelicAX
         let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
         let value = (traits?[.weight] as? NSNumber)?.doubleValue ?? 0
         let weights: [(Double, Int)] = [(-0.8, 100), (-0.6, 200), (-0.4, 300), (0, 400), (0.23, 500), (0.3, 600), (0.4, 700), (0.56, 800), (0.62, 900)]
-        return weights.min(by: { abs($0.0 - value) < abs($1.0 - value) })?.1 ?? 400
+        if value <= weights[0].0 { return weights[0].1 }
+        for index in 1..<weights.count where value <= weights[index].0 {
+            let lower = weights[index - 1], upper = weights[index]
+            return Int((Double(lower.1) + (value - lower.0) / (upper.0 - lower.0) * Double(upper.1 - lower.1)).rounded())
+        }
+        return weights.last!.1
     }
     static func rgba(_ color: NSColor?) -> Any {
         guard let color = color?.usingColorSpace(.sRGB) else { return NSNull() }
@@ -62,6 +67,11 @@ import RelicAX
             if let axFont = attributes[NSAttributedString.Key("AXFont")] as? [String: Any] {
                 result["fontSize"] = axFont["AXFontSize"] ?? NSNull()
                 result["fontFamily"] = axFont["AXFontFamily"] ?? axFont["AXFontName"] ?? NSNull()
+                if let name = axFont["AXFontName"] as? String, let size = axFont["AXFontSize"] as? NSNumber { font = NSFont(name: name, size: CGFloat(size.doubleValue)) ?? font }
+            }
+            if let value = attributes[NSAttributedString.Key("AXForegroundColor")] {
+                if let color = value as? NSColor { foreground = color }
+                else if CFGetTypeID(value as CFTypeRef) == CGColorGetTypeID() { foreground = NSColor(cgColor: value as! CGColor) }
             }
             // Preserve all platform attributes separately for audit, including
             // attributes not yet understood by the common normalizer.
@@ -81,6 +91,38 @@ import RelicAX
             return ["x": x, "y": y, "rgba": rgba(bitmap.colorAt(x: x, y: y))]
         } }
     }
+    static func textRuns(_ view: NSTextView) -> [[String: Any]] {
+        guard let manager = view.layoutManager, let container = view.textContainer, let storage = view.textStorage else { return [] }
+        manager.ensureLayout(for: container)
+        var rows: [[String: Any]] = []
+        storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length), options: []) { attributes, range, _ in
+            let text = (storage.string as NSString).substring(with: range)
+            guard !text.isEmpty else { return }
+            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+            var lines: [[String: Double]] = []
+            manager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineRange, _ in
+                if NSIntersectionRange(glyphs, lineRange).length > 0 { lines.append(box(used.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
+            }
+            let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
+            let mode = paragraph?.lineBreakMode ?? container.lineBreakMode
+            let wrap = mode == .byCharWrapping ? "character" : mode == .byWordWrapping ? "word" : "none"
+            let truncation = [.byTruncatingHead, .byTruncatingMiddle, .byTruncatingTail].contains(mode) ? "ellipsis" : mode == .byClipping ? "clip" : "none"
+            let font = attributes[.font] as? NSFont ?? view.font
+            rows.append(["text": text, "range": ["location": range.location, "length": range.length],
+                "local_rect": NSValue(rect: rect), "lines": lines,
+                "kind": attributes[.link] == nil ? "text" : "link",
+                "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
+                "style": ["fontSize": font.map { Double($0.pointSize) } as Any? ?? NSNull(),
+                          "fontWeight": font.map { cssWeight($0) } as Any? ?? NSNull(),
+                          "fontFamily": font?.familyName as Any? ?? NSNull(),
+                          "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
+                          "backgroundColor": rgba(attributes[.backgroundColor] as? NSColor ?? .clear),
+                          "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0],
+                "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
+        }
+        return rows
+    }
     static func write(window: NSWindow, png: URL, item: Node, language: String, theme: String) throws {
         guard let content = window.contentView, let bitmap = NSBitmapImageRep(data: try Data(contentsOf: png)) else { throw RelicError.message("Cannot inspect captured native image") }
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
@@ -91,7 +133,7 @@ import RelicAX
             let point = NSPoint(x: rect.midX, y: rect.midY)
             return regions.filter { $0.rect.contains(point) }.min(by: { $0.rect.width * $0.rect.height < $1.rect.width * $1.rect.height })?.name ?? fallback
         }
-        func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect) {
+        func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false) {
             let object = value as AnyObject
             let attributes = RelicAXRead(object)
             let ax = Node(attributes)
@@ -112,16 +154,34 @@ import RelicAX
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
+            let textView = (object as? NSTextView).flatMap { $0.isEditable ? nil : $0 }
+            if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
+            if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }
             raw.append(node)
-            if visible && ax["element"].flag { elements.append(node) }
+            if visible && ax["element"].flag && textView == nil && !suppressElements { elements.append(node) }
+            if let textView, !suppressElements, let textWindow = textView.window {
+                for (index, run) in textRuns(textView).enumerated() {
+                    let screen = textWindow.convertToScreen(textView.convert((run["local_rect"] as! NSValue).rectValue, to: nil))
+                    let boxRect = topLeft(screen, in: contentScreen), visible = boxRect.intersection(clip)
+                    var projected: [String: Any] = ["id": path + "/text-" + String(index), "parent": path, "kind": run["kind"]!, "region": assignedRegion,
+                        "text": run["text"]!, "name": "", "rect": box(boxRect), "visibleRect": visible.isNull ? NSNull() : box(visible),
+                        "style": run["style"]!, "layout": run["layout"]!, "source": "live-TextKit-layout",
+                        "state": ["enabled": textView.isSelectable, "focused": false, "selected": NSNull(), "expanded": NSNull(), "checked": NSNull()],
+                        "visible": !visible.isNull && visible.width > 0 && visible.height > 0,
+                        "pixelSamples": samples(visible, bitmap: bitmap)]
+                    var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
+                    projected["projection"] = evidence; raw.append(projected)
+                    if projected["visible"] as? Bool == true { elements.append(projected) }
+                }
+            }
             let childClip = role == "AXScrollArea" ? clip.intersection(rect) : clip
-            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip) }
+            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil) }
             // Embedded AppKit controls can be absent from the hosting view's AX
             // children. Inspect their real view ancestry too; identity deduplication
             // prevents emitting a control twice when AX already exposed it.
             if let view = object as? NSView {
                 for (index, child) in view.subviews.enumerated() {
-                    visit(child, path: path + "/view-" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip)
+                    visit(child, path: path + "/view-" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil)
                 }
             }
         }
@@ -152,6 +212,7 @@ import RelicAX
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
         var unmeasured = ["Paint-only SwiftUI decoration coverage beyond instrumented path icons", "Exact opaque-overlay occlusion", "Reading order for paint without an AX owner"]
         if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
+        if RelicAXChildren(content).isEmpty { unmeasured.append("SwiftUI hosting view has no virtual AX descendants; AppKit subviews alone are incomplete") }
         var orders: [String: Int] = [:]
         let emittedIDs = Set(elements.compactMap { $0["id"] as? String })
         let rawParents = Dictionary(uniqueKeysWithValues: raw.compactMap { node -> (String, String)? in
@@ -180,12 +241,12 @@ import RelicAX
             let pointerOutside = !contentScreen.contains(pointer)
             let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull(), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": pointerOutside ? false as Any : NSNull(), "unread": NSNull()]
             if !pointerOutside { unmeasured.append(id + ":state.hovered") }
-            if !text.isEmpty { unmeasured.append(id + ":layout") }
+            if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
             evidence["raw_node_id"] = id
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
-            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
+            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))

@@ -208,6 +208,21 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(NativeMarkdown.table(blocks[3]), [["Name", "Value"], ["A", "**B**"]])
         XCTAssertEqual(blocks[4].text, "let x = 1")
     }
+    func testReferenceInlineGrammarKeepsUnsupportedMarkdownVisible() {
+        let tokens = NativeMarkdown.inline("*italic* [label](https://example.com/a) **bold** and /tmp/a.swift:12。")
+        XCTAssertEqual(tokens.map(\.kind), ["text", "url", "text", "bold", "text", "path", "text"])
+        XCTAssertEqual(tokens[0].text, "*italic* [label](")
+        XCTAssertEqual(tokens[5].text, "/tmp/a.swift:12")
+        let rendered = NativeMarkdown.attributed("*italic* **bold**")
+        XCTAssertEqual(String(rendered.characters), "*italic* bold")
+        XCTAssertEqual(NativeMarkdown.inline("src/app.swift").map(\.kind), ["text"])
+    }
+    func testReferenceListsNumberEveryRowFromTheFirstMarkerAndTablesRequireAHeaderRule() {
+        let ordered = NativeMarkdown.list(NativeMarkdown.blocks("3) first\n99) second\n  + nested")[0])
+        XCTAssertEqual(ordered.map(\.marker), ["3.", "4.", "5."])
+        XCTAssertFalse(NativeMarkdown.tableHasHeader(NativeMarkdown.blocks("| A | B |\n| C | D |")[0]))
+        XCTAssertTrue(NativeMarkdown.tableHasHeader(NativeMarkdown.blocks("| A | B |\n| --- | --- |")[0]))
+    }
     func testDraftRoundTripRetainsQuoteAndMultiRecipient() throws {
         var draft = ChatDraft(); draft.text = "你好"; draft.quote = "> Earlier"; draft.recipients = ["a", "b"]
         let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
