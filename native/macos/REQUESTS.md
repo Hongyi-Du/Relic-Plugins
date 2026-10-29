@@ -42,7 +42,7 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
-### Active: Windows native capture crashes before the first PNG (`40873502291`)
+### Fix merged in `e4bb502`, awaiting capture: Windows automation peer crash (`40873502291`)
 
 All four Windows shards at `fdee097` exit `3221225477` without `complete.json`.
 Reference captures complete all 126 files per shard. Downloaded Windows
@@ -51,7 +51,8 @@ Reference captures complete all 126 files per shard. Downloaded Windows
 `MenuBarItemAutomationPeer.Collapse`, `MainWindow.CaptureVisuals`.
 Please avoid collapsing a closed/unrealized native MenuBar automation peer and
 repair the actual menu capture path. macOS shards are still running independently.
-The full comparison cannot compose until the Windows native captures succeed.
+The shared owner replaced direct automation peer calls with CI desktop input in
+`e4bb502`, now merged. The full comparison is being rerun against that fix.
 Local diagnostic: `S:/Codex/Outputs/Relic-native-visual/iteration-09/visual-windows-en-US-light`.
 
 ### Resolved in `6391291`: shared localized platform diagnostic
