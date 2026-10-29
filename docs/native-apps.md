@@ -8,6 +8,23 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients (conversation, menus and workspace): Windows now uses
+reference-sized native menu presenters/keycaps, compact trajectory rows, the
+reference inline-code/path parser, digest/plain disclosures, hover actions and
+thread composer. Workspace/file views use sectioned layout, native tree rows,
+file metadata, preview/source tabs and selectable source with line numbers.
+These are production UI changes awaiting matrix evidence, not a parity claim.
+The pending native font measurement work is documented in
+`native-windows-font-evidence.md`; font-face evidence remains unknown until the
+actual production draw supplies it. No guessed font evidence is accepted.
+
+Changes for the clients (CI checkpoint): `b5e68ab` package validation passed
+all four Windows/macOS Python environments in 40963546083. Windows and macOS
+native builds/tests passed in 40963545988; the four platform-conditional static
+vocabulary differences remain failing while the reference-input question is
+pending. Visual 40963539383 passed 21 Node and 124 Python matcher fixtures;
+capture/element parity remains a separate, currently failing acceptance gate.
+
 Changes for the clients (measurement audit): active CSS ellipsis no longer
 exports a clipped layout range as measured painted text. Unknown standalone
 text bounds retain null coordinates; directly measured control boxes remain.

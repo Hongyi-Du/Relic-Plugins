@@ -35,7 +35,7 @@ public sealed partial class MainWindow
     private void UpdateSendState()
     {
         if (sendButton != null) { sendButton.IsEnabled = !string.IsNullOrWhiteSpace(editor.Text) || quoteText.Length > 0; sendButton.Opacity = sendButton.IsEnabled ? 1 : .35; }
-        if (threadSendButton != null) threadSendButton.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0;
+        if (threadSendButton != null) { threadSendButton.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0; threadSendButton.Opacity = threadSendButton.IsEnabled ? 1 : .35; }
     }
     private string PlainKey(string id) => org + "/" + id;
     private void Quote(string who, string body)
@@ -209,7 +209,7 @@ public sealed partial class MainWindow
     private void DrawConversation()
     {
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
-        conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed;
+        conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed; conversationBanner.MaxWidth = double.PositiveInfinity;
         composerSurface.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
@@ -231,7 +231,7 @@ public sealed partial class MainWindow
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
         chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var titles = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center }; var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        var portrait = member.Length == 0 ? ChatAvatar(false) : m.Flag("secretary") && m.Text("avatar").Length == 0 ? ChatAvatar(true) : SmallAvatar(m.Text("avatar"), Display(member), m.Text("state"), 28);
+        var portrait = member.Length == 0 ? SidebarPicture("", ChatAvatar(false), 28) : m.Flag("secretary") && m.Text("avatar").Length == 0 ? SidebarPicture("", ChatAvatar(true), 28) : SmallAvatar(m.Text("avatar"), Display(member), m.Text("state"), 28);
         chatHead.Children.Add(portrait); Grid.SetColumn(titles, 1); chatHead.Children.Add(titles); Grid.SetColumn(actions, 2); chatHead.Children.Add(actions);
         TextBlock HeaderLabel(string value)
         {
@@ -249,7 +249,7 @@ public sealed partial class MainWindow
             actions.Children.Add(ChipButton("lang", T(plainMode ? "chat.plain_on" : "common.plain_words"), T("chat.plain_title"), TogglePlain));
             actions.Children.Add(ChipButton("sparkle", T("chat.digest"), T("chat.digest_title"), ToggleDigest));
             actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
-            if (digestOpen) { var digestScroll = Scroll(DigestCard()); digestScroll.MaxHeight = Math.Min(230, root.ActualHeight * .3); var summary = Card(digestScroll); summary.Background = Paint("F3F0FA", "302A40"); summary.BorderBrush = Paint("D8CEE9", "4C405E"); conversationBanner.Child = summary; conversationBanner.Visibility = Visibility.Visible; }
+            if (digestOpen) { conversationBanner.Padding = new Thickness(20, 10, 20, 0); conversationBanner.MaxWidth = 920; conversationBanner.Child = DigestCard(); conversationBanner.Visibility = Visibility.Visible; }
         }
         else
         {
@@ -264,7 +264,7 @@ public sealed partial class MainWindow
             actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
             if (m.Text("surface") != "chat") actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
-            conversationBanner.Child = Quiet(banner, 11); conversationBanner.Visibility = Visibility.Visible;
+            conversationBanner.Padding = new Thickness(20, 0, 20, 10); conversationBanner.Child = Quiet(banner, 11); conversationBanner.Visibility = Visibility.Visible;
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
         if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));
@@ -274,16 +274,16 @@ public sealed partial class MainWindow
         foreach (var item in items)
         {
             var date = DateTimeOffset.TryParse(item.Text("at"), out var parsed) ? parsed.LocalDateTime.Date.ToString("yyyy-MM-dd") : "";
-            if (date != day && date.Length > 0) { var label = Quiet(Day(item.Text("at")), 11.5); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); day = date; previous = null; }
+            if (date != day && date.Length > 0) { var label = OverviewText(When(item.Text("at")), 11.5, true); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); day = date; previous = null; }
             else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
-            { var label = Quiet(parsed.ToLocalTime().ToString("HH:mm"), 11); label.TextAlignment = TextAlignment.Center; stream.Children.Add(label); previous = null; }
+            { var label = OverviewText(parsed.ToLocalTime().ToString("HH:mm"), 11.5, true); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); previous = null; }
             var rendered = Message(item!, false, Transcript.SameMessageGroup(previous, item!));
             try { stream.Children.Add(rendered); }
             catch (System.Runtime.InteropServices.COMException ex)
             {
                 throw new InvalidOperationException($"Could not attach rendered conversation item: type={item.Text("type")}, id={item.Text("id")}, control={rendered.GetType().Name}, parent={Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(rendered)?.GetType().Name ?? "none"}, dialogOpen={visibleDialog != null}", ex);
             }
-            previous = item;
+            if (item.Text("type") != "acts") previous = item;
         }
         if (member.Length > 0) DrawLive(stream);
         if (atBottom) ScrollToLatest();
@@ -306,7 +306,8 @@ public sealed partial class MainWindow
         if (item.Text("type") == "notice")
         {
             var note = Quiet(item.Text("text"), 12); note.TextAlignment = TextAlignment.Center; note.LineHeight = 19.2; note.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-            return new Border { Child = note, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = Math.Max(0, (chatScroll.ActualWidth - 40) * .86), Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 2, 10, 2), CornerRadius = new CornerRadius(10), Background = Paint("F8F7F5", "191918") };
+            var layout = new CenteredFractionLayout { Fraction = .86, Margin = new Thickness(0, 8, 0, 0) };
+            layout.Children.Add(new Border { Child = note, Padding = new Thickness(10, 2, 10, 2), CornerRadius = new CornerRadius(10), Background = Paint("F8F7F5", "191918") }); return layout;
         }
         if (item.Text("type") == "acts") return ToolActions(item);
         if (item.Text("type") == "step")
@@ -316,7 +317,7 @@ public sealed partial class MainWindow
         }
         var from = item.Text("from"); var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
         var mine = from == "human";
-        var box = new StackPanel { Spacing = 6 };
+        var box = new StackPanel { Spacing = 0 }; UIElement? originalAfter = null; UIElement? pendingAfter = null;
         var column = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (!continued)
         {
@@ -339,17 +340,31 @@ public sealed partial class MainWindow
         var showingPlain = explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.ContainsKey(key);
         if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
         else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
-        { var title = Heading(T("msg.plain"), 12); title.Foreground = Paint("7660C8", "BDB0EC"); box.Children.Add(title); box.Children.Add(Rich(explained)); box.Children.Add(new Expander { Header = T("msg.original"), Content = Rich(body), MinHeight = 28, Padding = new Thickness(8), HorizontalContentAlignment = HorizontalAlignment.Stretch }); }
+        {
+            var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 0, 0, 3) };
+            var icon = (ReferenceVectorIcon)ReferenceIcon("lang", 13); icon.Foreground = Paint("7058B8", "A894E0"); icon.VerticalAlignment = VerticalAlignment.Center; title.Children.Add(icon);
+            var label = OverviewText(T("msg.plain"), 11, weight: 650); label.Foreground = Paint("7058B8", "A894E0"); title.Children.Add(label); box.Children.Add(title); box.Children.Add(Rich(explained));
+            var originalLabel = OverviewText(T("msg.original"), 11.5, true); originalLabel.IsTextSelectionEnabled = false;
+            var marker = OverviewText("▸ ", 11.5, true); marker.IsTextSelectionEnabled = false;
+            var summary = new StackPanel { Orientation = Orientation.Horizontal, Padding = new Thickness(2, 0, 2, 0), HorizontalAlignment = HorizontalAlignment.Left }; summary.Children.Add(marker); summary.Children.Add(originalLabel);
+            var original = new Border { Child = Rich(body), Background = Paint("F4F3F0", "2A2A28"), Padding = new Thickness(13, 9, 13, 9), CornerRadius = new CornerRadius(4, 14, 14, 14), Margin = new Thickness(0, 4, 0, 0) };
+            if (from == snap["org"].Text("secretary") && member.Length == 0) { original.BorderBrush = Paint("7058B8", "A894E0"); original.BorderThickness = new Thickness(3, 0, 0, 0); original.Padding = new Thickness(10, 9, 13, 9); }
+            var originalLayout = new MessageBubbleLayout { MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left }; originalLayout.Children.Add(original);
+            var disclosure = DetailsDisclosure(summary, originalLayout); disclosure.HorizontalAlignment = HorizontalAlignment.Left;
+            disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => marker.Text = disclosure.IsExpanded ? "▾ " : "▸ "); originalAfter = disclosure;
+        }
         else
         {
             box.Children.Add(Rich(body));
             if (explainable && (plainMode && member.Length == 0 && !inThread || plainOne.Contains(key)))
             {
-                box.Children.Add(Button(plainPending.Contains(key) ? T("plain.pending") : plainFailed.Contains(key) ? T("plain.retry") : T("plain.waiting"), () => RequestPlain([item.Text("id")])));
+                pendingAfter = PlainStatus(key, item.Text("id"));
                 if (!plainPending.Contains(key) && !plainFailed.Contains(key) && !inThread && member.Length == 0) plainTargets[item.Text("id")] = box;
             }
         }
         var after = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        if (originalAfter != null) after.Children.Add(originalAfter);
+        if (pendingAfter != null) after.Children.Add(pendingAfter);
         if (from == "human" && item.Rows("to").Count > 0)
         {
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
@@ -358,11 +373,18 @@ public sealed partial class MainWindow
             if (others.Length > 1) { var readers = new MenuFlyout(); foreach (var name in others) readers.Items.Add(new MenuFlyoutItem { Text = Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread") }); receipt.ContextFlyout = readers; }
             after.Children.Add(receipt);
         }
-        var actions = new ActionRow { Spacing = 2 };
-        if (explainable) actions.Children.Add(IconButton("\uE8D4", plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words", async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); }));
-        actions.Children.Add(IconButton("\uE8F2", "common.quote", () => { Quote(Display(from), body); return Task.CompletedTask; }));
-        if (!inThread && long.TryParse(item.Text("id"), out _)) actions.Children.Add(IconButton("\uE97A", "msg.reply_in_thread", () => OpenThread(item.Text("id"))));
-        actions.Children.Add(IconButton("\uE8C8", "common.copy", () => { Copy(body); return Task.CompletedTask; }));
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        Button Action(string iconName, string label, string tip, Func<Task> handler)
+        {
+            var button = QuietButton("", handler); button.Padding = new Thickness(8, 0, 8, 0); button.Height = 26; button.CornerRadius = new CornerRadius(6); button.Foreground = Paint("5A5853", "B8B5AE");
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 }; var icon = (ReferenceVectorIcon)ReferenceIcon(iconName, 14); icon.Foreground = button.Foreground; icon.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(icon);
+            if (label.Length > 0) { var text = OverviewText(label, 12); text.Foreground = button.Foreground; text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; row.Children.Add(text); }
+            button.Content = row; ToolTipService.SetToolTip(button, tip); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label.Length > 0 ? label : tip); actions.Children.Add(button); return button;
+        }
+        if (explainable && !(plainMode && member.Length == 0 && !inThread)) Action("lang", T(plainOne.Contains(key) ? "msg.original" : "msg.plain"), T(plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); });
+        Action("quote", T("common.quote"), T("common.quote"), () => { Quote(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), body); return Task.CompletedTask; });
+        if (!inThread && long.TryParse(item.Text("id"), out _)) Action("thread", T("common.reply"), T("msg.reply_in_thread"), () => OpenThread(item.Text("id")));
+        Action("copy", "", T("common.copy"), () => { Copy(body); return Task.CompletedTask; });
         if (!inThread && item["thread"] != null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
@@ -380,18 +402,21 @@ public sealed partial class MainWindow
         var secretary = from == snap["org"].Text("secretary");
         var bubble = new Border { Child = box, Padding = new Thickness(13, 9, 13, 9), CornerRadius = mine ? new CornerRadius(14, 4, 14, 14) : new CornerRadius(4, 14, 14, 14), Background = mine ? MessageTint() : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7058B8", "A894E0") : Line, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch };
         if (secretary && member.Length == 0) { bubble.BorderThickness = new Thickness(3, 0, 0, 0); bubble.Padding = new Thickness(10, 9, 13, 9); }
-        if (showingPlain) { bubble.Background = Paint("F3F0FA", "302A40"); bubble.BorderBrush = Paint("D8CEE9", "4C405E"); bubble.BorderThickness = new Thickness(1); }
+        if (showingPlain) { bubble.Background = Paint("EFEBF8", "2E2A3D"); bubble.BorderBrush = OverviewAlpha(Paint("7058B8", "A894E0"), .22); bubble.BorderThickness = new Thickness(1); bubble.Padding = new Thickness(13, 9, 13, 9); }
         var bubbleLayout = new MessageBubbleLayout { MaxWidth = 720, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left }; bubbleLayout.Children.Add(bubble);
         column.Children.Add(bubbleLayout); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
-        message.Children.Add(column); actions.HorizontalAlignment = HorizontalAlignment.Right; actions.VerticalAlignment = VerticalAlignment.Top; actions.Margin = new Thickness(0, -26, 0, 0); actions.Opacity = 0; message.Children.Add(actions);
-        message.PointerEntered += (_, _) => actions.Opacity = 1; message.PointerExited += (_, _) => actions.Opacity = 0;
-        message.GotFocus += (_, _) => actions.Opacity = 1;
+        message.Children.Add(column);
         var outer = new Grid { ColumnSpacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, continued ? 4 : preferences.Text("density") == "compact" ? 7 : 14, 0, 0) };
         outer.ColumnDefinitions.Add(new() { Width = mine ? new GridLength(1, GridUnitType.Star) : GridLength.Auto }); outer.ColumnDefinitions.Add(new() { Width = mine ? GridLength.Auto : new GridLength(1, GridUnitType.Star) });
         var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
-        Button? avatar = null; avatar = QuietButton("", () => mine ? Settings() : MemberCard(from, avatar)); avatar.Content = SmallAvatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), size: 36); avatar.Padding = new Thickness(0); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1;
-        Grid.SetColumn(avatar, mine ? 1 : 0); Grid.SetColumn(message, mine ? 0 : 1); outer.Children.Add(avatar); outer.Children.Add(message); return outer;
+        var avatar = (FrameworkElement)Avatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), inThread ? 30 : 36); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1; if (continued) avatar.Height = 0;
+        ToolTipService.SetToolTip(avatar, Display(from)); if (!mine && speaker != null) avatar.Tapped += async (_, e) => { e.Handled = true; await Run(() => MemberCard(from, avatar)); };
+        Grid.SetColumn(avatar, mine ? 1 : 0); Grid.SetColumn(message, mine ? 0 : 1); outer.Children.Add(avatar); outer.Children.Add(message);
+        var actionSurface = new Border { Child = actions, Background = Paint("FFFFFF", "252523"), BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = mine ? HorizontalAlignment.Left : HorizontalAlignment.Right, Margin = mine ? new Thickness(8, -12, 0, 0) : new Thickness(0, -12, 8, 0), Opacity = 0 };
+        Grid.SetColumnSpan(actionSurface, 2); outer.Children.Add(actionSurface);
+        outer.PointerEntered += (_, _) => actionSurface.Opacity = 1; outer.PointerExited += (_, _) => actionSurface.Opacity = 0; return outer;
     }
     private Microsoft.UI.Xaml.Media.SolidColorBrush MessageTint()
     {
@@ -449,7 +474,7 @@ public sealed partial class MainWindow
         foreach (var pair in results) { var key = targetOrg + "/" + pair.Key; plain[key] = pair.Value.Text(); plainPending.Remove(key); plainFailed.Remove(key); }
         if (targetOrg == org) DrawConversation();
     }
-    private async Task ToggleDigest() { digestOpen = !digestOpen; SaveViewState(); if (digestOpen) await LoadDigest(false); DrawConversation(); }
+    private async Task ToggleDigest() { digestOpen = !digestOpen; SaveViewState(); if (digestOpen && digest.Text("text").Length == 0 && !digestPending) await LoadDigest(false); DrawConversation(); }
     private async Task LoadDigest(bool refresh)
     {
         var selectedOrg = org;
@@ -460,16 +485,42 @@ public sealed partial class MainWindow
     }
     private UIElement DigestCard()
     {
-        var card = Stack(TwoColumns(Heading(T("digest.title"), 14), IconButton("\uE711", "common.collapse", ToggleDigest))); card.Spacing = 6;
-        if (digest.Text("text").Length > 0)
+        var hasDigest = digest.Text("text").Length > 0;
+        var card = new StackPanel { Spacing = 6, Padding = new Thickness(14, 10, 14, 12) };
+        var header = new Grid { ColumnSpacing = 8 };
+        for (var i = 0; i < 6; i++) header.ColumnDefinitions.Add(new() { Width = i == 2 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+        void Add(UIElement child, int column) { Grid.SetColumn((FrameworkElement)child, column); ((FrameworkElement)child).VerticalAlignment = VerticalAlignment.Center; header.Children.Add(child); }
+        var icon = (ReferenceVectorIcon)ReferenceIcon("sparkle", 15); icon.Foreground = Paint("7058B8", "A894E0"); Add(icon, 0); Add(OverviewText(T("digest.title"), 13.5, weight: 700), 1);
+        if (hasDigest)
         {
             var newer = messages.Count(x => long.TryParse(x.Text("id"), out var id) && id > (long.TryParse(digest.Text("last_id"), out var last) ? last : 0));
-            card.Children.Add(Quiet(T(newer > 0 ? "digest.read_newer" : "digest.read", ("n", digest.Text("count")), ("when", When(digest.Text("at"))), ("newer", newer)), 11)); card.Children.Add(Rich(digest.Text("text")));
+            Add(OverviewText(T(newer > 0 ? "digest.read_newer" : "digest.read", ("n", digest.Text("count")), ("when", Ago(digest.Text("at"))), ("newer", newer)), 12.5, true), 2);
         }
-        else card.Children.Add(Text(digestPending ? T("digest.reading") : T("digest.none")));
-        card.Children.Add(Button(digestPending ? T("digest.pending") : T("digest.update"), () => LoadDigest(true)));
-        if (snap["org"].Text("secretary").Length > 0) { var ask = Button(T("digest.ask"), async () => { var sec = snap["org"].Text("secretary"); await api!.Post(PathFor("/send"), new { to = new[] { sec }, channel = "private", body = T("digest.ask_message") }); await Select(org, sec); }); ToolTipService.SetToolTip(ask, T("digest.ask_title")); card.Children.Add(ask); }
-        InlineActions(card); return card;
+        Button Ghost(string label, Func<Task> action)
+        {
+            var button = OverviewAction(label, action); button.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); button.BorderBrush = button.Background; return button;
+        }
+        Add(digestPending ? PendingLabel(T("digest.pending")) : Ghost(T(hasDigest ? "digest.update" : "chat.digest"), () => LoadDigest(true)), 3);
+        if (snap["org"].Text("secretary").Length > 0)
+        {
+            var ask = Ghost(T("digest.ask"), async () => { var sec = snap["org"].Text("secretary"); await api!.Post(PathFor("/send"), new { to = new[] { sec }, channel = "private", body = T("digest.ask_message") }); await Select(org, sec); }); ToolTipService.SetToolTip(ask, T("digest.ask_title")); Add(ask, 4);
+        }
+        var close = IconButton("\uE711", "common.collapse", ToggleDigest); close.Width = close.Height = 24; close.Content = ReferenceIcon("x", 14); Add(close, 5); card.Children.Add(header);
+        card.Children.Add(hasDigest ? DetailsMarkdown(digest.Text("text")) : OverviewText(T(digestPending ? "digest.reading" : "digest.none"), 12.5, true));
+        var scroll = Scroll(card); scroll.MaxHeight = root.ActualHeight * .4 - 2;
+        return new Border { Child = scroll, Background = Paint("EFEBF8", "2E2A3D"), BorderBrush = OverviewAlpha(Paint("7058B8", "A894E0"), .28), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12) };
+    }
+    private UIElement PendingLabel(string value)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        row.Children.Add(new ProgressRing { IsActive = true, Width = 10, Height = 10, MinWidth = 0, MinHeight = 0, Foreground = Paint("7058B8", "A894E0"), VerticalAlignment = VerticalAlignment.Center }); row.Children.Add(OverviewText(value, 11.5, true)); return row;
+    }
+    private UIElement PlainStatus(string key, string id)
+    {
+        if (plainPending.Contains(key)) return PendingLabel(T("plain.pending"));
+        if (!plainFailed.Contains(key)) return OverviewText(T("plain.waiting"), 11.5, true);
+        var retry = QuietButton("", () => RequestPlain([id])); retry.Padding = new Thickness(0); retry.MinHeight = 0;
+        var label = OverviewText(T("plain.retry"), 11.5); label.Foreground = Paint("C2412D", "EE8A78"); label.IsTextSelectionEnabled = false; retry.Content = label; return retry;
     }
     private async Task OpenThread(string id)
     {
@@ -483,15 +534,29 @@ public sealed partial class MainWindow
     }
     private void DrawThread()
     {
-        if (threadData["root"] == null) { detail.Children.Add(Text(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"))); return; }
-        detail.Children.Add(Message(threadData["root"]!, true));
-        detail.Children.Add(Text(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies")));
-        foreach (var reply in threadData.Rows("replies")) detail.Children.Add(Message(reply!, true));
-        if (quoteText.Length > 0) { detail.Children.Add(Text(T("composer.quoting", ("who", quoteWho)) + quoteText)); detail.Children.Add(Button(T("composer.cancel_quote"), () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; })); }
-        threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0);
+        detail.Padding = new Thickness(0); detail.Spacing = 0;
+        if (threadData["root"] == null) { detail.Children.Add(new Border { Padding = new Thickness(16, 14, 16, 14), Child = OverviewText(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"), 14, true) }); return; }
+        detail.Children.Add(new Border { Child = Message(threadData["root"]!, true), Padding = new Thickness(16, 4, 16, 10), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1) });
+        detail.Children.Add(new Border { Padding = new Thickness(16, 10, 16, 0), Child = OverviewText(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies"), 12, true) });
+        var replies = new StackPanel { Padding = new Thickness(16, 0, 16, 16) }; JsonNode? previous = null;
+        foreach (var reply in threadData.Rows("replies")) { replies.Children.Add(Message(reply!, true, Transcript.SameMessageGroup(previous, reply!))); previous = reply; }
+        detail.Children.Add(replies);
+        var replyComposer = new StackPanel { Spacing = 6 };
+        if (quoteText.Length > 0)
+        {
+            var text = OverviewText(T("composer.quoting", ("who", quoteWho)) + "\n" + quoteText, 12.5); text.MaxLines = 3; text.TextTrimming = TextTrimming.CharacterEllipsis; text.Foreground = Paint("5A5853", "B8B5AE");
+            var cancel = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); DrawDetail(); SaveViewState(); return Task.CompletedTask; }); cancel.Width = cancel.Height = 22; cancel.Content = ReferenceIcon("x", 14); cancel.VerticalAlignment = VerticalAlignment.Top;
+            replyComposer.Children.Add(new Border { Child = TwoColumns(text, cancel), Background = Paint("F8F7F5", "191918"), BorderBrush = Accent, BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(10, 6, 8, 6), CornerRadius = new CornerRadius(10) });
+        }
+        threadEditor.PlaceholderText = T("thread.reply_placeholder"); threadEditor.BorderThickness = new Thickness(0); threadEditor.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); threadEditor.Foreground = Ink; threadEditor.FontSize = 14;
+        threadEditor.MinHeight = 26; threadEditor.MaxHeight = 260; threadEditor.Padding = new Thickness(0, 2, 0, 2); threadEditor.CornerRadius = new CornerRadius(0);
         threadEditorContainer?.Children.Remove(threadEditor);
-        var replyComposer = Stack(threadEditor); threadEditorContainer = replyComposer; var actions = new ActionRow { HorizontalAlignment = HorizontalAlignment.Right }; actions.Children.Add(Microphone(threadEditor));
-        var send = IconButton("\uE74A", "common.send", SendThread); threadSendButton = send; send.IsEnabled = !string.IsNullOrWhiteSpace(threadEditor.Text) || quoteText.Length > 0; send.Background = Accent; send.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White); actions.Children.Add(send); replyComposer.Children.Add(actions); detail.Children.Add(Card(replyComposer));
+        replyComposer.Children.Add(threadEditor); threadEditorContainer = replyComposer;
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        var microphone = Microphone(threadEditor); microphone.Width = microphone.Height = 32; microphone.CornerRadius = new CornerRadius(16); actions.Children.Add(microphone);
+        var send = IconButton("\uE74A", "common.send", SendThread, T("composer.send_title")); threadSendButton = send; send.Width = send.Height = 32; send.CornerRadius = new CornerRadius(16); send.Background = Ink; send.Foreground = Paint("FFFFFF", "1F1F1E"); if (send.Content is ReferenceVectorIcon glyph) glyph.Foreground = send.Foreground;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(send, T("common.send")); actions.Children.Add(send); replyComposer.Children.Add(actions); UpdateSendState();
+        detail.Children.Add(new Border { Child = replyComposer, Margin = new Thickness(12, 10, 12, 14), Padding = new Thickness(14, 10, 10, 8), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), CornerRadius = new CornerRadius(18), Background = Paint("FFFFFF", "252523") });
     }
     private async Task SendThread()
     {
@@ -553,6 +618,28 @@ public sealed class MessageBubbleLayout : Panel
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
     {
         if (Children.Count > 0) Children[0].Arrange(new Windows.Foundation.Rect(0, 0, finalSize.Width, finalSize.Height));
+        return finalSize;
+    }
+}
+
+// Percentage widths are resolved against the current native measure pass,
+// including resizing and the responsive inspector overlay. Reading an older
+// ActualWidth while building controls would preserve the previous scene's size.
+public sealed class CenteredFractionLayout : Panel
+{
+    public double Fraction { get; set; } = 1;
+    private double childWidth;
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        if (Children.Count == 0) return default;
+        var child = Children[0]; child.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        childWidth = Math.Min(child.DesiredSize.Width, availableSize.Width * Fraction);
+        child.Measure(new Windows.Foundation.Size(childWidth, double.PositiveInfinity));
+        return new Windows.Foundation.Size(double.IsFinite(availableSize.Width) ? availableSize.Width : childWidth, child.DesiredSize.Height);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        if (Children.Count > 0) Children[0].Arrange(new Windows.Foundation.Rect((finalSize.Width - childWidth) / 2, 0, childWidth, finalSize.Height));
         return finalSize;
     }
 }

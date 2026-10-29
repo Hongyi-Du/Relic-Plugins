@@ -132,12 +132,12 @@ public sealed partial class MainWindow
             Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), CornerRadius = new CornerRadius(9), Background = Paint("FFFFFF", "1F1F1E"), Foreground = Ink };
         input.Resources["TextControlBorderThicknessFocused"] = new Thickness(1); return input;
     }
-    private Grid SettingsVoiceField(TextBox input, double width)
+    private Grid SettingsVoiceField(TextBox input, double width, bool always = false)
     {
         var row = new Grid { Width = width }; input.Width = double.NaN; row.Children.Add(input);
-        if (preferences.Text("voice") != "off")
+        if (always || preferences.Text("voice") != "off")
         {
-            input.Padding = new Thickness(10, 7, 34, 7); var mic = Microphone(input); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
+            input.Padding = new Thickness(10, 7, 34, 7); var mic = Microphone(input, always); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
             mic.HorizontalAlignment = HorizontalAlignment.Right; mic.VerticalAlignment = VerticalAlignment.Center; mic.Margin = new Thickness(0, 0, 4, 0); row.Children.Add(mic);
         }
         return row;
@@ -184,7 +184,7 @@ public sealed partial class MainWindow
         editor.FontSize = preferences.Text("font") switch { "small" => 13, "large" => 15.5, _ => 14 };
         ThemeSurfaces();
         if (visibleDialog != null) { visibleDialog.RequestedTheme = root.RequestedTheme; foreach (var resource in root.Resources) if (resource.Key is string key && !key.StartsWith("ContentDialog")) visibleDialog.Resources[resource.Key] = resource.Value; }
-        foreach (var weak in microphoneButtons.ToArray()) { if (!weak.TryGetTarget(out var mic)) { microphoneButtons.Remove(weak); continue; } Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); }
+        foreach (var entry in microphoneButtons.ToArray()) { if (!entry.Button.TryGetTarget(out var mic)) { microphoneButtons.Remove(entry); continue; } Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(mic, T("common.voice_input")); ToolTipService.SetToolTip(mic, T("composer.voice_title")); mic.Visibility = entry.Always || preferences.Text("voice") != "off" ? Visibility.Visible : Visibility.Collapsed; }
     }
     private async Task SettingsScreen(string section = "profile")
     {
@@ -249,7 +249,7 @@ public sealed partial class MainWindow
                     // difference: the Windows App does not use Edge recognition.
                     content.Children.Add(SettingRow(T("common.voice_input"), T("settings.voice_hint"), SettingsSegments("voice", () => Draw(key), ("browser", T("native.voice_system")), ("off", T("settings.voice_off")))));
                     var sample = SettingsInput("", T("settings.voice_try_here"), multiline: true);
-                    content.Children.Add(SettingRow(T("settings.voice_try"), T("native.voice_hint"), SettingsVoiceField(sample, 300)));
+                    content.Children.Add(SettingRow(T("settings.voice_try"), T("native.voice_hint"), SettingsVoiceField(sample, 300, always: true)));
                     var voiceNote = OverviewText(T("settings.voice_wechat"), 12.5, true, lineHeight: 21.25); voiceNote.Margin = new Thickness(0, 10, 0, 0); content.Children.Add(voiceNote); break;
                 case "notify":
                     content.Children.Add(SettingsHeading(T("settings.notify"))); PreferenceToggle(content, "settings.desktop_notify", "settings.desktop_notify_hint", "notify");
@@ -399,12 +399,15 @@ public sealed partial class MainWindow
         if (who != null) { payload["org"] = org; payload["member"] = who; }
         await api!.Post("/api/avatar", payload); await LoadPreferences(); await Refresh(); Note(T("card.avatar_changed"));
     }
-    private readonly List<WeakReference<Button>> microphoneButtons = new();
-    private Button Microphone(TextBox target)
+    private readonly List<(WeakReference<Button> Button, bool Always)> microphoneButtons = new();
+    private Button Microphone(TextBox target, bool always = false)
     {
         Button? button = null;
         button = IconButton("\uE720", "common.voice_input", () => Voice(target, button!), T("composer.voice_title"));
-        microphoneButtons.Add(new(button)); return button;
+        button.Width = button.Height = 32; button.CornerRadius = new CornerRadius(16);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, T("common.voice_input"));
+        button.Visibility = always || preferences.Text("voice") != "off" ? Visibility.Visible : Visibility.Collapsed;
+        microphoneButtons.Add((new(button), always)); return button;
     }
     private Task StopVoice()
     {

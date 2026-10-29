@@ -87,3 +87,37 @@ public sealed partial class MainWindow
             Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Padding='{TemplateBinding Padding}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch'/></ControlTemplate>") };
     }
 }
+
+// The reference's filter row wraps at its real available width and centers
+// controls of different heights on each line (27.2px segments, 30px input).
+public sealed class DetailsFilterRow : Panel
+{
+    public double Spacing { get; set; } = 8;
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        double x = 0, y = 0, height = 0, width = 0;
+        foreach (var child in Children)
+        {
+            child.Measure(new(availableSize.Width, double.PositiveInfinity)); var size = child.DesiredSize;
+            if (x > 0 && x + Spacing + size.Width > availableSize.Width) { width = Math.Max(width, x); x = 0; y += height + Spacing; height = 0; }
+            x += (x > 0 ? Spacing : 0) + size.Width; height = Math.Max(height, size.Height);
+        }
+        return new(Math.Min(availableSize.Width, Math.Max(width, x)), y + height);
+    }
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var row = new List<UIElement>(); double x = 0, y = 0, height = 0;
+        void Flush()
+        {
+            double left = 0;
+            foreach (var child in row) { var size = child.DesiredSize; child.Arrange(new(left, y + (height - size.Height) / 2, Math.Min(size.Width, finalSize.Width), size.Height)); left += size.Width + Spacing; }
+            row.Clear(); y += height + Spacing; x = height = 0;
+        }
+        foreach (var child in Children)
+        {
+            var size = child.DesiredSize; if (x > 0 && x + Spacing + size.Width > finalSize.Width) Flush();
+            x += (x > 0 ? Spacing : 0) + size.Width; height = Math.Max(height, size.Height); row.Add(child);
+        }
+        if (row.Count > 0) Flush(); return finalSize;
+    }
+}
