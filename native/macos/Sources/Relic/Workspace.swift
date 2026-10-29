@@ -218,7 +218,7 @@ struct FilePreview: View {
             if m.file["kind"].text == "image", let image = m.fileImage { FileImagePreview(image: image, name: FilePresentation.name(m.file["path"].text)).padding(16) }
             else if m.file["kind"].text == "binary" { OverviewBlock { ReferenceLabel(m.t("file.binary"), size: 12.5, color: RelicStyle.muted, lines: 0) } }
             else if m.file["kind"].text == "markdown" && mode == "preview" {
-                RichText(m.file["text"].text).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 13).padding(.bottom, 24)
+                RichText(m.file["text"].text, document: true).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 13).padding(.bottom, 24)
                     .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region"))
             } else { code }
         }
