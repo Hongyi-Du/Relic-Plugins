@@ -42,6 +42,15 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
+### Shared visual review note addressed: Settings row structure
+
+The macOS Settings profile/notify/voice/about note from `2494e9d` is applied.
+All seven settings sections now use compact native rows: label and helper text
+on the left, controls on the right; avatar/name controls share their own row,
+voice uses an inline microphone, and adapter diagnostics use expandable cards.
+The runtime controls and API payloads are unchanged. CI capture review follows
+with the next full run; the old stacked Form screenshots are not final evidence.
+
 ### Fix merged in `e4bb502`, awaiting capture: Windows automation peer crash (`40873502291`)
 
 All four Windows shards at `fdee097` exit `3221225477` without `complete.json`.
