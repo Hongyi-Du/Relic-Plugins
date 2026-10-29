@@ -13,12 +13,17 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class PackageTests(unittest.TestCase):
     def test_the_package_for_each_platform_extracts_and_configures_without_host_installation(self):
+        launch_files = [ROOT/'plugins/relic'/name for name in
+                        ('codex.mcp.json', '.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/claude-extra.json')]
+        originals = {path: path.read_bytes() for path in launch_files}
         with tempfile.TemporaryDirectory() as temp:
             target=Path(temp)/'archives'
-            subprocess.run([sys.executable,'-X','utf8',str(ROOT/'scripts/package.py'),'--output',str(target)],
+            subprocess.run([sys.executable,'-X','utf8',str(ROOT/'scripts/package.py'),'--output',str(target),
+                            '--macos-format', 'both'],
                            check=True,capture_output=True)
+            self.assertEqual({path: path.read_bytes() for path in launch_files}, originals)
             manifest=json.loads((target/'release-manifest.json').read_text())
-            self.assertEqual(sorted(a['platform'] for a in manifest['assets']),['macos','windows'])
+            self.assertEqual(sorted(a['platform'] for a in manifest['assets']),['macos','macos','windows'])
             sums=(target/'SHA256SUMS.txt').read_bytes()
             self.assertNotIn(b'\r',sums)  # `sha256sum -c` reads a CR as part of the file name
             for line in sums.decode('ascii').splitlines():
@@ -26,13 +31,18 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256((target/name).read_bytes()).hexdigest(),digest)
             for item in manifest['assets']:
                 with self.subTest(asset=item['name']):
+                    if item['platform'] == 'macos':
+                        self.assertEqual(item['supported_architectures'], ['arm64'])
                     self.assertTrue(item['name'].startswith('relic-'+item['platform']+'-v'))
                     archive=target/item['name']
-                    dest=Path(temp)/'Unpacked 空格'/item['platform']
+                    dest=Path(temp)/'Unpacked 空格'/item['name']
                     dest.mkdir(parents=True)
                     if archive.suffix=='.zip':
                         with zipfile.ZipFile(archive) as package:
                             self.assertTrue(all('..' not in Path(n).parts for n in package.namelist()))
+                            launcher=next(m for m in package.infolist() if m.filename.endswith('/install.command'))
+                            self.assertEqual(launcher.create_system, 3)
+                            self.assertEqual((launcher.external_attr >> 16) & 0o777, 0o755)
                             package.extractall(dest)
                     else:
                         with tarfile.open(archive) as package:
@@ -42,10 +52,32 @@ class PackageTests(unittest.TestCase):
                             self.assertEqual(launcher.mode,0o755)
                             package.extractall(dest,filter='data')
                     extracted=next(dest.iterdir())
+                    plugin=extracted/'plugins/relic'
+                    codex=json.loads((plugin/'codex.mcp.json').read_text(encoding='utf-8'))
+                    for server in codex['mcpServers'].values():
+                        self.assertEqual(server['command'], 'python3')
+                        self.assertEqual(server['args'], ['-X', 'utf8', './server.py'])
+                        self.assertNotIn('env', server)
+                    claude=json.loads((plugin/'.claude-plugin/plugin.json').read_text(encoding='utf-8'))
+                    self.assertEqual(claude['mcpServers']['org'],
+                                     {'command': 'python3', 'args': ['-X', 'utf8', '${CLAUDE_PLUGIN_ROOT}/server.py']})
+                    for hooks_file in (plugin/'hooks').glob('*.json'):
+                        hooks=json.loads(hooks_file.read_text(encoding='utf-8'))
+                        for groups in hooks.get('hooks', {}).values():
+                            for group in groups:
+                                for hook in group.get('hooks', []):
+                                    if hook.get('type') == 'command':
+                                        self.assertTrue(hook['command'].startswith('python3 -X utf8 -c '))
+                                        self.assertNotIn(str(ROOT), hook['command'])
+                                        self.assertNotIn('args', hook)
                     command=[sys.executable,'-X','utf8',str(extracted/'scripts/install.py'),'--configure-only']
                     result=subprocess.run(command,capture_output=True,text=True,encoding='utf-8',timeout=20)
                     self.assertEqual(result.returncode,0,result.stderr)
                     self.assertIn('No plugin was installed',result.stdout)
+                    codex=json.loads((plugin/'codex.mcp.json').read_text(encoding='utf-8'))
+                    for server in codex['mcpServers'].values():
+                        self.assertEqual(server['command'], str(Path(sys.executable).resolve()))
+                        self.assertEqual(server['args'], ['-X', 'utf8', str((plugin/'server.py').resolve())])
                     self.assertTrue((extracted/'scripts/open_app.py').is_file())
                     self.assertTrue((extracted/'plugins/relic/app/static/index.html').is_file())
                     self.assertTrue((extracted/'.claude-plugin/marketplace.json').is_file())

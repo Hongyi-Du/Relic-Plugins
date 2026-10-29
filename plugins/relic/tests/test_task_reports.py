@@ -181,10 +181,10 @@ class TaskReports(unittest.TestCase):
             self.assertEqual(store_module._windows_language(langid), tag, hex(langid))
         self.assertIsNone(store_module._windows_language(0))
         # elsewhere: the locale
-        with mock.patch.object(store_module.os, "name", "posix"), \
+        with mock.patch.object(store_module.os, "name", "posix"), mock.patch.object(store_module.sys, "platform", "linux"), \
                 mock.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": "pt_BR.UTF-8"}):
             self.assertEqual(store_module._system_language(), "pt-BR")
-        with mock.patch.object(store_module.os, "name", "posix"), \
+        with mock.patch.object(store_module.os, "name", "posix"), mock.patch.object(store_module.sys, "platform", "linux"), \
                 mock.patch.dict(os.environ, {"LC_ALL": "C", "LC_MESSAGES": "", "LANG": ""}), \
                 mock.patch("locale.getlocale", return_value=(None, None)):
             self.assertEqual(store_module._system_language(), "en-US")

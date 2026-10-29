@@ -1,5 +1,98 @@
 # Validation / 验证记录
 
+## v0.4.1-macos-beta.1 prerelease preparation — 2026-10-28
+
+Unsigned Apple silicon candidate based on the tested v0.4.1-beta.1 migration, prepared locally and awaiting approval
+to publish. The later upstream v0.6.0-beta.1 changes are not included. The observations below supplement the earlier
+implementation records; they do not turn the older browser or native-desktop attempts into passing results.
+
+| Check | Result |
+| --- | --- |
+| Full isolated Python 3.11 and 3.13 suites | Rerun in the isolated versioned release checkout on native arm64 macOS 26.5.1: each 406 passed, 2 Windows-only skips; packaging 15 + Relic 391 passed / 393 discovered |
+| Packaging regression rerun | 15 passed, including ZIP/tar extraction, portable launch configurations, executable metadata, checksums and installation configuration; live launch files stayed unchanged |
+| Final local ZIP | Native macOS `ditto` extraction; isolated installation, diagnostics, generated launcher execution, server status, authenticated restart and stop passed |
+| Signed-in runtime detection | Native Node.js 22.17.1, Claude Code 2.1.286 and Codex 0.163.0-alpha.11.2 were detected; Codex used the explicitly selected working executable |
+| Signed-in organization workflow | A coordinator created a test organization with a Claude Code writer and Codex reviewer running through the App's ACP adapters; both assigned tasks reached done with reports |
+| Messages and shared document | Writer sent a draft for review, reviewer returned a correction, writer saved revision 2, and reviewer accepted it; both directions of member messaging were observed |
+| Revision guard | A separate write with a stale expected revision was rejected and the existing document remained unchanged |
+| Startup behavior | The initial wait instruction needed explicit human task prompts before collaboration continued; the episode recorded that intervention, so autonomous startup is not claimed |
+| Native desktop routes | Not accepted: the Codex host closed the earlier handshake; the newer Claude CLI meets the numeric minimum, but Desktop enablement, public Stop observations and exact completion receipts were not validated |
+| Browser and broader host acceptance | Incomplete: earlier browser attempts did not pass; live hierarchy/governance, all hook-enforcement cases and host cancellation/resume/sleep were outside this smoke test |
+| Publication | No push or GitHub release yet; package is unsigned and not notarized; updated Windows CI has not run |
+
+The organization run used the user's existing signed-in hosts and a dedicated test organization. It was separate
+from the archive installation/lifecycle checks, which used an isolated home and data directory. No private
+conversation contents, session identifiers, account credentials or local installation paths are included as release
+evidence. Final assets are built from the local release commit; the manifest records that commit and archive checksums.
+The release rerun logs are in local `test-results/release-py311` and `test-results/release-py313`.
+
+本候选版基于已测试的 v0.4.1-beta.1 macOS 迁移，不包含上游 v0.6.0-beta.1，等待批准后再推送和发布。
+在独立的版本化发布目录中重跑 Python 3.11/3.13，各通过 406 项、跳过 2 项 Windows 专用测试；安装打包测试 15 项
+通过，最终本地 ZIP 经 macOS 原生解压后完成隔离安装、诊断、启动、状态、重启和停止。
+真实已登录 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档第 2 次修订，过期修订号
+写入也被正确拒绝。启动等待指令之后需要明确的人类任务提示，因此不宣称完全自主启动，也不将该测试
+扩大为全部治理、上下级、浏览器或原生桌面验收。Claude Code 后来使用 2.1.286，较早 2.1.92 的版本限制
+仅属于历史检查；Desktop 条件和回执仍未验证。此包未经签名或公证，更新后的 Windows CI 尚未运行。
+
+The following sections are historical records of their respective runs. / 以下各节保留为对应阶段的历史记录。
+
+## Full macOS implementation pass — 2026-10-28
+
+Development implementation on native arm64 macOS 26.5.1, based on v0.4.1-beta.1. This evidence supersedes the
+foundation counts below. The working tree is not a published or release-certified macOS build.
+
+| Check | Result |
+| --- | --- |
+| Python 3.11 full isolated matrix | 406 passed, 2 Windows-only skips: packaging 15 + Relic 391 passed / 393 discovered |
+| Python 3.13 full isolated matrix | 406 passed, 2 Windows-only skips: packaging 15 + Relic 391 passed / 393 discovered |
+| Final archive installation | Extracted into a space/Chinese/apostrophe path; installed into a temporary home; configured MCP paths and arm64 runtime diagnostics passed |
+| Generated Finder launcher executable | Started the isolated server without a window; status, authenticated restart, port reuse and stop passed; launcher removal preserved the data sentinel |
+| Filesystem/governance | Structured activity-path upgrade, case/Unicode/symlink matching, cwd-bound review approvals, APFS case-alias preview authorization, failed-edit denial and NUL Git paths covered |
+| Process/lifecycle | Concurrent start/stop/restart, owned descendants, stalled ACP input, dead-adapter replacement, permission waits, auxiliary model/npm processes and server signals covered |
+| Locked ACP installation | Real npm ci completed for the committed dependency graph in a temporary directory; both pinned adapter entrypoints/versions validated |
+| Real Claude ACP 0.97.0 | initialize and session/new passed using an empty temporary home and selected Claude Code 2.1.92; no model prompt sent |
+| Real Codex ACP 2.3.0 | initialize passed with Codex 0.159.0-alpha.12.1; session/new returned Authentication required in the empty temporary home; no model prompt sent |
+| macOS desktop transport | Unix framing confirmed from installed host code and exercised against private local fixture sockets; the real supplied endpoint closed the read-only handshake, so its capability stayed disabled |
+| Claude Desktop capability | Synthetic activation/version/public Stop/receipt contract fixtures passed; selected real CLI 2.1.92 is below the 2.1.224 native-messaging minimum |
+| Browser interaction | Incomplete: Chrome automation unavailable, in-app webview attach timed out, Safari automation stalled and was interrupted |
+| Windows CI / signed-in model turns / release signing | Not executed; remain acceptance/release gates |
+
+The full suite used fake hosts and temporary stores. The separate real-adapter checks performed initialization and
+session creation only, with no model prompts. No existing conversations were read or messaged, no global host
+installation was upgraded, and no user plugin configuration was installed. The isolated browser-test server was
+stopped through its authenticated endpoint. Final local logs are under test-results/full-py311, full-py313 and
+archive-smoke.json; they are development artifacts, not published evidence.
+
+完整实现验证：原生 arm64 macOS 26.5.1。Python 3.11 与 3.13 各通过 406 项、跳过 2 项 Windows 专用测试。
+最终下载包在临时 home 中完成安装、诊断、启动、状态、重启、端口复用、停止和移除启动器，组织数据保留。
+真实 ACP 适配器只进行初始化/创建会话，没有发送模型提示；Codex 在空白 home 中要求登录。
+真实桌面通信握手被宿主关闭，所选 Claude CLI 2.1.92 低于 2.1.224；浏览器交互验证未完成。
+Windows CI、已登录模型回合和正式发布签名仍待完成。未读取或发送已有聊天，未升级全局宿主，也未安装用户插件配置。
+
+## macOS arm64 development branch — 2026-10-28
+
+Local development evidence on macOS 26.5.1, native arm64. This is an uncommitted development build based on
+v0.4.1-beta.1; it is not a published macOS release or signed-in desktop acceptance.
+
+| Check | Result |
+| --- | --- |
+| Python 3.11 isolated suites | 319 passed, 2 Windows-only skips: packaging 5 + Relic 314 passed / 316 discovered |
+| Python 3.13 isolated suites | 319 passed, 2 Windows-only skips: packaging 5 + Relic 314 passed / 316 discovered |
+| macOS archive | Built, extracted into a path containing spaces and Chinese characters, configured through install.command with an isolated home/minimal PATH, doctor verified arm64 Python and configured MCP paths |
+| Native integration fixtures | Fake native launch effects, Terminal quoting/environment/private-file cleanup, sparse PATH and Node preflight, real local ACP child/grandchild cleanup, desktop refusal without focus mutation/retry, browser helper behavior |
+| Static checks | Python/JavaScript/shell syntax, JSON parsing and git diff whitespace passed |
+| Windows CI | Matrix updated; not executed in this local run |
+| Signed-in hosts and browser/Terminal interaction | Not executed; required before publication |
+
+All suites used temporary stores and fake hosts. No model turns, live organization changes or user host
+configuration writes were performed. The tests cover process groups belonging to the spawned adapter; descendants
+that deliberately detach into another session are outside that ownership boundary.
+
+本地开发验证：macOS 26.5.1，原生 arm64；基于 v0.4.1-beta.1 的未提交开发版本。Python 3.11 与 3.13
+各通过 319 项、跳过 2 项 Windows 专用测试。macOS 包已构建，在包含空格和中文的目录解压，通过隔离
+home 与最小 PATH 执行配置及诊断。测试使用临时数据和宿主替身，没有模型调用、真实组织变更或用户宿主
+配置写入。Windows CI、已登录宿主及浏览器/Terminal 交互验收尚未执行，macOS 仍未发布。
+
 ## v0.4.1-beta.1
 
 Release: **v0.4.1-beta.1**, prepared 2026-10-28. Relic plugin 0.15.1-beta.1, a front-end update to v0.4.0-beta.1: the organization chart is moved, zoomed and fitted to the window and opens from an organization's right-click menu, and the English Organization details button wraps instead of widening the Overview. No server, hook, tool or store code changed, so the real-machine run of v0.4.0-beta.1 still describes how members run.

@@ -4,13 +4,13 @@ Open an issue with the release, OS, Python and host versions (Claude Code, Codex
 
 报告问题时注明发布版本、系统、Python 与宿主版本（涉及 Relic App 时再加 Claude Code、Codex、Node.js 和 ACP 适配器的版本），提供最小脱敏复现。插件和 Relic App 在 `plugins/relic`；安装器、打包与检查脚本在 `scripts`；打包测试在 `tests`。保留真实身份校验、投递/确认区分，以及不确定投递不能盲目重试的语义。
 
-Run these commands from a clone of the full repository. The installation archives include only the scripts needed to install and use Relic (`install.py`, `doctor.py`, `open_app.py`). `check.py` runs both suites (`--suite relic` or `--suite packaging` runs one); `package.py` builds one archive per platform (`--platform windows` builds only the published one); after changing a tool schema, `export_api.py` rewrites `docs/api/relic.json`.
+Run these commands from a clone of the full repository. The installation archives include only the scripts needed to install and use Relic (`install.py`, `doctor.py`, `open_app.py`, `macos_app.py`). `check.py` runs both suites (`--suite relic` or `--suite packaging` runs one); `package.py --platform macos --macos-format both` builds this branch's ZIP and tar.gz release assets; after changing a tool schema, `export_api.py` rewrites `docs/api/relic.json`.
 
-以下命令在完整源码仓库的根目录执行；安装包只包含安装和使用 Relic 所需的脚本（`install.py`、`doctor.py`、`open_app.py`）。`check.py` 运行两套测试（`--suite relic` 或 `--suite packaging` 只跑一套）；`package.py` 为每个系统生成一个下载包（`--platform windows` 只生成要发布的那个）；修改工具 schema 后，用 `export_api.py` 重新生成 `docs/api/relic.json`。
+以下命令在完整源码仓库的根目录执行；安装包只包含安装和使用 Relic 所需的脚本（`install.py`、`doctor.py`、`open_app.py`、`macos_app.py`）。`check.py` 运行两套测试（`--suite relic` 或 `--suite packaging` 只跑一套）；`package.py --platform macos --macos-format both` 生成本分支的 ZIP 和 tar.gz 下载包；修改工具 schema 后，用 `export_api.py` 重新生成 `docs/api/relic.json`。
 
 ```bash
 python scripts/check.py
-python scripts/package.py --output dist
+python scripts/package.py --platform macos --macos-format both --output dist
 python scripts/export_api.py
 ```
 

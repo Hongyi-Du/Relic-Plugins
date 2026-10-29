@@ -61,6 +61,7 @@ class Live:
     def __init__(self, org_id, member, harness):
         self.org_id, self.member, self.harness = org_id, member, harness
         self.agent = None
+        self.cwd = ""
         self.session_id = None
         self.state, self.detail = "starting", _t("hub.starting")
         self.model, self.mode, self.doing = "", "", ""
@@ -85,6 +86,8 @@ class Hub:
         self._starting = {}
         self._lock = threading.RLock()
         self._permissions = {}
+        self._stopping = threading.Event()
+        self._workers = set()
 
     def store(self):
         return self._store or Store()
@@ -166,14 +169,22 @@ class Hub:
         """The live session of an App-run seat, started (or resumed) when needed."""
         key = (org_id, member)
         with self._lock:
+            if self._stopping.is_set():
+                raise RuntimeError("The Relic App is stopping.")
             live = self._live.get(key)
             if live and live.agent and live.agent.alive:
                 return live
             gate = self._starting.setdefault(key, threading.Lock())
         with gate:
+            if self._stopping.is_set():
+                raise RuntimeError("The Relic App is stopping.")
             live = self._live.get(key)
             if live and live.agent and live.agent.alive:
                 return live
+            if live and live.agent:
+                # The adapter may have exited while its descendants still own pipes. Retain its process-group
+                # handle until cleanup finishes, before _start replaces the seat's Live object.
+                live.agent.close(wait=0)
             return self._start(org_id, member)
 
     def _start(self, org_id, member):
@@ -185,7 +196,10 @@ class Hub:
             raise RuntimeError("%s is not run by the Relic App." % member)
         harness = config["harness"]
         live = Live(org_id, member, harness)
-        self._live[(org_id, member)] = live
+        with self._lock:
+            if self._stopping.is_set():
+                raise RuntimeError("The Relic App is stopping.")
+            self._live[(org_id, member)] = live
         self._set(live, "starting", _t("hub.starting_harness", harness=harnesses.HARNESSES[harness]["title"]))
         # A new token for every start: the Relic server of this session speaks for the seat while the seat keeps it
         # (relic_core.api.seat_actor); servers of the seat's earlier sessions no longer do.
@@ -196,13 +210,17 @@ class Hub:
         servers, meta = harnesses.relic_for(harness, org_id, member, token)
         folder = Path(config.get("folder") or default_folder(org_id, member)).expanduser()
         folder.mkdir(parents=True, exist_ok=True)
+        live.cwd = str(folder)
         key = (org_id, member)
         agent = AcpAgent(argv, env=env, cwd=str(folder), name="%s/%s" % (org_id, member),
                          on_update=lambda method, params: self._update(key, method, params),
                          on_request=lambda method, params: self._request(key, method, params))
         try:
+            with self._lock:
+                if self._stopping.is_set() or self._live.get(key) is not live:
+                    raise RuntimeError("The Relic App session was stopped.")
+                live.agent = agent  # shutdown must also see an adapter still waiting for initialize
             agent.start()
-            live.agent = agent
             existing = config.get("session")
             caps = agent.capabilities().get("sessionCapabilities") or {}
             if existing:
@@ -220,6 +238,8 @@ class Hub:
                 sid = result.get("sessionId")
                 if not sid:
                     raise RuntimeError("the agent did not return a session id")
+                if self._stopping.is_set():
+                    raise RuntimeError("The Relic App is stopping.")
                 actor = harnesses.actor_for(harness, sid)
                 store.join(actor, org_id, member)  # seated before its first turn: hooks and tools see the seat
                 store.set_config(org_id, member, dict(config, session=sid))
@@ -297,10 +317,25 @@ class Hub:
         return {"model": config.get("model", ""), "effort": config.get("effort", ""), "applied": "now"}
 
     def stop(self, org_id, member):
-        live = self._live.pop((org_id, member), None)
+        with self._lock:
+            live = self._live.pop((org_id, member), None)
+            self._cancel_permissions(org_id, member)
+        if live:
+            with live.lock:
+                live.queue.clear()
         if live and live.agent:
+            # A stalled adapter may leave a prompt blocked while holding its write lock. Sending cancel here
+            # would wait behind that write forever and prevent the owned-tree cleanup from running. close()
+            # closes input without taking the write lock and bounds graceful exit and termination itself.
             live.agent.close()
         self.publish({"type": "live", "org": org_id, "member": member, "status": None})
+
+    def _cancel_permissions(self, org_id=None, member=None):
+        with self._lock:
+            for entry in list(self._permissions.values()):
+                if org_id is None or (entry["org"] == org_id and entry["member"] == member):
+                    entry["choice"] = None
+                    entry["event"].set()
 
     def reap(self, idle=1800, now=None):
         """Close sessions with no turn, nothing queued and no open permission request for `idle` seconds. Their
@@ -317,9 +352,27 @@ class Hub:
                 live.agent.close()
             self.publish({"type": "live", "org": key[0], "member": key[1], "status": None})
 
+    def begin_shutdown(self):
+        with self._lock:
+            self._stopping.set()
+            self._cancel_permissions()
+
     def shutdown(self):
-        for key in list(self._live):
-            self.stop(*key)
+        self.begin_shutdown()
+        with self._lock:
+            keys = list(self._live)
+        # ACP closes have bounded grace periods. Close seats concurrently so shutdown does not take N times that.
+        closers = [threading.Thread(target=self.stop, args=key, daemon=True) for key in keys]
+        for closer in closers:
+            closer.start()
+        deadline = time.monotonic() + 15
+        for closer in closers:
+            closer.join(max(0, deadline - time.monotonic()))
+        with self._lock:
+            workers = list(self._workers)
+        for worker in workers:
+            if worker is not threading.current_thread():
+                worker.join(max(0, deadline - time.monotonic()))
 
     # ---------------------------------------------------------------- turns
     def prompt(self, org_id, member, text, origin):
@@ -327,6 +380,8 @@ class Hub:
         while True:
             live = self.ensure(org_id, member)
             with live.lock:
+                if self._stopping.is_set():
+                    raise RuntimeError("The Relic App is stopping.")
                 if self._live.get((org_id, member)) is not live:
                     continue  # closed as idle a moment ago (reap): start it again
                 if live.turn:
@@ -337,8 +392,20 @@ class Hub:
                 live.turn = {"origin": origin, "started": time.time(), "after": _last_id(self.store(), org_id), "reply": []}
                 live.active = time.time()
                 break
-        threading.Thread(target=self._run, args=(live, text, origin), daemon=True).start()
+        worker = threading.Thread(target=self._run_worker, args=(live, text, origin), daemon=True)
+        with self._lock:
+            if self._stopping.is_set():
+                raise RuntimeError("The Relic App is stopping.")
+            self._workers.add(worker)
+            worker.start()
         return {"started": True}
+
+    def _run_worker(self, *args):
+        try:
+            self._run(*args)
+        finally:
+            with self._lock:
+                self._workers.discard(threading.current_thread())
 
     def deliver_human(self, org_id, member, body, message_id=None, reply_to=None):
         """The person wrote to an App-run seat: the message was stored for the record; the turn carries its text, so
@@ -404,8 +471,9 @@ class Hub:
                     _receipt(store, org_id, member, wake_from, after, state)
                 wake.finish(store, org_id, member, error)
             if not harnesses.has_hooks(live.harness):
-                self._end_turn(live, store, remind=kind != "reflect")  # what the Stop hook does with Relic hooks
-            wake.dispatch(store, org_id)
+                self._end_turn(live, store, remind=kind != "reflect" and not self._stopping.is_set())
+            if not self._stopping.is_set():
+                wake.dispatch(store, org_id)
         except Exception as failure:
             self._add(live, {"type": "error", "text": _t("hub.finish_failed", error=failure)})
         if error:
@@ -417,7 +485,7 @@ class Hub:
         self._set(live, "error" if error and not live.agent.alive else "idle",
                   _t("view.state.idle") if not error else _t("hub.last_failed"))
         live.doing = ""
-        if queued:
+        if queued and not self._stopping.is_set() and self._live.get((org_id, member)) is live:
             self.prompt(org_id, member, *queued)
 
     # ---------------------------------------------------------------- ACP callbacks
@@ -477,7 +545,7 @@ class Hub:
         try:
             tool, data = acp_call(call)
             self.store().record_activity(self._actor(live), tool, data, failed=call.get("status") == "failed",
-                                         output=tool_text(call.get("content"))[-20000:])
+                                         output=tool_text(call.get("content"))[-20000:], cwd=live.cwd)
         except Exception as error:
             self._add(live, {"type": "error", "text": _t("hub.record_failed", error=error)})
 
@@ -513,7 +581,7 @@ class Hub:
         if live is None or harnesses.has_hooks(live.harness):
             return None
         tool, data = acp_call(call)
-        allowed, reasons = self.store().gate(self._actor(live), tool, data)
+        allowed, reasons = self.store().gate(self._actor(live), tool, data, cwd=live.cwd)
         if allowed:
             return None
         text = "Relic protocol blocked %s: %s" % (tool, " | ".join(reasons))
@@ -526,12 +594,16 @@ class Hub:
         if method != "session/request_permission":
             return None
         live = self._live.get(key)
+        if self._stopping.is_set() or live is None:
+            return {"outcome": {"outcome": "cancelled"}}
         try:
             decided = self._permit(live, key, params)
         except Exception as error:
             decided = None
             if live:
                 self._add(live, {"type": "error", "text": _t("hub.protocol_check_failed", error=error)})
+        if self._stopping.is_set() or self._live.get(key) is not live:
+            return {"outcome": {"outcome": "cancelled"}}
         if decided == "cancelled":
             return {"outcome": {"outcome": "cancelled"}}
         if decided:
@@ -543,14 +615,21 @@ class Hub:
                  "options": [{"id": o.get("optionId"), "name": o.get("name"), "kind": o.get("kind")}
                              for o in params.get("options") or []],
                  "at": now(), "event": threading.Event(), "choice": None}
-        self._permissions[pid] = entry
+        with self._lock:
+            if self._stopping.is_set() or self._live.get(key) is not live:
+                return {"outcome": {"outcome": "cancelled"}}
+            self._permissions[pid] = entry
         if live:
             self._add(live, {"type": "permission", "id": pid, "title": entry["title"], "options": entry["options"]})
             self._set(live, "waiting", _t("hub.waiting_approval", title=entry["title"]))
         self.publish({"type": "decision", "org": key[0]})
-        entry["event"].wait()
-        self._permissions.pop(pid, None)
-        if live:
+        while not entry["event"].wait(0.2):
+            if self._stopping.is_set() or self._live.get(key) is not live or (live.agent and live.agent.closed.is_set()):
+                entry["choice"] = None
+                break
+        with self._lock:
+            self._permissions.pop(pid, None)
+        if not self._stopping.is_set() and self._live.get(key) is live:
             self._set(live, "running", _t("hub.replying"))
         self.publish({"type": "decision", "org": key[0]})
         if entry["choice"]:
@@ -558,19 +637,18 @@ class Hub:
         return {"outcome": {"outcome": "cancelled"}}
 
     def decide(self, pid, option_id=None):
-        entry = self._permissions.get(pid)
-        if not entry:
-            raise RuntimeError("That request is no longer waiting.")
-        entry["choice"] = option_id
-        entry["event"].set()
+        with self._lock:
+            entry = self._permissions.get(pid)
+            if not entry or entry["event"].is_set() or self._stopping.is_set():
+                raise RuntimeError("That request is no longer waiting.")
+            entry["choice"] = option_id
+            entry["event"].set()
         return {"ok": True}
 
     def cancel(self, org_id, member):
         live = self._live.get((org_id, member))
+        self._cancel_permissions(org_id, member)
         if live and live.agent and live.turn:
-            for entry in list(self._permissions.values()):
-                if entry["org"] == org_id and entry["member"] == member:
-                    entry["event"].set()
             live.agent.cancel(live.session_id)
 
     # ---------------------------------------------------------------- live items
@@ -661,6 +739,8 @@ def acp_call(call):
     if tool == "Bash" and not data.get("command"):
         data["command"] = data.get("cmd") or call.get("title") or ""
     paths = [loc.get("path") for loc in call.get("locations") or [] if isinstance(loc, dict) and loc.get("path")]
+    if len(paths) > 1 and not data.get("paths"):
+        data["paths"] = paths
     if paths and not (data.get("file_path") or data.get("path")):
         data["file_path"] = paths[0]
     elif data.get("path") and not data.get("file_path"):

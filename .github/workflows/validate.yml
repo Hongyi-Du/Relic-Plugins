@@ -9,20 +9,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-2025
+            python: '3.11'
+          - os: windows-2025
+            python: '3.13'
+          - os: macos-15
+            python: '3.11'
+          - os: macos-26
+            python: '3.13'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify native Apple silicon runtimes
+        if: runner.os == 'macOS'
+        run: |
+          python -c "import platform; assert platform.machine() == 'arm64', platform.machine()"
+          node -e "if (process.arch !== 'arm64') throw new Error(process.arch)"
       - name: Run isolated fixture suites and MCP launch checks
         run: python -X utf8 scripts/check.py --timeout 900
       - name: Verify release contents
-        run: python -X utf8 scripts/package.py --output dist
+        run: python -X utf8 scripts/package.py --macos-format both --output dist
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.os }}
+          name: test-results-${{ matrix.os }}-python-${{ matrix.python }}
           path: test-results

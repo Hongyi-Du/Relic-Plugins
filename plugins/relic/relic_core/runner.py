@@ -31,7 +31,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__
+from . import __version__, platform_support
 from .store import Store, data_home
 
 WINDOWS = os.name == "nt"
@@ -79,13 +79,7 @@ def checked_permission(config):
 
 
 def find_claude():
-    found = shutil.which("claude")
-    if found:
-        return found
-    for candidate in (Path.home() / ".local/bin/claude.exe", Path(os.getenv("APPDATA", "")) / "npm/claude.cmd"):
-        if candidate.is_file():
-            return str(candidate)
-    return None
+    return platform_support.find_executable("claude")
 
 
 RELIC_MCP_SERVERS = ("relic_org",)
@@ -102,17 +96,7 @@ def codex_overrides():
 
 
 def find_codex():
-    found = os.getenv("CODEX_CLI_PATH") or shutil.which("codex")
-    if found:
-        return found
-    bundled = Path(os.getenv("LOCALAPPDATA", "")) / "OpenAI/Codex/bin"
-    if bundled.is_dir():
-        newest = lambda pattern: sorted(bundled.rglob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-        exes = newest("codex.exe") or newest("codex*.exe")
-        if exes:
-            return str(exes[0])
-    npm = Path(os.getenv("APPDATA", "")) / "npm/codex.cmd"
-    return str(npm) if npm.is_file() else None
+    return platform_support.find_executable("codex")
 
 
 def runs_dir():
@@ -196,7 +180,10 @@ def workspace(config, member):
     folder.mkdir(parents=True, exist_ok=True)
     if config.get("environment") != "worktree":
         return str(folder)
-    top = subprocess.run(["git", "-C", str(folder), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+    git = platform_support.find_executable("git")
+    if not git:
+        raise RuntimeError("Git was not found; creating a worktree requires Git.")
+    top = subprocess.run([git, "-C", str(folder), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
                          creationflags=NO_WINDOW)
     if top.returncode != 0:
         raise RuntimeError("worktree needs a git repository: %s" % folder)
@@ -204,9 +191,9 @@ def workspace(config, member):
     tree = repo.parent / ("%s-relic-%s" % (repo.name, member))
     if not tree.exists():
         branch = "relic/" + member
-        exists = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", branch],
+        exists = subprocess.run([git, "-C", str(repo), "rev-parse", "--verify", "--quiet", branch],
                                 capture_output=True, creationflags=NO_WINDOW).returncode == 0
-        args = ["git", "-C", str(repo), "worktree", "add", str(tree)] + ([branch] if exists else ["-b", branch])
+        args = [git, "-C", str(repo), "worktree", "add", str(tree)] + ([branch] if exists else ["-b", branch])
         made = subprocess.run(args, capture_output=True, text=True, creationflags=NO_WINDOW)
         if made.returncode != 0:
             raise RuntimeError(made.stderr.strip() or "git worktree add failed")
@@ -214,9 +201,9 @@ def workspace(config, member):
 
 
 def session_env(config):
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items() if k not in platform_support.SESSION_IDENTITY_ENV}
     env.update({str(k): str(v) for k, v in (config.get("env") or {}).items()})
-    return env
+    return platform_support.runtime_env(env, [platform_support.find_executable("node")])
 
 
 def parse_env(text):
@@ -238,18 +225,21 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     store = Store()
     org = store.get(org_id)
     seat = org["members"][member]
+    config = store.seat_config(org_id, member, org)
+    if config.get("harness") == "claude-code" and config.get("surface") == "gui":
+        if new_session or not seat.get("carrier") or seat.get("harness") != "claude-code" or "/" in seat["carrier"]:
+            raise RuntimeError("Claude GUI turns require an existing main Desktop seat; GUI bootstrap is unsupported.")
+    if not platform_support.can_auto_deliver(config.get("harness"), config.get("surface")):
+        raise RuntimeError("Automatic desktop delivery is unavailable for this member. "
+                           "Use a CLI or App-managed member, or read messages with inbox in the existing session.")
     if seat.get("carrier") and not new_session:
         # one turn at a time per session, whichever of its seats it is for
         for other, name in store.seat_keys(seat["carrier"]):
             if (other, name) != (org_id, member) and is_running(other, name):
                 raise RuntimeError("%s is still working on a turn for another organization it sits in." % member)
         store.set_focus(seat["carrier"], org_id)  # the turn is this organization's work: its protocols bind it
-    config = store.seat_config(org_id, member, org)
     if config.get("surface") == "acp":
         return app_turn(org_id, member, prompt, wake_from, wake_hop)
-    if config.get("harness") == "claude-code" and config.get("surface") == "gui":
-        if new_session or not seat.get("carrier") or seat.get("harness") != "claude-code" or "/" in seat["carrier"]:
-            raise RuntimeError("Claude GUI turns require an existing main Desktop seat; GUI bootstrap is unsupported.")
     fd, prompt_file = tempfile.mkstemp(prefix="relic-prompt-", suffix=".txt", dir=str(runs_dir()))
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(prompt)
@@ -376,7 +366,7 @@ def open_session(config, session_id, harness, cwd):
                     raise RuntimeError("Could not open the Codex desktop app; open the chat from its sidebar.")
                 subprocess.Popen([exe, url], env=env)
         else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", url], env=env)
+            platform_support.open_external(url)
         return args
     if (config.get("surface") or "cli") == "gui":
         # --desktop redirects a launch; it cannot establish that a task ran there.
@@ -387,6 +377,8 @@ def open_session(config, session_id, harness, cwd):
         return {"status": "launch_requested", "turn_delivered": False, "command": args}
     elif WINDOWS:
         subprocess.Popen(args, cwd=cwd, env=env, creationflags=0x00000010)  # CREATE_NEW_CONSOLE: its own terminal window
+    elif sys.platform == "darwin":
+        platform_support.open_terminal(args, cwd, env, runs_dir())
     else:
         terminal = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
         subprocess.Popen(([terminal, "--"] if terminal else []) + args, cwd=cwd, env=env)

@@ -1,0 +1,15 @@
+{
+  "repository_url": "https://github.com/Hongyi-Du/Relic-Plugins.git",
+  "base_ref": "main",
+  "base_commit": "76f05172f721d3e8daa10a3a5bee833fb4ca0d40",
+  "files": [
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "base_blob_shas": {
+    "README.md": "7b7dbf2654c8468098e4151cf60ce8089a9b9773",
+    "README.zh-CN.md": "2f27d918b74804b87f67cdb92eb309e100d318c8"
+  },
+  "mac_release_tag": "v0.4.1-macos-beta.1",
+  "application": "Apply this docs-only patch after publication approval, against the recorded base commit. Verify upstream has not changed these files before applying."
+}

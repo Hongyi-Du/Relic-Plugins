@@ -9,19 +9,22 @@ import json
 import os
 import queue
 import secrets
+import signal
+import tempfile
 import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, runner, wake
+from relic_core import __version__, i18n, platform_support, runner, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
 from . import harness as harnesses
 from . import hub as hubs
 from . import explain, files, naming, prefs, views
+from .processes import ProcessRegistry
 
 STATIC = Path(__file__).resolve().parent / "static"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -41,6 +44,88 @@ MANIFEST = {
 
 def info_path():
     return data_home() / "app.json"
+
+
+def atomic_json(path, value):
+    """Publish complete private lifecycle records; readers never see half a token."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+class LifecycleLock:
+    """An atomic OS lease, released even after a crash; stale PID text never owns a lock.
+
+    Keep the inode in place: unlinking a lock file lets old and new readers lock different files.
+    The owner record is diagnostic only, so PID reuse cannot cause an unrelated process to be killed.
+    """
+
+    def __init__(self, name, timeout=20):
+        self.path = data_home() / name
+        self.timeout, self.handle = timeout, None
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = open(self.path, "a+b")
+        if self.handle.seek(0, os.SEEK_END) == 0:
+            self.handle.write(b"\0")
+            self.handle.flush()
+        deadline = time.monotonic() + self.timeout
+        while True:
+            try:
+                self.handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (OSError, BlockingIOError):
+                if time.monotonic() >= deadline:
+                    self.handle.close()
+                    self.handle = None
+                    raise RuntimeError("Another Relic App operation owns %s; try again shortly." % self.path.name) from None
+                time.sleep(0.05)
+        try:
+            self.handle.seek(0)
+            self.handle.truncate()
+            self.handle.write(json.dumps({"pid": os.getpid(), "acquired": time.time()}).encode("utf-8"))
+            self.handle.flush()
+        except BaseException:
+            self.__exit__()
+            raise
+        return self
+
+    def __exit__(self, *args):
+        if self.handle is not None:
+            self.handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            self.handle.close()
+            self.handle = None
+
+
+def remove_own_info(app):
+    """An exiting server can remove only the record it published, never a successor's."""
+    try:
+        current = json.loads(info_path().read_text(encoding="utf-8"))
+        if current.get("pid") == os.getpid() and current.get("instance") == app.instance and current.get("token") == app.token:
+            info_path().unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 class Bus:
@@ -77,14 +162,31 @@ class App:
         self.hub = hubs.Hub(publish=self.bus.publish, store=self.store)
         hubs.LANG[0] = self.lang  # what the hub shows the person (states, turn notes) is in the page's language
         self.token = secrets.token_urlsafe(24)
+        self.instance = secrets.token_hex(16)
         self.port = port
         self._stamps = {}
         self._orgs = None
         self.stopping = threading.Event()
-        self.namer = naming.Namer(self.store, publish=self.bus.publish)
-        self.explainer = explain.Explainer(self.store, publish=self.bus.publish)
+        self.processes = ProcessRegistry()
+        self.namer = naming.Namer(self.store, publish=self.bus.publish, processes=self.processes)
+        self.explainer = explain.Explainer(self.store, publish=self.bus.publish, processes=self.processes)
         self.page_lang = ""
         self.installing = set()
+        self.server = None
+        self._shutdown_lock = threading.Lock()
+
+    def request_shutdown(self):
+        """Stop accepting work immediately; shutdown must run outside serve_forever's thread."""
+        with self._shutdown_lock:
+            if self.stopping.is_set():
+                return
+            self.stopping.set()
+            self.hub.begin_shutdown()
+            self.processes.begin_shutdown()
+            self.bus.publish({"type": "shutdown"})
+            threading.Thread(target=self.processes.shutdown, name="relic-app-jobs-stop", daemon=True).start()
+            if self.server:
+                threading.Thread(target=self.server.shutdown, name="relic-app-stop", daemon=True).start()
 
     def watch(self):
         """Tell the page when an organization changed (any process may write the store)."""
@@ -362,7 +464,7 @@ class App:
         def run():
             try:
                 code = harnesses.install(harness, lambda line: self.bus.publish(
-                    {"type": "install", "id": harness, "line": line[-300:]}))
+                    {"type": "install", "id": harness, "line": line[-300:]}), processes=self.processes)
             except Exception as error:
                 self.bus.publish({"type": "install", "id": harness, "line": str(error)})
                 code = 1
@@ -477,6 +579,14 @@ class Handler(BaseHTTPRequestHandler):
             api = parts[1:]
             if api == ["ping"]:
                 return self._json({"app": "relic", "version": VERSION, "pid": os.getpid()})
+            if api == ["lifecycle"]:
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                return self._json({"app": "relic", "version": VERSION, "pid": os.getpid(), "port": self.app.port,
+                                   "instance": self.app.instance,
+                                   "state": "stopping" if self.app.stopping.is_set() else "running"})
+            if api == ["platform"]:
+                return self._json(platform_support.capabilities())
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:
@@ -616,6 +726,17 @@ class Handler(BaseHTTPRequestHandler):
         app, store, hub = self.app, self.app.store, self.app.hub
         try:
             api = parts[1:] if parts and parts[0] == "api" else []
+            if api == ["shutdown"]:
+                if not secrets.compare_digest(str(a.get("instance") or ""), app.instance):
+                    return self._error(409, "the Relic App instance changed")
+                try:
+                    return self._json({"stopping": True, "instance": app.instance})
+                finally:
+                    app.request_shutdown()
+            if getattr(app, "stopping", None) and app.stopping.is_set():
+                return self._error(503, "the Relic App is stopping")
+            if api == ["platform"]:
+                return self._json(platform_support.configure_capabilities(a))
             if api == ["orgs"]:
                 org = store.found(a["name"], a.get("purpose", ""), a.get("governance") or "leader")
                 return self._json({"org_id": org["id"]})
@@ -642,8 +763,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(open_install_window(app.port))
             if api == ["open"]:
                 target = {"data": data_home(), "logs": data_home() / "runs"}.get(a.get("what"), data_home())
-                if os.name == "nt":
-                    os.startfile(str(target))
+                platform_support.open_external(str(target))
                 return self._json({"opened": str(target)})
             if len(api) >= 3 and api[0] == "org":
                 org_id, action = api[1], api[2]
@@ -705,27 +825,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def open_install_window(port):
-    """A normal Edge window on the App, where Edge offers to install it as an application (its own window, no
-    system title bar). App windows started with --app cannot offer that."""
-    import shutil
+    """Open a normal browser window, where supported browsers can offer app installation."""
     import subprocess
     url = "http://127.0.0.1:%d/#install" % port
-    candidates = [shutil.which("msedge")]
-    for base in (os.getenv("ProgramFiles(x86)"), os.getenv("ProgramFiles"), os.getenv("LOCALAPPDATA")):
-        if base:
-            candidates.append(str(Path(base) / "Microsoft/Edge/Application/msedge.exe"))
-    exe = next((c for c in candidates if c and Path(c).is_file()), None)
+    exe = platform_support.browser_executable()
     if exe:
-        subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, close_fds=True)
-    elif os.name == "nt":
-        os.startfile(url)
+        try:
+            subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, close_fds=True)
+        except OSError:
+            exe = None  # an application removed since discovery: try the default browser
+    if not exe:
+        platform_support.open_external(url)
     return {"opened": url, "browser": exe or "default"}
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = False
+    allow_reuse_address = os.name != "nt"  # POSIX restarts may reuse our TIME_WAIT port; Windows keeps exclusive binds.
 
 
 def bind(port):
@@ -743,25 +860,41 @@ def serve(port=DEFAULT_PORT, store=None, write_info=True):
     app = App(port=port, store=store)
     server = bind(port)
     server.app = app
+    app.server = server
     app.port = server.server_address[1]
-    threading.Thread(target=app.watch, name="relic-app-watch", daemon=True).start()
-    if write_info:
-        info_path().parent.mkdir(parents=True, exist_ok=True)
-        info_path().write_text(json.dumps({"port": app.port, "pid": os.getpid(), "token": app.token,
-                                           "started": time.time(), "version": VERSION}), encoding="utf-8")
+    try:
+        if write_info:
+            atomic_json(info_path(), {"port": app.port, "pid": os.getpid(), "token": app.token,
+                                      "instance": app.instance, "started": time.time(), "version": VERSION})
+            atomic_json(data_home() / "app-port.json", {"port": app.port})
+        threading.Thread(target=app.watch, name="relic-app-watch", daemon=True).start()
+    except BaseException:
+        app.stopping.set()
+        server.server_close()
+        if write_info:
+            remove_own_info(app)
+        raise
     return app, server
 
 
 def main(port=DEFAULT_PORT):
-    app, server = serve(port)
-    try:
-        server.serve_forever(poll_interval=0.5)
-    finally:
-        app.stopping.set()
-        app.hub.shutdown()
+    with LifecycleLock("app-server.lock", timeout=0):
+        app, server = serve(port)
+        previous = {}
+        if threading.current_thread() is threading.main_thread():
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                previous[sig] = signal.signal(sig, lambda *_: app.request_shutdown())
         try:
-            info = json.loads(info_path().read_text(encoding="utf-8"))
-            if info.get("pid") == os.getpid():
-                info_path().unlink()
-        except (OSError, ValueError):
-            pass
+            server.serve_forever(poll_interval=0.1)
+        finally:
+            app.stopping.set()
+            try:
+                app.hub.shutdown()
+            finally:
+                try:
+                    app.processes.shutdown()
+                finally:
+                    server.server_close()
+                    remove_own_info(app)
+                    for sig, handler in previous.items():
+                        signal.signal(sig, handler)

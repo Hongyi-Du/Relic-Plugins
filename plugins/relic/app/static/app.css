@@ -89,7 +89,8 @@ button { cursor: pointer; }
 body { display: flex; flex-direction: column; }
 .appbar { flex: none; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px;
   padding: 0 8px 0 6px; background: var(--side); border-bottom: 1px solid var(--line); user-select: none; -webkit-app-region: drag; app-region: drag; }
-.wco .appbar { height: env(titlebar-area-height, 40px); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 6px); }
+.wco .appbar { height: env(titlebar-area-height, 40px); padding-left: calc(env(titlebar-area-x, 0px) + 6px);
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 6px); }
 .appbar button { -webkit-app-region: no-drag; app-region: no-drag; }
 .ab-left, .ab-right { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .ab-right { justify-content: flex-end; }

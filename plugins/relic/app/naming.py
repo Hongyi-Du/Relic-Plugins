@@ -6,6 +6,7 @@ it was made from). A role already written in the person's language gives its nam
 in another language is named by a short Claude call (`claude -p` with a small model, no session saved).
 """
 import datetime
+import functools
 import json
 import os
 import re
@@ -68,7 +69,7 @@ Members (id: role):
 {members}"""
 
 
-def ask_claude(org_name, roles, lang, timeout=120):
+def ask_claude(org_name, roles, lang, timeout=120, processes=None):
     """{member: name} from one short Claude call; {} when Claude Code is missing or the call fails."""
     exe = runner.find_claude()
     if not exe or not roles:
@@ -80,7 +81,8 @@ def ask_claude(org_name, roles, lang, timeout=120):
     env = dict(os.environ)
     env.pop("CLAUDECODE", None)
     try:
-        done = subprocess.run([exe, "-p", prompt, "--model", "haiku", "--no-session-persistence", "--setting-sources", "",
+        run = processes.run if processes is not None else subprocess.run
+        done = run([exe, "-p", prompt, "--model", "haiku", "--no-session-persistence", "--setting-sources", "",
                                "--output-format", "text"], capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=timeout, cwd=str(folder), env=env, stdin=subprocess.DEVNULL,
                               creationflags=runner.NO_WINDOW)
@@ -97,8 +99,9 @@ def ask_claude(org_name, roles, lang, timeout=120):
 class Namer:
     """Fills in automatic names for an organization's seats, at most one Claude call at a time per organization."""
 
-    def __init__(self, store, publish=None, ask=ask_claude):
-        self.store, self.publish, self.ask = store, publish or (lambda event: None), ask
+    def __init__(self, store, publish=None, ask=ask_claude, processes=None):
+        self.store, self.publish = store, publish or (lambda event: None)
+        self.ask = functools.partial(ask, processes=processes) if processes is not None and ask is ask_claude else ask
         self.running, self.failed = set(), {}
         self.lock = threading.Lock()
 

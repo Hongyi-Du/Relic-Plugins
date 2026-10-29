@@ -4,6 +4,7 @@ No transcript, memory, model invocation or history access. Only an outstanding
 explicit request and its matching public Desktop Stop can produce a receipt.
 """
 import json
+import hashlib
 import os
 import time
 import uuid
@@ -23,7 +24,8 @@ def _retry(action):
 
 def _read(path):
     try:
-        return json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
+        value = json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
@@ -36,6 +38,59 @@ def _write(path, value):
 
 def runs_dir():
     return data_home() / "runs"
+
+
+OBSERVATION_AGE = 24 * 3600
+
+
+def _carrier_digest(carrier):
+    return hashlib.sha256(carrier.encode("utf-8")).hexdigest()
+
+
+def observation_path(carrier):
+    return runs_dir() / ("claude-desktop-observed-" + _carrier_digest(carrier) + ".json")
+
+
+def observed_carrier(carrier, at=None):
+    proof = _read(observation_path(carrier))
+    at = time.time() if at is None else at
+    return proof.get("carrier_digest") == _carrier_digest(carrier) and _recent_observation(proof, at)
+
+
+def _recent_observation(proof, at):
+    timestamp = proof.get("at")
+    return (proof.get("public_stop") is True and isinstance(timestamp, (int, float)) and
+            at - OBSERVATION_AGE <= timestamp <= at + 300)
+
+
+def observed_count(at=None):
+    at = time.time() if at is None else at
+    count = 0
+    for path in runs_dir().glob("claude-desktop-observed-*.json"):
+        proof = _read(path)
+        if _recent_observation(proof, at):
+            count += 1
+    return count
+
+
+def observe_desktop_stop(event, output, store, actor):
+    """Record transport evidence from an existing configured GUI seat, never the reply's contents.
+
+    A manual turn that reaches this public hook validates the receiver before automatic delivery is enabled.
+    This record neither enables delivery nor replaces the per-request nonce receipt.
+    """
+    if (os.getenv("CLAUDE_CODE_ENTRYPOINT") != "claude-desktop" or event.get("hook_event_name") != "Stop" or
+            event.get("agent_id") or event.get("session_id") != actor or output.get("decision") == "block" or
+            (output.get("hookSpecificOutput") or {}).get("additionalContext") or
+            not isinstance(event.get("last_assistant_message"), str) or not event["last_assistant_message"].strip()):
+        return
+    for org, member, _ in store.seats_of(actor):
+        seat = org["members"][member]
+        config = store.seat_config(org["id"], member, org)
+        if seat.get("harness") == "claude-code" and config.get("harness") == "claude-code" and config.get("surface") == "gui":
+            runs_dir().mkdir(parents=True, exist_ok=True)
+            _write(observation_path(actor), {"carrier_digest": _carrier_digest(actor), "public_stop": True, "at": time.time()})
+            return
 
 
 def request_path(org_id, member):
@@ -62,6 +117,7 @@ def receipt_matches(receipt, request):
 
 def capture(event, output, store, actor):
     """Opt-in by a pending request; never parse transcripts or capture another turn's history."""
+    observe_desktop_stop(event, output, store, actor)
     if event.get("agent_id"):
         return
     for org, member, _ in store.seats_of(actor):  # the seat whose GUI turn is pending, of every seat it holds

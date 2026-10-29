@@ -1,7 +1,7 @@
 """Relic organizations across Claude Code and Codex."""
 from pathlib import Path
 
-__version__ = "0.15.1-beta.1"
+__version__ = "0.15.1-macos-beta.1"
 
 
 def code_stamp():

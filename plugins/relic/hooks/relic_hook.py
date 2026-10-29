@@ -161,7 +161,7 @@ def respond(event, store):
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "allow",
                                            "permissionDecisionReason": "Relic organization tool",
                                            "updatedInput": updated}}
-        allowed, reasons = store.gate(actor, tool, tool_input)
+        allowed, reasons = store.gate(actor, tool, tool_input, cwd=event.get("cwd"))
         if not allowed:
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
                                            "permissionDecisionReason": "Relic protocol: " + " | ".join(reasons)}}
@@ -178,7 +178,8 @@ def respond(event, store):
             output = response
         output += " " + str(event.get("error", ""))
         if isinstance(tool_input, dict):
-            store.record_activity(actor, tool, tool_input, failed=(name == "PostToolUseFailure"), output=output[-20000:])
+            store.record_activity(actor, tool, tool_input, failed=(name == "PostToolUseFailure"), output=output[-20000:],
+                                  cwd=event.get("cwd"))
         msgs = peer_messages(store, actor)
         return context_output(name, msgs) if msgs else {}
 

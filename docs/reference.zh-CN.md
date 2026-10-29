@@ -50,18 +50,37 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 | 变量 | 范围 |
 | --- | --- |
 | `RELIC_HOME` | 数据目录，默认 `~/.relic`：组织数据库和 Relic 保存的其他一切 |
-| `RELIC_ACP_HOME` | Relic App 安装 ACP 适配器的位置；默认 `RELIC_HOME/acp` |
+| `RELIC_ACP_HOME` | ACP 安装根目录，默认 `RELIC_HOME/acp`；内置锁定组合位于其下的 `adapters/<锁文件哈希>`，旧位置已有安装仍可回退使用 |
+| `RELIC_PYTHON_PATH` | 为 macOS `install.command` 显式指定原生 arm64 Python 3.11+ |
+| `RELIC_NODE_PATH`、`RELIC_NPM_PATH` | 显式 Node/npm 程序路径；App 内成员需要 Node 22+，macOS 上须为原生 arm64 |
 | `RELIC_ORG`、`RELIC_MEMBER`、`RELIC_ROLE` | 让会话一启动就占某个席位：由 SessionStart hook 加入该席位 |
 | `RELIC_SEAT`、`RELIC_SEAT_TOKEN` | 由 Relic App 为它启动的每个会话设置：席位（`<组织 id>/<成员>`）和 App 为这个会话存在席位上的令牌。令牌一致时，Relic 服务以该席位载体的身份应答；不要手动设置 |
 | `RELIC_LANG` | 人的语言，用于任务标题和报告；未设置时取 App 的语言设置，再取系统语言 |
 | `RELIC_MAX_WAIT` | 调低 inbox 最长等待；Claude Chat 接入使用 50（App 给会话的 Relic 服务最多使用 50） |
 | `RELIC_ACTOR` | 专门配置聊天 MCP 时使用（`claude-chat:<名字>`），不能用于冒充同伴 |
 | `RELIC_CODEX_WINDOWS_SANDBOX` | Relic 启动的 Codex 会话所用的 Windows 沙箱（默认 `unelevated`；留空则沿用 Codex 自己的选择），仍受宿主权限约束 |
-| `CODEX_THREAD_ID`、`CODEX_APP_TOOLS_PIPE_PATH` | 宿主提供，不可从其他会话复制身份 |
+| `RELIC_CLAUDE_DESKTOP_ENABLED` | 尚无保存的启用设置时，`1` 表示主动开启 macOS Claude Desktop 投递；仍需 CLI 版本探测、近期公共 Desktop Stop 记录及每次投递回执 |
+| `CODEX_THREAD_ID`、`CODEX_APP_TOOLS_PIPE_PATH` | 宿主提供，不可从其他会话复制身份；macOS 端点须为当前用户的私有 Unix socket，并通过所需工具探测 |
 | `CODEX_HOME`、`CLAUDE_CONFIG_DIR` | Codex 与 Claude Code 的配置根目录，在支持处继承 |
 | `CODEX_CLI_PATH` | 可选显式 Codex CLI 路径 |
+| `CLAUDE_CODE_EXECUTABLE` | 可选显式 Claude Code 程序路径 |
 
 插件本身不要求模型密钥。成员环境配置可能包含密钥，因此本地数据库与备份应当私下保管。
+
+## 应用生命周期（开发分支）
+
+`python3 -X utf8 scripts/open_app.py` 为选定的 `RELIC_HOME` 启动或打开服务。`--no-window` 只启动服务，
+不打开浏览器；`--status` 输出 JSON 状态，不启动服务；`--stop` 停止已认证的实例；`--restart` 停止后
+重新启动，并在端口可用时沿用原端口。`--port` 指定优先使用的端口。Windows 将 `python3` 换成 `python`。
+
+每个数据目录由一个服务持有。停止/重启会验证实例和占用锁，而不是杀死 `app.json` 中保存的 PID；旧版或
+无法验证的服务会被拒绝。关闭浏览器不会停止服务。服务退出会清理自己持有的会话/进程，但不删除组织。
+macOS 启动器安装与保留数据的移除方式见 [macOS 指南](macos.zh-CN.md)。
+
+`python3 scripts/doctor.py --probe-desktop` 显式检查桌面能力，不发送消息。读取状态不会发起探测。
+macOS Codex/ChatGPT 投递需通过宿主接口握手并获得宿主授权。Claude Desktop 需显式启用、探测确认
+Claude Code 2.1.224+，并拥有目标席位近期的公共 Desktop Stop 记录；每次发送仍须验证准确对端和回执。
+这些能力按条件开放，当前机器的验收阻碍见 [验证记录](validation.md)。
 
 ## 包结构与宿主文档
 

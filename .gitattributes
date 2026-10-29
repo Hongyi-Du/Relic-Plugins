@@ -4,3 +4,5 @@
 *.py text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+# Unified diffs contain single-space context lines by design.
+release/*.patch text eol=lf -whitespace

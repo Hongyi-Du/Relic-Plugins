@@ -5,6 +5,77 @@
 (() => {
   'use strict';
 
+  // Pure platform and text helpers are also exercised by the Node fixture tests.
+  function platformInfo(info = {}, browserPlatform = '') {
+    const platform = info.platform || (/Mac/i.test(browserPlatform) ? 'darwin' : /Win/i.test(browserPlatform) ? 'win32' : 'unknown');
+    const out = Object.assign({}, info, { platform });
+    for (const key of ['codex_desktop_wake', 'claude_desktop_wake', 'chatgpt_delivery']) {
+      out[key] = typeof info[key] === 'boolean' ? info[key] : platform !== 'darwin';
+    }
+    return out;
+  }
+  function automaticDelivery(info, harness, surface) {
+    if (harness === 'chatgpt') return info.chatgpt_delivery;
+    if (!['gui', 'desktop'].includes(surface)) return true;
+    return harness === 'codex' ? info.codex_desktop_wake : harness === 'claude-code' ? info.claude_desktop_wake : true;
+  }
+  function hostSurfaces(info) {
+    return [['claude-code', 'cli'], ['claude-code', 'gui'], ['codex', 'cli'], ['codex', 'gui']]
+      .filter(([harness, surface]) => automaticDelivery(info, harness, surface));
+  }
+  function shortcutLabel(text, info) {
+    return info.platform === 'darwin' ? String(text).replace(/Ctrl\+Y/g, 'Cmd+Shift+Z').replace(/Ctrl\+/g, 'Cmd+').replace(/Alt\+/g, 'Option+') : String(text);
+  }
+  function shortcutAction(e, info) {
+    if (e.isComposing || e.keyCode === 229) return null;
+    const mac = info.platform === 'darwin';
+    const primary = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey || e.metaKey;
+    const k = (mac && e.altKey && /^Key[A-Z]$/.test(e.code || '') ? e.code.slice(3) : e.key || '').toLowerCase();
+    if (primary && e.altKey && !e.shiftKey && k === 'b') return 'panel';
+    if (primary && !e.altKey && !e.shiftKey && k === 'b') return 'sidebar';
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') return e.key === 'ArrowLeft' ? 'back' : 'forward';
+      const digit = /^Digit([123])$/.exec(e.code || '') || /^([123])$/.exec(e.key || '');
+      if (digit) return 'pane' + digit[1];
+    }
+    if (primary && !e.altKey && !e.shiftKey && k === 'k') return 'search';
+    if (primary && !e.altKey && !e.shiftKey && k === ',') return 'settings';
+    if (primary && e.shiftKey && !e.altKey && k === 'l') return 'plain';
+    return null;
+  }
+  function absolutePath(text) {
+    if (!/^(?:[A-Za-z]:[\\/]|\/(?!\/))/.test(text) || /[\r\n]/.test(text)) return null;
+    const m = /^(.*?)(?::(\d+))?(?::\d+)?$/.exec(text);
+    return { path: m[1], line: m[2] ? Number(m[2]) : 0 };
+  }
+  function inlineTokens(text) {
+    const out = [];
+    // URLs consume their entire path first. A bare POSIX path cannot begin inside a URL or relative path.
+    const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>)\uff09\]]+|\b[A-Za-z]:[\\/][^\s<>"'|*?\uff0c\u3002\uff1b\uff1a\u3001\uff08\uff09)\]\u3010\u3011\u300c\u300d\u300a\u300b“”]+|(?<![\w./:\\])\/(?!\/)[^\s<>"'`|*?\uff0c\u3002\uff1b\uff1a\u3001\uff08\uff09)\]\u3010\u3011\u300c\u300d\u300a\u300b“”]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) out.push({ kind: 'text', text: text.slice(last, m.index) });
+      const tok = m[0];
+      if (tok[0] === '`') out.push({ kind: 'code', text: tok.slice(1, -1) });
+      else if (tok.startsWith('**')) out.push({ kind: 'bold', text: tok.slice(2, -2) });
+      else if (absolutePath(tok)) {
+        const core = tok.replace(/[.,;:!?]+$/, '');
+        out.push({ kind: 'path', text: core });
+        if (core.length < tok.length) out.push({ kind: 'text', text: tok.slice(core.length) });
+      } else out.push({ kind: 'url', text: tok });
+      last = m.index + tok.length;
+    }
+    if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
+    return out;
+  }
+  if (typeof document === 'undefined' && typeof module !== 'undefined' && module.exports) {
+    module.exports = { platformInfo, automaticDelivery, hostSurfaces, shortcutLabel, shortcutAction, absolutePath, inlineTokens };
+    return;
+  }
+  let PLATFORM = platformInfo({}, navigator.platform);
+  const isMac = () => PLATFORM.platform === 'darwin';
+  const keyLabel = (text) => shortcutLabel(text, PLATFORM);
+
   // writes carry the server's token; a restarted server has a new one, which only this page's origin can read
   let TOKEN = document.querySelector('meta[name="relic-token"]').content;
   const $ = (sel, root) => (root || document).querySelector(sel);
@@ -132,28 +203,18 @@
   function taskLabel(s) { return ({ open: t('task.open'), working: t('task.working'), blocked: t('task.blocked'), done: t('task.done'), dropped: t('task.dropped') })[s] || s; }
 
   // an absolute path in a message opens in the file preview on the right (files in a member's workspace only)
-  const PATH_RE = /^[A-Za-z]:[\\/]/;
   function pathLink(text) {
-    const m = /^(.*?)(?::(\d+))?(?::\d+)?$/.exec(text);
-    return h('a', { class: 'path', href: '#', title: t('chat.path_preview'), onclick: (e) => { e.preventDefault(); openFile(m[1], m[2] ? Number(m[2]) : 0); } }, text);
+    const target = absolutePath(text);
+    return h('a', { class: 'path', href: '#', title: t('chat.path_preview'), onclick: (e) => { e.preventDefault(); openFile(target.path, target.line); } }, text);
   }
   function inline(text) {
-    const out = [];
-    // the \u escapes are the full-width punctuation that ends a link or a path: parentheses, comma, full stop,
-    // semicolon, colon, enumeration comma, lenticular brackets, corner and title quotes
-    const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>)\uff09\]]+|\b[A-Za-z]:[\\/][^\s<>"'|*?\uff0c\u3002\uff1b\uff1a\u3001\uff08\uff09)\]\u3010\u3011\u300c\u300d\u300a\u300b“”]+)/g;
-    let last = 0, m;
-    while ((m = re.exec(text))) {
-      if (m.index > last) out.push(text.slice(last, m.index));
-      const tok = m[0];
-      if (tok[0] === '`') { const c = tok.slice(1, -1); out.push(h('code', null, PATH_RE.test(c) ? pathLink(c) : c)); }
-      else if (tok.startsWith('**')) out.push(h('b', null, tok.slice(2, -2)));
-      else if (PATH_RE.test(tok)) { const core = tok.replace(/[.,;:!?]+$/, ''); out.push(pathLink(core)); if (core.length < tok.length) out.push(tok.slice(core.length)); }
-      else out.push(h('a', { href: tok, target: '_blank', rel: 'noopener noreferrer' }, tok));
-      last = m.index + tok.length;
-    }
-    if (last < text.length) out.push(text.slice(last));
-    return out;
+    return inlineTokens(text).map(({ kind, text: value }) => {
+      if (kind === 'code') return h('code', null, absolutePath(value) ? pathLink(value) : value);
+      if (kind === 'bold') return h('b', null, value);
+      if (kind === 'path') return pathLink(value);
+      if (kind === 'url') return h('a', { href: value, target: '_blank', rel: 'noopener noreferrer' }, value);
+      return value;
+    });
   }
   function rich(text) {
     const nodes = [];
@@ -222,6 +283,10 @@
     if (!r.ok) throw new Error(d.error || r.statusText);
     return d;
   }
+  async function loadPlatform() {
+    try { PLATFORM = platformInfo(await get('/api/platform'), navigator.platform); } catch (e) { /* conservative Mac capabilities */ }
+    document.documentElement.dataset.platform = PLATFORM.platform;
+  }
   async function freshToken() {
     const page = await (await fetch('/', { cache: 'no-store' })).text();
     const m = /name="relic-token" content="([^"]+)"/.exec(page);
@@ -284,7 +349,7 @@
       const n = args && typeof args.n === 'number' ? args.n : NaN;
       v = (!isNaN(n) && v[L.plural.select(n)]) || v.other || '';
     }
-    return String(v);
+    return keyLabel(v);
   }
   function targ(v) {
     if (!Array.isArray(v)) return v == null ? '' : String(v);
@@ -712,6 +777,9 @@
     let text = null, cls = 'banner';
     if (m.embedded) text = t('banner.embedded', { harness: m.harness_label });
     else if (m.surface === 'subagent') { text = m.parent ? t('banner.subagent_in', { parent: dname(m.parent) }) : t('banner.subagent'); cls += ' amber'; }
+    else if (!automaticDelivery(PLATFORM, m.harness, (m.config || {}).surface || m.surface)) {
+      text = m.harness === 'chatgpt' ? t('member.chatgpt_unavailable') : t('member.desktop_manual'); cls += ' amber';
+    }
     else if (m.state === 'vacant') { text = t('banner.vacant'); cls += ' amber'; }
     else if (m.has_transcript) text = t('banner.transcript');
     else text = t('banner.inbox');
@@ -1099,7 +1167,7 @@
     }, 0);
   });
 
-  // ------------------------------------------------------------------ voice input (Edge speech recognition)
+  // ------------------------------------------------------------------ voice input (browser speech recognition)
   const Voice = {
     rec: null, btn: null,
     supported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); },
@@ -1107,7 +1175,7 @@
     toggle(target, btn) {
       if (this.rec) { const same = this.btn === btn; this.stop(); if (same) return; }
       if (PREFS.voice === 'off') { toast(t('composer.voice_off')); return; }
-      if (!this.supported()) { toast(t('composer.voice_unsupported'), 6000); return; }
+      if (!this.supported()) { toast(isMac() ? t('composer.voice_unsupported_mac') : t('composer.voice_unsupported'), 6000); return; }
       const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new Rec();
       rec.lang = lang(); rec.interimResults = true; rec.continuous = true;
@@ -1408,7 +1476,7 @@
     slot.textContent = '';
     if (!ws.folder) { slot.append(h('div', { class: 'block empty' }, t('work.no_folder', { name: dname(who) }))); return; }
     slot.append(h('div', { class: 'block' }, h('div', { class: 'block-h' }, h('span', null, t('common.work_folder')),
-        h('button', { class: 'link', type: 'button', onclick: () => post('/api/fs/open', { path: ws.folder }).catch((e) => toast(e.message)) }, icon('open', 12), t('work.open_in_explorer'))),
+        h('button', { class: 'link', type: 'button', onclick: () => post('/api/fs/open', { path: ws.folder }).catch((e) => toast(e.message)) }, icon('open', 12), isMac() ? t('work.open_in_finder') : t('work.open_in_explorer'))),
       h('div', { class: 'path-line' }, ws.folder), ws.exists ? null : h('div', { class: 'empty' }, t('work.folder_missing'))));
     if (!ws.exists) return;
     const base = ((ws.git && ws.git.root) || ws.folder).replace(/\\/g, '/').replace(/\/$/, '');
@@ -1831,9 +1899,10 @@
       // the seat itself: where its sessions run and which one holds it
       const own = !['chat', 'subagent'].includes(c.surface);
       const hosted = own && !c.embedded && ((c.config && c.config.harness) || c.surface === 'cli' || c.surface === 'desktop');
+      const canStart = automaticDelivery(PLATFORM, c.harness, (c.config || {}).surface || c.surface);
       const seatBtn = (label, onclick, title) => h('button', { class: 'btn sm ghost', type: 'button', title, onclick }, label);
       const acts = [
-        own && (c.embedded || hosted) ? seatBtn(t('card.new_session'), () => seatAction('fresh', name, c.session ? t('card.new_session_confirm', { name: c.display || name }) : ''), t('card.new_session_hint')) : null,
+        own && (c.embedded || (hosted && canStart)) ? seatBtn(t('card.new_session'), () => seatAction('fresh', name, c.session ? t('card.new_session_confirm', { name: c.display || name }) : ''), t('card.new_session_hint')) : null,
         hosted && c.session ? seatBtn(t('card.open_session'), () => seatAction('open_session', name), t('card.open_session_hint')) : null,
         hosted ? seatBtn(t('card.edit_setup'), () => { closeCard(); memberDialog({ edit: name }); }, t('card.edit_setup_hint')) : null,
         c.harness === 'chatgpt' ? seatBtn(c.waiting_replies ? t('card.forward_reply_waiting', { n: c.waiting_replies }) : t('card.forward_reply'), () => { closeCard(); forwardDialog(name); }, t('card.forward_reply_hint')) : null,
@@ -1861,15 +1930,16 @@
   }
   // A member runs one of three ways, all from here: in the App (an ACP session the App hosts), in Claude Code or Codex
   // itself (command line or desktop app, started and woken by Relic), or as a session that already exists on this computer.
-  function runModes() { return [['app', t('member.run_app')], ['host', t('member.run_host')], ['existing', t('member.run_existing')]]; }
+  function runModes() { return [['app', t('member.run_app')], ['host', hostSurfaces(PLATFORM).some(([, surface]) => surface === 'gui') ? t('member.run_host') : t('member.run_host_mac')], ['existing', t('member.run_existing')]]; }
   function runNotes() {
     return {
       app: t('member.note_app'),
-      host: t('member.note_host'),
-      existing: t('member.note_existing'),
+      host: !PLATFORM.codex_desktop_wake || !PLATFORM.claude_desktop_wake ? t('member.note_host_mac') : t('member.note_host'),
+      existing: isMac() ? t('member.note_existing_mac') : t('member.note_existing'),
     };
   }
-  function hostKinds() { return [['claude-code', 'cli', t('member.harness_cli', { harness: 'Claude Code' })], ['claude-code', 'gui', t('member.harness_gui', { harness: 'Claude Code' })], ['codex', 'cli', t('member.harness_cli', { harness: 'Codex' })], ['codex', 'gui', t('member.harness_gui', { harness: 'Codex' })]]; }
+  function hostKinds() { return hostSurfaces(PLATFORM).map(([harness, surface]) => [harness, surface,
+    surface === 'gui' ? t('member.harness_gui', { harness: HARNESS_TITLE[harness] }) : t('member.harness_cli', { harness: HARNESS_TITLE[harness] })]); }
   const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', chatgpt: 'ChatGPT', 'claude-chat': 'Claude' };
   async function seatOptions() {
     if (!S.seatOptions) S.seatOptions = await get('/api/seat-options');
@@ -1922,6 +1992,7 @@
       radio.addEventListener('change', () => { kind = radio.value; fillPerm(); });
       return h('label', { class: 'choice' }, radio, h('b', null, label));
     }));
+    if (!automaticDelivery(PLATFORM, conf.harness, conf.surface)) kinds.append(h('div', { class: 'dim' }, t('member.choose_supported_host')));
     // a session that already exists
     let chosen = null, sessions = null;
     const search = h('input', { type: 'search', placeholder: t('member.session_search') });
@@ -1932,11 +2003,13 @@
       listBox.textContent = '';
       if (!sessions) { listBox.append(h('div', { class: 'dim' }, t('member.finding_sessions'))); return; }
       const q = search.value.trim().toLowerCase();
-      const rows = sessions.sessions.filter((s) => !q || [s.title, s.cwd, s.id].join(' ').toLowerCase().includes(q)).slice(0, 80);
+      const rows = sessions.sessions.filter((s) => (s.harness !== 'chatgpt' || PLATFORM.chatgpt_delivery) &&
+        (!q || [s.title, s.cwd, s.id].join(' ').toLowerCase().includes(q))).slice(0, 80);
       if (!rows.length) listBox.append(h('div', { class: 'dim' }, q ? t('member.no_match') : t('member.no_sessions')));
       rows.forEach((s) => listBox.append(h('button', { class: 'session-row' + (chosen === s ? ' on' : ''), type: 'button', onclick: () => { chosen = s; drawSessions(); } },
         h('span', { class: 'chip' }, s.surface === 'gui' ? t('member.harness_gui', { harness: HARNESS_TITLE[s.harness] || s.harness }) : s.surface === 'cli' ? t('member.harness_cli', { harness: HARNESS_TITLE[s.harness] || s.harness }) : (HARNESS_TITLE[s.harness] || s.harness)),
         h('span', { class: 'ellipsis' }, s.title || s.id), h('span', { class: 'dim ellipsis mono' }, clip(s.cwd || '', 40)),
+        automaticDelivery(PLATFORM, s.harness, s.surface) ? null : h('span', { class: 'chip', title: t('member.desktop_manual') }, t('member.manual_delivery')),
         h('span', { class: 'dim' }, s.updated ? ago(new Date(s.updated * 1000).toISOString()) : ''))));
       if (sessions.problems && sessions.problems.length) listBox.append(h('div', { class: 'dim', style: 'font-size:11.5px' }, sessions.problems.join(t('member.problem_sep'))));
     };
@@ -1997,6 +2070,7 @@
           closeLayer(); toast(t('member.starting', { name: name.value.trim() }));
         } else {
           const [harness, surface] = kind.split('/');
+          if (!automaticDelivery(PLATFORM, harness, surface)) throw new Error(t('member.choose_supported_host'));
           await post(orgPath('/seat'), { name: name.value.trim(), role: role.value.trim(), harness, surface, model: hModel.value.trim(), effort: effort.value,
             folder: hFolder.value.trim(), environment: env.value, permission: perm.value, env: envText.value, start: !edit && start.checked, edit: !!edit });
           closeLayer(); toast(edit ? t('member.edit_saved') : start.checked ? t('member.starting_first', { name: name.value.trim() }) : t('member.seat_created'));
@@ -2284,11 +2358,11 @@
   }
   function drawVoice(pane) {
     pane.append(h('h4', null, t('common.voice_input')));
-    pane.append(setRow(t('common.voice_input'), t('settings.voice_hint'), segControl([['browser', t('settings.voice_edge')], ['off', t('settings.voice_off')]], PREFS.voice, (k) => { setPrefs({ voice: k }).then(() => { renderAll(false); redraw(); }); })));
+    pane.append(setRow(t('common.voice_input'), t('settings.voice_hint'), segControl([['browser', isMac() ? t('settings.voice_browser') : t('settings.voice_edge')], ['off', t('settings.voice_off')]], PREFS.voice, (k) => { setPrefs({ voice: k }).then(() => { renderAll(false); redraw(); }); })));
     const test = h('textarea', { class: 'input', rows: 2, placeholder: t('settings.voice_try_here') });
-    pane.append(setRow(t('settings.voice_try'), Voice.supported() ? t('settings.voice_supported') : t('settings.voice_unsupported'), h('div', { class: 'field', style: 'width:300px' }, test, micButton(test))));
+    pane.append(setRow(t('settings.voice_try'), Voice.supported() ? (isMac() ? t('settings.voice_supported_mac') : t('settings.voice_supported')) : t('settings.voice_unsupported'), h('div', { class: 'field', style: 'width:300px' }, test, micButton(test))));
     pane.append(h('div', { class: 'dim', style: 'font-size:12.5px;line-height:1.7;margin-top:10px' },
-      t('settings.voice_wechat')));
+      isMac() ? t('settings.voice_mac') : t('settings.voice_wechat')));
   }
   function drawNotify(pane) {
     pane.append(h('h4', null, t('settings.notify')));
@@ -2305,6 +2379,31 @@
   async function drawHarness(pane) {
     pane.append(h('h4', null, t('common.harness')));
     pane.append(h('div', { class: 'dim', style: 'font-size:12.5px;margin-bottom:12px' }, t('settings.harness_intro')));
+    for (const name of ['node', 'npm']) {
+      const runtimePath = h('input', { class: 'input mono', value: (PREFS.paths || {})[name] || '', placeholder: t('settings.auto_find') });
+      pane.append(setRow(name === 'node' ? 'Node.js' : 'npm', t('settings.runtime_path_hint'),
+        h('div', { style: 'display:flex;gap:6px' }, runtimePath,
+          h('button', { class: 'btn sm', type: 'button', onclick: () => setPrefs({ paths: Object.assign({}, PREFS.paths, { [name]: runtimePath.value.trim() }) })
+            .then(() => { toast(t('settings.path_saved')); redraw(); }) }, t('common.save')))));
+    }
+    if (isMac()) {
+      const desktop = PLATFORM.desktop_transport || {};
+      const claude = PLATFORM.claude_desktop || {};
+      const updateCapabilities = async (options) => {
+        try {
+          PLATFORM = platformInfo(await post('/api/platform', options), navigator.platform);
+          redraw(); renderAll(false);
+        } catch (error) { toast(error.message); }
+      };
+      pane.append(h('h4', null, t('settings.desktop_connections')));
+      pane.append(setRow('Codex / ChatGPT', desktop.reason || t('settings.desktop_probe_hint'),
+        h('span', { class: 'chip' + (desktop.available ? ' ok' : '') }, desktop.available ? t('settings.connected') : t('settings.not_connected'))));
+      pane.append(setRow('Claude Desktop', claude.reason || t('settings.claude_desktop_hint'),
+        toggleControl(!!claude.enabled, (enabled) => updateCapabilities({ claude_desktop_enabled: enabled, probe: true }))));
+      pane.append(h('p', { class: 'dim' }, t('settings.claude_desktop_hint')));
+      pane.append(setRow(t('settings.desktop_probe'), t('settings.desktop_probe_hint'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => updateCapabilities({ probe: true }) }, t('settings.desktop_probe'))));
+    }
     const list = await harnessList(true);
     for (const x of list.filter((y) => !y.later)) {
       const path = h('input', { class: 'input mono', value: (PREFS.paths || {})[x.id] || '', placeholder: x.program || t('settings.auto_find'), style: 'font-size:12px' });
@@ -2341,7 +2440,7 @@
     pane.append(setRow(t('settings.data_folder'), PREFS.data || '~/.relic', h('button', { class: 'btn sm', type: 'button', onclick: () => open('data') }, t('common.open'))));
     pane.append(setRow(t('settings.logs'), t('settings.logs_hint'), h('button', { class: 'btn sm', type: 'button', onclick: () => open('logs') }, t('common.open'))));
     pane.append(setRow(t('settings.local_server'), t('settings.local_server_hint', { port: PREFS.port || '' }), h('span', { class: 'chip' }, 'v' + (PREFS.version || ''))));
-    pane.append(setRow(t('settings.install_app'), isApp() ? t('settings.install_app_done') : t('settings.install_app_hint'),
+    pane.append(setRow(t('settings.install_app'), isApp() ? t('settings.install_app_done') : (isMac() ? t('install.mac_hint') : t('settings.install_app_hint')),
       isApp() ? h('span', { class: 'chip ok' }, t('settings.installed')) : h('button', { class: 'btn sm', type: 'button', onclick: () => { settingsPane = null; closeLayer(); installApp(); } }, t('settings.install'))));
   }
 
@@ -2696,7 +2795,7 @@
 
   // ------------------------------------------------------------------ window bar (after Codex and Claude Code)
   let installEvent = null, installUI = null;
-  const isApp = () => /[?&]source=pwa\b/.test(location.search) || matchMedia('(display-mode: window-controls-overlay)').matches;
+  const isApp = () => /[?&]source=pwa\b/.test(location.search) || matchMedia('(display-mode: window-controls-overlay)').matches || matchMedia('(display-mode: standalone)').matches;
   function menus() { return [['file', t('common.file')], ['edit', t('appmenu.edit')], ['view', t('appmenu.view')], ['help', t('appmenu.help')]]; }
   function abBtn(ic, title, onclick, opts = {}) {
     return h('button', { class: 'ab-btn' + (opts.on ? ' on' : '') + (opts.cls ? ' ' + opts.cls : ''), type: 'button', title, 'aria-label': title,
@@ -2721,10 +2820,10 @@
           onmouseenter: (e) => { if (menuEl && menuEl.dataset.bar && menuEl.dataset.bar !== k) openAppMenu(k, e.currentTarget); } }, label)))),
       h('div', { class: 'ab-title ellipsis', title }, title),
       h('div', { class: 'ab-right' },
-        isApp() ? null : h('button', { class: 'ab-install', type: 'button', title: t('appbar.install_tip'), onmousedown: (e) => e.preventDefault(), onclick: installApp }, icon('download', 14), t('appbar.install')),
+        isApp() ? null : h('button', { class: 'ab-install', type: 'button', title: isMac() ? t('appbar.install_tip_mac') : t('appbar.install_tip'), onmousedown: (e) => e.preventDefault(), onclick: installApp }, icon('download', 14), t('appbar.install')),
         abBtn('bell', n ? t('appbar.decisions', { n }) : t('appbar.no_decisions'), () => { setPane('org'); const b = $('#panel .pane-body'); if (b) b.scrollTop = 0; }, { badge: n || null, cls: n ? 'alert' : '' }),
         h('span', { class: 'ab-sep' }),
-        panes().map(([k, label, ic], i) => abBtn(ic, t('appbar.pane_shortcut', { pane: label, key: 'Alt+' + (i + 1) }), () => (S.panelOpen && S.pane === k ? togglePanel(false) : setPane(k)), { on: S.panelOpen && S.pane === k })))]);
+        panes().map(([k, label, ic], i) => abBtn(ic, t('appbar.pane_shortcut', { pane: label, key: keyLabel('Alt+' + (i + 1)) }), () => (S.panelOpen && S.pane === k ? togglePanel(false) : setPane(k)), { on: S.panelOpen && S.pane === k })))]);
   }
   function openAppMenu(k, anchor) {
     if (menuEl && menuEl.dataset.bar === k) { closeMenu(); return; }
@@ -2738,7 +2837,7 @@
     return h('button', { class: 'item', type: 'button', role: 'menuitem', disabled: opts.disabled ? true : null, onmousedown: (e) => e.preventDefault(),
       onclick: () => { closeMenu(); if (opts.run) opts.run(); } },
       h('span', { class: 'ck' + (opts.icon && !opts.check ? ' ic' : '') }, opts.check ? icon('check', 14) : opts.icon ? icon(opts.icon, 14) : null),
-      h('span', { class: 'lb' }, label), opts.key ? h('kbd', null, opts.key) : null);
+      h('span', { class: 'lb' }, label), opts.key ? h('kbd', null, keyLabel(opts.key)) : null);
   }
   const menuSep = () => h('div', { class: 'sep' });
   const toGroup = (fn) => () => { if (S.view.kind !== 'group') go({ kind: 'group' }); fn(); };
@@ -2810,23 +2909,20 @@
     const rows = [['Ctrl+B', t('shortcuts.toggle_sidebar')], ['Ctrl+Alt+B', t('shortcuts.toggle_panel')], ['Alt+1 / 2 / 3', t('shortcuts.panes')], ['Alt+← / Alt+→', t('shortcuts.back_forward')],
       ['Ctrl+K', t('page.search')], ['Ctrl+Shift+L', t('appmenu.plain_group')], ['Ctrl+,', t('common.settings')], ['Enter / Shift+Enter', t('shortcuts.send_newline')], ['@', t('shortcuts.mention')], ['Esc', t('shortcuts.close')]];
     scrim(h('div', { class: 'dialog', role: 'dialog' }, h('h3', null, t('shortcuts.title')),
-      h('dl', { class: 'keys' }, rows.map(([key, what]) => [h('dt', null, h('kbd', null, key)), h('dd', null, what)])),
+      h('dl', { class: 'keys' }, rows.map(([key, what]) => [h('dt', null, h('kbd', null, keyLabel(key))), h('dd', null, what)])),
       h('div', { class: 'acts-row' }, h('button', { class: 'btn primary', type: 'button', onclick: closeLayer }, t('shortcuts.ok')))));
   }
   function shortcut(e) {
-    if (e.isComposing) return;
-    const ctrl = e.ctrlKey || e.metaKey;
-    const k = (e.key || '').toLowerCase();
-    let hit = true;
-    if (ctrl && e.altKey && !e.shiftKey && k === 'b') togglePanel();
-    else if (ctrl && !e.altKey && !e.shiftKey && k === 'b') toggleSide();
-    else if (e.altKey && !ctrl && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) goHist(e.key === 'ArrowLeft' ? -1 : 1);
-    else if (e.altKey && !ctrl && !e.shiftKey && /^[123]$/.test(e.key)) { const p = panes()[Number(e.key) - 1][0]; if (S.panelOpen && S.pane === p) togglePanel(false); else setPane(p); }
-    else if (ctrl && !e.altKey && !e.shiftKey && k === 'k') focusSearch();
-    else if (ctrl && !e.altKey && k === ',') openSettings();
-    else if (ctrl && e.shiftKey && !e.altKey && k === 'l') { if (S.snap) toGroup(togglePlain)(); }
-    else hit = false;
-    if (hit) e.preventDefault();
+    const action = shortcutAction(e, PLATFORM);
+    if (!action) return;
+    if (action === 'panel') togglePanel();
+    else if (action === 'sidebar') toggleSide();
+    else if (action === 'back' || action === 'forward') goHist(action === 'back' ? -1 : 1);
+    else if (action.startsWith('pane')) { const p = panes()[Number(action.slice(-1)) - 1][0]; if (S.panelOpen && S.pane === p) togglePanel(false); else setPane(p); }
+    else if (action === 'search') focusSearch();
+    else if (action === 'settings') openSettings();
+    else if (action === 'plain' && S.snap) toGroup(togglePlain)();
+    e.preventDefault();
   }
 
   // installing the App as an application: Edge offers it in a normal window; app windows started with --app cannot
@@ -2840,26 +2936,26 @@
       return;
     }
     scrim(h('div', { class: 'dialog', role: 'dialog' }, h('h3', null, t('install.title')),
-      h('p', { class: 'lead' }, t('install.lead')),
-      h('ol', { class: 'steps' }, h('li', null, t('install.step_open')),
-        h('li', null, t('install.step_install')),
-        h('li', null, t('install.step_close'))),
+      h('p', { class: 'lead' }, isMac() ? t('install.mac_hint') : t('install.lead')),
+      h('ol', { class: 'steps' }, h('li', null, isMac() ? t('install.step_open_mac') : t('install.step_open')),
+        h('li', null, isMac() ? t('install.step_install_mac') : t('install.step_install')),
+        isMac() ? null : h('li', null, t('install.step_close'))),
       h('div', { class: 'acts-row' }, h('button', { class: 'btn', type: 'button', onclick: closeLayer }, t('install.later')),
         h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-          try { await post('/api/install-window', {}); closeLayer(); toast(t('install.window_opened'), 6000); } catch (e) { toast(e.message); }
-        } }, t('install.open_in_edge')))));
+          try { await post('/api/install-window', {}); closeLayer(); toast(isMac() ? t('install.browser_opened') : t('install.window_opened'), 6000); } catch (e) { toast(e.message); }
+        } }, isMac() ? t('install.open_in_browser') : t('install.open_in_edge')))));
   }
   function installPage() {
     const btn = h('button', { class: 'btn primary', type: 'button', onclick: installApp }, icon('download', 15), t('install.install_relic'));
     const note = h('div', { class: 'dim', style: 'font-size:12.5px;line-height:1.7' });
     installUI = () => {
       btn.disabled = !installEvent;
-      note.textContent = installEvent ? t('install.ready')
-        : t('install.waiting');
+      note.textContent = installEvent ? (isMac() ? t('install.browser_ready') : t('install.ready'))
+        : (isMac() ? t('install.step_install_mac') : t('install.waiting'));
     };
     installUI();
     scrim(h('div', { class: 'dialog', role: 'dialog' }, h('h3', null, t('install.page_title')),
-      h('p', { class: 'lead' }, t('install.page_lead')),
+      h('p', { class: 'lead' }, isMac() ? t('install.mac_hint') : t('install.page_lead')),
       note, h('div', { class: 'acts-row' }, h('button', { class: 'btn', type: 'button', onclick: closeLayer }, t('common.close')), btn)));
   }
 
@@ -2897,12 +2993,13 @@
     window.addEventListener('appinstalled', () => {
       installEvent = null;
       if (installUI) { installUI = null; closeLayer(); }
-      toast(t('install.installed'), 6000);
+      toast(isMac() ? t('install.installed_mac') : t('install.installed'), 6000);
       renderAppbar();
     });
   }
   (async () => {
     const wantInstall = location.hash === '#install';
+    await loadPlatform();
     await loadPrefs();
     await loadLang();
     renderMe();

@@ -1,5 +1,33 @@
 # Changelog / 更新记录
 
+## v0.4.1-macos-beta.1 — 2026-10-28
+
+First macOS Apple silicon prerelease, based on the tested v0.4.1-beta.1 codebase. Plugin
+0.15.1-macos-beta.1; the plugin id stays `relic@relic-bridge`. The newer Windows v0.6.0-beta.1
+release remains separate; this release does not include its newer protocol and reply-check features.
+
+- **Native Apple silicon installation.** arm64 Python 3.11+ and Node.js 22+ checks; PATH, Homebrew,
+  nvm and Volta executable discovery; a Finder launcher at `~/Applications/Relic.app`.
+- **App and member lifecycle.** One server per data directory, authenticated status/stop/restart,
+  port reuse and cleanup of owned adapter processes. Locked Claude/Codex ACP dependencies.
+- **macOS files and interaction.** Finder/Terminal launching, Command-key shortcuts and POSIX file
+  links; volume-aware case matching, Unicode/symlink handling and structured activity paths.
+- **Desktop connections.** Codex/ChatGPT Unix sockets and Claude Desktop delivery are conditional
+  on local capability and host authorization checks. App-managed and CLI members work independently.
+- **Distribution.** ZIP and tar.gz source installers, SHA256 checksums and a manifest recording the
+  source commit. Packages and committed launch templates contain no installation-specific paths.
+- **Validation.** A real signed-in Claude writer/Codex reviewer organization completed tasks,
+  shared document revision and message round trips. Local Python 3.11 and 3.13 suites each passed
+  406 tests with two Windows-only skips. Extracted ZIP installation and server lifecycle passed.
+  See [validation](docs/validation.md) for scope and remaining interactive coverage.
+
+首个 macOS Apple silicon 测试版，基于已验证的 v0.4.1-beta.1，插件版本为
+0.15.1-macos-beta.1。Windows v0.6.0-beta.1 独立保留，本版不包含其新增的协议与回复检查功能。
+新增原生 arm64 环境检测、Finder 启动器、进程与服务生命周期管理、锁定版本的 ACP 适配器、
+macOS 文件路径处理及快捷键。真实 Claude/Codex 成员已完成任务、共享文档修订与消息往返；
+ZIP 解压安装及启动、状态、重启、停止检查通过。桌面自动投递仍需通过本机宿主能力验证。
+提供 ZIP、tar.gz、SHA256 校验及来源清单；属于未签名的源码安装包，面向 Apple silicon。
+
 ## v0.4.1-beta.1 — 2026-10-28
 
 A small update to v0.4.0-beta.1. Plugin 0.15.1-beta.1; the plugin id stays `relic@relic-bridge`. Windows only, as before.

@@ -1,6 +1,6 @@
 {
   "name": "relic",
-  "version": "0.15.1-beta.1",
+  "version": "0.15.1-macos-beta.1",
   "description": "Relic organizations across Claude Code and Codex: persistent members on either harness, shared work, organization-owned weak and strong protocols enforced on every member's tool calls.",
   "author": {
     "name": "Hongyi Du"
@@ -15,7 +15,7 @@
   "hooks": "./hooks/claude-extra.json",
   "mcpServers": {
     "org": {
-      "command": "python",
+      "command": "python3",
       "args": [
         "-X",
         "utf8",

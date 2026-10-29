@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +83,18 @@ class Wake(unittest.TestCase):
         self.assertEqual(self.dispatch(self.t + 1000), [])  # same unread message: no second turn
         woken = self.store.events(self.oid, ["member.woken"])
         self.assertEqual(woken[-1]["body"], {"from": ["lead"], "unread": 1, "hop": 1})
+
+    def test_mac_desktop_messages_wait_for_inbox_without_claims_or_retries(self):
+        self.store.set_seat_fields(self.oid, "cody", config=dict(runner.default_config("codex"), surface="gui"))
+        self.store.send(LEAD, ["cody"], "read this manually")
+        with mock.patch.object(wake, "sys", SimpleNamespace(platform="darwin")):
+            self.assertEqual(self.dispatch(), [])
+            self.assertFalse(wake.wakeable({"carrier": "chatgpt:chat", "harness": "chatgpt",
+                                           "config": runner.default_config("chatgpt")}))
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.retries, [])
+        self.assertEqual(self.store.events(self.oid, ["member.woken", "member.wake_failed"]), [])
+        self.assertEqual(len(self.store.unread(CODY, mark=False)), 1)
 
     def test_messages_sent_in_a_row_make_one_wake_up(self):
         wake.SETTLE = 10

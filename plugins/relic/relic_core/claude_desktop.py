@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import runner
+from . import gui_receipt, runner
 from .gui_receipt import capture, marker, payload, receipt_matches
 
 
@@ -22,6 +22,97 @@ class TransportError(RuntimeError):
     def __init__(self, outcome, message, possible=False):
         super().__init__("Claude Desktop %s: %s" % (outcome, message))
         self.outcome, self.possible = outcome, possible
+
+
+MINIMUM_MAC_CLI = (2, 1, 224)
+
+
+def capability_path():
+    return runner.runs_dir() / "claude-desktop-capability.json"
+
+
+def _capability_settings():
+    value = _read(capability_path())
+    return value if isinstance(value, dict) else {}
+
+
+def set_enabled(enabled):
+    """Explicit user activation only; it never starts a host or fabricates validation evidence."""
+    if not isinstance(enabled, bool):
+        raise ValueError("Desktop transport activation must be true or false")
+    _write(capability_path(), dict(_capability_settings(), enabled=enabled))
+    return transport_capability()
+
+
+def reset_transport_verification():
+    _write(capability_path(), dict(_capability_settings(), cli={}))
+
+
+def _executable_identity(executable):
+    try:
+        path = Path(executable).resolve(strict=True)
+        info = path.stat()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            return None
+        return {"path": str(path), "device": info.st_dev, "inode": info.st_ino,
+                "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def transport_capability(probe=False):
+    """Eligibility for the native peer-message route; only explicit probes execute `claude --version`.
+
+    macOS requires user activation, a supported CLI, and a recent public Desktop Stop from a configured existing
+    GUI seat. Per-request peer discovery and nonce receipts remain mandatory even after these checks pass.
+    """
+    if sys.platform != "darwin":
+        return {"available": True, "enabled": True, "transport": "claude-native-messaging",
+                "reason": "Native peer messaging; exact Desktop target and Stop receipt required"}
+    settings = _capability_settings()
+    enabled = settings["enabled"] if isinstance(settings.get("enabled"), bool) else os.getenv("RELIC_CLAUDE_DESKTOP_ENABLED") == "1"
+    executable = runner.find_claude()
+    identity = _executable_identity(executable)
+    proof = settings.get("cli") or {}
+    if not isinstance(proof, dict):
+        proof = {}
+    if probe and identity:
+        proof = {"identity": identity, "checked_at": time.time(), "supported": False}
+        try:
+            done = subprocess.run([executable, "--version"], capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=5, creationflags=runner.NO_WINDOW,
+                                  env=runner.session_env({}))
+            found = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", done.stdout) if done.returncode == 0 else None
+            if found:
+                version = tuple(map(int, found.groups()))
+                proof.update(version=".".join(found.groups()), supported=version >= MINIMUM_MAC_CLI)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        _write(capability_path(), dict(settings, cli=proof))
+    valid_cli = bool(identity and proof.get("identity") == identity and proof.get("supported") is True)
+    observed = gui_receipt.observed_count()
+    missing = []
+    if not enabled:
+        missing.append("Enable Claude Desktop delivery explicitly in Relic settings")
+    if not valid_cli:
+        missing.append("Choose Claude Code 2.1.224+ and run the desktop capability probe" +
+                       (" (observed %s)" % proof["version"] if proof.get("version") else ""))
+    if not observed:
+        missing.append("In an existing GUI-configured seat, complete a manual Desktop turn with the Relic hooks loaded")
+    return {"available": not missing, "enabled": enabled, "transport": "claude-native-messaging",
+            "reason": "; ".join(missing) if missing else "Native route prerequisites verified; delivery requires its exact peer and Stop receipt",
+            "cli_path": executable, "cli_version": proof.get("version") if proof.get("identity") == identity else None,
+            "cli_supported": valid_cli, "checked_at": proof.get("checked_at"), "validated_sessions": observed}
+
+
+def _require_mac_transport(carrier):
+    if sys.platform != "darwin":
+        return
+    capability = transport_capability()
+    if not capability["available"]:
+        raise TransportError("unavailable", capability["reason"])
+    if not carrier or not gui_receipt.observed_carrier(carrier):
+        raise TransportError("unavailable", "this GUI seat needs a recent manual Desktop turn with its Relic Stop hook loaded")
 
 
 def request_path(org_id, member):
@@ -206,6 +297,7 @@ def delivery(records, request):
 
 
 def route(request, config, folder, execute=None):
+    _require_mac_transport(request.get("carrier"))
     exe = runner.find_claude()
     if not exe:
         raise TransportError("unavailable", "Claude CLI with native ListAgents/SendMessage is required")
@@ -298,6 +390,7 @@ def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, t
     if (config.get("harness") != "claude-code" or config.get("surface") != "gui" or new or
             seat.get("harness") != "claude-code" or not carrier or "/" in carrier):
         raise TransportError("unavailable", "an existing main Claude Desktop seat is required; GUI bootstrap is unsupported")
+    _require_mac_transport(carrier)
     path = request_path(org["id"], member)
     request = _read(path, strict=True)
     if request:

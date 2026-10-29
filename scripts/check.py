@@ -21,10 +21,13 @@ for name, folder in roots.items():
     if args.suite not in ('all',name):
         continue
     with tempfile.TemporaryDirectory(prefix='relic-check-') as temp:
-        env = {k:v for k,v in os.environ.items() if not k.startswith(('RELIC_', 'CODEX_'))}
+        env = {k:v for k,v in os.environ.items() if not k.startswith(('RELIC_', 'CODEX_', 'CLAUDE_'))
+               and k not in ('CLAUDECODE', 'PLUGIN_ROOT')}
         env.update(RELIC_HOME=str(Path(temp)/'relic'), RELIC_ORG_HOME=str(Path(temp)/'organization'),
-                   CODEX_HOME=str(Path(temp)/'codex'), PYTHONDONTWRITEBYTECODE='1',
+                   CODEX_HOME=str(Path(temp)/'codex'), CLAUDE_CONFIG_DIR=str(Path(temp)/'claude'),
+                   HOME=str(Path(temp)/'home'), USERPROFILE=str(Path(temp)/'home'), PYTHONDONTWRITEBYTECODE='1',
                    TEMP=temp, TMP=temp, TMPDIR=temp)
+        Path(env['HOME']).mkdir()
         start = time.monotonic()
         log_path = args.output/f'{name}.log'
         print(f'Starting {name}; timeout={args.timeout}s; log={log_path}', flush=True)

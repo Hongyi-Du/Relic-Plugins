@@ -1,15 +1,20 @@
 {
-  "version": "0.4.1-beta.1",
+  "version": "0.4.1-macos-beta.1",
   "date": "2026-10-28",
   "repository": "https://github.com/Hongyi-Du/Relic-Plugins",
   "product": "Relic",
   "plugin": {
-    "version": "0.15.1-beta.1",
+    "version": "0.15.1-macos-beta.1",
     "upstream_version": "0.15.1",
     "id": "relic@relic-bridge"
   },
-  "published_platforms": [
-    "windows"
+  "macos_status": "apple_silicon_prerelease",
+  "base_release": "0.4.1-beta.1",
+  "channel": "prerelease",
+  "target_platforms": [
+    "macos"
   ],
-  "macos_status": "unreleased_pending_real_mac_validation"
+  "macos_architectures": [
+    "arm64"
+  ]
 }

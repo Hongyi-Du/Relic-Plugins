@@ -21,6 +21,14 @@ def copy_release(dest):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_unsupported_runtime_stops_before_configuring_or_installing(self):
+        with mock.patch.object(installer.platform_support, 'require_supported_python',
+                               side_effect=RuntimeError('arm64 Python required')), \
+                mock.patch.object(installer, 'configure') as configure, mock.patch.object(installer, 'run') as run:
+            self.assertEqual(installer.main(['--host', 'none']), 1)
+            configure.assert_not_called()
+            run.assert_not_called()
+
     def test_configures_a_unicode_path_and_starts_the_mcp_server_and_hooks(self):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / 'Relic 空格 release'
@@ -61,7 +69,7 @@ class InstallerTests(unittest.TestCase):
                 mock.patch.object(installer, 'cli', lambda name: found[name]), \
                 mock.patch.object(installer, 'run', lambda command, check=True: commands.append(command) or 0), \
                 mock.patch.object(installer, 'shortcut', lambda python: None):
-            self.assertEqual(installer.main([]), 0)  # auto: Codex is not installed, Claude Code is
+            self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto: Codex is not installed, Claude Code is
             self.assertIn(['claude.exe', 'plugin', 'disable', 'relic@relic-claude'], commands)
             add = commands.index(['claude.exe', 'plugin', 'marketplace', 'add', str(installer.ROOT)])
             # an earlier registration of the marketplace (another folder) goes first, then this folder's plugin
@@ -74,7 +82,7 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'), \
                 mock.patch.object(installer, 'cli', lambda name: (_ for _ in ()).throw(AssertionError('no host'))), \
                 mock.patch.object(installer, 'shortcut', lambda python: None):
-            self.assertEqual(installer.main(['--host', 'none']), 0)
+            self.assertEqual(installer.main(['--host', 'none', '--no-shortcut']), 0)
 
 
 if __name__ == '__main__':
