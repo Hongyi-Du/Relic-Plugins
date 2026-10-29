@@ -29,6 +29,16 @@ enum RelicStyle {
     static let violetSoft = color(0xEFEBF8, 0x2E2A3D)
     static let green = color(0x3E9B5E, 0x6CC287)
     static let red = color(0xC2412D, 0xEE8A78)
+    static func avatar(_ id: String, background: Bool, dark: Bool) -> Color {
+        // app.js hue() hashes Unicode code points with unsigned 32-bit overflow.
+        let hash = id.unicodeScalars.reduce(UInt32(7)) { ($0 &* 31) &+ $1.value }
+        let hues = [18, 30, 42, 205, 222, 248, 272, 300, 330, 350, 190, 12]
+        let hue = Double(hues[Int(hash % UInt32(hues.count))]) / 360
+        let saturation: Double = background ? (dark ? 0.18 : 0.40) : (dark ? 0.45 : 0.38)
+        let lightness: Double = background ? (dark ? 0.24 : 0.90) : (dark ? 0.78 : 0.34)
+        let value = lightness + saturation * min(lightness, 1 - lightness)
+        return Color(hue: hue, saturation: value == 0 ? 0 : 2 * (1 - lightness / value), brightness: value)
+    }
     static func state(_ value: String) -> Color {
         switch value { case "working", "running", "active": return green; case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
     }

@@ -3,6 +3,9 @@ import RelicCore
 
 struct DetailsView: View {
     @EnvironmentObject var m: Model
+    private func tasks(_ filter: String) -> [Node] {
+        m.snapshot["tasks"].rows.filter { filter == "all" || (filter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == filter) }
+    }
     var body: some View {
         VStack(alignment: .leading) {
             Text(m.snapshot["org"]["name"].text).font(.title2)
@@ -11,10 +14,10 @@ struct DetailsView: View {
             }.pickerStyle(.segmented)
             switch m.detailTab {
             case "tasks":
-                Picker(m.t("common.tasks"), selection: $m.detailFilter) { Text(m.t("task.working")).tag("open"); Text(m.t("task.blocked")).tag("blocked"); Text(m.t("details.filter_done")).tag("done"); Text(m.t("common.all")).tag("all") }.pickerStyle(.segmented)
+                Picker(m.t("common.tasks"), selection: $m.detailFilter) { Text(m.t("task.working") + " " + String(tasks("open").count)).tag("open"); Text(m.t("task.blocked") + " " + String(tasks("blocked").count)).tag("blocked"); Text(m.t("details.filter_done") + " " + String(tasks("done").count)).tag("done"); Text(m.t("common.all") + " " + String(tasks("all").count)).tag("all") }.pickerStyle(.segmented)
                 ScrollView { VStack(alignment: .leading, spacing: 12) {
                     if m.snapshot["tasks"].rows.isEmpty { Text(m.t("details.no_tasks")) }
-                    Rows(Array(m.snapshot["tasks"].rows.filter { m.detailFilter == "all" || (m.detailFilter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == m.detailFilter) }.reversed())) { TaskCard(task: $0) }
+                    Rows(Array(tasks(m.detailFilter).reversed())) { TaskCard(task: $0) }
                 } }
             case "protocols": ScrollView { ProtocolList() }
             case "docs": DocumentsView()

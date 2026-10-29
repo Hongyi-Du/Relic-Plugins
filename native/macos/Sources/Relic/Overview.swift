@@ -165,7 +165,7 @@ struct TaskCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(m.t("details.label_title") + task["title"].text)
                 if !task["created_by"].text.isEmpty { Text(m.t("details.label_created_by") + m.name(task["created_by"].text)) }
-                if !task["report"].text.isEmpty { Text(m.t("report.title")).bold(); RichText(task["report"].text); Text(m.day(task["done_at"]) + " " + m.clock(task["done_at"])).font(.caption).foregroundStyle(RelicStyle.muted) }
+                if !task["report"].text.isEmpty { VStack(alignment: .leading, spacing: 8) { HStack { Label(m.t("report.title"), systemImage: "checkmark").font(.system(size: 12, weight: .semibold)); Text(m.day(task["done_at"]) + " " + m.clock(task["done_at"])).font(.caption).foregroundStyle(RelicStyle.muted) }; RichText(task["report"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.green.opacity(0.3))) }
                 if !task["at"].text.isEmpty { Text(m.t("details.updated", ["when": m.day(task["at"]) + " " + m.clock(task["at"])])) }
                 Text(m.t("details.label_evidence")).bold()
                 if task["evidence"].rows.isEmpty { Text(m.t("details.no_evidence")) }
@@ -190,7 +190,7 @@ struct ProtocolList: View {
             ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { key in
                 if !m.snapshot[key].rows.isEmpty {
                     if key != "protocols" { Text(m.t(key == "inherited_protocols" ? "details.inherited_title" : "details.replaced_title")).bold() }
-                    Rows(m.snapshot[key].rows) { p in ProtocolCard(protocolItem: p) }
+                    Rows(key == "protocols" && m.sheet == .details ? Array(m.snapshot[key].rows.reversed()) : m.snapshot[key].rows) { p in ProtocolCard(protocolItem: p) }
                 }
             }
         }
@@ -213,7 +213,12 @@ struct ProtocolCard: View {
                 if p["supersedes"].text.contains("/") { Text(m.t("org.protocol_overrides", ["ref": m.protocolReference(p["supersedes"].text)])) }
                 if !p["retire_target"].text.isEmpty { Text(m.t("details.label_retires") + p["retire_target"].text) }
                 if !p["trigger"].text.isEmpty { Text(m.t("details.label_applies") + p["trigger"].text) }
-                RichText(p["guidance"].text); RichText(p["summary_for_person"].text)
+                RichText(p["guidance"].text)
+                if !p["summary_for_person"].text.isEmpty { VStack(alignment: .leading, spacing: 5) { Text(m.t("details.label_summary")).font(.caption).foregroundStyle(RelicStyle.muted); RichText(p["summary_for_person"].text) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
+                if !p["rules"].rows.isEmpty {
+                    let metadata = p["rules"].rows.map { rule in rule["effect"].text == "check" ? rule.object.filter { !["code", "examples", "code_sha256"].contains($0.key) } : rule.object }
+                    Text(pretty(Node(metadata))).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8))
+                }
                 RulesView(rules: p["rules"].rows)
                 if p["rules"].rows.contains(where: { $0["effect"].text == "check" }) { Text(m.t("org.protocol_check")).font(.caption) }
                 if p["status"].text == "active" { Text(m.t("org.protocol_used", ["n": p["uses"].text])) }
@@ -238,20 +243,20 @@ struct RulesView: View {
     let rules: [Node]
     @State private var expanded = false
     var body: some View {
-        Rows(rules) { rule in
+        Rows(rules.filter { $0["effect"].text == "check" }) { rule in
             DisclosureGroup(m.t(rule["effect"].text == "check" ? "cc.code" : "org.protocols"), isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(m.t("cc.scope", ["what": m.ruleScope(rule)]))
                     if rule["effect"].text == "check" {
                         Text(m.t(rule["on_error"].text == "allow" ? "cc.on_error_allow" : "cc.on_error_deny"))
                         Text(rule["code"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        Text(m.t("cc.examples")).bold()
+                        if !rule["code_sha256"].text.isEmpty { Text("sha256 " + String(rule["code_sha256"].text.prefix(16)) + "…").font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).help(rule["code_sha256"].text) }
+                        if !rule["examples"].rows.isEmpty { Text(m.t("cc.examples")).bold() }
                         Rows(rule["examples"].rows) { example in
                             Text(m.t(example["expect"].text == "allow" ? "cc.decision_allow" : example["expect"].text == "deny" ? "cc.decision_deny" : "cc.decision_review")).bold()
                             Text(pretty(example)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                         }
                     }
-                    Text(pretty(rule)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.onAppear { expanded = m.expandRules }

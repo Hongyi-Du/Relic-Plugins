@@ -4,6 +4,23 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
+    func testMentionAnchorStaysInTextCoordinatesAfterMovingEditor() {
+        let editor = ComposerTextView(frame: NSRect(x: 400, y: 500, width: 600, height: 100))
+        editor.font = .systemFont(ofSize: 14)
+        editor.textContainerInset = NSSize(width: 6, height: 6)
+        editor.string = "@"; editor.setSelectedRange(NSRange(location: 1, length: 0))
+        let first = editor.mentionAnchorRect()
+        XCTAssertGreaterThan(first.width, 0)
+        XCTAssertLessThan(first.maxX, 50)
+        XCTAssertLessThan(first.maxY, 40)
+        editor.setFrameOrigin(NSPoint(x: 800, y: 900))
+        XCTAssertEqual(editor.mentionAnchorRect(), first)
+        editor.string = "前一行\n@工"; editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        let second = editor.mentionAnchorRect()
+        XCTAssertGreaterThan(second.minY, first.minY)
+        XCTAssertEqual(second.minX, first.minX, accuracy: 1)
+    }
+
     func testBareAtOffersMembersAndQueryMatchesDisplayOrSeatName() {
         let editor = ComposerTextView()
         editor.members = [Node(["name": "engineer", "display": "工程师"]), Node(["name": "designer", "display": "设计师"])]

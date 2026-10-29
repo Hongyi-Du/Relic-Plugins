@@ -1,31 +1,64 @@
 # macOS 原生 Relic App：功能记录与视觉重做
 
-## Amendment 3：视觉验收重新打开
+## Amendment 3：macOS 已验证，完整三方验收被共享问题阻塞
 
-用户已拒绝 Windows 候选的视觉质量。以下旧记录中的“完成”仅指功能/契约实现，
-不代表页面可用性或视觉验收。macOS 正在按参考 `app.css` 重做样式，并使用共享
-`scripts/visual/scenes.json` 的 42 场景、双语言、双主题、三尺寸矩阵进行 CI 截图。
-当前视觉验收未完成；最终结论必须以实际查看三方对比图为准。
+更新：2026-10-29。分支 `native-macos`；本会话只修改 `native/macos/**`。
+已包含本次核验时本地及 origin 最新的 `native-apps`（`5e02738`）。应用使用共享
+Python 引擎、HTTP/SSE 契约与 `/api/i18n` 词库。没有浏览器或 WebView 界面。
+**不能宣布 Amendment 3 全部完成：完整三方视觉工作流仍失败，真 Mac 交互尚待验收。**
 
-已改动：参考色板/密度、紧凑组织树、图标工具栏、气泡和静默事件、收件人标签、
-原生弹出菜单、分栏宽度及可缩放对话框。新增词条完整性 XCTest；原始键不再作为
-显示文本回退。截图入口 `VisualCapture.swift` 仅在 GitHub Actions 使用共享 fixture。
+已按实际截图重做：紧凑组织树及参考头像色板/状态点、图标工具栏、消息气泡/事件行、
+收件人标签/引用/@ 候选、三栏及原生分页、决策/协议/抄送卡片、文件与轨迹、
+成员表单/已有会话列表/秘书选择、全部七节设置。长说明换行，长名称/路径提供
+省略或完整 tooltip。输入框的麦克风、发送和收件人保持紧凑；空输入框没有滚动条。
+任务筛选和抄送显示数量。修复了长摘要越界、短代码居中、聊天缩放后丢失末尾、
+成员配置空选项、协议代码重复显示及 @ 候选偏离光标。原始词条键不作为显示回退。
 
-当前证据（仍在迭代）：
+本次代码证据：
 
-- `5396cfb` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40868069353)
-  构建、测试、打包和 parity 全部通过，macOS 为 53 个 XCTest。
-- [七场景三方 smoke](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40865319424)
-  已通过并实际看图。文件在 `S:\Codex\Outputs\Relic-native-visual\iteration-04\comparisons`。
-- `b32ccac` 全量捕获留下的 34 张中文浅色原生截图在
-  `S:\Codex\Outputs\Relic-native-visual\iteration-05\visual-macos`，已逐页检查主要页面、
-  表单、七节设置、文件、任务/协议/文档、抄送、组织图、收件人和引用。
-- 该轮发现并修复：系统拼写补全阻塞 `@` 场景、弹出层背景、消息元数据和气泡密度、
-  文件与表格布局、表单提交按钮、秘书卡片、关于页元数据丢失、取消加载错误泄漏。
-  后两项另加回归测试；最新代码仍须后续 CI 及全矩阵看图确认。
-- 已合入 `native-apps` 的 `441e6a7`。共享参考成员名片锚点、Windows 控件重挂载已修复；
-  平台诊断翻译及参考 plain 场景偏好修正详见 `REQUESTS.md`。
-- **尚未声称 504 组视觉验收完成，尚未将 PR #4 标为可合并。**
+- 代码 `f7a6bfd` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519547)
+  三个作业全部通过：macOS、Windows、parity。macOS 为 **57 个 XCTest，0 失败**，
+  包含双词库完整性、真实 payload/SSE、输入/草稿/导航以及 @ 锚点与 UTF-16 测试。
+- 同代码的 [共享 Python/package CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519557)
+  全部通过。parity 覆盖 **52 条路由、686 个词条、214 个参考函数**，缺失项为 0。
+- 同代码的 [完整视觉运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40882519398)
+  macOS 四个作业全部通过：**42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
+  Reference 也有 504 张；Windows 仅中文浅色 126 张完成，其他三个变体启动失败，
+  compare 作业被跳过。**504 组三方合成 gate 没有通过。**
+- 已逐页查看 42 场景中文浅色、42 场景英文深色的三方诊断对照；另外复核了
+  七节新设置、各尺寸文件/摘要/群聊、明暗主题与最新 @ 弹出位置、数量徽标。
+  没有把“自动生成 504 张”写成“人工逐像素验收了全部 504 张”。
+
+下载与审阅入口（均未在本机打开窗口）：
+
+- `S:\Codex\Outputs\Relic-native-visual\review-40882519398\index.html`：同一完整 CI 的
+  **504 场景诊断图**，由下载的原图本地合成。126 组有三列实际图片；另外 378 组
+  Windows 空位明确写出捕获失败。没有混入旧版本填补缺失，不是最终验收通过集。
+  `coverage.json` 记录全部缺失文件及来源。
+- `S:\Codex\Outputs\Relic-native-visual\smoke-40881418693\index.html`：下载的
+  [已通过七场景三方 CI artifact](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40881418693)。
+  该轮代码 `b0dbc3d`，早于最后的数量徽标和 @ 锚点修复，不能代替完整矩阵。
+- `S:\Codex\Outputs\Relic-native-visual\macos-app-f7a6bfd\relic-native-macos-v0.7.1-beta.1.zip`：
+  CI 产出的 unsigned arm64 应用包，未在这台电脑安装或启动。
+- 原始图片和各轮审阅图在 `iteration-10` 至 `iteration-13`；旧轮次仅作问题诊断证据。
+
+共享阻塞与剩余差别：
+
+1. Windows 启动连续三轮出现 `Received an invalid status line: '<!DOCTYPE HTML>'`。
+   `REQUESTS.md` 已记录调用栈及静态诊断：`PostAsJsonAsync` 的 chunked 请求体与
+   仅读取 Content-Length 的服务端不匹配；请求改用缓冲 JSON 请求体并加 CI 回归。
+   该修复在 Windows/共享代码所有权范围内，本分支没有越界修改。
+2. `documents` 场景中参考与 Windows 未选择文档正文，macOS 已加载首篇文档；
+   已请求共享捕获脚本通过真实控件选中文档后截图，API 不变。
+3. macOS 使用系统菜单/SF Symbols、原生分页和控件。应用内 File/Edit/View/Help
+   收进紧凑菜单；成员名片是居中 sheet。组织图图标、任务元数据位置、部分行高
+   和日期格式仍与网页不同，未宣称逐像素一致。
+4. CI 捕获真实 NSHostingView/AppKit 内容及 sheet/popover，一像素/点；不包含
+   Dock、系统菜单栏和标题栏，也不能验证真实权限提示、麦克风、通知、输入法、
+   VoiceOver 或提供方会话。本人或 HaochenGu 的 Mac 仍须按文末清单验收。
+
+本机没有启动应用、浏览器、编辑器、可见终端、权限弹窗或本地 Python/native 测试。
+未创建/合并 PR；Windows 会话仍负责合入本分支、共享修复和唯一 PR #4。
 
 ## 先前功能/契约验证记录
 

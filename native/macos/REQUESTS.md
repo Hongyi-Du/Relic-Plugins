@@ -42,13 +42,54 @@ confirmed the same native mention stall from `40866009267` (34 PNGs, last `quote
 NSPopover/SwiftUI member list, including avatars and keyboard selection. No
 mock screen or screenshot-only UI is used. Full capture is being rerun.
 
+### Active: Windows HTTP startup failure, repeated in three full runs
+
+At `fc4fd58`, all four macOS shards and three Windows shards completed, but
+Windows zh-CN/dark failed before native capture with `HttpRequestException:
+Received an invalid status line: '<!DOCTYPE HTML>'`, from `Client.Get` lines
+63/64 and `MainWindow.<.ctor>b__185_12` line 132. Please inspect the shared
+server's HTTP connection framing/response and the Windows startup request.
+This is a different failure from the earlier menu automation access violation.
+The run's failed job log and `visual-windows-zh-CN-dark` artifact preserve evidence.
+No macOS route or manifest change is requested; another full comparison follows
+the shared repair. Native builds/tests/parity passed at `40877622668`.
+
+Static diagnosis: Windows `Client.Post` uses `PostAsJsonAsync`, whose streaming
+JSON content can use `Transfer-Encoding: chunked`. `Handler._body` only reads
+`Content-Length`; absent length becomes `{}`, leaving chunk bytes in the reused
+HTTP/1.1 connection. The next GET can then receive Python's HTML parser error.
+Please send the serialized UTF-8 body with an explicit/computable Content-Length
+(e.g. buffered JSON StringContent), and add a CI regression for POST then GET on
+one keep-alive connection. macOS already assigns Data to URLRequest.httpBody.
+This diagnosis is source-based; no local server or test was run.
+
+The same error reproduced in `40880037477` (zh-CN/dark), then `40882519398`
+(zh-CN/dark, en-US/light, en-US/dark). It is not limited to one locale/theme.
+All reference captures complete before this Windows startup error. The latest
+macOS source is `f7a6bfd`, with 57 passing XCTest cases and native builds/parity
+green at `40882519547`; its full native captures are independent of this failure.
+
+### Active: capture a selected document in the shared `documents` scene
+
+The 42-scene English/dark comparison at `40875042406` shows empty document bodies
+in reference and Windows while macOS selects the first document and shows its
+revision/body. Please make `documents` exercise the real document detail on all
+clients. After `await openDetails('docs')`, the reference can click the actual
+`.details .left .chat-row` button (verify the enclosing details class from
+`app.js:2390`), then wait for `.doc-body`. Windows should invoke its existing
+first-document selection. Do not replace the renderer or inject body markup.
+The API is unchanged: `/api/org/<id>/document?key=review-plan` (use existing
+`orgPath('/document?key=' + enc(key))`, not a new route). macOS already invokes
+that real GET when DocumentsView selects the first key. No missing fixture data.
+
 ### Shared visual review note addressed: Settings row structure
 
 The macOS Settings profile/notify/voice/about note from `2494e9d` is applied.
 All seven settings sections now use compact native rows: label and helper text
 on the left, controls on the right; avatar/name controls share their own row,
 voice uses an inline microphone, and adapter diagnostics use expandable cards.
-The runtime controls and API payloads are unchanged. CI capture review follows
+The runtime controls and API payloads are unchanged. macOS also adopts the
+exact reference UInt32/Unicode avatar hash and HSL palette from `612e97c`. CI capture review follows
 with the next full run; the old stacked Form screenshots are not final evidence.
 
 ### Fix merged in `e4bb502`, awaiting capture: Windows automation peer crash (`40873502291`)

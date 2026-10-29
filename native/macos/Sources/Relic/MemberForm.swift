@@ -55,9 +55,9 @@ struct MemberForm: View {
                 options = try await m.get("/api/seat-options"); permission = options["claude_modes"].rows.first?.text ?? ""
                 if !m.editMember.isEmpty {
                     let card = try await m.get(m.path("/member/" + Client.segment(m.editMember))); original = card["config"]
-                    name = m.editMember; role = card["role"].text; hostHarness = original["harness"].text; surface = original["surface"].text
+                    name = m.editMember; role = card["role"].text; hostHarness = original["harness"].text.isEmpty ? "claude-code" : original["harness"].text; surface = original["surface"].text.isEmpty ? "cli" : original["surface"].text
                     model = original["model"].text; effort = original["effort"].text; folder = original["folder"].text
-                    environment = original["environment"].text; permission = original["permission"].text
+                    environment = original["environment"].text.isEmpty ? "local" : original["environment"].text; permission = original["permission"].text.isEmpty ? (options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "") : original["permission"].text
                     env = original["env"].object.sorted { $0.key < $1.key }.map { $0.key + "=" + Node($0.value).text }.joined(separator: "\n")
                 }
             }
@@ -77,30 +77,43 @@ struct MemberForm: View {
         if loading { Text(m.t("member.finding_sessions")) }
         if !loading && sessions.isEmpty { Text(m.t("member.no_sessions")) }
         if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined().localizedCaseInsensitiveContains(search) }) { Text(m.t("member.no_match")) }
-        Picker(m.t("common.session"), selection: $sessionIndex) {
-            Text(m.t("member.pick_session")).tag("")
-            ForEach(Array(sessions.enumerated()), id: \.offset) { index, session in
-                if search.isEmpty || [session["title"].text, session["cwd"].text, session["id"].text].joined().localizedCaseInsensitiveContains(search) {
-                    Text(sessionLabel(session)).tag(String(index))
+        VStack(alignment: .leading, spacing: 7) {
+            Text(m.t("common.session")).font(.system(size: 12, weight: .medium))
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(Array(sessions.enumerated()), id: \.offset) { index, session in
+                        if search.isEmpty || [session["title"].text, session["cwd"].text, session["id"].text].joined().localizedCaseInsensitiveContains(search) {
+                            Button { sessionIndex = String(index) } label: {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "terminal").foregroundStyle(RelicStyle.muted)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(session["title"].text.isEmpty ? session["id"].text : session["title"].text).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                                        Text(session["harness"].text + " · " + session["cwd"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle)
+                                    }; Spacer(minLength: 0)
+                                    if sessionIndex == String(index) { Image(systemName: "checkmark.circle.fill").foregroundStyle(RelicStyle.accent) }
+                                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                            }.buttonStyle(QuietButtonStyle(selected: sessionIndex == String(index))).help(sessionLabel(session))
+                        }
+                    }
                 }
-            }
-        }
-        Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary)
+            }.frame(height: CGFloat(min(180, max(60, sessions.count * 66))))
+        }.accessibilityLabel(m.t("member.pick_session"))
+        if !problems.isEmpty { Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary) }
         HStack {
-            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name)
+            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name).help(name.isEmpty ? m.t("member.seat_placeholder") : name)
             Menu { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } } label: { Image(systemName: "chevron.down") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("member.which_seat")).accessibilityLabel(m.t("member.which_seat"))
         }
-        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role)
+        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role).help(role.isEmpty ? m.t("member.role_placeholder") : role)
     }
 
     @ViewBuilder private var appFields: some View {
-        Picker(m.t("common.harness"), selection: $harness) { Rows(harnesses.filter { !$0["later"].flag }) { Text($0["title"].text + ($0["available"].flag ? "" : " · " + $0["problem"].text)).tag($0["id"].text).disabled(!$0["available"].flag) } }
+        Picker(m.t("common.harness"), selection: $harness) { if harness.isEmpty { Text(m.t("member.need_harness")).tag("") }; Rows(harnesses.filter { !$0["later"].flag }) { Text($0["title"].text + ($0["available"].flag ? "" : " · " + $0["problem"].text)).tag($0["id"].text).disabled(!$0["available"].flag) } }
         Rows(harnesses.filter { !$0["available"].flag && !$0["later"].flag }) { Text($0["title"].text + " · " + $0["problem"].text).font(.caption).foregroundStyle(.secondary) }
         if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(.caption) }
         DisclosureGroup(m.t("member.later_acp")) { Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text) } }
         TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
-        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder)
+        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.folder_placeholder") : folder)
         Toggle(m.t("member.make_secretary"), isOn: $secretary)
     }
 
@@ -119,7 +132,7 @@ struct MemberForm: View {
             }
         }
         Picker(m.t("member.effort"), selection: $effort) { Rows(options["efforts"].rows) { Text($0.text.isEmpty ? m.t("common.default_effort") : $0.text).tag($0.text) } }
-        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder)
+        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.host_folder_placeholder") : folder)
         Picker(m.t("member.environment"), selection: $environment) { Text(m.t("member.env_local")).tag("local"); Text(m.t("member.env_worktree")).tag("worktree") }
         Picker(m.t("member.permission"), selection: $permission) { Rows(options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows) { Text($0.text).tag($0.text) } }
         TextField(m.t("member.env_vars"), text: $env, prompt: Text(m.t("member.env_placeholder")), axis: .vertical)

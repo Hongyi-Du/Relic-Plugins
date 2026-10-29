@@ -9,7 +9,6 @@ struct Avatar: View {
     @State private var image: NSImage?
     @Environment(\.colorScheme) private var scheme
     private var secretary: Bool { m.members.first(where: { $0["name"].text == member })?["secretary"].flag ?? false }
-    private var hue: Double { Double(member.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % 360 }) / 360 }
     private var cacheKey: String {
         let avatar = m.members.first(where: { $0["name"].text == member })?["avatar"].text ?? ""
         return [m.organization, member, m.preferences["avatar"].text, avatar].joined(separator: "/")
@@ -18,8 +17,8 @@ struct Avatar: View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
             else { Text(String(m.name(member).prefix(1))).font(.system(size: size * 0.43, weight: .semibold)).frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(member == "human" ? RelicStyle.background : secretary ? RelicStyle.violet : Color(hue: hue, saturation: 0.38, brightness: scheme == .dark ? 0.85 : 0.45))
-                .background(member == "human" ? RelicStyle.ink : secretary ? RelicStyle.violetSoft : Color(hue: hue, saturation: scheme == .dark ? 0.18 : 0.12, brightness: scheme == .dark ? 0.27 : 0.94)) }
+                .foregroundStyle(member == "human" ? RelicStyle.background : secretary ? RelicStyle.violet : RelicStyle.avatar(member, background: false, dark: scheme == .dark))
+                .background(member == "human" ? RelicStyle.ink : secretary ? RelicStyle.violetSoft : RelicStyle.avatar(member, background: true, dark: scheme == .dark)) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.25))
             .task(id: cacheKey) {
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
@@ -228,13 +227,13 @@ struct MessageView: View {
                     }.font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 6) {
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
-                    else if wantsPlain, let plain = m.plain[item["id"].text] { RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
+                    else if wantsPlain, let plain = m.plain[item["id"].text] { Label(m.t("common.plain_words"), systemImage: "sparkles").font(.system(size: 11)).foregroundStyle(RelicStyle.violet); RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
                     else { RichText(bodyText) }
                     if wantsPlain && m.plain[item["id"].text] == nil {
                         if m.plainFailed.contains(item["id"].text) { Button(m.t("plain.retry")) { m.run { try await m.requestPlain([item["id"].text]) } } }
                         else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(.caption) }
                     }
-                    }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
+                    }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
                     if item["from"].text == "human" && !item["read_by"].isNull {
                         DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
                             Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(.caption)
@@ -346,7 +345,7 @@ struct ComposerView: View {
     let send: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))

@@ -11,7 +11,7 @@ struct MentionEditor: NSViewRepresentable {
     let send: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         let editor = ComposerTextView()
         editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor.labelColor; editor.insertionPointColor = NSColor.labelColor
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
@@ -67,17 +67,24 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
     }
     func showMentionSuggestions() {
         let range = rangeForUserCompletion
-        guard range.location != NSNotFound, let window else { closeMentions(); return }
+        guard range.location != NSNotFound, window != nil else { closeMentions(); return }
         suggestions = mentionCandidates()
         guard !suggestions.isEmpty else { closeMentions(); return }
         completing = true; suggestionIndex = min(suggestionIndex, suggestions.count - 1)
         if mentionPopover == nil { let popover = NSPopover(); popover.behavior = .transient; popover.animates = false; popover.delegate = self; mentionPopover = popover }
         renderMentions()
         if mentionPopover?.isShown != true {
-            let caret = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
-            let rect = convert(window.convertFromScreen(caret), from: nil)
-            mentionPopover?.show(relativeTo: rect, of: self, preferredEdge: .minY)
+            mentionPopover?.show(relativeTo: mentionAnchorRect(), of: self, preferredEdge: .minY)
         }
+    }
+    func mentionAnchorRect() -> NSRect {
+        let range = rangeForUserCompletion
+        guard range.location != NSNotFound, let manager = layoutManager, let container = textContainer else { return NSRect(origin: textContainerOrigin, size: NSSize(width: 1, height: 18)) }
+        // Keep the anchor in this text view's coordinates. Screen-coordinate
+        // input-method rectangles can lag a moved/resized SwiftUI hosting window.
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
+        return manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
     func mentionCandidates() -> [Node] {
         let range = rangeForUserCompletion
@@ -86,7 +93,10 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
         return Array(members.filter { query.isEmpty || $0.display.lowercased().contains(query) || $0["name"].text.lowercased().contains(query) }.prefix(8))
     }
     private func renderMentions() {
-        mentionPopover?.contentViewController = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
+        let controller = NSHostingController(rootView: MentionSuggestions(members: suggestions, selected: suggestionIndex) { [weak self] index in self?.chooseMention(index) })
+        controller.view.layoutSubtreeIfNeeded()
+        mentionPopover?.contentViewController = controller
+        mentionPopover?.contentSize = controller.view.fittingSize
     }
     private func chooseMention(_ index: Int) {
         guard suggestions.indices.contains(index) else { closeMentions(); return }
@@ -105,6 +115,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
 }
 
 private struct MentionSuggestions: View {
+    @Environment(\.colorScheme) private var scheme
     let members: [Node]
     let selected: Int
     let choose: (Int) -> Void
@@ -113,7 +124,7 @@ private struct MentionSuggestions: View {
             ForEach(Array(members.enumerated()), id: \.offset) { index, member in
                 Button { choose(index) } label: {
                     HStack(spacing: 9) {
-                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 7))
+                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(member["secretary"].flag ? RelicStyle.violet : RelicStyle.avatar(member["name"].text, background: false, dark: scheme == .dark)).background(member["secretary"].flag ? RelicStyle.violetSoft : RelicStyle.avatar(member["name"].text, background: true, dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 7))
                         VStack(alignment: .leading, spacing: 2) { Text(member.display).font(.system(size: 13, weight: .medium)); Text(member["role"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
                         Spacer(minLength: 0)
                     }.padding(7).frame(maxWidth: .infinity, alignment: .leading)
