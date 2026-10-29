@@ -1,0 +1,126 @@
+using Microsoft.UI;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+using Relic.Core;
+
+namespace Relic;
+
+public sealed partial class MainWindow
+{
+    private readonly Border sidebarSurface = new(), inspectorSurface = new(), composerSurface = new();
+    private readonly Grid inspector = new(), paneHeader = new(), quoteRow = new();
+    private readonly StackPanel sidebarFooter = new() { Spacing = 4, Padding = new Thickness(12, 8, 12, 12) };
+    private bool Dark => root.ActualTheme == ElementTheme.Dark;
+    private SolidColorBrush Paint(string light, string dark = "")
+    {
+        var hex = Dark && dark.Length > 0 ? dark : light;
+        return new(Windows.UI.Color.FromArgb(255, Convert.ToByte(hex.Substring(0, 2), 16), Convert.ToByte(hex.Substring(2, 2), 16), Convert.ToByte(hex.Substring(4, 2), 16)));
+    }
+    private SolidColorBrush Ink => Paint("1B1B1A", "ECEAE5");
+    private SolidColorBrush Muted => Paint("8F8C86", "8A877F");
+    private SolidColorBrush Line => Paint("ECEAE6", "2C2B29");
+    private SolidColorBrush Accent => Paint("C8643F");
+    private TextBlock Quiet(string value, double size = 12) { var t = Text(value, size); t.Foreground = Muted; return t; }
+    private TextBlock Ellipsis(string value, double size = 13)
+    {
+        var t = Text(value, size); t.TextWrapping = TextWrapping.NoWrap; t.TextTrimming = TextTrimming.CharacterEllipsis;
+        ToolTipService.SetToolTip(t, value); return t;
+    }
+    private TextBlock Heading(string value, double size = 14) { var t = Text(value, size); t.FontWeight = FontWeights.SemiBold; return t; }
+    private FontIcon Glyph(string glyph, double size = 16) => new() { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = size };
+    private Button IconButton(string glyph, string key, Func<Task> action, string? tooltip = null)
+    {
+        var b = Button("", action); b.Content = Glyph(glyph); b.Width = 30; b.Height = 30;
+        b.Padding = new Thickness(5); b.BorderThickness = new Thickness(0); b.Background = new SolidColorBrush(Colors.Transparent);
+        AutomationProperties.SetName(b, T(key)); ToolTipService.SetToolTip(b, tooltip ?? T(key)); return b;
+    }
+    private Button QuietButton(string label, Func<Task> action)
+    {
+        var b = Button(label, action); b.Background = new SolidColorBrush(Colors.Transparent); b.BorderThickness = new Thickness(0);
+        b.Padding = new Thickness(6, 3, 6, 3); return b;
+    }
+    private Border Card(UIElement child, bool highlighted = false) => new()
+    {
+        Child = child, Padding = new Thickness(12), CornerRadius = new CornerRadius(10),
+        Background = highlighted ? Paint("FBF3E2", "3A3020") : Paint("FFFFFF", "252523"),
+        BorderBrush = highlighted ? Paint("E9D5AC", "66522C") : Line, BorderThickness = new Thickness(1)
+    };
+    private Border Badge(string text, bool accent = false) => new()
+    {
+        Child = new TextBlock { Text = text, FontSize = 11, Foreground = accent ? Accent : Paint("5A5853", "B8B5AE"), TextWrapping = TextWrapping.Wrap },
+        Background = accent ? Paint("F9EEE8", "392B25") : Paint("F4F3F0", "2A2A28"), Padding = new Thickness(6, 2, 6, 2), CornerRadius = new CornerRadius(5), HorizontalAlignment = HorizontalAlignment.Left
+    };
+    private UIElement SmallAvatar(string url, string name, string state = "", int size = 26)
+    {
+        var box = new Grid { Width = size, Height = size };
+        box.Children.Add(Avatar(url, name, size));
+        if (state.Length > 0 && state != "idle") box.Children.Add(new Ellipse
+        {
+            Width = 7, Height = 7, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+            Stroke = Paint("F8F7F5", "191918"), StrokeThickness = 1.5,
+            Fill = state switch { "working" or "running" or "active" => Paint("3E9B5E", "6CC287"), "waiting" => Paint("B7791F", "E2B15A"), "error" => Paint("C2412D", "EE8A78"), _ => Muted }
+        });
+        return box;
+    }
+    private void ThemeSurfaces()
+    {
+        root.Background = Paint("FFFFFF", "1F1F1E");
+        sidebarSurface.Background = Paint("F8F7F5", "191918"); sidebarSurface.BorderBrush = Line;
+        inspectorSurface.Background = Paint("FFFFFF", "1F1F1E"); inspectorSurface.BorderBrush = Line;
+        composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");
+        menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918");
+        editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
+    }
+    private void DrawPaneHeader()
+    {
+        paneHeader.Children.Clear(); paneHeader.ColumnDefinitions.Clear();
+        paneHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        paneHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var tabs = new SelectorBar { Margin = new Thickness(4, 0, 0, 0) };
+        foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") })
+            tabs.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = pane == id, FontSize = 12, Padding = new Thickness(6, 8, 6, 8) });
+        tabs.SelectionChanged += async (_, _) => { var target = tabs.SelectedItem?.Tag?.ToString(); if (target != null && pane != target) await Run(() => SetPane(target)); };
+        paneHeader.Children.Add(tabs);
+        var close = IconButton("\uE711", pane == "thread" ? "panel.close_thread" : "panel.hide", () => pane == "thread" ? SetPane(previousPane) : TogglePanel(), T("panel.hide_title"));
+        Grid.SetColumn(close, 1); close.Margin = new Thickness(0, 5, 5, 5); paneHeader.Children.Add(close);
+    }
+    private Grid TwoColumns(UIElement left, UIElement right)
+    {
+        var row = new Grid { ColumnSpacing = 8 };
+        row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.Children.Add(left); Grid.SetColumn((FrameworkElement)right, 1); row.Children.Add(right); return row;
+    }
+}
+
+// Native panel for short action rows. Unlike a horizontal StackPanel it measures
+// against the available width and moves actions to the next line when necessary.
+public sealed class ActionRow : Panel
+{
+    public double Spacing { get; set; } = 6;
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size available)
+    {
+        double x = 0, y = 0, row = 0, widest = 0;
+        foreach (var child in Children)
+        {
+            child.Measure(new(available.Width, double.PositiveInfinity)); var size = child.DesiredSize;
+            if (x > 0 && x + size.Width > available.Width) { widest = Math.Max(widest, x); x = 0; y += row + Spacing; row = 0; }
+            x += size.Width + Spacing; row = Math.Max(row, size.Height);
+        }
+        return new(Math.Min(available.Width, Math.Max(widest, Math.Max(0, x - Spacing))), y + row);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size final)
+    {
+        double x = 0, y = 0, row = 0;
+        foreach (var child in Children)
+        {
+            var size = child.DesiredSize;
+            if (x > 0 && x + size.Width > final.Width) { x = 0; y += row + Spacing; row = 0; }
+            child.Arrange(new(x, y, Math.Min(size.Width, final.Width), size.Height)); x += size.Width + Spacing; row = Math.Max(row, size.Height);
+        }
+        return final;
+    }
+}

@@ -11,21 +11,23 @@ public sealed partial class MainWindow
     {
         if (org.Length == 0) return;
         var o = snap["org"]; var members = snap.Rows("members"); var tasks = snap.Rows("tasks");
-        detail.Children.Add(Text(T("org.heading") + " · " + o.Text("name"), 20));
+        detail.Children.Add(Heading(o.Text("name"), 17));
         var mode = Choice(detail, "org.view_mode", [("direct", T("org.mode_direct")), ("transparent", T("org.mode_transparent")), ("liaison", T("org.mode_liaison"))]); SetChoice(mode, viewMode);
         mode.SelectionChanged += async (_, _) => { viewMode = Value(mode); SaveViewState(); if (viewMode == "liaison" && o.Text("secretary").Length > 0) await Run(() => Select(org, o.Text("secretary"))); else DrawDetail(); };
-        var purpose = new Expander { Header = o.Text("purpose").Length > 0 ? o.Text("purpose").Split('\n')[0] : T("org.no_purpose"), Content = Rich(o.Text("purpose")), HorizontalAlignment = HorizontalAlignment.Stretch }; ToolTipService.SetToolTip(purpose, T("org.click_expand")); detail.Children.Add(purpose);
+        var purpose = Text(o.Text("purpose").Length > 0 ? o.Text("purpose") : T("org.no_purpose"), 13); purpose.MaxLines = 5; purpose.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(purpose, o.Text("purpose")); detail.Children.Add(purpose);
         detail.Children.Add(Text(T(o.Text("kind") == "subgroup" ? "org.kind_subgroup" : "org.kind_formal") + " · " + T(o.Text("governance") == "peer" ? "org.gov_peer" : "org.gov_leader") + " · " + T("common.members", ("n", members.Count)), 12));
-        if (o.Flag("cabinet")) detail.Children.Add(Text(T("org.cabinet_chip")));
+        if (o.Flag("cabinet")) detail.Children.Add(Badge(T("org.cabinet_chip"), true));
         if (o.Text("leader").Length > 0) detail.Children.Add(Text(T(o.Flag("cabinet") ? "org.secretary_general_chip" : "org.leader_chip", ("name", Display(o.Text("leader"))))));
-        if (o.Text("secretary").Length > 0) detail.Children.Add(Button(T("org.secretary_chip", ("name", Display(o.Text("secretary")))), () => Select(org, o.Text("secretary"))));
+        if (o.Text("secretary").Length > 0) detail.Children.Add(QuietButton(T("org.secretary_chip", ("name", Display(o.Text("secretary")))), () => Select(org, o.Text("secretary"))));
         if (o.Text("status") is "closed" or "dissolved") detail.Children.Add(Text(T(o.Text("status") == "closed" ? "org.ended_closed" : "org.ended_dissolved")));
         var wake = new ToggleSwitch { Header = T("org.auto_wake"), IsOn = o.Flag("auto_wake") }; detail.Children.Add(wake);
         wake.Toggled += async (_, _) => await Run(() => Post("/auto_wake", new { on = wake.IsOn }));
-        detail.Children.Add(Text(T("decision.title"), 18));
-        if (snap.Rows("decisions").Count == 0) detail.Children.Add(Text(T("decision.none")));
+        detail.Children.Add(Heading(T("decision.title")));
+        if (snap.Rows("decisions").Count == 0) detail.Children.Add(Quiet(T("decision.none")));
         foreach (var decision in snap.Rows("decisions")) detail.Children.Add(Decision(decision!));
-        Hierarchy(o!);
+        var start = detail.Children.Count; Hierarchy(o!); var hierarchy = new StackPanel { Spacing = 10 };
+        while (detail.Children.Count > start) { var child = detail.Children[start]; detail.Children.RemoveAt(start); hierarchy.Children.Add(child); }
+        detail.Children.Add(new Expander { Header = T("org.hierarchy"), Content = hierarchy, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         detail.Children.Add(Button(T("org.current_work"), () => Details("tasks")));
         detail.Children.Add(Button(T("org.done_count", ("n", tasks.Count(t => t.Text("status") == "done"))), () => Details("tasks", taskId: "done")));
         if (tasks.Count == 0) detail.Children.Add(Text(T("org.no_tasks")));
@@ -106,7 +108,7 @@ public sealed partial class MainWindow
         else if (kind == "task") { card.Children.Add(Text(T("decision.task_blocked", ("id", d.Text("id")), ("title", d.Text("title"))))); card.Children.Add(Text(T("decision.task_owner", ("name", who)))); card.Children.Add(Button(T("decision.view_task"), () => Details("tasks", taskId: d.Text("id")))); if (d.Text("member").Length > 0) card.Children.Add(Button(T("decision.ask", ("name", who)), () => Select(org, d.Text("member")))); }
         else if (kind == "wake") { card.Children.Add(Text(T("decision.wake_failed", ("name", who)))); card.Children.Add(Text(d.Text("error"))); card.Children.Add(Button(T("decision.open_chat"), () => Select(org, d.Text("member")))); }
         else card.Children.Add(Text(d.ToJsonString()));
-        return card;
+        return Card(card, true);
     }
     private string MemberState(string state) => state is "starting" or "running" or "working" or "waiting" or "error" or "vacant" or "idle" or "active" ? T(state switch { "starting" => "state.starting", "running" => "state.running", "working" => "state.working", "waiting" => "state.waiting", "error" => "state.error", "vacant" => "state.vacant", "idle" => "state.idle", _ => "state.active" }) : state;
     private string TaskState(string state) => T(state switch { "open" => "task.open", "working" => "task.working", "blocked" => "task.blocked", "done" => "task.done", "dropped" => "task.dropped", _ => "task." + state });

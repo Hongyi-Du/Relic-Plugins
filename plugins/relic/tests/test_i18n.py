@@ -57,11 +57,12 @@ def native_keys():
         if path.suffix not in (".cs", ".swift", ".xaml") or any(part in ("bin", "obj", ".build", "Tests") for part in path.parts):
             continue
         source = path.read_text(encoding="utf-8-sig")
+        source = re.sub(r'forKey:\s*"[^"]+"', '', source)  # native persistence keys are not displayed
         # Reverse coverage matters: web -> native parity cannot detect a typo
         # used only by a native control (composer.voice_title was one).
         namespaces = {key.split(".", 1)[0] for key in word_list("en-US") if "." in key}
         keys.update(key for key in re.findall(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"', source)
-                    if key.split(".", 1)[0] in namespaces)
+                    if key.split(".", 1)[0] in namespaces and not key.endswith("_"))
     packaging = ROOT.parents[1] / "scripts/native_package.py"
     if packaging.exists():
         keys.update(re.findall(r'"(native\.[a-z_]+)"', packaging.read_text(encoding="utf-8")))

@@ -24,13 +24,13 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> folded = new();
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
-    private readonly StackPanel side = new() { Spacing = 6 }, stream = new() { Spacing = 14 }, detail = new() { Spacing = 12 };
-    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 70, MaxHeight = 180 };
+    private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 14, Padding = new Thickness(24, 16, 24, 16) }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
+    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 60, MaxHeight = 180, BorderThickness = new Thickness(0), Padding = new Thickness(2, 4, 2, 8) };
     private readonly TextBox search = new();
 
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ScrollViewer chatScroll;
-    private readonly StackPanel chatHead = new() { Orientation = Orientation.Horizontal, Spacing = 10 };
+    private readonly Grid chatHead = new() { Padding = new Thickness(20, 12, 20, 12), ColumnSpacing = 10 };
     private readonly MenuBar menu = new();
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
@@ -42,14 +42,14 @@ public sealed partial class MainWindow : Window
 
     private string T(string key, params (string, object)[] args) => words.T(key, args);
     private string PathFor(string action = "") => Client.Org(org, action);
-    private TextBlock Text(string value, double size = 14) => new() { Text = value, TextWrapping = TextWrapping.Wrap, FontSize = size * (preferences.Text("font") == "large" ? 1.18 : preferences.Text("font") == "small" ? .86 : 1), IsTextSelectionEnabled = true };
+    private TextBlock Text(string value, double size = 14) => new() { Text = value, Foreground = Ink, TextWrapping = TextWrapping.Wrap, FontSize = size * (preferences.Text("font") == "large" ? 1.107 : preferences.Text("font") == "small" ? .929 : 1), IsTextSelectionEnabled = true };
     private Button Button(string label, Func<Task> action)
     {
-        var button = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var button = new Button { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, FontSize = 13 }, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 5, 10, 5), MinWidth = 0, MinHeight = 28, CornerRadius = new CornerRadius(6) };
         button.Click += async (_, _) => { button.IsEnabled = false; await Run(action); button.IsEnabled = true; };
         return button;
     }
-    private static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
     private async Task Run(Func<Task> action)
     {
         try { await action(); }
@@ -60,31 +60,40 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         Title = "Relic";
+        SystemBackdrop = new MicaBackdrop();
         Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1480, 940));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var top = new StackPanel(); top.Children.Add(menu); top.Children.Add(new ScrollViewer { Content = toolbar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        var top = new StackPanel(); top.Children.Add(menu); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
         root.Resources["ContentDialogMaxWidth"] = 1100d;
 
-        columns.ColumnDefinitions.Add(new() { Width = new GridLength(260) });
+        columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
-        columns.ColumnDefinitions.Add(new() { Width = new GridLength(370) });
-        var sideScroll = Scroll(side); columns.Children.Add(sideScroll);
-        var chat = new Grid { RowSpacing = 12 };
+        columns.ColumnDefinitions.Add(new() { Width = new GridLength(320) });
+        var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        sideLayout.Children.Add(Scroll(side)); Grid.SetRow(sidebarFooter, 1); sideLayout.Children.Add(sidebarFooter);
+        sidebarSurface.Child = sideLayout; sidebarSurface.BorderThickness = new Thickness(0, 0, 1, 0); columns.Children.Add(sidebarSurface);
+        var chat = new Grid();
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
-        var compose = new StackPanel { Spacing = 6 };
-        recipientButton = Button("", PickRecipients); compose.Children.Add(recipientButton); compose.Children.Add(quoteLabel); var cancelQuote = Button("×", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); cancelQuote.Loaded += (_, _) => ToolTipService.SetToolTip(cancelQuote, T("composer.cancel_quote")); compose.Children.Add(cancelQuote); compose.Children.Add(editor); compose.Children.Add(Microphone(editor));
-        sendButton = Button("↵", Send); compose.Children.Add(sendButton);
-        Grid.SetRow(compose, 2); chat.Children.Add(compose);
+        var compose = new StackPanel { Spacing = 4 };
+        quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
+        var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
+        recipientButton = QuietButton("", PickRecipients); var composeActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; composeActions.Children.Add(Microphone(editor));
+        sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Accent; sendButton.Foreground = new SolidColorBrush(Colors.White); sendButton.CornerRadius = new CornerRadius(8); composeActions.Children.Add(sendButton);
+        compose.Children.Add(TwoColumns(recipientButton, composeActions));
+        composerSurface.Child = compose; composerSurface.Padding = new Thickness(12, 8, 12, 8); composerSurface.Margin = new Thickness(20, 10, 20, 18); composerSurface.CornerRadius = new CornerRadius(14); composerSurface.BorderThickness = new Thickness(1);
+        Grid.SetRow(composerSurface, 2); chat.Children.Add(composerSurface);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
-        var right = Scroll(detail); Grid.SetColumn(right, 2); columns.Children.Add(right);
+        inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
+        var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
+        root.SizeChanged += (_, _) => LayoutColumns();
         root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
@@ -117,6 +126,7 @@ public sealed partial class MainWindow : Window
                 try { AppNotificationManager.Default.Register(); }
                 catch { notificationsAvailable = false; Note(T("settings.notify_unsupported")); }
                 ApplyAppearance(); DrawMenu(); await Refresh();
+                if (VisualCaptureEnabled) { _ = CaptureVisuals(); return; }
                 _ = api.Events(ev =>
                 {
                     DispatcherQueue.TryEnqueue(async () =>
@@ -237,11 +247,7 @@ public sealed partial class MainWindow : Window
     private void DrawDetail()
     {
         detail.Children.Clear();
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") })
-            tabs.Children.Add(Button(T(key), () => SetPane(id)));
-        detail.Children.Add(tabs);
-        var hide = Button(T(pane == "thread" ? "panel.close_thread" : "panel.hide"), () => pane == "thread" ? SetPane(previousPane) : TogglePanel()); ToolTipService.SetToolTip(hide, T("panel.hide_title")); detail.Children.Add(hide);
+        DrawPaneHeader();
         if (pane == "thread") detail.Children.Add(Text(T("panel.thread"), 18));
         switch (pane)
         {

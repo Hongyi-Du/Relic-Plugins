@@ -57,16 +57,17 @@ def seed(folder, lang):
     # Fixture storage contains completed historical records; no tool or check program runs.
     with store.change(oid) as (o, db):
         o["tasks"][done["id"]].update(status="done", report=word("消息、引用与线程已逐项核对。", "Messages, quotes, and threads have been reviewed."), evidence=[str(workspace / "README.md")], done_at=stores.now())
-        p = dict(o["protocols"]["P1"], id="P2", title=word("交付须附检查记录", "Attach checks to deliveries"), author="engineer", issued_by=None, strength="strong", summary_for_person=word("发送交付前确认附有检查结果；需要额外确认时交给本人决定。", "Before delivery, require check evidence and route exceptions to the person."), rules=[{"type": "check", "tool": "Bash", "code": "result = {'decision': 'allow', 'reason': 'Evidence attached'}", "examples": []}], votes={"designer": {"vote": "approve"}}, inherit=True)
+        p = dict(o["protocols"]["P1"], id="P2", title=word("交付须附检查记录", "Attach checks to deliveries"), author="engineer", issued_by=None, strength="strong", summary_for_person=word("发送交付前确认附有检查结果；需要额外确认时交给本人决定。", "Before delivery, require check evidence and route exceptions to the person."), rules=[{"effect": "check", "tools": ["Bash"], "code": "result = {'decision': 'allow', 'reason': 'Evidence attached'}", "examples": []}], votes={"designer": {"vote": "approve"}}, inherit=True)
         o["protocols"]["P2"] = p
         o["counters"]["protocol"] = 2
         store._copy_to_person(db, o, p)
     store.work(lead, "doc_write", {"key": "review-plan", "body": (workspace / "README.md").read_text(encoding="utf-8")})
     store.file_request(design, "leader", {"org": oid, "member": "engineer"}, word("让工程师协调本轮集成。", "Let the engineer coordinate this integration."))
     root_message = store.send_from_human(oid, ["all"], word("这轮请把两个平台的页面放在一起看。布局要一致，也要像各自系统里完成度高的应用。", "Please compare both platforms side by side. Keep the layout consistent and make each feel like a finished desktop app."), channel="group")
-    store.send_as(oid, "secretary", ["all"], word("收到。我会按 **聊天、概况、工作区、设置** 的顺序整理验收记录。\n\n需要您决定的事项会留在右侧，不打断当前对话。", "Understood. I'll organize review evidence for **Chat, Overview, Workspace, and Settings**.\n\nDecisions will stay in the right pane without interrupting the conversation."))
-    store.send_as(oid, "designer", ["all"], word("组织树使用紧凑行；消息保留头像、名称和时间。输入框里的工具会收在同一行。", "The tree uses compact rows. Messages keep avatars, names, and times. Composer tools stay on one line."))
-    store.send_as(oid, "engineer", ["all"], word("工作区中的 `README.md` 已补充检查项。\n\n```python\nreview('Windows')\nreview('macOS')\n```", "The workspace `README.md` now includes review items.\n\n```python\nreview('Windows')\nreview('macOS')\n```"))
+    everyone = list(store.get(oid)["members"]) + ["human"]
+    store.send_as(oid, "secretary", everyone, word("收到。我会按 **聊天、概况、工作区、设置** 的顺序整理验收记录。\n\n需要您决定的事项会留在右侧，不打断当前对话。", "Understood. I'll organize review evidence for **Chat, Overview, Workspace, and Settings**.\n\nDecisions will stay in the right pane without interrupting the conversation."))
+    store.send_as(oid, "designer", everyone, word("组织树使用紧凑行；消息保留头像、名称和时间。输入框里的工具会收在同一行。", "The tree uses compact rows. Messages keep avatars, names, and times. Composer tools stay on one line."))
+    store.send_as(oid, "engineer", everyone, word("工作区中的 `README.md` 已补充检查项。\n\n```python\nreview('Windows')\nreview('macOS')\n```", "The workspace `README.md` now includes review items.\n\n```python\nreview('Windows')\nreview('macOS')\n```"))
     store.send_as(oid, "designer", ["human"], word("三个窗口尺寸都会检查，长标题会换行或显示省略提示。", "I'll check all three window sizes. Long titles will wrap or show an ellipsis with a tooltip."), reply_to=root_message)
     store.send_from_human(oid, ["secretary"], word("请先整理今天需要我决定的事项。", "Please summarize the decisions I need to make today."), channel="private")
     store.send_as(oid, "secretary", ["human"], word("目前有两项：确认权限设置，以及本轮集成负责人。任务和相关协议都在右侧概况中。", "There are two items: confirm permissions and choose the integration lead. Tasks and related protocols are in Overview."))

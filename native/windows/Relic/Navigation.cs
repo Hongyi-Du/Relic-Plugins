@@ -12,9 +12,9 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
-    private readonly Grid columns = new() { ColumnSpacing = 10, Padding = new Thickness(12) };
+    private readonly Grid columns = new();
     private bool sideOpen = true, panelOpen = true;
-    private double sideWidth = 260, panelWidth = 370, fileWidth = 520;
+    private double sideWidth = 276, panelWidth = 320, fileWidth = 460;
     private string viewMode = "direct";
     private readonly List<(string Org, string Member)> history = new();
     private int historyIndex = -1;
@@ -70,8 +70,10 @@ public sealed partial class MainWindow
     private void LayoutColumns()
     {
         if (columns.ColumnDefinitions.Count < 3) return;
-        columns.ColumnDefinitions[0].Width = new GridLength(sideOpen ? sideWidth : 0);
-        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen ? Math.Min(pane == "files" ? fileWidth : panelWidth, Math.Max(280, root.ActualWidth * .6)) : 0);
+        var available = root.ActualWidth > 0 ? root.ActualWidth : 1440;
+        var leftWidth = sideOpen ? Math.Clamp(sideWidth, 200, Math.Max(200, available - 620)) : 0;
+        columns.ColumnDefinitions[0].Width = new GridLength(leftWidth);
+        columns.ColumnDefinitions[2].Width = new GridLength(panelOpen ? Math.Clamp(pane == "files" ? fileWidth : panelWidth, 280, Math.Max(280, available - leftWidth - 320)) : 0);
         foreach (var child in columns.Children.OfType<FrameworkElement>())
             if (Grid.GetColumn(child) == 0) child.Visibility = sideOpen ? Visibility.Visible : Visibility.Collapsed;
             else if (Grid.GetColumn(child) == 2) child.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -164,7 +166,7 @@ public sealed partial class MainWindow
         foreach (var (value, key) in new[] { ("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large") }) Item(view, T("appmenu.font_size", ("size", T(key))), () => SavePreferences(new() { ["font"] = value }));
         Item(view, T("appmenu.reload"), Refresh);
         var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
-        if (sendButton != null) { sendButton.Content = T("common.send"); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
+        if (sendButton != null) { AutomationProperties.SetName(sendButton, T("common.send")); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
         search.PlaceholderText = T("page.search"); AutomationProperties.SetName(search, T("page.search")); AutomationProperties.SetName(side, T("page.side")); AutomationProperties.SetName(stream, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));
     }
     private async Task Edit(string action)
