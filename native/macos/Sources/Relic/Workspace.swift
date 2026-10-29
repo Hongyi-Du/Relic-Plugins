@@ -86,8 +86,8 @@ struct FilePreview: View {
                         Text(m.file["name"].text).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                         Text(m.file["path"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     }.frame(maxWidth: .infinity, alignment: .leading).help(m.file["path"].text)
-                    IconButton(title: m.t("file.copy_path"), icon: "square.on.square") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
-                    IconButton(title: m.t("file.open_default"), icon: "arrow.up.forward.square") { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
+                    IconButton(title: m.t("file.copy_path"), icon: "copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
+                    IconButton(title: m.t("file.open_default"), icon: "open") { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
                 }
                 Divider().overlay(RelicStyle.line)
                 Text(ByteCountFormatter.string(fromByteCount: Int64(m.file["size"].integer), countStyle: .file) + " · " + m.t("file.modified", ["when": m.ago(m.file["mtime"])])).font(.caption).foregroundStyle(RelicStyle.muted)

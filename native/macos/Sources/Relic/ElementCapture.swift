@@ -93,7 +93,7 @@ import RelicAX
         }
         func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect) {
             let object = value as AnyObject
-            let attributes = RelicAXRead(object) as! [String: Any]
+            let attributes = RelicAXRead(object)
             let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
@@ -106,11 +106,19 @@ import RelicAX
             node["state"] = ["disabled": !ax["enabled"].flag, "focused": ax["focused"].flag, "selected": ax["selected"].flag, "expanded": ax["expanded"].flag, "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? ((attributes["value"] as? NSNumber)?.intValue == 1) : false]
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
-            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
+            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
             raw.append(node)
             if visible && ax["element"].flag { elements.append(node) }
             let childClip = role == "AXScrollArea" ? clip.intersection(rect) : clip
             for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip) }
+            // Embedded AppKit controls can be absent from the hosting view's AX
+            // children. Inspect their real view ancestry too; identity deduplication
+            // prevents emitting a control twice when AX already exposed it.
+            if let view = object as? NSView {
+                for (index, child) in view.subviews.enumerated() {
+                    visit(child, path: path + "/view-" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip)
+                }
+            }
         }
         visit(content, path: "window", parent: nil, inheritedRegion: "window", clip: viewport)
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
@@ -122,6 +130,15 @@ import RelicAX
         var unmeasured = ["Paint-only SwiftUI decoration coverage", "Exact opaque-overlay occlusion"]
         if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
         var orders: [String: Int] = [:]
+        let emittedIDs = Set(elements.compactMap { $0["id"] as? String })
+        let rawParents = Dictionary(uniqueKeysWithValues: raw.compactMap { node -> (String, String)? in
+            guard let id = node["id"] as? String, let parent = node["parent"] as? String else { return nil }; return (id, parent)
+        })
+        func emittedParent(_ node: [String: Any]) -> Any {
+            var parent = node["parent"] as? String
+            while let id = parent { if emittedIDs.contains(id) { return id }; parent = rawParents[id] }
+            return NSNull()
+        }
         let canonical = elements.map { node -> [String: Any] in
             let id = node["id"] as! String, region = node["region"] as! String, kind = node["kind"] as! String
             let sourceStyle = node["style"] as! [String: Any], sourceState = node["state"] as! [String: Any]
@@ -141,7 +158,7 @@ import RelicAX
             var evidence = node
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
             evidence["raw_node_id"] = id
-            return ["id": id, "parent": node["parent"]!, "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": NSNull(), "evidence": evidence]
+            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))

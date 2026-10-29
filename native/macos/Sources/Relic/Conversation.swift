@@ -89,16 +89,12 @@ struct ChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
-                VStack(spacing: 18) {
-                    Spacer()
-                    Image(systemName: "person.3").font(.system(size: 42)).foregroundStyle(RelicStyle.muted.opacity(0.5))
-                    Text(m.t("chat.no_orgs")).font(.system(size: 24, weight: .semibold))
-                    Text(m.t("chat.no_orgs_hint")).font(.system(size: 14)).foregroundStyle(RelicStyle.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 430)
-                    Button(m.t("common.new_org")) { m.sheet = .create }.buttonStyle(.borderedProminent).controlSize(.large)
-                    Spacer()
-                }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 6) {
+                    Text(m.t("chat.no_orgs")).font(.system(size: 18, weight: .semibold))
+                    Text(m.t("chat.no_orgs_hint")).font(.system(size: 14)).foregroundStyle(RelicStyle.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                }.padding(30).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7)
             } else {
-                header.measuredRegion("header")
+                header.measuredRegion("conversation")
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty {
                     Text(m.banner(m.selectedMember)).font(.caption).padding(8).background(.quaternary.opacity(0.4))
@@ -121,15 +117,15 @@ struct ChatView: View {
                 Text(meta).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(meta)
             }.frame(maxWidth: .infinity, alignment: .leading)
             if m.member.isEmpty {
-                IconButton(title: m.t(m.plainMode ? "chat.plain_on" : "common.plain_words") + " · " + m.t("chat.plain_title"), icon: "character.bubble", selected: m.plainMode) { m.togglePlain() }
-                IconButton(title: m.t("chat.digest") + " · " + m.t("chat.digest_title"), icon: "text.alignleft", selected: m.digestOpen) { m.toggleDigest() }
-                IconButton(title: m.t("common.tasks"), icon: "checklist") { m.openDetails("tasks") }
-                if m.secretary.isEmpty { IconButton(title: m.t("secretary.setup_title"), icon: "person.badge.plus") { m.sheet = .secretary } }
+                IconButton(title: m.t(m.plainMode ? "chat.plain_on" : "common.plain_words") + " · " + m.t("chat.plain_title"), icon: "lang", selected: m.plainMode) { m.togglePlain() }
+                IconButton(title: m.t("chat.digest") + " · " + m.t("chat.digest_title"), icon: "sparkle", selected: m.digestOpen) { m.toggleDigest() }
+                IconButton(title: m.t("common.tasks"), icon: "check") { m.openDetails("tasks") }
+                if m.secretary.isEmpty { IconButton(title: m.t("secretary.setup_title"), icon: "sec") { m.sheet = .secretary } }
             } else {
-                IconButton(title: m.t("chat.card"), icon: "person.crop.square") { m.openCard(m.member) }
-                IconButton(title: m.t("common.context_trace"), icon: "list.bullet.rectangle") { m.openDetails("trace") }
-                IconButton(title: m.t("chat.workspace"), icon: "folder") { m.setPane("workspace") }
-                if m.selectedMember["embedded"].flag { IconButton(title: m.t("chat.stop_turn"), icon: "stop.circle") { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
+                IconButton(title: m.t("chat.card"), icon: "card") { m.openCard(m.member) }
+                IconButton(title: m.t("common.context_trace"), icon: "trace") { m.openDetails("trace") }
+                IconButton(title: m.t("chat.workspace"), icon: "work") { m.setPane("workspace") }
+                if m.selectedMember["embedded"].flag { IconButton(title: m.t("chat.stop_turn"), icon: "stop") { m.run { try await m.post(m.path("/cancel"), ["member": m.member]); try await m.refresh() } } }
             }
         }.padding(.horizontal, 18).padding(.vertical, 12).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
     }
@@ -345,7 +341,7 @@ struct ComposerView: View {
     let send: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
+            if !m.quote.isEmpty { HStack(alignment: .top) { Text(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)).font(.system(size: 12)).lineLimit(3).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote])); Spacer(); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.padding(8).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)) }
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(height: 44).background(alignment: .topLeading) { if m.draft.isEmpty { Text(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)])).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 6).padding(.vertical, 7).allowsHitTesting(false) } }
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
@@ -365,14 +361,14 @@ struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(.system(size: 13, weight: .semibold)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "xmark") { m.closeThread() } }
+            HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])).font(.system(size: 13, weight: .semibold)); Spacer(); IconButton(title: m.t("panel.close_thread"), icon: "x") { m.closeThread() } }
             ScrollView { LazyVStack(alignment: .leading, spacing: 16) {
                 if !m.threadData["root"].isNull { MessageView(item: m.threadData["root"], inThread: true) }
                 Divider(); Rows(m.threadData["replies"].rows) { MessageView(item: $0, inThread: true) }
                 if m.threadData["replies"].rows.isEmpty { Text(m.t("thread.no_replies")) }
             } }
             VStack(alignment: .leading, spacing: 6) {
-                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "xmark") { m.quote = "" } }.font(.caption) }
+                if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(.caption) }
                 MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
                     .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(.system(size: 13)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
                 HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
@@ -398,7 +394,7 @@ struct DigestCard: View {
                 Spacer(minLength: 4)
                 Button(m.t("digest.update")) { m.run { try await m.loadDigest(true) } }.buttonStyle(.link).disabled(m.digestPending)
                 if !m.secretary.isEmpty { Button(m.t("digest.ask")) { m.run { try await m.askSecretary() } }.buttonStyle(.link).help(m.t("digest.ask_title")) }
-                IconButton(title: m.t("common.collapse"), icon: "xmark") { m.toggleDigest() }
+                IconButton(title: m.t("common.collapse"), icon: "x") { m.toggleDigest() }
             }
             if m.digestPending { Text(m.t("digest.pending")) }
             if m.digest["text"].text.isEmpty { Text(m.t(m.digestPending ? "digest.reading" : "digest.none")) }

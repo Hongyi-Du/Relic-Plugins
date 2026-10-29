@@ -52,22 +52,32 @@ extension Model {
         return t(card["has_transcript"].flag ? "banner.transcript" : "banner.inbox")
     }
     func ago(_ node: Node, now: Date = Date()) -> String {
-        guard let date = Timeline.date(node) else { return node.text }
+        guard let date = Timeline.date(node) else { return "" }
         let seconds = max(0, now.timeIntervalSince(date))
         if seconds < 60 { return t("time.just_now") }
         if seconds < 3600 { return t("time.minutes_ago", ["n": String(Int(seconds / 60))]) }
         if seconds < 86400 { return t("time.hours_ago", ["n": String(Int(seconds / 3600))]) }
-        return day(node)
+        return day(node, now: now)
     }
-    func day(_ node: Node) -> String {
-        guard let date = Timeline.date(node) else { return node.text }
-        if Calendar.current.isDateInToday(date) { return t("time.today") }
-        if Calendar.current.isDateInYesterday(date) { return t("time.yesterday") }
-        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.dateStyle = .medium; return format.string(from: date)
+    func day(_ node: Node, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let date = Timeline.date(node) else { return "" }
+        if calendar.isDate(date, inSameDayAs: now) { return t("time.today") }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
+        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
+        format.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
+        return format.string(from: date)
     }
-    func clock(_ node: Node) -> String {
-        guard let date = Timeline.date(node) else { return node.text }
-        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeStyle = .short; return format.string(from: date)
+    func clock(_ node: Node, calendar: Calendar = .current) -> String {
+        guard let date = Timeline.date(node) else { return "" }
+        let format = DateFormatter(); format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = calendar.timeZone; format.dateFormat = "HH:mm"
+        return format.string(from: date)
+    }
+    func shortWhen(_ node: Node, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let date = Timeline.date(node) else { return "" }
+        if calendar.isDate(date, inSameDayAs: now) { return clock(node, calendar: calendar) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
+        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
+        format.setLocalizedDateFormatFromTemplate("Md"); return format.string(from: date)
     }
     func ruleScope(_ rule: Node) -> String {
         let tools = rule["tools"].rows.map(\.text)

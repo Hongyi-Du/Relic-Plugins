@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import QuartzCore
+import ApplicationServices
 import RelicCore
 
 // CI-only capture of the real application window and native controls. The shared
@@ -31,6 +32,16 @@ import RelicCore
             let hosting = NSHostingView(rootView: MainView().environmentObject(model))
             hosting.sizingOptions = []; window.contentView = hosting; captureWindow = window
             window.isReleasedWhenClosed = false
+            // Ask the public AX client API for our own application's windows.
+            // The main actor remains available to service the accessibility IPC.
+            // No trust prompt is requested, and any AX error remains in the log.
+            let axResult = await Task.detached {
+                let application = AXUIElementCreateApplication(getpid())
+                AXUIElementSetMessagingTimeout(application, 2)
+                var windows: CFTypeRef?
+                return AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows).rawValue
+            }.value
+            print("AX client initialization: \(axResult)")
             try await model.savePreferences(["lang": language, "theme": theme, "font": "medium", "density": "comfortable", "accent": "clay", "notify": false])
             NSApp.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
             for item in manifest["cases"].rows {
@@ -86,7 +97,7 @@ import RelicCore
                 if scene == "mention", let editor = textEditors(window.contentView).first {
                     window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
                     try await Task.sleep(for: .milliseconds(350))
-                    guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker") }
+                    guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker: text=\(editor.string), selection=\(editor.selectedRange()), candidates=\(editor.mentionCandidates().count), frame=\(editor.frame), anchor=\(editor.mentionAnchorRect()), attached=\(editor.window != nil)") }
                 }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
