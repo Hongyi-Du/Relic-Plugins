@@ -42,7 +42,7 @@ struct RichText: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
@@ -62,10 +62,10 @@ struct RichText: View {
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
-        case "code": ViewThatFits(in: .horizontal) {
-            Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10)
-            ScrollView(.horizontal) { Text(block.text).fixedSize(horizontal: true, vertical: true).padding(10) }
-        }.font(.system(size: 12, design: .monospaced)).textSelection(.enabled).background(RelicStyle.code, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line))
+        case "code": ScrollView(.horizontal) {
+            SelectableText(value: AttributedString(block.text), pointSize: 11.25, lineHeight: 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
+        }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
         case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold).padding(.top, 8).padding(.bottom, 4)
         case "quote":
             SelectableText(value: quoteText(block), scale: 0.92, color: RelicStyle.secondary)
@@ -247,7 +247,7 @@ struct MessageView: View {
             }
         } else {
             HStack(alignment: .top, spacing: 10) {
-                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Button { m.openCard(item["from"].text) } label: { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
+                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
                 else { Spacer(minLength: 0) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { HStack(spacing: 6) {
@@ -264,7 +264,10 @@ struct MessageView: View {
                         if m.plainFailed.contains(item["id"].text) { Button(m.t("plain.retry")) { m.run { try await m.requestPlain([item["id"].text]) } } }
                         else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(RelicStyle.font(12, weight: 400)) }
                     }
-                    }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
+                    }.padding(.horizontal, 13).padding(.vertical, 9)
+                        .modifier(RecordedSurface(background: mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble,
+                            border: wantsPlain ? RelicStyle.violet.opacity(0.22) : .clear, borderWidth: wantsPlain ? 1 : 0, radius: 14, kind: "card",
+                            cornerRadii: mine ? [14,4,14,14] : [4,14,14,14], insetLeadingWidth: item["from"].text == m.secretary ? 3 : 0, insetLeadingColor: RelicStyle.violet))
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
                         ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted)
                     }

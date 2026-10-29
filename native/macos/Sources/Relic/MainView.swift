@@ -52,6 +52,7 @@ struct MainView: View {
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
         .accessibilityIdentifier("relic-root")
+        .coordinateSpace(name: "relic-window")
         }
     }
 }

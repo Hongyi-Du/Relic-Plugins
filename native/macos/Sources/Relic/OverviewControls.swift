@@ -53,20 +53,21 @@ struct ReferenceButtonStyle: ButtonStyle {
     var primary = false
     var small = false
     var danger = false
+    var ghost = false
     func makeBody(configuration: Configuration) -> some View {
-        StyledButton(configuration: configuration, primary: primary, small: small, danger: danger)
+        StyledButton(configuration: configuration, primary: primary, small: small, danger: danger, ghost: ghost)
     }
     private struct StyledButton: View {
         let configuration: Configuration
-        let primary: Bool, small: Bool, danger: Bool
+        let primary: Bool, small: Bool, danger: Bool, ghost: Bool
         @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
             configuration.label.font(RelicStyle.font(small ? 12 : 13, weight: 600))
                 .foregroundStyle(primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink)
                 .padding(.horizontal, small ? 9 : 13).frame(height: small ? 26 : 32)
-                .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : RelicStyle.card,
-                    border: primary ? RelicStyle.ink : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
+                .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : ghost ? .clear : RelicStyle.card,
+                    border: primary ? RelicStyle.ink : ghost ? .clear : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
                 .recordedOpacity(enabled ? 1 : 0.45).onHover { hovered = $0 }
         }
     }

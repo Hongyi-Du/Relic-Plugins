@@ -34,6 +34,9 @@ enum RelicStyle {
     static func font(_ size: CGFloat, weight: Int) -> Font {
         Font(nativeFont(size, weight: weight))
     }
+    static func monoFont(_ size: CGFloat) -> NSFont {
+        NSFont(name: "Menlo-Regular", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
         // app.css reaches PingFang SC on macOS after the Windows-only faces.
         // Select its real installed face, including the CSS 500/550 boundary.

@@ -77,7 +77,7 @@ struct Overview: View {
         OverviewBlock {
             HStack { sectionTitle("org.members"); Spacer(); OverviewLink(text: m.t("org.add"), icon: "plus", leading: true) { m.openMemberForm() } }
             Rows(m.members) { member in
-                Button { m.openCard(member["name"].text) } label: {
+                MemberCardButton(member: member["name"].text) {
                     OverviewRow(title: member["secretary"].flag ? m.t("org.member_secretary", ["name": roleName(member["name"].text, "common.secretary")]) : member.display, subtitle: m.overviewMemberDetail(member)) {
                         Avatar(member: member["name"].text, size: 28, showState: true)
                     } trailing: { OverviewChip(text: m.stateLabel(member["state"].text), tone: ["running", "working"].contains(member["state"].text) ? "ok" : member["state"].text == "waiting" ? "warn" : member["state"].text == "error" ? "bad" : "") }
