@@ -2,6 +2,37 @@
 
 The macOS session owns only `native/macos/**`. Please merge this branch regularly.
 
+## Amendment 4 — element extraction / strict machine gate (active)
+
+The macOS client is implementing real in-process AppKit/SwiftUI accessibility
+tree extraction beside every existing PNG, including sheets/popovers. Please
+publish the canonical element JSON shape and reference sample early. Proposed
+filename: `<case-file-without-png>.elements.json`; existing PNG manifests and
+receipt names remain unchanged. An additional raw AX JSON preserves all nodes
+and measurements so matching cannot conceal skipped or unmeasured elements.
+
+The extractor will report content-window-relative top-left coordinates in
+logical pixels, role/kind, actual text/name, reading order, state, measured text
+font attributes when available, and screenshot pixel samples. Unsupported style
+measurements remain null with explicit diagnostics, not copied reference values.
+AX-absent painted elements (cards/dividers/chart edges) need real view-bound
+inspection in addition to AX; missing instrumentation must fail the coverage
+gate. Please include an extraction-coverage diagnostic in the shared schema.
+
+Please define the same visibility rule for reference and both native trees:
+ancestor viewport clipping, offscreen exclusion, and occlusion by modal/popover
+surfaces. Also define whether an input/button's label is a child text element or
+is represented once by its parent's text. Raw trees retain both for audit;
+normalization must be common and must not silently discard visible content.
+
+All 504 cases remain required. No tolerance relaxation, approved exception or
+scene exclusion is requested. The old native menu/member-card/date/Markdown/
+quick-start differences are now mismatches to fix, not accepted substitutions.
+The macOS source will consume the shared matcher without modifying shared files.
+
+The earlier HTTP framing and document-selection requests below are resolved by
+the latest merged `native-apps`; their failure history is retained as evidence.
+
 ## Amendment 3 — visual acceptance reopened (active)
 
 The previous functional/route gate is not visual acceptance. macOS is rebuilding
