@@ -11,7 +11,7 @@ struct MentionEditor: NSViewRepresentable {
     let send: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         let editor = ComposerTextView()
         editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor.labelColor; editor.insertionPointColor = NSColor.labelColor
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
