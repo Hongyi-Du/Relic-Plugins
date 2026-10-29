@@ -85,7 +85,7 @@ struct AppToolbar: View {
                 IconButton(title: m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "cc", badge: m.copies.filter { !$0["read"].flag }.count, size: 16, height: 28) { m.sheet = .copies }
                 RelicStyle.border.frame(width: 1, height: 16).padding(.horizontal, 4)
                 ForEach(Array(Choices.panes.enumerated()), id: \.offset) { index, pane in
-                    IconButton(title: m.t("appbar.pane_shortcut", ["pane": m.t(pane.1), "key": "⌥" + String(index + 1)]), icon: ["org", "work", "file"][index], selected: m.panelOpen && m.pane == pane.0, size: 16, height: 28) {
+                    IconButton(title: m.t("appbar.pane_shortcut", ["pane": m.t(pane.1), "key": "Option+" + String(index + 1)]), icon: ["org", "work", "file"][index], selected: m.panelOpen && m.pane == pane.0, size: 16, height: 28) {
                         if m.panelOpen && m.pane == pane.0 { m.panelOpen = false } else { m.setPane(pane.0) }
                     }
                 }

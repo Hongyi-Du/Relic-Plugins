@@ -256,7 +256,7 @@ struct MessageView: View {
             NoticeLayout {
                 ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
                     .padding(.horizontal, 10).padding(.vertical, 2).modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "region"))
-            }.padding(.vertical, 8)
+            }.padding(.top, 8)
         }
         else if item["type"].text == "acts" {
             let actions = ToolActivity.pair(item["steps"].rows)

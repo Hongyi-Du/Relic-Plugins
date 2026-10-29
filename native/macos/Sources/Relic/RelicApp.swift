@@ -77,14 +77,19 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
 
 struct ShortcutsView: View {
     @EnvironmentObject var m: Model
-    private let rows = [("⌘B", "shortcuts.toggle_sidebar"), ("⌘⌥B", "shortcuts.toggle_panel"), ("⌥1 / 2 / 3", "shortcuts.panes"), ("⌥← / ⌥→", "shortcuts.back_forward"), ("⌘K", "page.search"), ("⌘⇧L", "appmenu.plain_group"), ("⌘,", "common.settings"), ("↩ / ⇧↩", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close")]
+    private let rows = [("Cmd+B", "shortcuts.toggle_sidebar"), ("Cmd+Option+B", "shortcuts.toggle_panel"), ("Option+1 / 2 / 3", "shortcuts.panes"), ("Option+← / Option+→", "shortcuts.back_forward"), ("Cmd+K", "page.search"), ("Cmd+Shift+L", "appmenu.plain_group"), ("Cmd+,", "common.settings"), ("Enter / Shift+Enter", "shortcuts.send_newline"), ("@", "shortcuts.mention"), ("Esc", "shortcuts.close")]
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(m.t("shortcuts.title")).font(.title2)
-            ForEach(rows, id: \.0) { key, label in
-                HStack { Text(key).font(.system(.body, design: .monospaced)).frame(width: 130, alignment: .leading); Text(m.t(label)) }
-            }
-            Button(m.t("shortcuts.ok")) { m.sheet = nil }
+        VStack(alignment: .leading, spacing: 14) {
+            ReferenceLabel(m.t("shortcuts.title"), size: 17, weight: 650)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 9) {
+                ForEach(rows, id: \.0) { key, label in
+                    GridRow {
+                        Keycap(key).gridColumnAlignment(.trailing)
+                        ReferenceLabel(m.t(label), size: 13, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(minHeight: 20.8)
+                }
+            }.padding(.top, 4)
+            HStack { Spacer(); TextButton(m.t("shortcuts.ok"), size: 13, color: RelicStyle.background) { m.sheet = nil }.buttonStyle(ReferenceButtonStyle(primary: true)) }
         }
     }
 }
