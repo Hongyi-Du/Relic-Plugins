@@ -53,6 +53,15 @@ the current response shape; macOS calls `/api/platform` and reads
 `platform["desktop_transport"]["reason"]`. Do the same for other fixed diagnostic
 reasons in that response. Provider IDs and user-supplied paths remain data.
 
+### Shared Windows capture regression `40868069780`
+
+With shared `536d5d9`, reference capture now completes the first 126 zh-CN/light
+cases. The Windows client then reports `COMException (0x800F1000): No installed
+components were detected` at `UIElementCollection.Add`, `DrawSidebar()` in
+`SidebarCopies.cs:41`, via `Select`/`Refresh` for each scene. macOS is still
+capturing independently. Please repair the Windows capture failure before the
+full comparison rerun; the reference anchor issue itself is resolved.
+
 Original shared owner requests (superseded by `docs/native-visual.md`):
 
 1. Supply the shared fixture/server and scenario manifest, and invoke the macOS
