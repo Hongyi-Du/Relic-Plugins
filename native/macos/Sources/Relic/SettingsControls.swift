@@ -8,8 +8,28 @@ struct SettingsToggleStyle: ToggleStyle {
                 .frame(width: 28, alignment: configuration.isOn ? .trailing : .leading).padding(2)
                 .modifier(RecordedSurface(background: configuration.isOn ? RelicStyle.accent : RelicStyle.border, radius: 9))
         }.buttonStyle(.plain).accessibilityRepresentation {
-            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox).accessibilityIdentifier("relic-toggle")
         }
+    }
+}
+
+struct NativeRadio: NSViewRepresentable {
+    @Binding var selected: Bool
+    @Environment(\.isEnabled) private var enabled
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(radioButtonWithTitle: "", target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        button.contentTintColor = NSColor(RelicStyle.accent)
+        updateNSView(button, context: context); return button
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.parent = self; button.state = selected ? .on : .off; button.isEnabled = enabled
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? { CGSize(width: 13, height: 13) }
+    final class Coordinator: NSObject {
+        var parent: NativeRadio
+        init(_ parent: NativeRadio) { self.parent = parent }
+        @objc func changed(_ sender: NSButton) { parent.selected = true }
     }
 }
 
@@ -69,6 +89,8 @@ struct ReferenceInput: View {
     var pointSize: CGFloat = 14
     var monospaced = false
     var voice = true
+    var suggestions: [String] = []
+    @State private var showingSuggestions = false
     @FocusState private var focused: Bool
     @State private var identity = "relic-input/" + UUID().uuidString
     @EnvironmentObject var m: Model
@@ -76,9 +98,20 @@ struct ReferenceInput: View {
         TextField(placeholder, text: $text).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400))
             .accessibilityIdentifier(identity)
             .focused($focused).onSubmit { focused = false }
+            .onKeyPress(.downArrow) {
+                guard !suggestions.isEmpty else { return .ignored }
+                showingSuggestions = true; return .handled
+            }
             .onChange(of: focused) { old, new in if old && !new { commit() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
             .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: identity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
+            .popover(isPresented: $showingSuggestions, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(suggestions.filter { text.isEmpty || $0.localizedCaseInsensitiveContains(text) }, id: \.self) { value in
+                        TextButton(value, weight: 400, height: 28, padding: 10) { text = value; showingSuggestions = false; commit() }.buttonStyle(QuietButtonStyle())
+                    }
+                }.padding(4).background(RelicStyle.card)
+            }
     }
 }

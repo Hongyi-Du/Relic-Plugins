@@ -24,7 +24,7 @@ import CoreText
         case "AXStaticText": return "text"
         case "AXTextField", "AXTextArea", "AXSearchField": return "input"
         case "AXCheckBox": return "checkbox"
-        case "AXRadioButton": return "tab"
+        case "AXRadioButton": return "checkbox"
         case "AXPopUpButton", "AXComboBox": return "dropdown"
         case "AXLink": return "link"
         case "AXImage": return "image"
@@ -190,7 +190,7 @@ import CoreText
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
             if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node", "avatar"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
@@ -200,7 +200,7 @@ import CoreText
             let assignedRegion = path == "window" ? "window" : Self.assignedRegion(identifier: identifier, textRegion: textRegion, inherited: inheritedRegion, geometric: region(rect, fallback: inheritedRegion))
             let visible = !ax["hidden"].flag && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
             var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
-            node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
+            node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "indeterminate": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 2 } as Any? ?? NSNull() : NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
@@ -394,11 +394,11 @@ import CoreText
                     if sourceStyle[key] == nil || sourceStyle[key] is NSNull { unmeasured.append(id + ":style." + key) }
                 }
             }
-            let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item", "chart-node"].contains(kind)
+            let isControl = ["button", "icon-button", "input", "checkbox", "toggle", "tab", "dropdown", "link", "menu-item", "chart-node"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
+            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": ["checkbox", "toggle"].contains(kind) ? sourceState["checked"]! : NSNull(), "indeterminate": ["checkbox", "toggle"].contains(kind) ? sourceState["indeterminate"] ?? NSNull() : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node

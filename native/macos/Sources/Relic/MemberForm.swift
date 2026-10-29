@@ -28,22 +28,22 @@ struct MemberForm: View {
     private var submitLabel: String {
         if !m.editMember.isEmpty { return "common.save" }
         if mode == "existing" { return "member.bind" }
-        if mode == "app" { return secretary ? "member.create_secretary" : "member.create_member" }
+        if mode == "app" { return m.newSecretary ? "member.create_secretary" : "member.create_member" }
         return start ? "member.create_start" : "member.create_seat_only"
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             heading
-            Form {
+            VStack(alignment: .leading, spacing: 12) {
                 if mode == "existing" { existingFields }
                 else {
-                    TextField(m.t("member.name_label"), text: $name, prompt: Text(m.t("member.name_placeholder"))).dictation($name).disabled(!m.editMember.isEmpty)
-                    TextField(m.t("common.role"), text: $role, prompt: Text(m.t(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder"))).dictation($role)
+                    field("member.name_label", placeholder: "member.name_placeholder", text: $name).disabled(!m.editMember.isEmpty)
+                    field("common.role", placeholder: m.newSecretary ? "member.role_placeholder_secretary" : "member.role_placeholder", text: $role)
                     if mode == "app" { appFields } else { hostFields }
                 }
-            }.formStyle(.grouped)
-            SaveButton(labelKey: submitLabel, action: save).disabled(loading)
-        }.frame(maxHeight: .infinity, alignment: .top)
+            }
+            SaveButton(labelKey: submitLabel, reserveErrorSpace: true, action: save).disabled(loading)
+        }.frame(maxWidth: .infinity, alignment: .topLeading)
         .task {
             m.run {
                 defer { loading = false }
@@ -65,78 +65,107 @@ struct MemberForm: View {
     }
 
     @ViewBuilder private var heading: some View {
-        Text(m.editMember.isEmpty ? m.t("common.add_member") : m.t("member.edit_title", ["name": m.name(m.editMember)])).font(.title2)
-        Picker(m.t("member.where_run"), selection: $mode) {
-            Text(m.t("member.run_app")).tag("app"); Text(m.t(Capabilities.hostKinds(m.platform).contains(where: { $0.hasSuffix("/gui") }) ? "member.run_host" : "member.run_host_mac")).tag("host"); Text(m.t("member.run_existing")).tag("existing")
-        }.pickerStyle(.segmented).labelsHidden().disabled(!m.editMember.isEmpty || m.newSecretary)
-        Text(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app")).font(RelicStyle.font(12, weight: 400))
+        ReferenceLabel(!m.editMember.isEmpty ? m.t("member.edit_title", ["name": m.name(m.editMember)]) : m.newSecretary ? m.t("secretary.new_embedded") : m.t("common.add_member"), size: 17, weight: 650, lines: 0)
+        if m.editMember.isEmpty && !m.newSecretary {
+            SettingsSegments(options: [("app", m.t("member.run_app")), ("host", m.t(Capabilities.hostKinds(m.platform).contains(where: { $0.hasSuffix("/gui") }) ? "member.run_host" : "member.run_host_mac")), ("existing", m.t("member.run_existing"))], selection: $mode)
+        } else { Color.clear.frame(height: 0).accessibilityHidden(true) }
+        ReferenceLabel(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app"), size: 12.5, color: RelicStyle.muted, lines: 0)
+    }
+    private func field(_ key: String, placeholder: String, text: Binding<String>) -> some View {
+        NativeFormField(title: m.t(key)) {
+            ReferenceInput(placeholder: m.t(placeholder), text: text, height: 36, pointSize: 12.5,
+                           suggestions: key == "member.which_seat" ? m.members.map { $0["name"].text } : key == "common.model" && mode == "host" && hostHarness == "claude-code" ? options["claude_models"].rows.map(\.text).filter { !$0.isEmpty } : [])
+        }
+    }
+    private func toggle(_ key: String, value: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Toggle(m.t(key), isOn: value).toggleStyle(SettingsToggleStyle()).labelsHidden()
+            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.secondary, lines: 0).onTapGesture { value.wrappedValue.toggle() }
+        }
     }
 
     @ViewBuilder private var existingFields: some View {
-        TextField(m.t("member.session_search"), text: $search).dictation($search)
-        if loading { Text(m.t("member.finding_sessions")) }
-        if !loading && sessions.isEmpty { Text(m.t("member.no_sessions")) }
-        if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined().localizedCaseInsensitiveContains(search) }) { Text(m.t("member.no_match")) }
-        VStack(alignment: .leading, spacing: 7) {
-            Text(m.t("common.session")).font(RelicStyle.font(12, weight: 500))
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(Array(sessions.enumerated()), id: \.offset) { index, session in
-                        if search.isEmpty || [session["title"].text, session["cwd"].text, session["id"].text].joined().localizedCaseInsensitiveContains(search) {
-                            Button { sessionIndex = String(index) } label: {
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: "terminal").foregroundStyle(RelicStyle.muted)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(session["title"].text.isEmpty ? session["id"].text : session["title"].text).font(RelicStyle.font(13, weight: 500)).lineLimit(2)
-                                        Text(session["harness"].text + " · " + session["cwd"].text).font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).truncationMode(.middle)
-                                    }; Spacer(minLength: 0)
-                                    if sessionIndex == String(index) { Image(systemName: "checkmark.circle.fill").foregroundStyle(RelicStyle.accent) }
-                                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                            }.buttonStyle(QuietButtonStyle(selected: sessionIndex == String(index))).help(sessionLabel(session))
-                        }
-                    }
+        field("common.session", placeholder: "member.session_search", text: $search)
+        FittingScroll(maxHeight: 246) {
+            VStack(alignment: .leading, spacing: 4) {
+                if loading { ReferenceLabel(m.t("member.finding_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
+                if !loading && sessions.isEmpty { ReferenceLabel(m.t("member.no_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
+                if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }) { ReferenceLabel(m.t("member.no_match"), size: 14, color: RelicStyle.muted, lines: 0) }
+                ForEach(Array(sessions.enumerated().filter { search.isEmpty || [$0.element["title"].text, $0.element["cwd"].text, $0.element["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }.prefix(80)), id: \.offset) { index, session in
+                    Button { sessionIndex = String(index) } label: {
+                        HStack(spacing: 8) {
+                            OverviewChip(text: sessionHarnessLabel(session))
+                            ReferenceLabel(session["title"].text.isEmpty ? session["id"].text : session["title"].text, size: 12.5).frame(maxWidth: .infinity, alignment: .leading)
+                            ReferenceLabel(ReferenceText.clip(session["cwd"].text, to: 40), size: 11.5, color: RelicStyle.muted, monospaced: true).frame(maxWidth: 150, alignment: .leading)
+                            if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) { OverviewChip(text: m.t("member.manual_delivery")).help(m.t("member.desktop_manual")) }
+                            if session["updated"].integer > 0 { ReferenceLabel(m.ago(Node(session["updated"].integer)), size: 12.5, color: RelicStyle.muted) }
+                        }.padding(.horizontal, 8).padding(.vertical, 6)
+                            .modifier(RecordedSurface(background: sessionIndex == String(index) ? RelicStyle.accent.opacity(0.14) : .clear, radius: 8, kind: "list-row", selected: sessionIndex == String(index)))
+                    }.buttonStyle(.plain).help(sessionLabel(session))
                 }
-            }.frame(height: CGFloat(min(180, max(60, sessions.count * 66))))
-        }.accessibilityLabel(m.t("member.pick_session"))
-        if !problems.isEmpty { Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary) }
-        HStack {
-            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name).help(name.isEmpty ? m.t("member.seat_placeholder") : name)
-            Menu { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } } label: { Image(systemName: "chevron.down") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("member.which_seat")).accessibilityLabel(m.t("member.which_seat"))
-        }
-        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role).help(role.isEmpty ? m.t("member.role_placeholder") : role)
+                if !problems.isEmpty { ReferenceLabel(problems.map(\.text).joined(separator: m.t("member.problem_sep")), size: 11.5, color: RelicStyle.muted, lines: 0) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(7).modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "region"))
+        field("member.which_seat", placeholder: "member.seat_placeholder", text: $name)
+        field("member.role_new", placeholder: "member.role_placeholder", text: $role)
+    }
+    private func sessionHarnessLabel(_ session: Node) -> String {
+        let id = session["harness"].text
+        let title = harnesses.first { $0["id"].text == id }?["title"].text ?? id
+        return ["gui", "cli"].contains(session["surface"].text) ? m.t(session["surface"].text == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": title]) : title
     }
 
     @ViewBuilder private var appFields: some View {
-        Picker(m.t("common.harness"), selection: $harness) { if harness.isEmpty { Text(m.t("member.need_harness")).tag("") }; Rows(harnesses.filter { !$0["later"].flag }) { Text($0["title"].text + ($0["available"].flag ? "" : " · " + $0["problem"].text)).tag($0["id"].text).disabled(!$0["available"].flag) } }
-        Rows(harnesses.filter { !$0["available"].flag && !$0["later"].flag }) { Text($0["title"].text + " · " + $0["problem"].text).font(RelicStyle.font(12, weight: 400)).foregroundStyle(.secondary) }
-        if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(RelicStyle.font(12, weight: 400)) }
-        DisclosureGroup(m.t("member.later_acp")) { Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text) } }
-        TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
-        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.folder_placeholder") : folder)
-        Toggle(m.t("member.make_secretary"), isOn: $secretary)
+        VStack(alignment: .leading, spacing: 6) {
+            ReferenceLabel(m.t("common.harness"), size: 12.5, color: RelicStyle.muted)
+            Rows(harnesses.filter { !$0["later"].flag }) { option in
+                HStack(spacing: 10) {
+                    NativeRadio(selected: Binding(get: { harness == option["id"].text }, set: { if $0 { harness = option["id"].text } }))
+                    VStack(alignment: .leading, spacing: 0) {
+                        (Text(option["title"].text).font(RelicStyle.font(12.5, weight: 700)) + Text(" " + option["vendor"].text).font(RelicStyle.font(12.5, weight: 400)).foregroundColor(RelicStyle.muted)).fixedSize(horizontal: false, vertical: true)
+                        ReferenceLabel(option["available"].flag ? m.t("member.connected", ["program": ReferenceText.clip(option["program"].text, to: 48)]) : option["problem"].text, size: 12, color: RelicStyle.muted, lines: 0)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, 12).padding(.vertical, 10)
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
+                    .contentShape(Rectangle()).onTapGesture { if option["available"].flag { harness = option["id"].text } }.disabled(!option["available"].flag).recordedOpacity(option["available"].flag ? 1 : 0.5)
+            }
+            if harnesses.contains(where: { $0["later"].flag }) {
+                FlowLayout(spacing: 6) {
+                    ReferenceLabel(m.t("member.later_acp"), size: 12, color: RelicStyle.muted)
+                    Rows(harnesses.filter { $0["later"].flag }) { item in OverviewChip(text: item["title"].text).help(item["vendor"].text + " · " + item["launch"].text) }
+                }
+            }
+        }
+        field("common.model", placeholder: "member.model_placeholder", text: $model)
+        field("common.work_folder", placeholder: "member.folder_placeholder", text: $folder)
+        toggle("member.make_secretary", value: $secretary)
     }
 
     @ViewBuilder private var hostFields: some View {
-        Picker(m.t("common.harness"), selection: $hostHarness) { Text("Claude Code").tag("claude-code"); Text("Codex").tag("codex") }
-            .onChange(of: hostHarness) { permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" }
-        Picker(m.t("member.where_run"), selection: $surface) {
-            Text(m.t("member.harness_cli", ["harness": hostHarness == "codex" ? "Codex" : "Claude Code"])).tag("cli")
-            if Capabilities.automatic(m.platform, harness: hostHarness, surface: "gui") { Text(m.t("member.harness_gui", ["harness": hostHarness == "codex" ? "Codex" : "Claude Code"])).tag("gui") }
-        }
-        HStack {
-            TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
-            if hostHarness == "claude-code" {
-                Menu { Rows(options["claude_models"].rows) { option in Button(option.text.isEmpty ? m.t("common.default_model") : option.text) { model = option.text } } } label: { Image(systemName: "chevron.down") }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(m.t("common.model")).accessibilityLabel(m.t("common.model"))
+        VStack(alignment: .leading, spacing: 6) {
+            ReferenceLabel(m.t("member.where_run"), size: 12.5, color: RelicStyle.muted)
+            LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], alignment: .leading, spacing: 6) {
+                ForEach(Capabilities.hostKinds(m.platform), id: \.self) { kind in
+                    let parts = kind.split(separator: "/").map(String.init)
+                    HStack(spacing: 10) {
+                        NativeRadio(selected: Binding(get: { kind == hostHarness + "/" + surface }, set: { if $0 { hostHarness = parts[0]; surface = parts[1]; permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" } }))
+                        ReferenceLabel(m.t(parts[1] == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": parts[0] == "codex" ? "Codex" : "Claude Code"]), size: 14, weight: 700, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.horizontal, 12).padding(.vertical, 10).modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
+                }
             }
+            if !Capabilities.automatic(m.platform, harness: original["harness"].text, surface: original["surface"].text) { ReferenceLabel(m.t("member.choose_supported_host"), size: 14, color: RelicStyle.muted, lines: 0) }
         }
-        Picker(m.t("member.effort"), selection: $effort) { Rows(options["efforts"].rows) { Text($0.text.isEmpty ? m.t("common.default_effort") : $0.text).tag($0.text) } }
-        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder).help(folder.isEmpty ? m.t("member.host_folder_placeholder") : folder)
-        Picker(m.t("member.environment"), selection: $environment) { Text(m.t("member.env_local")).tag("local"); Text(m.t("member.env_worktree")).tag("worktree") }
-        Picker(m.t("member.permission"), selection: $permission) { Rows(options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows) { Text($0.text).tag($0.text) } }
-        TextField(m.t("member.env_vars"), text: $env, prompt: Text(m.t("member.env_placeholder")), axis: .vertical)
-        if m.editMember.isEmpty { Toggle(m.t("member.start_now"), isOn: $start) }
+        HStack(alignment: .top, spacing: 12) {
+            field("common.model", placeholder: "member.model_placeholder", text: $model)
+            NativeFormField(title: m.t("member.effort")) { ReferenceSelectField(title: m.t("member.effort"), selection: $effort, options: options["efforts"].rows.map { ($0.text, $0.text.isEmpty ? m.t("common.default_effort") : $0.text) }, pointSize: 12.5) }
+        }
+        field("member.work_folder", placeholder: "member.host_folder_placeholder", text: $folder)
+        HStack(alignment: .top, spacing: 12) {
+            NativeFormField(title: m.t("member.environment")) { ReferenceSelectField(title: m.t("member.environment"), selection: $environment, options: [("local", m.t("member.env_local")), ("worktree", m.t("member.env_worktree"))], pointSize: 12.5) }
+            NativeFormField(title: m.t("member.permission")) { ReferenceSelectField(title: m.t("member.permission"), selection: $permission, options: options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.map { ($0.text,$0.text) }, pointSize: 12.5) }
+        }
+        NativeFormField(title: m.t("member.env_vars")) { NativeTextArea(placeholder: m.t("member.env_placeholder"), text: $env, rows: 3, pointSize: 11.5, voice: false) }
+        if m.editMember.isEmpty { toggle("member.start_now", value: $start) }
     }
 
     private func save() async throws {
