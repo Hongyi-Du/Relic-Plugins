@@ -105,6 +105,7 @@ final class ComposerTextView: NSTextView, NSPopoverDelegate {
 }
 
 private struct MentionSuggestions: View {
+    @Environment(\.colorScheme) private var scheme
     let members: [Node]
     let selected: Int
     let choose: (Int) -> Void
@@ -113,7 +114,7 @@ private struct MentionSuggestions: View {
             ForEach(Array(members.enumerated()), id: \.offset) { index, member in
                 Button { choose(index) } label: {
                     HStack(spacing: 9) {
-                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(RelicStyle.violet).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 7))
+                        Text(String(member.display.prefix(1))).font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28).foregroundStyle(member["secretary"].flag ? RelicStyle.violet : RelicStyle.avatar(member["name"].text, background: false, dark: scheme == .dark)).background(member["secretary"].flag ? RelicStyle.violetSoft : RelicStyle.avatar(member["name"].text, background: true, dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 7))
                         VStack(alignment: .leading, spacing: 2) { Text(member.display).font(.system(size: 13, weight: .medium)); Text(member["role"].text).font(.system(size: 11)).foregroundStyle(RelicStyle.muted).lineLimit(1) }
                         Spacer(minLength: 0)
                     }.padding(7).frame(maxWidth: .infinity, alignment: .leading)

@@ -13,19 +13,20 @@
 
 当前证据（仍在迭代）：
 
-- `5396cfb` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40868069353)
-  构建、测试、打包和 parity 全部通过，macOS 为 53 个 XCTest。
-- [七场景三方 smoke](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40865319424)
-  已通过并实际看图。文件在 `S:\Codex\Outputs\Relic-native-visual\iteration-04\comparisons`。
-- `b32ccac` 全量捕获留下的 34 张中文浅色原生截图在
-  `S:\Codex\Outputs\Relic-native-visual\iteration-05\visual-macos`，已逐页检查主要页面、
-  表单、七节设置、文件、任务/协议/文档、抄送、组织图、收件人和引用。
-- 该轮发现并修复：系统拼写补全阻塞 `@` 场景、弹出层背景、消息元数据和气泡密度、
-  文件与表格布局、表单提交按钮、秘书卡片、关于页元数据丢失、取消加载错误泄漏。
-  后两项另加回归测试；最新代码仍须后续 CI 及全矩阵看图确认。
-- 已合入 `native-apps` 的 `441e6a7`。共享参考成员名片锚点、Windows 控件重挂载已修复；
-  平台诊断翻译及参考 plain 场景偏好修正详见 `REQUESTS.md`。
-- **尚未声称 504 组视觉验收完成，尚未将 PR #4 标为可合并。**
+- `09008fb` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40876824239)
+  构建、测试、打包和 parity 全部通过，macOS 为 **56 个 XCTest，0 失败**。
+- `fdee097` 的 [完整截图运行](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40873502291)
+  macOS 四个作业全部成功，覆盖 **42 场景 × 3 尺寸 × 2 语言 × 2 主题 = 504 PNG**。
+  该轮 Windows 菜单自动化崩溃，三方合成未通过，不能作为最终视觉验收。
+- 本地各轮真实截图在 `S:\Codex\Outputs\Relic-native-visual\iteration-04` 至
+  `iteration-10`。已按图修复弹出候选缺失、长摘要越界、空组织页尺寸、文件和表格布局、
+  表单提交按钮、成员名片操作隐藏、详情对齐、轨迹样式及取消加载错误。
+- `09008fb` 重排全部七节设置：标签和说明在左、原生控件在右；头像、姓名、语音、通知、
+  路径和适配器卡片不再拆成一列默认表单行。其截图仍待完整矩阵确认。
+- 分栏只在实际拖动时保存宽度；头像已采用参考的 UInt32/Unicode 哈希和 HSL 色板。
+- 已合入共享 `612e97c`：平台诊断翻译、真实轨迹与已有会话 fixture、参考白话偏好、
+  Windows 菜单和捕获诊断修复。各项请求与实现说明见 `REQUESTS.md`。
+- **尚未声称 504 组三方对比完成，尚未将 PR #4 标为可合并。**
 
 ## 先前功能/契约验证记录
 

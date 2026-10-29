@@ -48,7 +48,8 @@ The macOS Settings profile/notify/voice/about note from `2494e9d` is applied.
 All seven settings sections now use compact native rows: label and helper text
 on the left, controls on the right; avatar/name controls share their own row,
 voice uses an inline microphone, and adapter diagnostics use expandable cards.
-The runtime controls and API payloads are unchanged. CI capture review follows
+The runtime controls and API payloads are unchanged. macOS also adopts the
+exact reference UInt32/Unicode avatar hash and HSL palette from `612e97c`. CI capture review follows
 with the next full run; the old stacked Form screenshots are not final evidence.
 
 ### Fix merged in `e4bb502`, awaiting capture: Windows automation peer crash (`40873502291`)
