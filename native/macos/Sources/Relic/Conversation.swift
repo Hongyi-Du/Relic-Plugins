@@ -40,7 +40,8 @@ struct Avatar: View {
 struct RichText: View {
     @EnvironmentObject var m: Model
     let text: String
-    init(_ text: String) { self.text = text }
+    var pointSize: CGFloat? = nil
+    init(_ text: String, pointSize: CGFloat? = nil) { self.text = text; self.pointSize = pointSize }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(NativeMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
@@ -58,7 +59,7 @@ struct RichText: View {
         })
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: NativeMarkdown.attributed(value)).help(m.t("chat.path_preview"))
+        SelectableText(value: NativeMarkdown.attributed(value), pointSize: pointSize).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
@@ -343,29 +344,31 @@ struct StepView: View {
     @EnvironmentObject var m: Model
     let step: Node
     let member: String
-    @State private var full: Node?
     @State private var expanded = false
+    @State private var identity = "relic-row/step/" + UUID().uuidString
     private var title: String {
         if step["role"].text == "tool_call" { return ToolActivity.toolName(step["tool"].text) }
         return m.t(["user": "trace.user", "assistant": "common.reply", "thinking": "trace.thinking", "context": "trace.injected"][step["role"].text] ?? "common.result")
     }
-    private var summary: String { ToolActivity.pair([step]).first?.argument ?? step["text"].text }
+    private var summary: String { step["role"].text == "tool_call" ? ToolActivity.pair([step]).first?.argument ?? "" : ReferenceText.clip(step["text"].text, to: 120) }
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 7) {
-                if ["assistant", "user"].contains(step["role"].text) { RichText(step["text"].text) }
-                else { Text((full ?? step)["text"].text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                if !step["i"].isNull && full == nil && !["assistant", "user"].contains(step["role"].text) { Button(m.t("org.click_expand")) { m.run { full = try await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) } }.buttonStyle(.link) }
-            }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.line)).padding(.top, 5)
-        } label: {
-            HStack(spacing: 6) {
-                Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.muted).frame(width: 6, height: 6)
-                Text(title).font(RelicStyle.font(12, weight: 600)).fixedSize()
-                Text(summary).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted).lineLimit(1).help(step["text"].text)
-                Spacer(minLength: 4)
-                Text(m.clock(step["at"])).font(RelicStyle.font(10.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize().help(step["at"].text)
+        VStack(alignment: .leading, spacing: 0) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 8) {
+                    Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.faint).frame(width: 7, height: 7)
+                    ReferenceLabel(title, size: 12.5, weight: 600, owner: identity).fixedSize()
+                    Text(summary).font(Font(RelicStyle.monoFont(11.5))).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    ReferenceLabel(m.clock(step["at"]), size: 11, color: RelicStyle.muted, owner: identity).fixedSize()
+                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3)
+                    .modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
+            }.buttonStyle(.plain).accessibilityIdentifier(identity)
+            if expanded {
+                SelectableText(value: AttributedString(step["text"].text), pointSize: 11.5, lineHeight: 17.825, monospaced: true)
+                    .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                    .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 7, kind: "code"))
+                    .padding(.leading, 27).padding(.trailing, 10).padding(.top, 2).padding(.bottom, 8)
             }
-        }.padding(.vertical, 3).onAppear { expanded = ["assistant", "user"].contains(step["role"].text) }
+        }.onAppear { expanded = ["assistant", "user"].contains(step["role"].text) }
     }
 }
 

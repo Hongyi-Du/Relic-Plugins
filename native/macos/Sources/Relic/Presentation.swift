@@ -30,8 +30,8 @@ extension Model {
         return keys[episode["outcome"].text].map { t($0) } ?? episode["outcome"].text
     }
     func copyLabel(_ copy: Node) -> String {
-        if copy["status"].text == "retired" && copy["retired_by_person"].flag { return t("cc.status_retired_person") }
         if !["", "active"].contains(copy["org_status"].text) { return t("cc.status_ended") }
+        if copy["status"].text == "retired" && copy["retired_by"].text == "human" { return t("cc.status_retired_person") }
         let key = ["active": "cc.status_active", "retired": "cc.status_retired", "superseded": "cc.status_superseded"][copy["status"].text]
         return key.map { t($0, ["id": copy["superseded_by"].text]) } ?? copy["status"].text
     }

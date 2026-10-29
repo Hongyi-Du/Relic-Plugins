@@ -31,6 +31,17 @@ enum RelicStyle {
     static let green = color(0x3E9B5E, 0x6CC287)
     static let redSoft = color(0xFBEAE6, 0x3D2622)
     static let red = color(0xC2412D, 0xEE8A78)
+    static func mix(_ first: Color, _ second: Color, fraction: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            var result = NSColor.clear
+            appearance.performAsCurrentDrawingAppearance {
+                let a = NSColor(first).usingColorSpace(.sRGB) ?? .clear
+                let b = NSColor(second).usingColorSpace(.sRGB) ?? .clear
+                result = NSColor(srgbRed: a.redComponent * fraction + b.redComponent * (1 - fraction), green: a.greenComponent * fraction + b.greenComponent * (1 - fraction), blue: a.blueComponent * fraction + b.blueComponent * (1 - fraction), alpha: a.alphaComponent * fraction + b.alphaComponent * (1 - fraction))
+            }
+            return result
+        })
+    }
     static func font(_ size: CGFloat, weight: Int) -> Font {
         Font(nativeFont(size, weight: weight))
     }
@@ -67,17 +78,19 @@ enum RelicStyle {
 
 struct QuietButtonStyle: ButtonStyle {
     var selected = false
+    var selectionApplicable = false
     func makeBody(configuration: Configuration) -> some View {
-        QuietBody(configuration: configuration, selected: selected)
+        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable)
     }
     private struct QuietBody: View {
         let configuration: Configuration
         let selected: Bool
+        let selectionApplicable: Bool
         @State private var hovering = false
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: 7))
-                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: 7, hovered: hovering))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: 7, hovered: hovering, selected: selectionApplicable ? selected : nil))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }

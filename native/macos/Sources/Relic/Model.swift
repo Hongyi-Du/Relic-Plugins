@@ -45,6 +45,7 @@ import RelicCore
     @Published var overviewMode = "transparent"
     @Published var detailTab = "trace"
     @Published var detailMember = ""
+    @Published var detailDocument = ""
     @Published var detailTask = ""
     @Published var detailFilter = "open"
     @Published var cardMember = ""
@@ -277,7 +278,7 @@ import RelicCore
         cardAnchor = anchor ?? CGRect(x: sidebarOpen ? 276 : 0, y: 40, width: max(0, windowSize.width - (sidebarOpen ? 276 : 0) - (panelOpen ? 340 : 0)), height: 56)
         sheet = .card
     }
-    func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
+    func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailDocument = ""; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }
     func setPane(_ value: String) { pane = value; panelOpen = true; if value != "thread" { defaults.set(value, forKey: "pane") } }
     func togglePane(_ value: String) { if pane == value && panelOpen { panelOpen = false } else { setPane(value) } }
     func quoteSelection() {

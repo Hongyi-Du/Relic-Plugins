@@ -1,3 +1,42 @@
+## 2026-10-29: ordered protocol JSON display from the shared engine
+
+The reference shows `JSON.stringify(plainRules(p.rules), null, 2)` in the
+protocol details code block. Foundation JSONSerialization does not preserve
+wire object-member order; sorting native keys changes visible text. Please add
+`rules_display: string` to protocol rows in the snapshot's `protocols` and
+`inherited_protocols`, containing the exact indented display JSON of plainRules:
+for check rules omit `code`, `examples`, `code_sha256`, preserve all remaining
+wire key order, use two-space indentation and unescaped Unicode. The native
+client now consumes this field, falling back to its existing serialization for
+older servers; fallback differences remain reportable failures. Keep the
+existing rules array and payloads unchanged.
+
+The expanded check-rule examples additionally need `call_display` and
+`call_json` on each example: `call_display` is reference `exampleText(call)`
+(first command/file_path/path, else compact JSON; clip normalized text to 160
+UTF-16 units); `call_json` is `JSON.stringify(call, null, 2)` for the tooltip.
+Both must preserve source object ordering. The native implementation consumes
+these optional fields and keeps its older-server fallback visible to the gate.
+
+## 2026-10-29: measured chart paths and dashed stroke evidence
+
+The macOS chart now draws the reference's orthogonal parent connectors and
+shared-seat cubic paths with native SwiftUI/CoreGraphics, and exports each
+live path's actual geometry, width, dash array, opacity, transform and glyph.
+Zero-width vertical path bounds are retained because the stroke is visible.
+Nodes carry their own real accessibility identities and individual native labels.
+
+Please extend shared style comparison to preserve/check actual dash patterns
+(`stroke_dash` for SVG/native paths, and border dash/style evidence for subgroup
+cards). macOS exposes its production arrays as `projection.stroke_dash` and
+`surface_evidence.border_dash`. These were absent from the common style shape,
+but dashed versus solid is visible and is required by element parity. This is
+an added measurement request, not an exception or a tolerance change.
+
+`e4c559e` Native apps run 40957778580 is green. Earlier `57f183a` failed to
+compile because an NSSize literal made greatestFiniteMagnitude ambiguous; the
+fix explicitly specifies CGFloat and is included in e4c559e.
+
 ## 2026-10-29: actual macOS font identities and dialog continuation
 
 `34d56cd` Native apps run 40953908181 is green, including macOS build/tests.

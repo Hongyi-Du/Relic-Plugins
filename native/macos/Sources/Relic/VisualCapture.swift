@@ -83,7 +83,7 @@ import RelicAX
                     case "secretary": model.sheet = .secretary
                     case "tasks", "task-report": model.openDetails("tasks", task: scene == "task-report" ? fixture["task"].text : ""); if scene == "task-report" { model.detailFilter = "all" }
                     case "protocols": model.openDetails("protocols")
-                    case "documents": model.openDetails("docs")
+                    case "documents": model.openDetails("docs"); model.detailDocument = model.snapshot["documents"].rows.first?["key"].text ?? ""
                     case "trajectory": model.openDetails("trace", member: fixture["member"].text)
                     case "shortcuts": model.sheet = .shortcuts
                     case "quote": model.setQuote(fixture["quote"].text, from: fixture["member"].text)

@@ -88,40 +88,77 @@ struct ProtocolForm: View {
 struct CopiesView: View {
     @EnvironmentObject var m: Model
     @State private var retire: Node?
+    private var unread: Int { m.copies.filter { !$0["read"].flag }.count }
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) { Label(m.t("cc.title"), systemImage: "doc.on.doc").font(RelicStyle.font(17, weight: 600)); if m.copies.contains(where: { !$0["read"].flag }) { SmallBadge(text: String(m.copies.filter { !$0["read"].flag }.count), color: RelicStyle.accent) } }
-                Text(m.t("cc.intro")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.secondary).fixedSize(horizontal: false, vertical: true)
-                if m.copies.isEmpty { Text(m.t("cc.empty")) }
-                Rows(m.copies) { copy in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "doc.text").foregroundStyle(RelicStyle.violet)
-                            Text(copy["org_name"].text + " · " + copy["title"].text).font(RelicStyle.font(13, weight: 600)).fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            if !copy["read"].flag { SmallBadge(text: m.t("cc.unread"), color: RelicStyle.accent) }
-                            SmallBadge(text: m.copyLabel(copy), color: RelicStyle.green)
-                        }
-                        if !copy["supersedes"].text.isEmpty { Text(m.t("cc.revision")).font(RelicStyle.font(12, weight: 400)) }
-                        Text(copy["summary"].text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8))
-                        Text(m.t("cc.proposed_by", ["name": copy["author_display"].text]))
-                        Text(m.t("cc.approved_by", ["names": m.list(copy["approved_display"].rows.map(\.text))]))
-                        Text(m.t("cc.effective", ["when": m.day(copy["activated_at"]) + " " + m.clock(copy["activated_at"])])).font(RelicStyle.font(12, weight: 400))
-                        if !copy["supersedes"].text.isEmpty { Text(m.t("cc.replaces", ["id": copy["supersedes"].text])) }
-                        if !copy["issued_by"].isNull { Text(m.t("cc.issued_by", ["name": copy["issued_by"]["name"].text])) }
-                        Text(copy["stats"]["total"].text.isEmpty || copy["stats"]["total"].text == "0" ? m.t("cc.stats_none") : m.t("cc.stats", ["n": copy["stats"]["total"].text, "allow": copy["stats"]["allow"].text, "deny": copy["stats"]["deny"].text, "review": copy["stats"]["review"].text, "error": copy["stats"]["error"].text]))
-                        RulesView(rules: copy["rules"].rows)
-                        HStack {
-                            if !copy["read"].flag { Button(m.t("cc.ack")) { m.run { try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/read", [:]); try await m.refresh() } } }
-                            if copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) { Button(m.t("cc.retire"), role: .destructive) { retire = copy } }
-                        }
-                    }.font(RelicStyle.font(12, weight: 400)).relicCard().overlay(RoundedRectangle(cornerRadius: 12).stroke(!copy["read"].flag ? RelicStyle.accent.opacity(0.35) : .clear, lineWidth: 1))
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }.frame(maxHeight: 600)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                ReferenceIcon(name: "cc", size: 18).foregroundStyle(RelicStyle.secondary)
+                ReferenceLabel(m.t("cc.title"), size: 17, weight: 650)
+                if unread > 0 { ReferenceLabel(String(unread), size: 11, weight: 700, color: .white, alignment: .center).padding(.horizontal, 5).frame(minWidth: 18).frame(height: 18).modifier(RecordedSurface(background: RelicStyle.accent, radius: 9, kind: "badge")) }
+                Spacer(minLength: 0)
+                IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }
+            }
+            ReferenceLabel(m.t("cc.intro"), size: 13, color: RelicStyle.secondary, lineHeight: 22.1, lines: 0)
+            VStack(alignment: .leading, spacing: 10) {
+                if m.copies.isEmpty { ReferenceLabel(m.t("cc.empty"), size: 13, color: RelicStyle.muted).padding(22).frame(maxWidth: .infinity) }
+                Rows(m.copies) { copy in CopyCard(copy: copy, retire: { retire = copy }) }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
         .confirmationDialog(m.t("cc.retire"), isPresented: Binding(get: { retire != nil }, set: { if !$0 { retire = nil } }), presenting: retire) { copy in
             Button(m.t("cc.retire"), role: .destructive) { m.run { do { try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/retire", [:]); m.notice = m.t("cc.retired", ["id": copy["protocol_id"].text, "title": copy["title"].text]); try await m.refresh() } catch { throw RelicError.message(m.t("cc.retire_failed", ["error": error.localizedDescription])) } } }
         } message: { copy in Text(m.t("cc.retire_confirm", ["id": copy["protocol_id"].text, "title": copy["title"].text, "org": copy["org_name"].text])) }
+    }
+}
+
+struct CopyCard: View {
+    @EnvironmentObject var m: Model
+    let copy: Node
+    let retire: () -> Void
+    @State private var acknowledging = false
+    private var live: Bool { copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) }
+    private var organization: Node { m.organizations.first { $0["id"].text == copy["org"].text } ?? Node(["id": copy["org"].text, "name": copy["org_name"].text]) }
+    private var tone: String { !["", "active"].contains(copy["org_status"].text) ? "" : copy["status"].text == "active" ? "ok" : copy["status"].text == "retired" && copy["retired_by"].text == "human" ? "bad" : "" }
+    private var metadata: String {
+        var parts = [m.t(copy["issued_by"]["member"].text.isEmpty ? "cc.proposed_by" : "cc.issued_by", ["name": copy["author_display"].text])]
+        if !copy["approved_display"].rows.isEmpty { parts.append(m.t("cc.approved_by", ["names": m.list(copy["approved_display"].rows.map(\.text))])) }
+        if !copy["activated_at"].text.isEmpty { parts.append(m.t("cc.effective", ["when": m.day(copy["activated_at"]) + " " + m.clock(copy["activated_at"])])) }
+        if !copy["supersedes"].text.isEmpty { parts.append(m.t("cc.replaces", ["id": copy["supersedes"].text])) }
+        return parts.joined(separator: " · ")
+    }
+    private var stats: String {
+        let stats = copy["stats"]
+        return stats["total"].integer == 0 ? m.t("cc.stats_none") : m.t("cc.stats", ["n": stats["total"].text, "allow": String(stats["allow"].integer), "deny": String(stats["deny"].integer), "review": String(stats["review"].integer), "error": String(stats["error"].integer)])
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                OrganizationBadge(node: organization).padding(.top, 2)
+                VStack(alignment: .leading, spacing: 0) {
+                    ReferenceLabel(copy["org_name"].text, size: 12, color: RelicStyle.muted, lineHeight: 16.8).help(copy["org_name"].text)
+                    (Text(copy["protocol_id"].text).font(Font(RelicStyle.monoFont(14))).foregroundColor(RelicStyle.secondary) + Text(" " + copy["title"].text).font(RelicStyle.font(14, weight: 650))).lineSpacing(0).fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                FlowLayout(spacing: 4) {
+                    if !copy["read"].flag { OverviewChip(text: m.t("cc.unread"), tone: "accent") }
+                    if !copy["supersedes"].text.isEmpty { OverviewChip(text: m.t("cc.revision")) }
+                    OverviewChip(text: m.copyLabel(copy), tone: tone)
+                }.frame(maxWidth: 300, alignment: .trailing)
+            }
+            RichText(copy["summary"].text).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
+                .modifier(RecordedSurface(background: live ? RelicStyle.sidebar : RelicStyle.background, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "region")).recordedOpacity(live ? 1 : 0.8)
+            ReferenceLabel(metadata, size: 12, color: RelicStyle.muted, lines: 0)
+            ReferenceLabel(stats, size: 12, color: RelicStyle.muted, lines: 0)
+            RulesView(rules: copy["rules"].rows)
+            if !copy["read"].flag || live {
+                FlowLayout(spacing: 6) {
+                    if !copy["read"].flag {
+                        Button { acknowledging = true; m.run { defer { acknowledging = false }; try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/read", [:]); try await m.refresh() } } label: {
+                            HStack(spacing: 6) { ReferenceIcon(name: "check", size: 14); ReferenceLabel(m.t("cc.ack"), size: 12, weight: 600) }
+                        }.buttonStyle(ReferenceButtonStyle(small: true)).disabled(acknowledging)
+                    }
+                    if live { TextButton(m.t("cc.retire"), size: 12, color: RelicStyle.red, action: retire).buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
+                }
+            }
+        }.padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: live ? RelicStyle.card : RelicStyle.sidebar, border: copy["read"].flag ? RelicStyle.line : RelicStyle.mix(RelicStyle.accent, RelicStyle.line, fraction: 0.45), borderWidth: 1, radius: 12, kind: "card", insetLeadingWidth: copy["read"].flag ? 0 : 3, insetLeadingColor: RelicStyle.accent))
     }
 }
