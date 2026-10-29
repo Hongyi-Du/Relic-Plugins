@@ -11,6 +11,22 @@
 原生弹出菜单、分栏宽度及可缩放对话框。新增词条完整性 XCTest；原始键不再作为
 显示文本回退。截图入口 `VisualCapture.swift` 仅在 GitHub Actions 使用共享 fixture。
 
+当前证据（仍在迭代）：
+
+- `5396cfb` 的 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40868069353)
+  构建、测试、打包和 parity 全部通过，macOS 为 53 个 XCTest。
+- [七场景三方 smoke](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40865319424)
+  已通过并实际看图。文件在 `S:\Codex\Outputs\Relic-native-visual\iteration-04\comparisons`。
+- `b32ccac` 全量捕获留下的 34 张中文浅色原生截图在
+  `S:\Codex\Outputs\Relic-native-visual\iteration-05\visual-macos`，已逐页检查主要页面、
+  表单、七节设置、文件、任务/协议/文档、抄送、组织图、收件人和引用。
+- 该轮发现并修复：系统拼写补全阻塞 `@` 场景、弹出层背景、消息元数据和气泡密度、
+  文件与表格布局、表单提交按钮、秘书卡片、关于页元数据丢失、取消加载错误泄漏。
+  后两项另加回归测试；最新代码仍须后续 CI 及全矩阵看图确认。
+- 已合入 `native-apps` 的 `441e6a7`。共享参考成员名片锚点、Windows 控件重挂载已修复；
+  平台诊断翻译及参考 plain 场景偏好修正详见 `REQUESTS.md`。
+- **尚未声称 504 组视觉验收完成，尚未将 PR #4 标为可合并。**
+
 ## 先前功能/契约验证记录
 
 更新：2026-10-29。分支：`native-macos`。本会话仅修改 `native/macos/**`。
