@@ -65,6 +65,8 @@ def reference(manifest):
 
 def native(manifest_path, manifest, exe):
     environment = dict(os.environ, RELIC_VISUAL_MANIFEST=str(manifest_path), RELIC_VISUAL_OUTPUT=manifest["output"], RELIC_ENGINE_ROOT=str(ROOT), RELIC_PYTHON=sys.executable, RELIC_HOME=manifest["fixture"]["home"])
+    if manifest["client"] == "windows":
+        (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
         try:

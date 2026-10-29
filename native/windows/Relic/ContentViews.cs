@@ -215,7 +215,7 @@ public sealed partial class MainWindow
             if (rule.Rows("examples").Count > 0) body.Children.Add(Text(T("cc.examples")));
             foreach (var example in rule.Rows("examples")) body.Children.Add(new Expander { Header = T(example.Text("expect") switch { "deny" => "cc.decision_deny", "review" => "cc.decision_review", _ => "cc.decision_allow" }) + " · " + example?["call"].Text("tool"), Content = Stack(Text(example?["call"]?.ToJsonString(new() { WriteIndented = true }) ?? ""), Text(example.Text("note"))), HorizontalAlignment = HorizontalAlignment.Stretch });
         }
-        return new Expander { Header = T("cc.code"), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch };
+        return new Expander { Header = T("cc.code"), Content = body, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     }
     private async Task Trace(StackPanel box, string who)
     {
