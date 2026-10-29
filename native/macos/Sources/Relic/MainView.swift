@@ -36,6 +36,7 @@ struct MainView: View {
         }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
+        .onChange(of: m.sheet) { m.activeSpeech?.stop() }
         .sheet(item: $m.sheet) { sheet in SheetContent(sheet: sheet).environmentObject(m) }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(.system(size: m.preferences["font"].text == "large" ? 16 : m.preferences["font"].text == "small" ? 12 : 14))

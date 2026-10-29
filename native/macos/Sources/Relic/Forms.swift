@@ -27,7 +27,7 @@ struct CreateOrgView: View {
     var body: some View {
         Form {
             Text(m.t("common.new_org")).font(.title2)
-            TextField(m.t("common.name"), text: $name, prompt: Text(m.t("neworg.name_placeholder")))
+            TextField(m.t("common.name"), text: $name, prompt: Text(m.t("neworg.name_placeholder"))).dictation($name)
             TextField(m.t("neworg.purpose"), text: $purpose, prompt: Text(m.t("neworg.purpose_placeholder")), axis: .vertical)
             VoiceButton(text: $purpose)
             Picker(m.t("neworg.governance"), selection: $governance) { Text(m.t("neworg.gov_leader")).tag("leader"); Text(m.t("neworg.gov_peer")).tag("peer") }
@@ -52,25 +52,23 @@ struct ProtocolForm: View {
     @State private var strength = "weak"
     @State private var rules = "[]"
     @State private var summary = ""
-    @State private var supersedes = ""
     var body: some View {
         Form {
             Text(m.t("org.protocols")).font(.title2)
             TextField(m.t("native.protocol_title"), text: $title)
             TextField(m.t("native.protocol_rationale"), text: $rationale, axis: .vertical)
-            TextField(m.t("native.protocol_trigger"), text: $trigger)
-            TextField(m.t("native.protocol_guidance"), text: $guidance, axis: .vertical)
+            TextField(m.t("native.protocol_trigger"), text: $trigger).disabled(strength == "strong")
+            TextField(m.t("native.protocol_guidance"), text: $guidance, axis: .vertical).disabled(strength == "strong")
             Picker(m.t("native.protocol_strength"), selection: $strength) { Text(m.t("common.weak")).tag("weak"); Text(m.t("common.strong")).tag("strong") }
             if strength == "strong" {
                 TextField(m.t("native.protocol_rules"), text: $rules, axis: .vertical).font(.system(.body, design: .monospaced))
                 Text(m.t("native.protocol_rules_hint")).font(.caption)
+                TextField(m.t("details.label_summary"), text: $summary, axis: .vertical)
             }
-            TextField(m.t("details.label_summary"), text: $summary, axis: .vertical)
-            TextField(m.t("details.label_supersedes"), text: $supersedes)
             Toggle(m.t("org.protocol_inherits"), isOn: $inherit)
             SaveButton {
                 let parsed = strength == "strong" ? try JSONSerialization.jsonObject(with: Data(rules.utf8)) : []
-                try await m.post(m.path("/protocols"), ["title": title, "rationale": rationale, "trigger": trigger, "guidance": guidance, "strength": strength, "inherit": inherit, "downward": inherit, "summary_for_person": summary, "supersedes": supersedes, "rules": parsed]); try await m.refresh()
+                try await m.post(m.path("/protocols"), ["title": title, "rationale": rationale, "trigger": trigger, "guidance": guidance, "strength": strength, "inherit": inherit, "summary_for_person": summary, "rules": parsed]); try await m.refresh()
             }
         }.formStyle(.grouped)
     }

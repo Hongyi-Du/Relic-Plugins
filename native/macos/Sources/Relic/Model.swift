@@ -27,6 +27,8 @@ import RelicCore
     @Published var notice = ""
     @Published var ready = false
     @Published var sending = false
+    @Published var threadSending = false
+    weak var activeSpeech: SpeechInput?
     @Published var moreChat = false
     @Published var sheet: Sheet?
     @Published var folded: Set<String> = []
@@ -154,7 +156,7 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
+    func stop() { activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
     func schedule() {
         pending = true
         guard refreshTask == nil else { return }
@@ -199,6 +201,7 @@ import RelicCore
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        activeSpeech?.stop()
         plainTask?.cancel(); plainTask = nil; plainQueue = []
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
@@ -222,12 +225,14 @@ import RelicCore
     }
     func navigate(_ delta: Int) { guard let next = history.move(delta) else { return }; run { try await self.select(next.org, next.member, record: false) } }
     func loadOlder() async throws {
-        let selected = selection, before = messages.first?["id"].text ?? ""
+        let selected = selection, before = messages.first(where: { Int($0["id"].text) != nil })?["id"].text ?? ""
+        guard !before.isEmpty else { moreChat = false; return }
         let result = try await get(selected.path("/chat?kind=" + (member.isEmpty ? "group" : "private") + "&member=" + Client.segment(member) + "&limit=200&before=" + Client.segment(before)))
         guard selected == selection else { return }; messages = Timeline.merge(result["items"].rows, messages); moreChat = result["more"].flag
     }
     func send() async throws {
-        guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !quote.isEmpty else { return }
+        activeSpeech?.stop()
         sending = true; defer { sending = false }
         let selected = selection, original = draft, body = draft.trimmingCharacters(in: .whitespacesAndNewlines), quoted = quote, to = recipients
         do { _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: to, members: members, quote: quoted)) }
@@ -290,8 +295,10 @@ import RelicCore
         if selected == selection, id == threadID { threadData = result }
     }
     func sendThread() async throws {
+        guard !threadSending, !threadID.isEmpty else { return }
         let selected = selection, id = threadID, original = threadDraft, body = threadDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !body.isEmpty || !quote.isEmpty else { return }
+        threadSending = true; defer { threadSending = false }; activeSpeech?.stop()
         let quoted = quote
         _ = try await post(selected.path("/send"), Composer.message(body: body, member: selected.member, selected: [], members: [], quote: quoted, replyTo: id))
         let key = "thread." + selected.org + "/" + id

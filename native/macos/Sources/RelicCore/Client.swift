@@ -19,12 +19,17 @@ public enum RelicError: LocalizedError {
 }
 
 public final class Client {
-    let base: URL
-    let token: String
+    private struct Connection: Equatable {
+        let base: URL
+        let token: String
+    }
+    private var connection: Connection
+    private let connectionLock = NSLock()
+    private let serverRecord: (() throws -> Node)?
     let session: URLSession
-    public init(port: Int, token: String, session: URLSession? = nil) throws {
+    public init(port: Int, token: String, session: URLSession? = nil, serverRecord: (() throws -> Node)? = nil) throws {
         guard (1...65535).contains(port), !token.isEmpty else { throw RelicError.message("Invalid server record") }
-        self.base = URL(string: "http://127.0.0.1:\(port)")!; self.token = token
+        connection = Connection(base: URL(string: "http://127.0.0.1:\(port)")!, token: token); self.serverRecord = serverRecord
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
         configuration.timeoutIntervalForRequest = 30
@@ -35,9 +40,16 @@ public final class Client {
     }
     public static func org(_ id: String, _ rest: String = "") -> String { "/api/org/" + segment(id) + rest }
     func request(_ path: String, body: [String: Any]? = nil) throws -> URLRequest {
-        guard path.hasPrefix("/api/"), !path.contains("#"), let url = URL(string: base.absoluteString + path), url.host == "127.0.0.1", url.port == base.port else { throw RelicError.message("Invalid API path") }
+        try request(path, body: body, using: currentConnection())
+    }
+    private func currentConnection() -> Connection { connectionLock.lock(); defer { connectionLock.unlock() }; return connection }
+    private func adopt(_ candidate: Connection, replacing previous: Connection) {
+        connectionLock.lock(); defer { connectionLock.unlock() }; if connection == previous { connection = candidate }
+    }
+    private func request(_ path: String, body: [String: Any]? = nil, using connection: Connection) throws -> URLRequest {
+        guard path.hasPrefix("/api/"), !path.contains("#"), let url = URL(string: connection.base.absoluteString + path), url.host == "127.0.0.1", url.port == connection.base.port else { throw RelicError.message("Invalid API path") }
         var request = URLRequest(url: url)
-        request.setValue(token, forHTTPHeaderField: "X-Relic-Token")
+        request.setValue(connection.token, forHTTPHeaderField: "X-Relic-Token")
         if let body {
             request.httpMethod = "POST"; request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -47,12 +59,40 @@ public final class Client {
     public func get(_ path: String) async throws -> Node { try await call(path) }
     public func post(_ path: String, _ body: [String: Any]) async throws -> Node { try await call(path, body: body) }
     private func call(_ path: String, body: [String: Any]? = nil) async throws -> Node {
-        let (data, response) = try await session.data(for: request(path, body: body))
+        do {
+            let (data, response) = try await session.data(for: request(path, body: body))
+            let error = Node((try? JSONSerialization.jsonObject(with: data)) ?? NSNull())["error"].text
+            // A rejected token cannot have executed the write. No other failed POST is replayed.
+            if (response as? HTTPURLResponse)?.statusCode == 403, error == "missing token", await refreshRecord() { return try await callOnce(path, body: body) }
+            return try decode(data, response)
+        } catch {
+            if body == nil, !Task.isCancelled, await refreshRecord() { return try await callOnce(path, body: nil) }
+            throw error
+        }
+    }
+    private func callOnce(_ path: String, body: [String: Any]?) async throws -> Node {
+        let (data, response) = try await session.data(for: request(path, body: body)); return try decode(data, response)
+    }
+    private func decode(_ data: Data, _ response: URLResponse) throws -> Node {
         let node = Node((try? JSONSerialization.jsonObject(with: data)) ?? NSNull())
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw RelicError.message(node["error"].text.isEmpty ? "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)" : node["error"].text) }
         guard !node.isNull else { throw RelicError.message("Invalid JSON response") }
         if node["status"].text == "failed" || (!node["ok"].isNull && !node["ok"].flag) { throw RelicError.message(node["error"].text) }
         return node
+    }
+    @discardableResult func refreshRecord() async -> Bool {
+        guard let serverRecord, !Task.isCancelled else { return false }
+        let previous = currentConnection()
+        do {
+            let info = try serverRecord(), port = info["port"].integer
+            guard (1...65535).contains(port), !info["token"].text.isEmpty, info["pid"].integer > 0, !info["instance"].text.isEmpty else { return false }
+            let candidate = Connection(base: URL(string: "http://127.0.0.1:\(port)")!, token: info["token"].text)
+            if candidate == previous { return false }
+            let (data, response) = try await session.data(for: request("/api/lifecycle", using: candidate))
+            let live = try decode(data, response)
+            guard live["app"].text == "relic", live["state"].text == "running", live["port"].integer == port, live["pid"].integer == info["pid"].integer, live["instance"].text == info["instance"].text else { return false }
+            adopt(candidate, replacing: previous); return currentConnection() != previous
+        } catch { return false }
     }
     public func data(_ path: String) async throws -> Data {
         let (data, response) = try await session.data(for: request(path))
@@ -74,6 +114,7 @@ public final class Client {
                 }
             } catch { if Task.isCancelled { return } }
             do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
+            await refreshRecord()
             await receive(Node(["type": "reconnect"]))
         }
     }
@@ -136,7 +177,9 @@ public final class ServerHost {
             for try await line in output.fileHandleForReading.bytes.lines { record = line; break }
             guard let record, let data = record.data(using: .utf8) else { throw RelicError.message(String(data: errors, encoding: .utf8) ?? "Relic failed to start") }
             let info = Node(try JSONSerialization.jsonObject(with: data))
-            let client = try Client(port: Int(info["port"].text) ?? 0, token: info["token"].text)
+            let dataHome = environment["RELIC_HOME"] ?? NSHomeDirectory() + "/.relic"
+            let recordURL = URL(fileURLWithPath: (dataHome as NSString).expandingTildeInPath, relativeTo: root).standardizedFileURL.appendingPathComponent("app.json")
+            let client = try Client(port: Int(info["port"].text) ?? 0, token: info["token"].text, serverRecord: { Node(try JSONSerialization.jsonObject(with: Data(contentsOf: recordURL))) })
             let live = try await client.get("/api/lifecycle")
             guard live["app"].text == "relic", live["state"].text == "running", live["port"].integer == info["port"].integer, live["instance"].text == info["instance"].text, live["pid"].text == info["pid"].text else { throw RelicError.message("Relic instance changed during startup") }
             return client
