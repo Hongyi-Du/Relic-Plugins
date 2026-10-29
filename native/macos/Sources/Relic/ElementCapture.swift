@@ -157,7 +157,7 @@ import CoreText
                           "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
                           "backgroundColor": rgba(attributes[.backgroundColor] as? NSColor ?? .clear),
                           "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
-                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
+                          "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
                           "opacity": (view as? ReferenceLabelView)?.measuredOpacity ?? (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue),
                           "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull()],
                 "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
@@ -190,9 +190,9 @@ import CoreText
             let visibleRect = rect.intersection(clip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
+            let elementKind = isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-row/") || ax["identifier"].text.hasPrefix("relic-org/") || ["region", "image", "divider", "chart-node", "avatar"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
@@ -252,7 +252,7 @@ import CoreText
         for var label in ownedLabels.reversed() {
             if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
                 let identifier = label["production_owner"] as! String
-                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/")
+                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/")
                 if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
                     var style = elements[owner]["style"] as! [String: Any]
                     let textStyle = label["style"] as! [String: Any]
@@ -299,6 +299,7 @@ import CoreText
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
                 if let selected = surface["selected"] as? Bool { elements[index]["recorded_selected"] = selected }
                 if let expanded = surface["expanded"] as? Bool { elements[index]["recorded_expanded"] = expanded }
+                if let current = surface["current"] as? Bool { elements[index]["recorded_current"] = current }
             } else if let kind = surface["kind"] as? String {
                 var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
@@ -325,8 +326,8 @@ import CoreText
                 "visible": true, "source": "live-NSView-shape-probe", "projection": evidence,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
                           "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
-                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
-                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": 1.7 * ((sample["rect"] as? [String: Double])?["width"] ?? 0) / 24],
+                          "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
+                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_dash": [], "stroke_dash_offset": 0, "stroke_linecap": "round", "stroke_linejoin": "round", "stroke_width": 1.7 * ((sample["rect"] as? [String: Double])?["width"] ?? 0) / 24],
                 "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                 "icon": sample["icon"]!, "pixelSamples": samples(visible, bitmap: bitmap)]
             raw.append(node)
@@ -347,7 +348,8 @@ import CoreText
             let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
                 "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
-                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any],
+                          "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any,
+                          "stroke_dash": abs(sx - sy) > 0.0001 ? NSNull() : (evidence["stroke_dash"] as! [Double]).map { $0 * sx } as Any, "stroke_dash_offset": 0, "stroke_linecap": evidence["stroke_linecap"]!, "stroke_linejoin": evidence["stroke_linejoin"]!],
                 "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()], "pixelSamples": samples(painted, bitmap: bitmap)]
             raw.append(node); chartEdges.append(node)
         }
@@ -376,7 +378,7 @@ import CoreText
             let sourceStyle = node["style"] as! [String: Any], sourceState = node["state"] as! [String: Any]
             let text = node["text"] as! String
             let styleKeys = ["font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color", "background": "backgroundColor", "border_color": "borderColor", "border_width": "borderWidth", "corner_radius": "borderRadius",
-                             "border_widths": "border_widths", "border_colors": "border_colors", "corner_radii": "corner_radii", "opacity": "opacity", "background_image": "background_image", "shadow": "shadow"]
+                             "border_widths": "border_widths", "border_styles": "border_styles", "border_colors": "border_colors", "corner_radii": "corner_radii", "opacity": "opacity", "background_image": "background_image", "shadow": "shadow"]
             var actualStyle: [String: Any] = [:]
             for (key, original) in styleKeys {
                 let value = sourceStyle[original] ?? NSNull()
@@ -387,14 +389,16 @@ import CoreText
             actualStyle["rendered_fonts"] = text.isEmpty ? NSNull() : sourceStyle["rendered_fonts"] ?? NSNull()
             if !text.isEmpty && sourceStyle["rendered_fonts"] == nil { unmeasured.append(id + ":style.rendered_fonts") }
             if ["icon", "chart-edge"].contains(kind) {
-                actualStyle["stroke_width"] = sourceStyle["stroke_width"] ?? NSNull()
-                if sourceStyle["stroke_width"] == nil { unmeasured.append(id + ":style.stroke_width") }
+                for key in ["stroke_width", "stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin"] {
+                    actualStyle[key] = sourceStyle[key] ?? NSNull()
+                    if sourceStyle[key] == nil || sourceStyle[key] is NSNull { unmeasured.append(id + ":style." + key) }
+                }
             }
             let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item", "chart-node"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull()]
+            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node

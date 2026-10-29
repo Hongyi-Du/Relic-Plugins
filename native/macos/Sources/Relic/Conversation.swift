@@ -10,6 +10,7 @@ struct Avatar: View {
     var showState = false
     var stateBorder: Color = RelicStyle.background
     @State private var image: NSImage?
+    @State private var identity = "relic-avatar/" + UUID().uuidString
     @Environment(\.colorScheme) private var scheme
     private var state: String { m.members.first(where: { $0["name"].text == member })?["state"].text ?? "" }
     private var radius: CGFloat { size == 20 ? 6 : size == 28 ? 8 : size == 60 ? 14 : 9 }
@@ -21,11 +22,10 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(maxWidth: .infinity, maxHeight: .infinity).background(RelicStyle.violetSoft) }
-            else { Text(String(m.name(member).prefix(1)).uppercased()).font(RelicStyle.font(fontSize, weight: 650)).frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark))
-                .background(member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark)) }
+            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius))
+            .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark), radius: radius, kind: "avatar", owner: identity))
             .overlay(alignment: .bottomTrailing) {
                 if showState && !["", "idle"].contains(state) { StateDot(state: state, border: stateBorder).offset(x: 2, y: 2) }
             }
@@ -33,7 +33,7 @@ struct Avatar: View {
                 guard !member.isEmpty else { image = nil; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
-            }.accessibilityLabel(m.name(member))
+            }.accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
     }
 }
 
@@ -437,7 +437,7 @@ struct ThreadView: View {
             } }
             VStack(alignment: .leading, spacing: 6) {
                 if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" } }.font(RelicStyle.font(12, weight: 400)) }
-                MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
+                MentionEditor(text: $m.threadDraft, contextID: "thread", members: [], onMention: { _ in }, send: send).frame(height: 56).accessibilityLabel(m.t("thread.reply_placeholder"))
                     .background(alignment: .topLeading) { if m.threadDraft.isEmpty { Text(m.t("thread.reply_placeholder")).font(RelicStyle.font(13, weight: 400)).foregroundStyle(RelicStyle.muted).padding(6).allowsHitTesting(false) } }
                 HStack { Spacer(); VoiceButton(text: $m.threadDraft).labelStyle(.iconOnly); Button(action: send) { Label(m.t("common.send"), systemImage: "arrow.up") }.labelStyle(.iconOnly).buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.small).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
             }.padding(10).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(RelicStyle.border))

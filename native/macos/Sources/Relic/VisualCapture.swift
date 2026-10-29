@@ -88,7 +88,7 @@ import RelicAX
                     case "shortcuts": model.sheet = .shortcuts
                     case "quote": model.setQuote(fixture["quote"].text, from: fixture["member"].text)
                     case "recipients": model.recipientPicker = true
-                    case "mention": model.draft = "@"
+                    case "mention": model.draft = ""
                     case "digest": model.digest = fixture["digest"]; model.digestOpen = true
                     case "plain": model.plain = Dictionary(uniqueKeysWithValues: model.messages.map { ($0["id"].text, Node(["text": fixture["plain"].text])) }); model.plainMode = true
                     case "quick-start": model.organizations = []; model.organization = ""; model.snapshot = Node(); model.messages = []
@@ -96,8 +96,14 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
-                if scene == "mention", let editor = textEditors(window.contentView).first {
-                    window.makeFirstResponder(editor); editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
+                if scene == "mention" {
+                    let candidates = textEditors(window.contentView).filter { $0.composerID == "main" && !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty }
+                    guard candidates.count == 1, let editor = candidates.first else { throw RelicError.message("Mention scene requires one visible main composer, found " + String(candidates.count)) }
+                    // Type into the same production editor that owns the popup.
+                    // A stale cached thread editor must never receive this action.
+                    window.makeFirstResponder(editor)
+                    editor.insertText("@", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+                    editor.setSelectedRange(NSRange(location: 1, length: 0)); editor.showMentionSuggestions()
                     try await Task.sleep(for: .milliseconds(350))
                     guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker: text=\(editor.string), selection=\(editor.selectedRange()), candidates=\(editor.mentionCandidates().count), frame=\(editor.frame), anchor=\(editor.mentionAnchorRect()), attached=\(editor.window != nil)") }
                 }

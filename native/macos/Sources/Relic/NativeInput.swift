@@ -6,6 +6,7 @@ import RelicCore
 
 struct MentionEditor: NSViewRepresentable {
     @Binding var text: String
+    var contextID = "main"
     let members: [Node]
     let onMention: (String) -> Void
     let send: () -> Void
@@ -20,6 +21,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.textContainerInset = NSSize(width: 6, height: 6); editor.font = RelicStyle.nativeFont(14, weight: 400)
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
+        editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         scroll.documentView = editor; return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -27,6 +29,7 @@ struct MentionEditor: NSViewRepresentable {
         guard let editor = scroll.documentView as? ComposerTextView else { return }
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
+        editor.composerID = contextID
     }
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -37,6 +40,7 @@ struct MentionEditor: NSViewRepresentable {
 }
 
 final class ComposerTextView: NSTextView, NSPopoverDelegate {
+    var composerID = "main"
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
     var members: [Node] = []

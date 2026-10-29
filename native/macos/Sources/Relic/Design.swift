@@ -72,7 +72,7 @@ enum RelicStyle {
         return Color(hue: hue, saturation: value == 0 ? 0 : 2 * (1 - lightness / value), brightness: value)
     }
     static func state(_ value: String) -> Color {
-        switch value { case "working", "running": return green; case "active": return color(0x75A783, 0x669572); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
+        switch value { case "working", "running": return green; case "active": return mix(green, faint, fraction: 0.55); case "waiting", "starting", "blocked": return amber; case "error", "failed": return red; default: return muted }
     }
 }
 
@@ -154,9 +154,8 @@ struct StateDot: View {
     let state: String
     let border: Color
     var body: some View {
-        Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10)
-            .overlay { if state == "vacant" { Circle().strokeBorder(RelicStyle.faint, lineWidth: 1.5).padding(2) } }
-            .overlay(Circle().strokeBorder(border, lineWidth: 2))
+        Color.clear.frame(width: 10, height: 10)
+            .modifier(RecordedSurface(background: state == "vacant" ? .clear : RelicStyle.state(state), border: border, borderWidth: 2, radius: 5, kind: "state-dot", insetRingWidth: state == "vacant" ? 1.5 : 0, insetRingColor: RelicStyle.faint))
     }
 }
 

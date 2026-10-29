@@ -91,9 +91,8 @@ struct ChartView: View {
                     if sharedCount(node) > 0 { ChartChip(text: m.t("chart.shared", ["n": String(sharedCount(node))]), tone: "sec").help(sharedTip(node)) }
                 }
             }.padding(.horizontal, 11).padding(.vertical, 8).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
-                .modifier(RecordedSurface(background: node["cabinet"].flag ? RelicStyle.violetSoft : RelicStyle.card,
-                    border: node["cabinet"].flag || node["governance"].text == "peer" ? RelicStyle.violet : RelicStyle.border, borderWidth: 1.5, radius: 12, kind: "chart-node", owner: identity, borderDash: node["kind"].text == "subgroup" ? [4,3] : []))
-                .overlay { if node["id"].text == m.organization { RoundedRectangle(cornerRadius: 15).strokeBorder(RelicStyle.accent.opacity(0.4), lineWidth: 3).padding(-3).allowsHitTesting(false) } }
+                .modifier(RecordedSurface(background: node["cabinet"].flag ? RelicStyle.mix(RelicStyle.violetSoft, RelicStyle.card, fraction: 0.75) : RelicStyle.card,
+                    border: node["cabinet"].flag || node["governance"].text == "peer" ? RelicStyle.violet : RelicStyle.border, borderWidth: 1.5, radius: 12, kind: "chart-node", owner: identity, borderDash: node["kind"].text == "subgroup" ? [4,3] : [], current: node["id"].text == m.organization, outerRingWidth: node["id"].text == m.organization ? 3 : 0, outerRingColor: RelicStyle.accent.opacity(0.4)))
         }.buttonStyle(.plain).accessibilityIdentifier(identity)
             .help(([m.t("chart.open_hint", ["name": node["name"].text]), leader, node["purpose"].text, sharedTip(node)]).filter { !$0.isEmpty }.joined(separator: "\n"))
             .recordedOpacity(node["status"].text == "active" ? 1 : 0.5).onHover { hovered = $0 ? node["id"].text : "" }
