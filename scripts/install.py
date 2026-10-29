@@ -66,6 +66,14 @@ def configure(root=ROOT, python=None):
                     if hook.get('type') == 'command':
                         hook['command'] = command
                         hook.pop('args', None)
+                        # Codex executes Windows hooks as PowerShell commands.
+                        # A quoted executable without & is a string expression,
+                        # so the old command failed before Python received stdin.
+                        if path.name == 'codex-hooks.json' and os.name == 'nt':
+                            quote = lambda value: "'" + value.replace("'", "''") + "'"
+                            hook['commandWindows'] = '& ' + quote(Path(python).as_posix()) + ' -X utf8 -c ' + quote(code)
+                        else:
+                            hook.pop('commandWindows', None)
         write_json(path, data)
     return plugin
 

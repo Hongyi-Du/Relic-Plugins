@@ -1,0 +1,91 @@
+{
+    "description":  "Codex hooks: shared Relic handler, with a strict 9500-character output cap; no second host truncation.",
+    "hooks":  {
+                  "SessionStart":  [
+                                       {
+                                           "hooks":  [
+                                                         {
+                                                             "type":  "command",
+                                                             "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                             "timeout":  20,
+                                                             "additionalContextLimit":  0
+                                                         }
+                                                     ]
+                                       }
+                                   ],
+                  "UserPromptSubmit":  [
+                                           {
+                                               "hooks":  [
+                                                             {
+                                                                 "type":  "command",
+                                                                 "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                                 "timeout":  20,
+                                                                 "additionalContextLimit":  0
+                                                             }
+                                                         ]
+                                           }
+                                       ],
+                  "SubagentStart":  [
+                                        {
+                                            "hooks":  [
+                                                          {
+                                                              "type":  "command",
+                                                              "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                              "timeout":  20,
+                                                              "additionalContextLimit":  0
+                                                          }
+                                                      ],
+                                            "matcher":  "*"
+                                        }
+                                    ],
+                  "PreToolUse":  [
+                                     {
+                                         "hooks":  [
+                                                       {
+                                                           "type":  "command",
+                                                           "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                           "timeout":  20,
+                                                           "statusMessage":  "Checking Relic protocols"
+                                                       }
+                                                   ],
+                                         "matcher":  "*"
+                                     }
+                                 ],
+                  "PostToolUse":  [
+                                      {
+                                          "hooks":  [
+                                                        {
+                                                            "type":  "command",
+                                                            "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                            "timeout":  20,
+                                                            "additionalContextLimit":  0
+                                                        }
+                                                    ],
+                                          "matcher":  "*"
+                                      }
+                                  ],
+                  "Stop":  [
+                               {
+                                   "hooks":  [
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                     "timeout":  20
+                                                 }
+                                             ]
+                               }
+                           ],
+                  "SubagentStop":  [
+                                       {
+                                           "hooks":  [
+                                                         {
+                                                             "type":  "command",
+                                                             "command":  "python -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get(\u0027CLAUDE_PLUGIN_ROOT\u0027) or os.environ[\u0027PLUGIN_ROOT\u0027],\u0027hooks\u0027,\u0027relic_hook.py\u0027),run_name=\u0027__main__\u0027)\"",
+                                                             "timeout":  20
+                                                         }
+                                                     ],
+                                           "matcher":  "*"
+                                       }
+                                   ]
+              }
+}

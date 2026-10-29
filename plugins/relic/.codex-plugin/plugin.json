@@ -7,7 +7,7 @@
   },
   "skills": "./skills/",
   "mcpServers": "./codex.mcp.json",
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "Relic",
     "shortDescription": "Codex 和 Claude Code 成员组成同一个 Relic 组织",

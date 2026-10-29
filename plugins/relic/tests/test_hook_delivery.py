@@ -126,13 +126,18 @@ class Delivery(unittest.TestCase):
         self.store.join("member-session", upper, "researcher")
         self.store.join("member-session", cabinet, "representative")
         mid = self.store.send("cabinet-lead", ["researcher"], "repair request", org=upper)["message_id"]
-        for ref in (upper, "研发部"):
-            reply = api.handle_call(self.store, "message", {"org": ref, "to": ["chief"], "reply_to": mid,
-                                                            "body": "repair evidence"}, "member-session")
+        for ref, recipients in ((upper, {}), ("研发部", {"to": [cabinet + "/chief"]})):
+            reply = api.handle_call(self.store, "message", dict(org=ref, reply_to=mid, body="repair evidence",
+                                                                **recipients), "member-session")
             row = next(m for m in self.store.history(upper) if m["id"] == reply["message_id"])
             self.assertEqual((row["from"], row["reply_to"]), ("researcher", mid))
             self.assertEqual(self.store.whoami("member-session")[0]["id"], self.org)
             self.assertEqual(self.store.focused("member-session"), "member-session#" + upper)
+            copy = self.store.unread("cabinet-lead")
+            self.assertEqual([(m["from"], m["body"]) for m in copy], [(upper + "/researcher", "repair evidence")])
+        with self.assertRaises(OrgError):
+            api.handle_call(self.store, "message", {"org": upper, "reply_to": mid, "to": [cabinet + "/stranger"],
+                                                    "body": "must not deliver"}, "member-session")
 
 
 if __name__ == "__main__":

@@ -228,6 +228,9 @@ def call(store, name, args, meta=None):
             wake.dispatch_for_actor(store, actor)  # recipients with an idle configured session get a turn now
             if isinstance(result, dict) and result.get("org_id"):  # written in another organization
                 wake.dispatch(store, result["org_id"])
+            if name == "message" and isinstance(result, dict):
+                for org_id in result.get("delivered_orgs", []):
+                    wake.dispatch(store, org_id)
             cab = store.cabinet() if name in ("group", "create") else None
             if cab:  # a request for the secretary-general
                 wake.dispatch(store, cab["id"])

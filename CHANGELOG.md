@@ -14,6 +14,9 @@ Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.
   hide the checker fixture's child process. Release-layout App tests skip when `scripts/open_app.py` is absent.
 - Regression coverage includes replying from a seat above the main organization: an explicit held seat takes
   precedence over upward reporting, regardless of hierarchy.
+- The installer gives Codex a Windows PowerShell command with the call operator for quoted Python paths;
+  Claude's shell command stays separate. Codex receives the hook's already-capped additional context without
+  a second host preview truncation (`additionalContextLimit: 0`).
 
 基于合并后的 Windows/macOS v0.7.0 源码，插件版本为 **0.18.1-beta.1**。
 修复 hook 截断后误标已读；新增按消息 ID 重读和空收件箱任务提示；统一 Windows 子进程隐藏标志，
