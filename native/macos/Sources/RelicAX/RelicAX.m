@@ -73,7 +73,8 @@ NSDictionary<NSString *, id> *RelicAXRead(id object) {
         }
     } @catch (NSException *exception) { [errors addObject:[@"frame: " stringByAppendingString:exception.reason]]; }
     @try {
-        NSArray *children = RelicAXChildren(object);
+        id actualChildren = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);
+        NSArray *children = [actualChildren isKindOfClass:NSArray.class] ? actualChildren : @[];
         result[@"child_count"] = @(children.count);
         NSMutableArray *classes = [NSMutableArray array];
         for (id child in children) [classes addObject:NSStringFromClass([child class])];

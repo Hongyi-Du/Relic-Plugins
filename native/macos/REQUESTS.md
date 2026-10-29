@@ -30,6 +30,20 @@ scene exclusion is requested. The old native menu/member-card/date/Markdown/
 quick-start differences are now mismatches to fix, not accepted substitutions.
 The macOS source will consume the shared matcher without modifying shared files.
 
+The shared 5cee956 contract and 82057a3 matcher are now merged. macOS is
+emitting the exact schema; unknown measurements are listed in coverage.unmeasured.
+Bootstrap 76b18c9 revealed only the NSHostingView root was exported, so those
+files are explicitly incomplete, not usable parity evidence. 76879f8 replaces
+formal Swift protocol casts with actual informal AppKit accessibility selectors,
+retaining selector errors and child classes; its macOS CI is queued.
+
+One shared extraction detail to audit: reference-elements.js currently supplies
+computed wrap/foreground values even for paint-only SVG icons/backgrounds with no
+text. Native shape drawing has no text-wrapping operation. Please distinguish
+inapplicable text-layout properties from unknown measurements consistently on
+both sides, documenting the normalization; do not treat a missing native text
+measurement as inapplicable. Native exports will keep failures until aligned.
+
 The earlier HTTP framing and document-selection requests below are resolved by
 the latest merged `native-apps`; their failure history is retained as evidence.
 
