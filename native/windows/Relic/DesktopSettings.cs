@@ -90,6 +90,9 @@ public sealed partial class MainWindow
         var accent = colors.GetValueOrDefault(preferences.Text("accent"), colors["clay"]);
         root.Resources["SystemAccentColor"] = accent;
         root.Resources["AccentFillColorDefaultBrush"] = new SolidColorBrush(accent);
+        // AccentButtonBackground is a StaticResource alias in WinUI's theme
+        // dictionary, so overriding only its source brush leaves dialogs blue.
+        foreach (var key in new[] { "AccentButtonBackground", "AccentButtonBackgroundPointerOver", "AccentButtonBackgroundPressed" }) root.Resources[key] = new SolidColorBrush(accent);
         foreach (var key in new[] { "ToggleButtonBackgroundChecked", "ToggleButtonBackgroundCheckedPointerOver", "ToggleButtonBackgroundCheckedPressed", "SelectorBarItemPillFill", "ListViewItemSelectionIndicatorBrush", "TextControlBorderBrushFocused", "TextControlBorderBrushPointerOver" }) root.Resources[key] = new SolidColorBrush(accent);
         foreach (var key in new[] { "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundStrokeChecked", "ToggleSwitchFillOn" })
             foreach (var state in new[] { "", "PointerOver", "Pressed" }) root.Resources[key + state] = new SolidColorBrush(accent);

@@ -24,6 +24,15 @@ These fixes require the next full visual CI; the earlier failures remain evidenc
 not a completed visual gate. Existing sidebar ownership and platform-reason
 localization fixes are retained.
 
+Visual review after that integration also replaces the Windows trajectory's
+stacked member/filter ComboBoxes with the reference's member list and adjacent
+trace column, compact native filter tabs and expandable steps. Protocols use
+bold headings, origin/inheritance badges, shaded person summaries and code
+surfaces. Member model/effort and environment/permission fields share rows in
+reference order; unavailable harness selection explains the required setup.
+Dialog primary buttons use the chosen accent instead of the OS default blue.
+These are native presentation changes; shared routes and payloads are unchanged.
+
 `e4bb502` passes native builds/tests/parity and all four Python CI jobs. Real
 desktop captures now include menus and popovers; the reviewed dark and English
 images show them correctly. A subsequent visual fix keeps digest/private-chat

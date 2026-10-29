@@ -125,6 +125,7 @@ public sealed partial class MainWindow
         var nameSurface = FieldSurface(name); var roleSurface = FieldSurface(role);
         var appFields = new StackPanel { Spacing = 8 }; form.Children.Add(appFields);
         var harness = Choice(appFields, "common.harness", harnesses.Rows().Where(h => h.Flag("available") && !h.Flag("later")).Select(h => (h.Text("id"), h.Text("title"))));
+        harness.PlaceholderText = T("member.need_harness"); ToolTipService.SetToolTip(harness, T("member.need_harness"));
         foreach (var h in harnesses.Rows().Where(h => !h.Flag("later"))) appFields.Children.Add(Text(h.Text("title") + " · " + (h.Flag("available") ? T("member.connected", ("program", h.Text("program"))) : h.Text("problem")), 12));
         if (harnesses.Rows().Any(h => h.Flag("later"))) appFields.Children.Add(Text(T("member.later_acp") + "\n" + string.Join(" · ", harnesses.Rows().Where(h => h.Flag("later")).Select(h => h.Text("title"))), 12));
         var appModel = Field(appFields, "common.model"); appModel.PlaceholderText = T("member.model_placeholder");
@@ -136,11 +137,13 @@ public sealed partial class MainWindow
         var hostKind = Choice(hostFields, "member.where_run", kinds); SetChoice(hostKind, (config.Text("harness").Length > 0 ? config.Text("harness") : "claude-code") + "/" + (config.Text("surface") == "gui" ? "gui" : "cli"));
         var hostModel = Field(hostFields, "common.model"); hostModel.Text = config.Text("model"); hostModel.PlaceholderText = T("member.model_placeholder");
         var effort = Choice(hostFields, "member.effort", options.Rows("efforts").Select(x => (x.Text(), x.Text().Length > 0 ? x.Text() : T("common.default_effort")))); SetChoice(effort, config.Text("effort"));
+        PairFields(hostFields, FieldSurface(hostModel), effort);
         var folder = Field(hostFields, "member.work_folder"); folder.Text = config.Text("folder"); folder.PlaceholderText = T("member.host_folder_placeholder");
         var environment = Choice(hostFields, "member.environment", [("local", T("member.env_local")), ("worktree", T("member.env_worktree"))]); SetChoice(environment, config.Text("environment"));
         var permission = Choice(hostFields, "member.permission", []);
         void FillPermissions() { permission.Items.Clear(); foreach (var p in options.Rows(Value(hostKind).StartsWith("codex") ? "codex_sandboxes" : "claude_modes")) permission.Items.Add(new ComboBoxItem { Content = p.Text(), Tag = p.Text() }); SetChoice(permission, config.Text("permission")); }
         FillPermissions(); hostKind.SelectionChanged += (_, _) => FillPermissions();
+        PairFields(hostFields, environment, permission);
         var env = Field(hostFields, "member.env_vars", true); env.PlaceholderText = T("member.env_placeholder"); env.Text = config?["env"] is JsonObject variables ? string.Join("\n", variables.Select(v => v.Key + "=" + v.Value.Text())) : "";
         var start = new CheckBox { Content = T("member.start_now"), IsChecked = true, Visibility = edit == null ? Visibility.Visible : Visibility.Collapsed }; hostFields.Children.Add(start);
         var existing = new StackPanel { Spacing = 8 }; form.Children.Add(existing);
@@ -194,5 +197,11 @@ public sealed partial class MainWindow
             }
             await Select(target, seat);
         }, SubmitLabel());
+    }
+    private static void PairFields(StackPanel container, FrameworkElement first, FrameworkElement second)
+    {
+        var index = container.Children.IndexOf(first); container.Children.Remove(first); container.Children.Remove(second);
+        var row = new Grid { ColumnSpacing = 12 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(second, 1); row.Children.Add(first); row.Children.Add(second); container.Children.Insert(index, row);
     }
 }
