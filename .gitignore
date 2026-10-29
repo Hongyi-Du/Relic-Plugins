@@ -14,3 +14,4 @@ test-results/
 **/obj/
 native/macos/.build/
 native/macos/.swiftpm/
+native-build/

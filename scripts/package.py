@@ -122,12 +122,19 @@ def main():
     parser.add_argument('--platform',choices=('all','windows','macos'),default='all',help='Which packages to build')
     parser.add_argument('--macos-format',choices=('tar.gz','zip','both'),default='tar.gz',
                         help='macOS archive format; ZIP keeps Unix executable permission metadata')
+    parser.add_argument('--native-build',type=Path,help='Compiled WinUI publish directory or Swift release directory; build a native candidate')
     args=parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=True)
     release=json.loads((ROOT/'release.json').read_text())
     version=release['version']
     files=source_files()
     validate(files)
+    if args.native_build:
+        if args.platform == 'all':
+            parser.error('--native-build requires one --platform')
+        from native_package import assemble
+        assemble(ROOT, args.native_build, args.platform, args.output, files)
+        return
     assets=[]
     for system in [s for s in ('windows','macos') if args.platform in ('all',s)]:
         prefix=f'relic-{system}-v{version}'

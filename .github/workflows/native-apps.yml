@@ -4,6 +4,9 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: native-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   windows:
     runs-on: windows-2025
@@ -13,10 +16,23 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Build WinUI 3 without launching
         run: dotnet build native/windows/Relic/Relic.csproj -c Release -p:Platform=x64
       - name: Test HTTP, events, composer and language contracts without UI
         run: dotnet test native/windows/Relic.Core.Tests/Relic.Core.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
+      - name: Publish and assemble unsigned native installer
+        run: |
+          dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+          python -X utf8 scripts/package.py --platform windows --native-build native-build/windows --output dist/native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Relic-native-Windows-unsigned
+          path: |
+            dist/native/*.exe
+            dist/native/*.zip
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -27,7 +43,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Build native SwiftUI client for Apple silicon
         run: swift build --package-path native/macos -c release --arch arm64
       - name: Test client contracts without opening the App
         run: swift test --package-path native/macos --arch arm64
+      - name: Assemble unsigned SwiftUI app bundle
+        run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output dist/native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Relic-native-macOS-arm64-unsigned
+          path: dist/native/*.zip

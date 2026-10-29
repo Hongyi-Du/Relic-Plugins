@@ -29,7 +29,7 @@ class NativeHostTests(unittest.TestCase):
     def test_spawn_has_no_console_and_shutdown_authenticates_instance(self):
         info = {"port": 12345, "pid": 222, "instance": "ours", "token": "fixture"}
         child = Mock(pid=222)
-        child.poll.side_effect = [None, None, 0]
+        child.poll.side_effect = [None, 0]
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(native, "data_home", return_value=Path(temp)), \
                 patch.object(native, "LifecycleLock", return_value=contextlib.nullcontext()), \

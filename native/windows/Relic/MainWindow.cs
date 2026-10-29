@@ -34,7 +34,9 @@ public sealed class MainWindow : Window
     private readonly MenuBar menu = new();
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool refreshing, pending, closing, ready;
-    private string lastDecisionIds = "";
+    private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
+    private readonly Dictionary<string, string> lastMessages = new();
+    private bool active = true;
 
     private string T(string key, params (string, object)[] args) => words.T(key, args);
     private string PathFor(string action = "") => Client.Org(org, action);
@@ -56,6 +58,7 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         Title = "Relic";
+        Activated += (_, e) => active = e.WindowActivationState != WindowActivationState.Deactivated;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1480, 940));
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -104,6 +107,8 @@ public sealed class MainWindow : Window
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
                 ready = true; send.Content = T("common.send"); search.PlaceholderText = T("page.search");
+                AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
+                AppNotificationManager.Default.Register();
                 DrawMenu(); await Refresh();
                 _ = api.Events(_ => { DispatcherQueue.TryEnqueue(Schedule); return Task.CompletedTask; }, lifetime.Token);
             });
@@ -139,9 +144,16 @@ public sealed class MainWindow : Window
                     var live = await api.Get(PathFor("/live?member=" + Client.Segment(member)));
                     foreach (var item in live.Rows("items")) messages.Add(item?.DeepClone());
                 }
-                var ids = string.Join(",", snap.Rows("decisions").Select(d => d.Text("id")));
-                if (lastDecisionIds.Length > 0 && ids != lastDecisionIds && preferences.Flag("notify")) Notify(T("appbar.decisions", ("n", snap.Rows("decisions").Count)));
-                lastDecisionIds = ids;
+                var ids = snap.Rows("decisions").Select(d => d.Text("kind") + ":" + d.Text("id") + ":" + d.Text("member")).ToHashSet();
+                if (!active && preferences.Flag("notify") && lastDecisions.TryGetValue(org, out var previous) && ids.Except(previous).Any()) Notify(T("notify.decisions", ("n", ids.Count)));
+                lastDecisions[org] = ids;
+                if (snap["chats"] is JsonObject heads)
+                    foreach (var head in heads)
+                    {
+                        var key = org + "/" + head.Key; var id = head.Value?["last"].Text("id") ?? "";
+                        if (!active && preferences.Flag("notify") && lastMessages.TryGetValue(key, out var old) && old != id && head.Value?["last"].Text("from") != "human") Notify(T("notify.new_messages"));
+                        lastMessages[key] = id;
+                    }
             }
             DrawSide(); DrawChat(); DrawDetail();
         }
@@ -191,7 +203,6 @@ public sealed class MainWindow : Window
         else
         {
             foreach (var item in orgs.Where(x => x.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == x.Text("parent")))) Node(item, 0);
-            foreach (var item in orgs.Where(x => !seen.Contains(x.Text("id"))).ToArray()) Node(item, 0);
         }
         side.Children.Add(Button(T("cc.title"), Copies)); side.Children.Add(Button(T("chart.title"), Chart)); side.Children.Add(Button(T("common.settings"), Settings));
     }
@@ -275,6 +286,12 @@ public sealed class MainWindow : Window
     private async Task Workspace()
     {
         if (org.Length == 0) return;
+        if (member.Length == 0)
+        {
+            detail.Children.Add(Text(T("work.whose")));
+            foreach (var m in snap.Rows("members")) detail.Children.Add(Button(m.Text("display"), async () => { await Select(org, m.Text("name")); await Workspace(); }));
+            return;
+        }
         var ws = await api!.Get(PathFor("/workspace?member=" + Client.Segment(member)));
         detail.Children.Add(Text(ws.Text("folder")));
         if (ws.Text("folder").Length > 0) await Files(ws.Text("folder"));
@@ -382,10 +399,15 @@ public sealed class MainWindow : Window
         var content = new StackPanel { Spacing = 16 }; content.Children.Add(Text(T("cc.intro")));
         foreach (var c in copies)
         {
-            content.Children.Add(Text(c.Text("org_name") + " · " + c.Text("title"), 18)); content.Children.Add(Text(c.Text("summary_for_person")));
+            content.Children.Add(Text(c.Text("org_name") + " · " + c.Text("title"), 18)); content.Children.Add(Text(c.Text("summary")));
             content.Children.Add(Text(c.Text("author_display") + " · " + c.Text("status")));
+            var stats = c?["stats"];
+            content.Children.Add(Text(stats.Text("total") is "" or "0" ? T("cc.stats_none") : T("cc.stats", ("n", stats.Text("total")), ("allow", stats.Text("allow")), ("deny", stats.Text("deny")), ("review", stats.Text("review")), ("error", stats.Text("error")))));
+            var rules = new StackPanel { Spacing = 8 };
+            foreach (var rule in c.Rows("rules")) rules.Children.Add(Text(rule?.ToJsonString(new() { WriteIndented = true }) ?? ""));
+            content.Children.Add(new Expander { Header = T("cc.code"), Content = rules });
             content.Children.Add(Button(T("cc.ack"), async () => { await api!.Post("/api/cc/" + c.Text("id") + "/read", new { }); await Refresh(); }));
-            if (c.Text("status") == "active")
+            if (c.Text("status") == "active" && c.Text("org_status") is "" or "active")
             {
                 var confirm = new CheckBox { Content = T("cc.retire_confirm", ("id", c.Text("protocol_id")), ("title", c.Text("title")), ("org", c.Text("org_name"))) }; content.Children.Add(confirm);
                 content.Children.Add(Button(T("cc.retire"), async () => { if (confirm.IsChecked != true) return; await api!.Post("/api/cc/" + c.Text("id") + "/retire", new { }); await Refresh(); }));

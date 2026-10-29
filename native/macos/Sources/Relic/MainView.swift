@@ -224,6 +224,10 @@ struct WorkspaceView: View {
     @State private var preview = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if m.member.isEmpty {
+                Text(m.t("work.whose"))
+                Rows(m.snapshot["members"].rows) { member in Button(member["display"].text) { m.run { try await m.select(m.organization, member["name"].text) } } }
+            }
             Text(workspace["folder"].text).textSelection(.enabled)
             Rows(entries) { entry in
                 Button(entry["name"].text) {
@@ -237,6 +241,7 @@ struct WorkspaceView: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
         .task(id: m.organization + "/" + m.member) {
             m.run {
+                guard !m.member.isEmpty else { workspace = Node(); entries = []; preview = ""; return }
                 workspace = try await m.get(m.path("/workspace?member=" + Client.segment(m.member)))
                 if !workspace["folder"].text.isEmpty { entries = try await m.get("/api/fs/list?path=" + Client.segment(workspace["folder"].text))["entries"].rows }
             }

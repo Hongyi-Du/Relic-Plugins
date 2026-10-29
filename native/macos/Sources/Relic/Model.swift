@@ -23,7 +23,9 @@ import RelicCore
     private var client: Client?
     private let host = ServerHost()
     private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
-    private var refreshing = false, pending = false, previousDecisions: Set<String>?
+    private var refreshing = false, pending = false
+    private var previousDecisions: [String: Set<String>] = [:]
+    private var previousMessages: [String: String] = [:]
     enum Sheet: String, Identifiable { case create, member, settings, copies, chart, protocolForm; var id: String { rawValue } }
     func t(_ key: String, _ args: [String: String] = [:]) -> String { words.t(key, args) }
     func path(_ action: String = "") -> String { Client.org(organization, action) }
@@ -71,11 +73,16 @@ import RelicCore
         if !who.isEmpty { items += try await get(path("/live?member=" + Client.segment(who)))["items"].rows }
         guard selected == organization, who == member else { pending = true; return }
         snapshot = snap; messages = items
-        let ids = Set(snap["decisions"].rows.map { $0["id"].text })
-        if let previousDecisions, !ids.subtracting(previousDecisions).isEmpty, preferences["notify"].flag {
+        let ids = Set(snap["decisions"].rows.map { $0["kind"].text + ":" + $0["id"].text + ":" + $0["member"].text })
+        if let previous = previousDecisions[organization], !ids.subtracting(previous).isEmpty, preferences["notify"].flag, !NSApp.isActive {
             notify(t("appbar.decisions", ["n": String(ids.count)]))
         }
-        previousDecisions = ids
+        previousDecisions[organization] = ids
+        for (chat, raw) in snap["chats"].raw as? [String: Any] ?? [:] {
+            let last = Node(raw)["last"], key = organization + "/" + chat
+            if let previous = previousMessages[key], previous != last["id"].text, last["from"].text != "human", preferences["notify"].flag, !NSApp.isActive { notify(t("notify.new_messages")) }
+            previousMessages[key] = last["id"].text
+        }
     }
     func select(_ org: String, _ member: String = "") async throws {
         drafts[organization + "/" + self.member] = draft

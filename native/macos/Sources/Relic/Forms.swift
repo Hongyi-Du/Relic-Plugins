@@ -153,11 +153,13 @@ struct CopiesView: View {
                 Rows(m.copies) { copy in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(copy["org_name"].text + " · " + copy["title"].text).font(.headline)
-                        Text(copy["summary_for_person"].text).textSelection(.enabled)
+                        Text(copy["summary"].text).textSelection(.enabled)
                         Text(copy["author_display"].text + " · " + copy["status"].text)
+                        Text(copy["stats"]["total"].text.isEmpty || copy["stats"]["total"].text == "0" ? m.t("cc.stats_none") : m.t("cc.stats", ["n": copy["stats"]["total"].text, "allow": copy["stats"]["allow"].text, "deny": copy["stats"]["deny"].text, "review": copy["stats"]["review"].text, "error": copy["stats"]["error"].text]))
+                        DisclosureGroup(m.t("cc.code")) { Rows(copy["rules"].rows) { Text(pretty($0)).font(.system(.caption, design: .monospaced)).textSelection(.enabled) } }
                         HStack {
                             Button(m.t("cc.ack")) { m.run { try await m.post("/api/cc/" + copy["id"].text + "/read", [:]); try await m.refresh() } }
-                            if copy["status"].text == "active" { Button(m.t("cc.retire"), role: .destructive) { retire = copy } }
+                            if copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) { Button(m.t("cc.retire"), role: .destructive) { retire = copy } }
                         }
                     }.padding(12).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
                 }
