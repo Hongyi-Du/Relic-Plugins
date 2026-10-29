@@ -106,7 +106,7 @@ struct CopiesView: View {
                         Text(copy["summary"].text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 8))
                         Text(m.t("cc.proposed_by", ["name": copy["author_display"].text]))
                         Text(m.t("cc.approved_by", ["names": m.list(copy["approved_display"].rows.map(\.text))]))
-                        Text(m.t("cc.effective", ["when": copy["activated_at"].text])).font(.caption)
+                        Text(m.t("cc.effective", ["when": m.day(copy["activated_at"]) + " " + m.clock(copy["activated_at"])])).font(.caption)
                         if !copy["supersedes"].text.isEmpty { Text(m.t("cc.replaces", ["id": copy["supersedes"].text])) }
                         if !copy["issued_by"].isNull { Text(m.t("cc.issued_by", ["name": copy["issued_by"]["name"].text])) }
                         Text(copy["stats"]["total"].text.isEmpty || copy["stats"]["total"].text == "0" ? m.t("cc.stats_none") : m.t("cc.stats", ["n": copy["stats"]["total"].text, "allow": copy["stats"]["allow"].text, "deny": copy["stats"]["deny"].text, "review": copy["stats"]["review"].text, "error": copy["stats"]["error"].text]))
