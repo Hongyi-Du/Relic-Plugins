@@ -66,7 +66,7 @@ struct QuietButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: 7))
-                .background(selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: 7, hovered: hovering))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }
@@ -128,8 +128,8 @@ struct SmallBadge: View {
 
 extension View {
     func relicCard(_ color: Color = RelicStyle.card) -> some View {
-        padding(12).frame(maxWidth: .infinity, alignment: .leading).background(color, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(RelicStyle.line, lineWidth: 1))
+        padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: color, border: RelicStyle.line, borderWidth: 1, radius: 12, kind: "card"))
     }
 }
 

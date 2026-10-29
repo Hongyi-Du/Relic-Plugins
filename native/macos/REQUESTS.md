@@ -44,6 +44,14 @@ absolute workspace paths (/Users/runner versus D:/a/...). Please make the
 fixture's displayed activity data identical across clients, without modifying
 exported text after rendering. Exact text mismatches remain failures.
 
+Vector stroke audit: the renderer uses source stroke 1.7 in a 24-unit viewBox,
+so a 16-pixel icon has effective stroke 1.7 * 16 / 24 pixels. The reference
+extractor currently records computed SVG strokeWidth (1.7 source units), while
+macOS records the actual CoreGraphics stroke width. Please define this field
+as source or content-window units consistently and retain both source width
+and CTM-derived effective width in evidence. This is a units correction, not
+a requested tolerance change or icon substitution.
+
 The macOS client is implementing real in-process AppKit/SwiftUI accessibility
 tree extraction beside every existing PNG, including sheets/popovers. Please
 publish the canonical element JSON shape and reference sample early. Proposed

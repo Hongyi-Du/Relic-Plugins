@@ -189,6 +189,42 @@ import RelicAX
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
             visit(child.contentView!, path: "surface-" + String(index), parent: nil, inheritedRegion: child === window.attachedSheet ? "dialog" : "menu", clip: viewport)
         }
+        var surfaceGaps: [String] = []
+        func bounds(_ node: [String: Any]) -> NSRect {
+            guard let rect = node["rect"] as? [String: Double], let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"] else { return .null }
+            return NSRect(x: x, y: y, width: width, height: height)
+        }
+        for surface in SurfacePaintProbe.snapshots(in: contentScreen) {
+            let rect = (surface["rectValue"] as! NSValue).rectValue, visible = rect.intersection(viewport)
+            guard !visible.isNull && visible.width > 0 && visible.height > 0 else { continue }
+            let owner = surface["owner"] as? String
+            let candidates = elements.indices.filter { index in
+                if let owner { return elements[index]["identifier"] as? String == owner }
+                let other = bounds(elements[index])
+                return ["button", "icon-button", "tab", "menu-item", "region", "card", "list-row"].contains(elements[index]["kind"] as? String ?? "") &&
+                    abs(rect.minX - other.minX) < 0.5 && abs(rect.minY - other.minY) < 0.5 &&
+                    abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
+            }
+            let style = surface["style"] as! [String: Any]
+            if candidates.count == 1, let index = candidates.first {
+                var existing = elements[index]["style"] as! [String: Any]
+                existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing
+                elements[index]["surface_evidence"] = surface["evidence"]!
+                if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
+                if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
+            } else if let kind = surface["kind"] as? String {
+                var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
+                paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
+                let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
+                    "text": "", "name": "", "region": region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
+                    "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!,
+                    "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
+                    "pixelSamples": samples(visible, bitmap: bitmap)]
+                raw.append(node); elements.append(node)
+            } else {
+                surfaceGaps.append("Unresolved production ButtonStyle paint ownership at " + String(describing: surface["bounds"]!) + "; candidates=" + String(candidates.count))
+            }
+        }
         let paint = ElementPaintProbe.snapshots(in: contentScreen)
         for sample in paint {
             let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(viewport)
@@ -201,7 +237,9 @@ import RelicAX
                 "region": region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                 "visible": true, "source": "live-NSView-shape-probe", "projection": evidence,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
-                          "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0],
+                          "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
+                          "border_widths": [0,0,0,0], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
+                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": 1.7 * ((sample["rect"] as? [String: Double])?["width"] ?? 0) / 24],
                 "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                 "icon": sample["icon"]!, "pixelSamples": samples(visible, bitmap: bitmap)]
             raw.append(node)
@@ -211,6 +249,7 @@ import RelicAX
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
         var unmeasured = ["Paint-only SwiftUI decoration coverage beyond instrumented path icons", "Exact opaque-overlay occlusion", "Reading order for paint without an AX owner"]
+        unmeasured.append(contentsOf: surfaceGaps)
         if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
         if RelicAXChildren(content).isEmpty { unmeasured.append("SwiftUI hosting view has no virtual AX descendants; AppKit subviews alone are incomplete") }
         var orders: [String: Int] = [:]
@@ -227,7 +266,8 @@ import RelicAX
             let id = node["id"] as! String, region = node["region"] as! String, kind = node["kind"] as! String
             let sourceStyle = node["style"] as! [String: Any], sourceState = node["state"] as! [String: Any]
             let text = node["text"] as! String
-            let styleKeys = ["font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color", "background": "backgroundColor", "border_color": "borderColor", "border_width": "borderWidth", "corner_radius": "borderRadius"]
+            let styleKeys = ["font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color", "background": "backgroundColor", "border_color": "borderColor", "border_width": "borderWidth", "corner_radius": "borderRadius",
+                             "border_widths": "border_widths", "border_colors": "border_colors", "corner_radii": "corner_radii", "opacity": "opacity", "background_image": "background_image", "shadow": "shadow"]
             var actualStyle: [String: Any] = [:]
             for (key, original) in styleKeys {
                 let value = sourceStyle[original] ?? NSNull()
@@ -235,12 +275,16 @@ import RelicAX
                 actualStyle[key] = applicable ? value : NSNull()
                 if applicable && value is NSNull { unmeasured.append(id + ":style." + key) }
             }
+            if ["icon", "chart-edge"].contains(kind) {
+                actualStyle["stroke_width"] = sourceStyle["stroke_width"] ?? NSNull()
+                if sourceStyle["stroke_width"] == nil { unmeasured.append(id + ":style.stroke_width") }
+            }
             let isControl = ["button", "icon-button", "input", "checkbox", "tab", "dropdown", "link", "menu-item"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull(), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": pointerOutside ? false as Any : NSNull(), "unread": NSNull()]
-            if !pointerOutside { unmeasured.append(id + ":state.hovered") }
+            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": ["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull(), "checked": kind == "checkbox" ? sourceState["checked"]! : NSNull(), "expanded": node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull(), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull()]
+            if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()

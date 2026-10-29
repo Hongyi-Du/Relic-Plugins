@@ -77,7 +77,7 @@ struct OrgTree: View {
                         if !active { Text(m.shortWhen(node["last_at"])).font(.system(size: 11.5)).foregroundStyle(RelicStyle.muted) }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                 }.buttonStyle(QuietButtonStyle(selected: active)).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
-                    .opacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
+                    .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.6 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
                 if active && !folded {
                     VStack(spacing: 1) {
