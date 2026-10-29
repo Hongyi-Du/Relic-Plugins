@@ -518,3 +518,15 @@ the original text, which is an explicitly remaining mismatch. The previous clien
 JSONSerialization `.sortedKeys` changed the visible order and has been removed. A shared
 formatter avoids introducing another JSON parser/number formatter in the native client.
 Existing raw `text`, truncation, size, path, and filesystem authorization stay unchanged.
+
+
+## Brand vocabulary and reference code-line order
+
+The empty conversation header renders the reference's literal `Relic`. Please supply
+`common.app_name: "Relic"` in both word lists and use it in that reference header/title
+so the client can remove the remaining brand literal without displaying a missing key.
+
+Reference file-code extraction currently emits a line's text before its `::before`
+line number (e.g. 4e18fc3 en-US/light/1440x900 file-code). Please audit that against the
+required reading order: painted number is to the left, then source text. Keep both
+actual elements and bounds, with no exclusions; do not simply waive the order error.

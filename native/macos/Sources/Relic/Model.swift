@@ -81,6 +81,7 @@ import RelicCore
     private var plainTask: Task<Void, Never>?
     private var plainQueue: Set<String> = []
     private var refreshing = false, pending = false, starting = false
+    private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
@@ -138,10 +139,12 @@ import RelicCore
             let retry = Array(plainPending); plainPending = []
             for id in retry { enqueuePlain(id) }
             if digestOpen { run { try await self.loadDigest(false) } }
+            schedule(); return
         }
         if type == "prefs" {
             do { preferences = try await get("/api/prefs"); words.load(try await get("/api/i18n?lang=" + Words.normalize(preferences["lang"].text))) }
             catch { self.error = error.localizedDescription }
+            return
         }
         if type == "install" {
             let id = event["id"].text
@@ -157,7 +160,7 @@ import RelicCore
                 if !event["status"].isNull { liveStatus = event["status"] }
             }
         }
-        schedule()
+        if ["orgs", "cc"].contains(type) || ["org", "decision"].contains(type) && event["org"].text == organization { schedule() }
     }
     func persistDraft() {
         guard !organization.isEmpty else { return }
@@ -177,8 +180,24 @@ import RelicCore
         }
     }
     func refresh() async throws {
-        if refreshing { pending = true; return }; refreshing = true; pending = false
-        defer { refreshing = false; if pending { schedule() } }
+        if refreshing {
+            pending = true
+            return try await withCheckedThrowingContinuation { refreshWaiters.append($0) }
+        }
+        refreshTask?.cancel(); refreshTask = nil; refreshing = true
+        do {
+            repeat { pending = false; try await refreshOnce() } while pending
+            refreshing = false
+            let waiting = refreshWaiters; refreshWaiters = []
+            for waiter in waiting { waiter.resume() }
+        } catch {
+            refreshing = false; pending = false
+            let waiting = refreshWaiters; refreshWaiters = []
+            for waiter in waiting { waiter.resume(throwing: error) }
+            throw error
+        }
+    }
+    private func refreshOnce() async throws {
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
         copies = try await get("/api/cc")["items"].rows
         let unreadCopies = copies.filter { !$0["read"].flag }.count

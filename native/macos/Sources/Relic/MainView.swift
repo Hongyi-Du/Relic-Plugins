@@ -161,7 +161,7 @@ struct RightPane: View {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
-            default: ScrollView { Overview() }
+            default: ScrollView { if !m.snapshot["org"].isNull { Overview() } }
             }
         }.frame(maxHeight: .infinity, alignment: .top)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))

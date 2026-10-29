@@ -18,6 +18,36 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testSelectWaitsForAnInFlightRefreshAndThenLoadsItsOwnOrganization() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a"))
+        let firstSnapshot = expectation(description: "first organization request is in flight")
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, #"[{"id":"a"},{"id":"b"}]"#)
+            case "/api/cc": return (200, #"{"items":[]}"#)
+            case "/api/org/a": firstSnapshot.fulfill(); Thread.sleep(forTimeInterval: 0.1); return (200, #"{"org":{"id":"a"},"members":[]}"#)
+            case "/api/org/b": return (200, #"{"org":{"id":"b"},"members":[]}"#)
+            case "/api/org/a/chat", "/api/org/b/chat": return (200, #"{"items":[],"more":false}"#)
+            default: XCTFail("Unexpected refresh request " + request.url!.path); return (500, "{}")
+            }
+        }
+        let first = Task { try await model.refresh() }
+        await fulfillment(of: [firstSnapshot], timeout: 2)
+        try await model.select("b")
+        XCTAssertEqual(model.organization, "b")
+        XCTAssertEqual(model.snapshot["org"]["id"].text, "b", "select must finish after the selected snapshot, not after an unrelated in-flight call")
+        try await first.value; model.stop()
+    }
+    func testUnrelatedEventsDoNotReloadTheOrganizationList() async throws {
+        let model = try model(); model.setSelection(ChatSelection())
+        let unwanted = expectation(description: "no network request for unrelated event"); unwanted.isInverted = true
+        ModelTransport.handler = { _ in unwanted.fulfill(); return (200, "[]") }
+        await model.receive(Node(["type": "org", "org": "other"]))
+        await model.receive(Node(["type": "live", "org": "other", "member": "ana"]))
+        await model.receive(Node(["type": "heartbeat"]))
+        await fulfillment(of: [unwanted], timeout: 0.5)
+        XCTAssertTrue(model.organization.isEmpty); XCTAssertTrue(model.organizations.isEmpty); model.stop()
+    }
     func testFileFailureStaysInThePreviewWithTheRequestedPath() async throws {
         let model = try model(); model.setSelection(ChatSelection("a"))
         ModelTransport.handler = { request in

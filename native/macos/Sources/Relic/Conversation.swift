@@ -128,10 +128,15 @@ struct ChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if m.organization.isEmpty {
-                VStack(spacing: 6) {
-                    Text(m.t("chat.no_orgs")).font(RelicStyle.font(18, weight: 600))
-                    Text(m.t("chat.no_orgs_hint")).font(RelicStyle.font(14, weight: 400)).foregroundStyle(RelicStyle.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                }.padding(30).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7)
+                ReferenceLabel("Relic", size: 15, weight: 650, lineHeight: 19.5).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 20).frame(height: 56)
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                ScrollView {
+                    VStack(spacing: 14) {
+                        ReferenceLabel(m.t("chat.no_orgs"), size: 18, weight: 650, alignment: .center)
+                        ReferenceLabel(m.t("chat.no_orgs_hint"), size: 14, color: RelicStyle.muted, lines: 0, alignment: .center).padding(.bottom, 14)
+                    }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8)
+                }.measuredRegion("conversation")
             } else {
                 header.measuredRegion("conversation")
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
