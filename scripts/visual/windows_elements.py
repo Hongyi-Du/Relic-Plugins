@@ -17,7 +17,7 @@ from paint_patterns import MeasurementError, captured_pattern, pattern_measureme
 
 CONTROL_KINDS = {
     "Button": "button", "AppBarButton": "button", "RepeatButton": "button",
-    "HyperlinkButton": "link", "TextBox": "input", "PasswordBox": "input",
+    "HyperlinkButton": "link", "TextBox": "input", "ComposerInput": "input", "PasswordBox": "input",
     "CheckBox": "checkbox", "RadioButton": "checkbox", "ToggleSwitch": "toggle",
     "ToggleButton": "toggle", "ComboBox": "dropdown", "SelectorBarItem": "tab",
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",

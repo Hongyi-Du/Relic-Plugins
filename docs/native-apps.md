@@ -1,5 +1,32 @@
 # Native Relic App contract
 
+Changes for the clients (macOS request integration): the member-card editing,
+conversation-banner and suggestion-control changes through `edf599a` are merged.
+The three requested member-card interaction states are now added to both the
+shared matrix and Windows capture, preserving the existing 47 states. The full
+matrix is now 50 states / 600 cases per platform. Rename and model editing use
+real pointer clicks; avatar hover uses real pointer movement and retains its
+actual overlay visibility. Each capture keeps the action receipt; no edit or
+hover state is injected into an extractor. The
+layout-only-wrapper projection request is under evidence review: null paint or
+a generic group role is not proof that a node may be omitted. Raw nodes and
+unresolved coverage failures remain retained.
+
+Changes for the clients (reference capture environment and shared requests):
+the captured Chromium command line revealed Playwright's default
+`--hide-scrollbars`. Both canonical and diagnostic captures now remove only that
+default switch, letting the real page's scrollbar CSS render. Earlier reports
+retain their original evidence and cannot be treated as a directly comparable
+trend. Scrollbar coverage still requires measurement; the switch alone proves
+neither presence nor absence. The macOS request about shared scrollbar tests
+was fixed in `5bb04e5` (source-expression boundary); no production extractor or
+test assertion was removed. Its request about color quantity is resolved by
+preserving computed unpremultiplied sRGB float RGBA and independent canvas RGBA8
+raster evidence separately; see `native-color-evidence.md`. Native brush values,
+alpha comparisons and DeltaE tolerances remain unchanged. Unsupported computed
+color serializations still fail extraction. The macOS live states and real animation
+clock implementation were merged in `ddf7759` and await CI capture validation.
+
 Changes for the clients (isolated Windows capture): every Windows case now uses
 a fresh native process and its own `RELIC_VISUAL_STATE_DIR` for view history,
 read state and drafts; the same fixture server remains shared. UIA requests are

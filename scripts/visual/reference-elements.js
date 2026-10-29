@@ -7,7 +7,7 @@
   const viewport = { width: innerWidth, height: innerHeight, scale: devicePixelRatio };
   const nodeIds = new WeakMap(), emittedIds = new WeakMap(), styles = new WeakMap(), occlusionMasks = new WeakMap();
   const colorCanvas = new OffscreenCanvas(1, 1);
-  const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true });
+  const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   const colors = new Map(), regionOrders = new Map();
   const rect = r => ({ x: r.x, y: r.y, width: r.width, height: r.height });
   const intersect = (a, b) => {
@@ -19,19 +19,77 @@
     if (!styles.has(el)) styles.set(el, getComputedStyle(el));
     return styles.get(el);
   };
-  const color = (css, path) => {
-    if (!css || css === 'none') return [0, 0, 0, 0];
-    if (colors.has(css)) return colors.get(css);
-    if (!CSS.supports('color', css)) {
-      extraction_errors.push({ type: 'color_unreadable', node: path, value: css });
-      return null;
+  // Computed colors and Canvas pixels are different quantities. Preserve the
+  // serialized sRGB channels without raster quantization or premultiplication.
+  const computedSrgb = css => {
+    const fail = reason => ({ rgba: null, reason });
+    if (typeof css !== 'string' || !css.trim()) return fail('Missing computed color.');
+    const value = css.trim().toLowerCase();
+    if (value === 'none' || value === 'transparent') return { rgba: [0, 0, 0, 0], reason: null };
+    const fn = value.match(/^(rgb|rgba|color)\(([\s\S]*)\)$/);
+    if (!fn) return fail('Computed color is not an explicitly supported sRGB serialization.');
+    let body = fn[2].trim(), scale = 255, channels, alpha;
+    if (fn[1] === 'color') {
+      const space = body.match(/^srgb\s+([\s\S]+)$/);
+      if (!space) return fail('Only computed color(srgb ...) has a directly measured sRGB representation.');
+      body = space[1]; scale = 1;
     }
-    colorContext.clearRect(0, 0, 1, 1);
-    colorContext.fillStyle = css;
-    colorContext.fillRect(0, 0, 1, 1);
-    const result = Array.from(colorContext.getImageData(0, 0, 1, 1).data);
-    colors.set(css, result);
-    return result;
+    if (body.includes(',')) {
+      if (fn[1] === 'color' || body.includes('/')) return fail('Invalid computed color component separators.');
+      const parts = body.split(',').map(part => part.trim());
+      if (parts.length !== 3 && parts.length !== 4) return fail('Invalid computed RGB component count.');
+      channels = parts.slice(0, 3); alpha = parts[3];
+      if (channels.some(part => part.endsWith('%')) && !channels.every(part => part.endsWith('%')))
+        return fail('Legacy computed RGB mixes number and percentage channels.');
+    } else {
+      const parts = body.split('/');
+      if (parts.length > 2) return fail('Invalid computed color alpha separator.');
+      channels = parts[0].trim().split(/\s+/); alpha = parts.length === 2 ? parts[1].trim() : undefined;
+      if (channels.length !== 3) return fail('Invalid computed color component count.');
+    }
+    const component = (part, maximum) => {
+      if (typeof part !== 'string' || !/^[+-]?(?:\d*\.\d+|\d+)(?:e[+-]?\d+)?%?$/.test(part)) return null;
+      const percentage = part.endsWith('%'), channel = Number(percentage ? part.slice(0, -1) : part);
+      const limit = percentage ? 100 : maximum;
+      if (!Number.isFinite(channel) || channel < 0 || channel > limit) return null;
+      // RGB numbers already use 0..255. Preserve them directly, without an
+      // unnecessary divide/multiply rounding step.
+      return !percentage && maximum === 255 ? channel : channel / limit * 255;
+    };
+    const rgb = channels.map(part => component(part, scale));
+    const opacity = alpha === undefined ? 255 : component(alpha, 1);
+    if (rgb.includes(null) || opacity === null) return fail('Computed color has an unknown, non-finite, or out-of-range component.');
+    return { rgba: [...rgb, opacity], reason: null };
+  };
+  const color = (css, path, property, pseudo = null, computedValue = css) => {
+    let record = colors.get(css);
+    if (!record) {
+      const canonical = computedSrgb(css);
+      let raster = { status: 'unavailable', rgba: null, color_space: null };
+      if (typeof css === 'string' && css.trim().toLowerCase() === 'none') {
+        raster = { ...raster, status: 'not-applicable', reason: 'none denotes absent paint, not a Canvas fill color.' };
+      } else if (!colorContext || typeof css !== 'string' || !CSS.supports('color', css)) {
+        raster.reason = 'A Canvas sRGB readback is unavailable for this computed value.';
+      } else {
+        try {
+          colorContext.clearRect(0, 0, 1, 1);
+          colorContext.fillStyle = css;
+          colorContext.fillRect(0, 0, 1, 1);
+          const pixels = colorContext.getImageData(0, 0, 1, 1);
+          raster = { status: 'measured', rgba: Array.from(pixels.data), color_space: pixels.colorSpace ?? null };
+        } catch (error) { raster.reason = String(error); }
+      }
+      record = { computed: css ?? null,
+        canonical: { quantity: 'computed-unpremultiplied-srgb-rgba-float-0-255', ...canonical },
+        canvas: { quantity: 'canvas-raster-rgba8-0-255', ...raster }, sources: [] };
+      colors.set(css, record);
+    }
+    const source = { node: path, property, pseudo, computed_value: computedValue ?? null };
+    if (!record.sources.some(item => item.node === path && item.property === property && item.pseudo === pseudo && item.computed_value === source.computed_value)) {
+      record.sources.push(source);
+      if (record.canonical.rgba === null) extraction_errors.push({ type: 'color_unreadable', ...source, value: css ?? null, reason: record.canonical.reason });
+    }
+    return record.canonical.rgba;
   };
   const number = value => Number.isFinite(parseFloat(value)) ? parseFloat(value) : null;
   const radius = (value, el, measuredBox = null) => {
@@ -372,7 +430,7 @@
     if (tag === 'hr' || el.matches('.sep,.ab-sep,.oc-legend i.link')) return 'divider';
     if (tag === 'pre' || el.matches('.doc-body,.code-view')) return 'code';
     if (el.matches('.card,.task,.cc-card,.bubble,.report,.cc-summary,.banner,.digest,.choice,.session-list')) return 'card';
-    const background = color(s.backgroundColor, pathOf(el));
+    const background = color(s.backgroundColor, pathOf(el), 'background-color');
     const border = ['Top', 'Right', 'Bottom', 'Left'].some(side => number(s['border' + side + 'Width']) > 0 && !['none', 'hidden'].includes(s['border' + side + 'Style']));
     if ((background?.[3] > 0 || border || s.boxShadow !== 'none' || s.backgroundImage !== 'none') && tag !== 'html') return el.getBoundingClientRect().width <= 2 || el.getBoundingClientRect().height <= 2 ? 'divider' : 'card';
     return null;
@@ -400,7 +458,7 @@
     }
     parts.push(value.slice(start).trim()); return parts;
   };
-  const shadowData = (el, value) => {
+  const shadowData = (el, value, pseudo = null) => {
     if (value === 'none') return [];
     const shadows = [];
     for (const layer of cssList(value)) {
@@ -412,11 +470,11 @@
         return null;
       }
       shadows.push({ inset: /\binset\b/.test(layer), offset_x: lengths[0], offset_y: lengths[1], blur_radius: lengths[2] || 0,
-        spread_radius: lengths[3] || 0, color: color(tint[0], pathOf(el)) });
+        spread_radius: lengths[3] || 0, color: color(tint[0], pathOf(el), 'box-shadow', pseudo, value) });
     }
     return shadows;
   };
-  const backgroundData = (el, s, measuredBox = null) => {
+  const backgroundData = (el, s, measuredBox = null, pseudo = null) => {
     const raw = s.backgroundImage;
     if (raw === 'none') return 'none';
     const conic = raw.match(/^(repeating-)?conic-gradient\((.*)\)$/);
@@ -430,7 +488,7 @@
         const match = item.match(/^((?:rgba?|color|lab|lch|oklab|oklch)\([^)]*\))\s+(-?(?:\d*\.)?\d+)(deg|turn|%)$/);
         if (!match) { valid = false; break; }
         const position = Math.max(previous, parseFloat(match[2]) / (match[3] === 'deg' ? 360 : match[3] === '%' ? 100 : 1));
-        previous = position; stops.push({ position, color: color(match[1], pathOf(el)) });
+        previous = position; stops.push({ position, color: color(match[1], pathOf(el), 'background-image', pseudo, raw) });
       }
       const position = [length(positionValues[0], box.width - size[0]), length(positionValues[1] || '50%', box.height - size[1])];
       const repeat = s.backgroundRepeat.split(/\s+/);
@@ -463,7 +521,7 @@
         miterlimit: Number.isFinite(Number(s.strokeMiterlimit)) ? Number(s.strokeMiterlimit) : null,
         coordinate_space: 'viewport-css-pixels' };
       records.push(record);
-      if (s.stroke === 'none' || color(s.stroke, pathOf(shape))?.[3] === 0 || Number(s.strokeOpacity) === 0) { record.effective_width = 0; continue; }
+      if (s.stroke === 'none' || color(s.stroke, pathOf(shape), 'stroke')?.[3] === 0 || Number(s.strokeOpacity) === 0) { record.effective_width = 0; continue; }
       if (!/^(?:\d*\.)?\d+(?:px)?$/.test(s.strokeWidth)) { record.problem = 'Unresolved SVG source stroke unit.'; continue; }
       record.source_width = Number.parseFloat(s.strokeWidth);
       if (record.source_width === 0) { record.effective_width = 0; continue; }
@@ -547,15 +605,16 @@
     const sides = ['Top', 'Right', 'Bottom', 'Left'];
     const widths = sides.map(side => number(s['border' + side + 'Width']) || 0);
     const radii = ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => radius(s['border' + corner + 'Radius'], el, measuredBox));
-    const foreground = el instanceof SVGElement ? (s.stroke !== 'none' ? s.stroke : s.fill !== 'none' ? s.fill : s.color) : s.color;
+    const foregroundProperty = el instanceof SVGElement ? (s.stroke !== 'none' ? 'stroke' : s.fill !== 'none' ? 'fill' : 'color') : 'color';
+    const foreground = s[foregroundProperty];
     return { font_size: text ? number(s.fontSize) : null, font_weight: text ? (s.fontWeight === 'normal' ? 400 : s.fontWeight === 'bold' ? 700 : number(s.fontWeight)) : null,
-      foreground: color(foreground, pathOf(el)), background: color(s.backgroundColor, pathOf(el)),
-      border_color: Math.max(...widths) ? color(s['border' + sides[widths.indexOf(Math.max(...widths))] + 'Color'], pathOf(el)) : [0, 0, 0, 0],
+      foreground: color(foreground, pathOf(el), foregroundProperty, pseudo), background: color(s.backgroundColor, pathOf(el), 'background-color', pseudo),
+      border_color: Math.max(...widths) ? color(s['border' + sides[widths.indexOf(Math.max(...widths))] + 'Color'], pathOf(el), 'border-' + sides[widths.indexOf(Math.max(...widths))].toLowerCase() + '-color', pseudo) : [0, 0, 0, 0],
       border_width: Math.max(...widths), corner_radius: Math.max(...radii),
       font_family: text ? s.fontFamily : null, border_widths: widths, corner_radii: radii,
       border_styles: sides.map(side => s['border' + side + 'Style']),
-      border_colors: sides.map((side, i) => widths[i] > 0 ? color(s['border' + side + 'Color'], pathOf(el)) : [0, 0, 0, 0]),
-      opacity: cumulativeOpacity(el) * (pseudo ? Number(s.opacity) : 1), shadow: shadowData(el, s.boxShadow), background_image: backgroundData(el, s, measuredBox),
+      border_colors: sides.map((side, i) => widths[i] > 0 ? color(s['border' + side + 'Color'], pathOf(el), 'border-' + side.toLowerCase() + '-color', pseudo) : [0, 0, 0, 0]),
+      opacity: cumulativeOpacity(el) * (pseudo ? Number(s.opacity) : 1), shadow: shadowData(el, s.boxShadow, pseudo), background_image: backgroundData(el, s, measuredBox, pseudo),
       text_align: s.textAlign, letter_spacing: s.letterSpacing, line_height: s.lineHeight,
       stroke_width: svgStrokeData(el)?.width ?? null,
       stroke_dash: svgStrokeData(el)?.dash ?? null, stroke_dash_offset: svgStrokeData(el)?.dash_offset ?? null,
@@ -594,8 +653,9 @@
     for (const field of ['font_size', 'font_weight', 'font_family', 'foreground', 'letter_spacing', 'line_height', 'text_align']) paintStyle[field] = textStyle[field];
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
     if (kind === 'icon' && el.localName === 'svg' && el.querySelector('path,circle,ellipse,line,polyline,polygon,rect')) {
-      const shapeStyle = styleOf(el.querySelector('path,circle,ellipse,line,polyline,polygon,rect'));
-      paintStyle.foreground = color(shapeStyle.stroke !== 'none' ? shapeStyle.stroke : shapeStyle.fill, pathOf(el));
+      const shape = el.querySelector('path,circle,ellipse,line,polyline,polygon,rect'), shapeStyle = styleOf(shape);
+      const property = shapeStyle.stroke !== 'none' ? 'stroke' : 'fill';
+      paintStyle.foreground = color(shapeStyle[property], pathOf(shape), property);
     }
     if (kind === 'text' && !options.pseudo) {
       paintStyle.background = [0, 0, 0, 0]; paintStyle.border_color = [0, 0, 0, 0]; paintStyle.border_width = 0; paintStyle.corner_radius = 0;
@@ -643,7 +703,7 @@
   };
   const opaqueOverlays = Array.from(document.querySelectorAll('.dialog,.settings,.details,.card,.menu')).filter(el => {
     const s = styleOf(el);
-    return cumulativeOpacity(el) === 1 && color(s.backgroundColor, pathOf(el))?.[3] === 255 && visibleRect(el, rect(el.getBoundingClientRect()));
+    return cumulativeOpacity(el) === 1 && color(s.backgroundColor, pathOf(el), 'background-color')?.[3] === 255 && visibleRect(el, rect(el.getBoundingClientRect()));
   });
   const roundedShape = el => {
     const s = styleOf(el), bounds = rect(el.getBoundingClientRect());
@@ -722,7 +782,7 @@
   const paintBoundsOf = (el, layout) => {
     if (!(el instanceof SVGGeometryElement) || layout.width > 0 && layout.height > 0) return layout;
     const s = styleOf(el);
-    if (s.stroke === 'none' || color(s.stroke, pathOf(el))?.[3] === 0 || Number(s.strokeOpacity) === 0) return layout;
+    if (s.stroke === 'none' || color(s.stroke, pathOf(el), 'stroke')?.[3] === 0 || Number(s.strokeOpacity) === 0) return layout;
     const measured = svgStrokeData(el)?.shapes[0], strokeWidth = measured?.source_width;
     if (strokeWidth === 0) return layout;
     const matrix = measured?.stroke_to_window;
@@ -879,6 +939,8 @@
       text_policy: 'Uniform simple control labels are owned by the control; rich labels are independent text nodes.',
       reading_order_policy: 'Actual DOM child-node order with CSS tree-abiding pseudo-elements: originating semantic container, ::marker, ::before, mixed text/element descendants, ::after. Regions have independent contiguous order. No element or measurement is removed to fix order.',
       visibility_policy: 'Viewport/ancestor clips, SVG stroke visibility, actual paint order, and analytic rounded-rectangle subtraction masks. visible_fragments are rectangular envelopes; occlusion_masks retain exact curved clipping. Unresolved compound masks remain failures.' },
+    capture_evidence: { color_policy: 'Canonical colors are independently parsed computed, unpremultiplied sRGB float RGBA channels on 0..255. Canvas RGBA8 is a separate raster diagnostic, never a fallback or a source of canonical channels.',
+      colors: Array.from(colors.values()) },
     elements, raw_nodes, raw_ax_nodes, extraction_errors, coverage: { raw_nodes: raw_nodes.length, emitted_elements: elements.length, unmeasured },
     summary: { dom_nodes: raw_nodes.length, elements: elements.length, extraction_errors: extraction_errors.length } };
 }

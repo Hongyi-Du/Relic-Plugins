@@ -141,7 +141,7 @@ server or test process was launched for this checkpoint.
 ## Independent paint-trace diagnostic (2026-10-29)
 
 `scripts/visual/paint_trace.py` adds a CI-only experiment without changing the
-main capture order, the 528-case matrix, or canonical unknown measurements. It
+main capture order, the full matrix (now 564 cases), or canonical unknown measurements. It
 reads an existing capture manifest and selects `group` and `file-code` at
 1440x900 by default. Each requested case must already exist in that manifest.
 It starts an independent fixture through the same `serve.py`, preserves the
@@ -179,10 +179,12 @@ script does not yet parse SKP or prove that the CI Chromium build emits it.
 Several attribution requirements remain. Traces contain navigation and earlier
 frames as well as the final frame. DisplayItemList serialization uses zero
 scroll offsets, so layer transforms, real scroll offsets, clipping and final
-paint timing must be reconciled from original evidence. Current
+paint timing must be reconciled from original evidence. The current upstream
 [`PictureDebugUtil`](https://github.com/chromium/chromium/blob/main/cc/debug/picture_debug_util.cc)
-serializes typeface descriptors without embedding font data; no substitute font
-can be used to claim original glyph bounds. Scrollbars may use independent
+serializes typeface descriptors without embedding font data, but this is not
+the implementation in the first recorded CI browser; see the revision-pinned
+correction below. No substitute font can be used to claim original glyph
+bounds. Scrollbars may use independent
 compositor resources or solid-color thumbs absent from a content SKP. Their
 absence from a picture cannot establish absence from the screenshot.
 
@@ -205,3 +207,103 @@ macOS manifest and separate output directory. A smoke manifest lacks
 tests in `test_paint_trace.py` are covered by the existing CI unittest discovery.
 No local browser, server, test or Skia tool is launched or installed for this
 experiment. Only Python compilation and whitespace checks are local checks.
+
+## First actual trace and next diagnostic configuration (2026-10-29)
+
+The downloaded artifact is
+`S:\Codex\Outputs\Relic-native-visual\paint-trace-05fe5cf-windows-en-light\`.
+Both `group` and `file-code` retained 18 decoded SKP payloads, totaling 4,018
+bytes per scene. Their header bytes identify `skiapict` and format version 110;
+this header inspection is not Skia deserialization. Both completion receipts
+have `dataLossOccurred: true` and remain failed. Original trace processor
+statistics distinguish producer/writer sequence loss from a full central
+buffer:
+
+| Original metric | group | file-code |
+| --- | ---: | ---: |
+| Main buffer size, bytes | 209,715,200 | 209,715,200 |
+| Main buffer bytes written | 65,708,032 | 60,112,896 |
+| Main buffer bytes overwritten | 0 | 0 |
+| Main buffer trace writer packet loss | 14 | 12 |
+| Main buffer sequence packet loss | 14 | 12 |
+| Packets skipped for invalid incremental state | 59,873 | 31,750 |
+| Discarded chunks | 0 | 3 |
+
+The two payload-bearing display-item snapshots in `group` occurred 52,075 and
+56,850 microseconds after its navigation marker, over two seconds before the
+screenshot marker. `file-code` likewise retained only two early snapshots.
+These are initial background records, not proof of final text, ellipsis, or
+scrollbar painting. Both `layer-events.json` files are empty, and every
+picture's `layer_id` is null. Final-scene attribution remains unresolved.
+
+The actual browser is `HeadlessChrome/156.0.8078.4`, Chromium revision
+`f842f52ef39fd97b449eb27cff414bf05a98ddce`. Its
+[`DisplayItemList::EmitTraceSnapshot`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/cc/paint/display_item_list.cc)
+does not export a `layer_id`; the field cannot be recovered by renaming an
+existing event argument. Its
+[`PictureDebugUtil`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/cc/debug/picture_debug_util.cc)
+sets an image serializer but no typeface serializer. The
+[`DEPS`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/DEPS)
+pins Skia `95ee33d7ec7791ab9c071675710a14fe6408ae4f`, whose
+[`SkPictureData`](https://github.com/google/skia/blob/95ee33d7ec7791ab9c071675710a14fe6408ae4f/src/core/SkPictureData.cpp)
+default serializer calls `kDoIncludeData` for typefaces. It attempts to include
+font streams, unlike the newer Chromium implementation cited earlier. Large
+font-bearing picture records are a possible contributor to producer bursts;
+the loss counters alone do not establish that cause.
+
+The diagnostic now uses the supported
+[`Tracing.start` / `TraceConfig`](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Tracing.pdl)
+configuration rather than deprecated `categories`/`options`. It keeps
+`recordUntilFull` and explicitly records the same 200 MiB central buffer as the
+previous default. It retains all three picture categories, including individual
+display-item records, plus `devtools.timeline` and the explicit frame category.
+Only the broad `blink` and `cc` categories are removed: their general layout
+and compositor events dominated the original event count. At the recorded
+Chromium revision,
+[`RecordingSource::FinishDisplayItemListUpdate`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/cc/layers/recording_source.cc)
+invokes `EmitTraceSnapshot` independently of the broad `cc` tracing category.
+No picture category will be removed merely to obtain a clean exit status.
+This configuration is an experiment, not a confirmed repair for producer loss.
+
+Each scene additionally preserves `trace-config.json`, all actual
+`Tracing.bufferUsage` callbacks in `buffer-usage.json`, and
+`trace-diagnostics.json`. The latter retains the original command line and
+complete trace processor statistics, indexes nonzero loss counters by original
+JSON pointer, and lists original clock-sync and picture-event timestamps.
+Original `trace.json` bytes remain unchanged. Missing layer events, any retained
+loss evidence, and an unknown or scrollbar-hiding command line fail the
+diagnostic. Even a loss-free raw collection continues to have null canonical
+glyph/scrollbar measurements and null final-frame attribution.
+
+The original command line contains `--hide-scrollbars`, a Playwright default
+which changes the measurement environment. The diagnostic now passes
+`ignore_default_args=["--hide-scrollbars"]`, using the documented
+[Playwright launch argument filter](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-option-ignore-default-args).
+This removes that flag while retaining the rest of Playwright's defaults and
+the production scrollbar CSS. The actual trace command line is checked and
+preserved; a requested argument list is not treated as execution evidence.
+The main capture receives the same environment correction separately. Earlier
+hidden-scrollbar reports are not comparable on an unchanged measurement basis,
+and newly exposed scrollbar elements receive no exemption from the gate.
+
+The next parser experiment must use the recorded Skia revision. Its
+[`SkPicture::MakeFromData`](https://github.com/google/skia/blob/95ee33d7ec7791ab9c071675710a14fe6408ae4f/src/core/SkPicture.cpp)
+can validate/deserialise the actual record, and its
+[`DrawTextBlobCommand::toJSON`](https://github.com/google/skia/blob/95ee33d7ec7791ab9c071675710a14fe6408ae4f/tools/debugger/DrawCommand.cpp)
+exports glyph IDs, positions, font records and available source-text clusters.
+The same revision explicitly leaves RSXform positioning unimplemented in that
+JSON exporter, and a text blob's aggregate bounds are not per-glyph painted
+ink. A future CI decoder must retain that coverage gap, verify actual font
+streams without fallback substitution, and reconcile real draw matrices,
+clips, layers, scroll offsets and final-frame provenance. No parser is installed
+or run locally, and no decoded text has yet been obtained from this artifact.
+
+Scrollbar capture also needs compositor evidence beyond content SKPs. In the
+recorded Chromium revision,
+[`PaintedScrollbarLayer`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/cc/layers/painted_scrollbar_layer.cc)
+rasterizes track/buttons and thumb into separate UI resources, while
+[`SolidColorScrollbarLayerImpl`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/cc/layers/solid_color_scrollbar_layer_impl.cc)
+can emit a solid-color draw quad. The next evidence collection must associate
+such actual resources/quads and transforms with the final screenshot and
+source scroller. Content-picture absence still cannot certify scrollbar
+absence; no estimated thumb rectangles or inferred part counts are added.

@@ -162,6 +162,7 @@ public sealed partial class MainWindow
         AddShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async () => { visibleDialog?.Hide(); transientFlyout?.Hide(); await StopVoice(); });
     }
     private TextBox? editing;
+    private ComposerInput? editingComposer;
     private void BuildMenus()
     {
         menu.Items.Clear();
@@ -214,6 +215,18 @@ public sealed partial class MainWindow
         if (selectedRich?.SelectedText.Length > 0 && action is "copy" or "quote")
         {
             if (action == "copy") Copy(selectedRich.SelectedText); else Quote(T("common.quote"), selectedRich.SelectedText);
+            return;
+        }
+        if (editingComposer is { IsLoaded: true } input)
+        {
+            input.Focus(FocusState.Programmatic);
+            switch (action)
+            {
+                case "undo": input.Undo(); break; case "redo": input.Redo(); break;
+                case "cut": input.CutSelectionToClipboard(); break; case "copy": input.CopySelectionToClipboard(); break;
+                case "paste": await input.PastePlainText(); break; case "all": input.SelectAll(); break;
+                case "quote": if (input.SelectedText.Length == 0) Note(T("appmenu.quote_need_selection")); else Quote(T("common.quote"), input.SelectedText); break;
+            }
             return;
         }
         if (editing == null) { Note(T(action == "quote" ? "appmenu.quote_need_selection" : "appmenu.paste_need_field")); return; }

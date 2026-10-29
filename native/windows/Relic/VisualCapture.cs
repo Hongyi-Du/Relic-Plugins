@@ -92,7 +92,8 @@ public sealed partial class MainWindow
                         case "member-app": dialog = MemberDialog("app"); break;
                         case "member-host": case "member-host-model-suggestions": dialog = MemberDialog("host"); break;
                         case "member-existing": case "member-existing-seat-suggestions": dialog = MemberDialog("existing"); break;
-                        case "member-card": dialog = MemberCard(fixture.Text("member")); break;
+                        case "member-card": case "member-card-rename": case "member-card-model": case "member-card-avatar-hover":
+                            dialog = MemberCard(fixture.Text("member")); break;
                         case "member-edit": dialog = MemberDialog("host", fixture.Text("member")); break;
                         case "forward": dialog = Forward("advisor"); break;
                         case "secretary": dialog = SecretarySetup(); break;
@@ -112,6 +113,22 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene.StartsWith("member-card-"))
+                    {
+                        var controlId = scene == "member-card-avatar-hover" ? "member-card-avatar" : scene;
+                        var control = CaptureCardControl(controlId) ?? throw new InvalidOperationException("Member card control missing: " + controlId);
+                        var before = control.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, control.ActualWidth, control.ActualHeight));
+                        if (scene == "member-card-avatar-hover") CaptureHover(control); else CaptureClick(control);
+                        await Task.Delay(150); root.UpdateLayout();
+                        var resultId = scene switch { "member-card-rename" => "member-card-name-input", "member-card-model" => "member-card-model-input", _ => "member-card-avatar-cover" };
+                        var result = CaptureCardControl(resultId) ?? throw new InvalidOperationException("Member card action did not reveal its real control: " + resultId);
+                        if (result.ActualWidth <= 0 || result.ActualHeight <= 0 || result.Visibility != Visibility.Visible || result.Opacity <= 0)
+                            throw new InvalidOperationException("Member card action result is not visible: " + resultId);
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"),
+                            System.Text.Json.JsonSerializer.Serialize(new { action = scene == "member-card-avatar-hover" ? "native pointer hover" : "native pointer click", control_id = controlId,
+                                control_bounds = new { x = before.X, y = before.Y, width = before.Width, height = before.Height }, result_id = resultId,
+                                result_opacity = result.Opacity, focused = result is Control input ? input.FocusState.ToString() : null }));
+                    }
                     if (scene == "live-tool-output")
                     {
                         var title = prepared["tool"].Text("title");
@@ -145,12 +162,15 @@ public sealed partial class MainWindow
                         for (var waiting = 0; !sourceCode.IsDocumentReady && sourceCode.InitializationFailure == null && waiting < 100; waiting++) await Task.Delay(50);
                         if (!sourceCode.IsDocumentReady) throw new InvalidOperationException("Native code document did not finish its real layout: " + (sourceCode.InitializationFailure ?? "timeout"));
                     }
+                    foreach (var input in new[] { editor, threadEditor })
+                        if (input.IsLoaded && !input.IsDocumentReady)
+                            throw new InvalidOperationException("Native composer document did not initialize: " + (input.InitializationFailure ?? "not ready"));
                     root.UpdateLayout();
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);
-                    if (suggestionPopup == null) SetCursorPos(1900, 1040);
-                    if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
+                    if (suggestionPopup == null && scene != "member-card-avatar-hover") SetCursorPos(1900, 1040);
+                    if ((scene.StartsWith("menu-") || scene.StartsWith("member-card") || scene is "mention" or "recipients") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
@@ -249,10 +269,28 @@ public sealed partial class MainWindow
         // WinUI MenuBarItemAutomationPeer can dereference an uninitialized native
         // expand/collapse provider on Windows App SDK 1.6.
         if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        CaptureHover(element);
+        mouse_event(0x0002, 0, 0, 0, 0); mouse_event(0x0004, 0, 0, 0, 0);
+    }
+    private FrameworkElement? CaptureCardControl(string automationId)
+    {
+        FrameworkElement? Find(DependencyObject parent)
+        {
+            if (parent is FrameworkElement element && Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(element) == automationId) return element;
+            for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+                if (Find(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i)) is { } child) return child;
+            return null;
+        }
+        foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
+            if (popup.IsOpen && popup.Child != null && Find(popup.Child) is { } found) return found;
+        return null;
+    }
+    private void CaptureHover(FrameworkElement element)
+    {
+        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
         var point = element.TransformToVisual(root).TransformPoint(new(element.ActualWidth / 2, element.ActualHeight / 2));
         var origin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin);
         SetCursorPos(origin.x + (int)point.X, origin.y + (int)point.Y);
-        mouse_event(0x0002, 0, 0, 0, 0); mouse_event(0x0004, 0, 0, 0, 0);
     }
     [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo { public uint size; public int width, height; public ushort planes, bits; public uint compression, imageSize; public int xppm, yppm; public uint used, important; }
     [DllImport("user32.dll")] private static extern nint GetDC(nint handle);

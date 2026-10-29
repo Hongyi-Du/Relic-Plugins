@@ -11,6 +11,49 @@ import paint_trace
 
 
 class PaintTraceTests(unittest.TestCase):
+    def test_launch_keeps_production_scrollbars_without_replacing_default_arguments(self):
+        playwright = Mock()
+        self.assertIs(paint_trace.launch_browser(playwright), playwright.chromium.launch.return_value)
+        playwright.chromium.launch.assert_called_once_with(headless=True,
+            args=["--disable-dev-shm-usage"], ignore_default_args=["--hide-scrollbars"])
+
+    def test_supported_trace_configuration_retains_all_paint_and_frame_sources(self):
+        parameters = paint_trace.trace_parameters()
+        self.assertNotIn("categories", parameters)
+        self.assertNotIn("options", parameters)
+        config = parameters["traceConfig"]
+        self.assertEqual(config["recordMode"], "recordUntilFull")
+        self.assertEqual(config["traceBufferSizeInKb"], 200 * 1024)
+        self.assertEqual(parameters["bufferUsageReportingInterval"], 250)
+        self.assertEqual(set(config["includedCategories"]), {
+            "devtools.timeline", "disabled-by-default-devtools.timeline.frame",
+            "disabled-by-default-devtools.timeline.picture",
+            "disabled-by-default-cc.debug.picture", "disabled-by-default-cc.debug.display_items"})
+        config["includedCategories"].clear()
+        self.assertEqual(len(paint_trace.TRACE_CATEGORIES), 5)
+
+    def test_recorded_writer_loss_is_preserved_even_when_central_buffer_is_not_full(self):
+        # Scalar values transcribed from 05fe5cf group trace metadata. No SKP is
+        # parsed, and these counters do not establish why a producer lost data.
+        stats = {"packet_skipped_seq_needs_incremental_state_invalid": 59873,
+            "traced_chunks_discarded": 0, "traced_buf": [{"buffer_size": 209715200,
+                "bytes_written": 65708032, "bytes_read": 65675264, "bytes_overwritten": 0,
+                "trace_writer_packet_loss": 14, "sequence_packet_loss": 14, "data_loss_smb_full": 0}]}
+        trace = {"metadata": {"command_line": "fixture-browser --headless", "trace_processor_stats": stats},
+            "traceEvents": [{"name": "clock_sync", "ts": 100, "args": {"sync_id": "fixture:before_screenshot"}},
+                            {"name": "cc::DisplayItemList:snapshot", "ts": 50, "cat": "fixture"}]}
+        original = copy.deepcopy(trace)
+        result = paint_trace.trace_diagnostics(trace, {"pictures": [{"event_index": 1}, {"event_index": 1}]})
+        self.assertEqual(result["trace_processor_stats"], stats)
+        self.assertEqual([row["value"] for row in result["nonzero_loss_evidence"]], [59873, 14, 14])
+        self.assertEqual(result["nonzero_loss_evidence"][1]["trace_json_pointer"],
+                         "/metadata/trace_processor_stats/traced_buf/0/trace_writer_packet_loss")
+        self.assertEqual(result["picture_events"][0]["event"]["ts"], 50)
+        self.assertEqual(len(result["picture_events"]), 1)
+        self.assertEqual(result["clock_sync_events"][0]["event"]["ts"], 100)
+        self.assertIsNone(result["final_scene_attribution"])
+        self.assertEqual(trace, original)
+
     def test_ci_guard_precedes_manifest_read_import_or_process_creation(self):
         with patch.dict("os.environ", {"GITHUB_ACTIONS": "false"}), patch.object(paint_trace.subprocess, "Popen") as launch:
             with self.assertRaisesRegex(SystemExit, "CI-only"):
@@ -82,20 +125,39 @@ class PaintTraceTests(unittest.TestCase):
             self.assertEqual(list(Path(folder).glob("*.skp")), [])
 
     def test_scene_receipt_distinguishes_raw_collection_from_measured_parity(self):
-        for has_picture, data_loss, expected in [(True, False, "raw_records_collected"),
-                                                  (False, False, "failed"), (True, True, "failed")]:
-            with self.subTest(has_picture=has_picture, data_loss=data_loss), tempfile.TemporaryDirectory() as folder:
+        cases = [
+            {"has_picture": True, "expected": "raw_records_collected"},
+            {"has_picture": False, "expected": "failed"},
+            {"has_picture": True, "data_loss": True, "expected": "failed"},
+            {"has_picture": True, "has_layers": False, "expected": "failed"},
+            {"has_picture": True, "hidden_scrollbars": True, "expected": "failed"},
+            {"has_picture": True, "missing_command_line": True, "expected": "failed"},
+            {"has_picture": True, "writer_loss": 1, "expected": "failed"},
+        ]
+        for fixture in cases:
+            has_picture, data_loss = fixture["has_picture"], fixture.get("data_loss", False)
+            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as folder:
                 browser, context, cdp, trace_cdp, page = Mock(), Mock(), Mock(), Mock(), Mock()
                 browser.version = "fixture-version"
                 browser.new_browser_cdp_session.return_value = trace_cdp
                 context.new_cdp_session.return_value = cdp
                 context.new_page.return_value = page
                 page.evaluate.side_effect = [None, {"quantity": "fixture DOM layout metrics"}]
-                cdp.send.return_value = {}
                 callbacks = {}
                 trace_cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
-                trace = {"traceEvents": [{"args": {"skp64": base64.b64encode(b"synthetic fixture bytes").decode()}}] if has_picture else []}
+                cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
+                command_line = "fixture-browser --headless" + (" --hide-scrollbars" if fixture.get("hidden_scrollbars") else "")
+                trace = {"metadata": {"command_line": None if fixture.get("missing_command_line") else command_line,
+                            "trace_processor_stats": {"traced_buf": [{"trace_writer_packet_loss": fixture.get("writer_loss", 0)}]}},
+                    "traceEvents": [{"args": {"skp64": base64.b64encode(b"synthetic fixture bytes").decode()}}] if has_picture else []}
+                def page_send(method, parameters=None):
+                    if method == "LayerTree.enable" and fixture.get("has_layers", True):
+                        callbacks["LayerTree.layerTreeDidChange"]({"layers": [{"layerId": "fixture-layer"}]})
+                    return {}
+                cdp.send.side_effect = page_send
                 def send(method, parameters=None):
+                    if method == "Tracing.start":
+                        callbacks["Tracing.bufferUsage"]({"percentFull": 0.25, "eventCount": 1})
                     if method == "Tracing.end":
                         callbacks["Tracing.tracingComplete"]({"stream": "fixture-stream", "dataLossOccurred": data_loss})
                     if method == "IO.read":
@@ -107,17 +169,28 @@ class PaintTraceTests(unittest.TestCase):
                 with patch.object(paint_trace, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
                         patch.object(paint_trace, "font_evidence", return_value={"errors": []}):
                     result = paint_trace.collect_scene(browser, context, manifest, case, Path(folder) / "scene", "fixture source")
-                self.assertEqual(result["status"], expected)
+                self.assertEqual(result["status"], fixture["expected"])
                 self.assertEqual(result["measurement_status"], "unresolved")
                 self.assertIsNone(result["glyph_bounds"])
                 self.assertIsNone(result["scrollbar_parts"])
                 self.assertEqual(json.loads((Path(folder) / "scene" / "trace.json").read_text()), trace)
+                self.assertEqual(json.loads((Path(folder) / "scene" / "trace-config.json").read_text()), paint_trace.trace_parameters())
+                self.assertEqual(json.loads((Path(folder) / "scene" / "buffer-usage.json").read_text())[0]["params"],
+                                 {"percentFull": 0.25, "eventCount": 1})
+                diagnostics = json.loads((Path(folder) / "scene" / "trace-diagnostics.json").read_text())
+                self.assertEqual(diagnostics["command_line"], trace["metadata"]["command_line"])
                 page.screenshot.assert_called_once()
                 page.close.assert_called_once()
                 if not has_picture:
                     self.assertTrue(any("No actual skp64" in row["reason"] for row in result["errors"]))
                 if data_loss:
                     self.assertTrue(any("data loss" in row["reason"] for row in result["errors"]))
+                if not fixture.get("has_layers", True):
+                    self.assertTrue(any(row["source"] == "LayerTree" for row in result["errors"]))
+                if fixture.get("hidden_scrollbars") or fixture.get("missing_command_line"):
+                    self.assertTrue(any(row["source"] == "browser_command_line" for row in result["errors"]))
+                if fixture.get("writer_loss"):
+                    self.assertTrue(any(row["source"] == "trace_processor_stats" for row in result["errors"]))
 
 
 if __name__ == "__main__":

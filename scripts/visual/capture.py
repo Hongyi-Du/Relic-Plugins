@@ -17,6 +17,11 @@ DATALIST_SCENES = {
     "member-existing-seat-suggestions": "#layer input[list='relic-seat-names']",
 }
 LIVE_SCENES = frozenset(("live-busy", "live-tool-output", "live-typing"))
+MEMBER_CARD_SCENES = {
+    "member-card-rename": ".top h3 > button.icon-btn",
+    "member-card-model": ".kv dd > div > button.btn.sm.ghost",
+    "member-card-avatar-hover": ".avatar-wrap",
+}
 
 
 def wait_file(path, process, timeout=60, on_tick=None):
@@ -212,6 +217,72 @@ def record_datalist_coverage(elements, evidence):
                      "evidence": "capture_evidence.datalist_popup"})
 
 
+def open_member_card_scene(page, scene):
+    """Enter an existing production card state using real click/hover actions.
+
+    All evaluate calls below only read the resulting controls. They do not set
+    editing flags, values, classes, attributes, CSS, or synthesize hover state.
+    """
+    card_selector = ".card[role='dialog']"
+    card = page.locator(card_selector)
+    card.wait_for(state="visible")
+    if card.count() != 1:
+        raise RuntimeError("Expected one production member card for: " + scene)
+    selector = MEMBER_CARD_SCENES[scene]
+    control = card.locator(selector)
+    control.wait_for(state="visible")
+    if control.count() != 1:
+        raise RuntimeError("Expected one production member card control for: " + scene)
+    read_card = """el => {
+      const bounds = node => { const r=node.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
+      const field = node => ({tag:node.tagName,value:node.value,disabled:node.disabled,
+        focused:document.activeElement===node,placeholder:node.getAttribute('placeholder'),
+        maxlength:node.getAttribute('maxlength'),bounds:bounds(node),
+        options:node.options?Array.from(node.options,o=>({value:o.value,text:o.text,selected:o.selected,disabled:o.disabled})):null});
+      const rename=el.querySelector('.rename input'), editor=el.querySelector('.model-edit'),
+        avatar=el.querySelector('.avatar-wrap'), overlay=avatar?.querySelector('.change');
+      return {role:el.getAttribute('role'),name:el.getAttribute('aria-label'),bounds:bounds(el),
+        member_text:el.querySelector('.id')?.textContent ?? null,
+        rename:rename?field(rename):null,
+        model:editor?{selects:Array.from(editor.querySelectorAll('select'),field),
+          save_text:editor.querySelector('button')?.textContent ?? null,bounds:bounds(editor)}:null,
+        avatar:avatar?{hovered:avatar.matches(':hover'),bounds:bounds(avatar),
+          overlay:overlay?{text:overlay.textContent,opacity:getComputedStyle(overlay).opacity,
+            display:getComputedStyle(overlay).display,visibility:getComputedStyle(overlay).visibility,bounds:bounds(overlay)}:null}:null};
+    }"""
+    evidence = {"source": "production member-card controls via Playwright click/hover",
+                "scene": scene, "navigation_scene": "member-card", "card_selector": card_selector,
+                "control_selector": selector, "before": card.evaluate(read_card),
+                "control": control.evaluate("""el => ({tag:el.tagName,text:el.textContent,
+                    title:el.getAttribute('title'),disabled:'disabled' in el?el.disabled:null,
+                    bounds:(r=>({x:r.x,y:r.y,width:r.width,height:r.height}))(el.getBoundingClientRect())})""")}
+    if evidence["control"]["disabled"]:
+        raise RuntimeError("Member card control is disabled: " + scene)
+    if scene == "member-card-avatar-hover":
+        control.hover()
+        page.wait_for_function("""selector => {
+          const avatar=document.querySelector(selector), overlay=avatar?.querySelector('.change');
+          return avatar?.matches(':hover') && overlay && Number(getComputedStyle(overlay).opacity)===1;
+        }""", arg=card_selector + " .avatar-wrap")
+    else:
+        control.click()
+        state_selector = ".rename input" if scene == "member-card-rename" else ".model-edit"
+        card.locator(state_selector).wait_for(state="visible")
+        if scene == "member-card-rename":
+            page.wait_for_function("selector => document.querySelector(selector)===document.activeElement",
+                                   arg=card_selector + " .rename input")
+    evidence["after"] = card.evaluate(read_card)
+    after = evidence["after"]
+    if scene == "member-card-rename" and (not after["rename"] or not after["rename"]["focused"]):
+        raise RuntimeError("Real member rename input did not receive focus")
+    if scene == "member-card-model" and (not after["model"] or len(after["model"]["selects"]) != 2):
+        raise RuntimeError("Real member model editor did not expose both model and effort controls")
+    if scene == "member-card-avatar-hover" and (not after["avatar"] or not after["avatar"]["hovered"]
+            or not after["avatar"]["overlay"] or after["avatar"]["overlay"]["opacity"] != "1"):
+        raise RuntimeError("Actual avatar hover overlay did not become opaque")
+    return evidence
+
+
 def reference(manifest):
     from playwright.sync_api import sync_playwright
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -219,7 +290,9 @@ def reference(manifest):
     assert at > 0
     source = source[:at] + (HERE / "reference-hook.js").read_text(encoding="utf-8") + source[at:]
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+        # Capture the production page's own scrollbar styling. Playwright's
+        # default --hide-scrollbars otherwise suppresses visible reference UI.
+        browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"], ignore_default_args=["--hide-scrollbars"])
         # Reuse the transport pool. A fresh Chromium context for each of 126
         # scenes exhausted the Windows runner's socket buffers near the end of
         # en-US/light (40930725969). Reset browser storage before each real page
@@ -240,7 +313,8 @@ def reference(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
-            page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], case_fixture])
+            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else case["scene"]
+            page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
                 page.locator(".details .left .chat-row").first.click()
@@ -251,6 +325,11 @@ def reference(manifest):
                 (Path(manifest["output"]) / (case["id"] + ".scene-action.json")).write_text(json.dumps(action, ensure_ascii=False), encoding="utf-8")
             cdp = page.context.new_cdp_session(page)
             page.mouse.move(case["width"] + 20, case["height"] + 20)
+            member_card = open_member_card_scene(page, case["scene"]) if case["scene"] in MEMBER_CARD_SCENES else None
+            if member_card is not None:
+                (Path(manifest["output"]) / (case["id"] + ".scene-action.json")).write_text(json.dumps(member_card, ensure_ascii=False), encoding="utf-8")
+                if case["scene"] != "member-card-avatar-hover":
+                    page.mouse.move(case["width"] + 20, case["height"] + 20)
             datalist = open_datalist_scene(page, cdp, case["scene"]) if case["scene"] in DATALIST_SCENES else None
             animation = prepare_animation_capture(page, cdp, case["scene"])
             if animation is not None:
@@ -269,6 +348,8 @@ def reference(manifest):
             (Path(manifest["output"]) / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
             extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
             elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
+            if member_card is not None:
+                elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
             if datalist is not None:
                 record_datalist_coverage(elements, datalist)
                 (Path(manifest["output"]) / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")

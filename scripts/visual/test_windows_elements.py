@@ -89,6 +89,29 @@ class ProjectionTests(unittest.TestCase):
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
 
+    def test_editable_document_is_one_input_and_keeps_actual_ranges_without_inventing_fonts(self):
+        bounds = box(30, 600, 300, 50)
+        node = xaml_node("composer", "ComposerInput", "First\nSecond", bounds=bounds,
+                         interaction_evidence={"is_control": True, "is_tab_stop": True, "is_hit_test_visible": True})
+        ranges = [{"type": "RichEditTextRange", "text": "First", "bounds": [box(30, 600, 40, 22)],
+                   "geometry_complete": True, "font_family": "Declared family"},
+                  {"type": "RichEditTextRange", "text": "Second", "bounds": [box(30, 622, 50, 22)],
+                   "geometry_complete": True, "font_family": "Declared family"}]
+        node["layout"].update(wrap="character", line_count=2, rich_text_runs=ranges,
+                              character_boxes=[box(30, 600, 40, 22), box(30, 622, 50, 22)],
+                              character_boxes_coordinate_space="content-window", placeholder="Message")
+        provider = uia_node("editor-uia", "Edit", bounds=bounds, class_name="ComposerInput", value="First\nSecond",
+                            supported_patterns=["ValuePattern", "TextPattern"])
+        result = self.capture(measured([node]), [provider])
+        elements = self.by_id(result)
+        self.assertEqual(set(elements), {"composer"})
+        self.assertEqual(elements["composer"]["kind"], "input")
+        self.assertEqual(elements["composer"]["text"], "First\nSecond")
+        self.assertEqual(elements["composer"]["evidence"]["uia_id"], "editor-uia")
+        self.assertEqual(elements["composer"]["layout"]["line_count"], 2)
+        self.assertEqual(elements["composer"]["evidence"]["rich_text_runs"], ranges)
+        self.assertIsNone(elements["composer"]["style"]["rendered_fonts"])
+
     def test_simple_label_is_owned_once_with_rendered_typography(self):
         button = xaml_node("button", "Button")
         label = xaml_node("label", text="发送", parent="button", bounds=box(20, 25, 40, 18))

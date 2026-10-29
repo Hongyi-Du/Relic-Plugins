@@ -287,8 +287,13 @@ public sealed class WorkspaceCodeView : RichEditBox
     {
         if (initializing || IsDocumentReady) return;
         initializing = true;
+        var readOnly = IsReadOnly; var hitTest = IsHitTestVisible; var tabStop = IsTabStop;
         try
         {
+            // TOM formatting and SetText reject writes while this document is
+            // read-only. Unlock only during initialization, with no pointer or
+            // keyboard access; restore the real read-only control in finally.
+            IsHitTestVisible = false; IsTabStop = false; IsReadOnly = false;
             InitializationFailure = null;
             var document = TextDocument;
             var characters = document.GetDefaultCharacterFormat(); characters.Name = FontFamily.Source; characters.Size = (float)(FontSize * 72 / 96); document.SetDefaultCharacterFormat(characters);
@@ -325,7 +330,7 @@ public sealed class WorkspaceCodeView : RichEditBox
                 Opacity = 1;
             }
         }
-        finally { initializing = false; }
+        finally { IsReadOnly = readOnly; IsHitTestVisible = hitTest; IsTabStop = tabStop; initializing = false; }
     }
 
     protected override AutomationPeer OnCreateAutomationPeer() => new WorkspaceCodeViewAutomationPeer(this);

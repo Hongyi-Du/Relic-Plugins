@@ -26,7 +26,7 @@ public sealed partial class MainWindow : Window
     private readonly Grid root = new();
     private readonly Border composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
-    private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 26, MaxHeight = 260, BorderThickness = new Thickness(0), Padding = new Thickness(0, 2, 0, 2), FontSize = 14 };
+    private readonly ComposerInput editor = new();
     private readonly TextBox search = new();
     private readonly StackPanel sideTools = new() { Padding = new Thickness(8, 10, 8, 6) };
     private readonly Grid searchSurface = new();
@@ -77,7 +77,8 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var top = new Grid { Height = 40, BorderThickness = new Thickness(0, 0, 0, 1) }; top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        top.Loaded += (_, _) => top.BorderBrush = Line; root.ActualThemeChanged += (_, _) => top.BorderBrush = Line;
+        void PaintToolbarSurface() { top.BorderBrush = Line; top.Background = Paint("F8F7F5", "191918"); }
+        top.Loaded += (_, _) => PaintToolbarSurface(); root.ActualThemeChanged += (_, _) => PaintToolbarSurface();
         top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 2); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
         Grid.SetColumnSpan(appTitle, 3); top.Children.Add(appTitle);
         root.Resources["ContentDialogMaxWidth"] = 1100d;
@@ -110,7 +111,11 @@ public sealed partial class MainWindow : Window
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
         root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; emptyConversation.Height = root.ActualHeight * .7; LayoutColumns(); };
-        root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) { editing = box; selectedRich = null; } };
+        root.GotFocus += (_, e) =>
+        {
+            if (e.OriginalSource is TextBox box) { editing = box; editingComposer = null; selectedRich = null; }
+            else if (e.OriginalSource is ComposerInput composer) { editingComposer = composer; editing = null; selectedRich = null; }
+        };
         threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; UpdateSendState(); SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
         editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; UpdateSendState(); SaveViewState(); };

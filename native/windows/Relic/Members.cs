@@ -56,11 +56,14 @@ public sealed partial class MainWindow
             face.Children.Add(changeCover);
             var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name, anchor); }); avatar.Content = face; avatar.Padding = new Thickness(0); avatar.Width = avatar.Height = 60; avatar.CornerRadius = new CornerRadius(14); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
             avatar.PointerEntered += (_, _) => changeCover.Opacity = 1; avatar.PointerExited += (_, _) => changeCover.Opacity = 0;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(avatar, "member-card-avatar");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(changeCover, "member-card-avatar-cover");
             var heading = new Grid { ColumnSpacing = 14 }; heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.Children.Add(avatar);
             var identity = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(identity, 1); heading.Children.Add(identity);
             if (editingName)
             {
                 var label = SettingsInput(c.Flag("display_custom") ? c.Text("display") : "", c.Text("display").Length > 0 ? c.Text("display") : T("card.new_name")); label.MaxLength = 40; label.Height = 32.4; label.CornerRadius = new CornerRadius(8); label.Padding = new Thickness(8, 4, 34, 4);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(label, "member-card-name-input");
                 async Task SaveName()
                 {
                     var value = label.Text.Trim(); var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = value });
@@ -76,6 +79,7 @@ public sealed partial class MainWindow
                 void AddTag(OverviewBadgeView tag) { tag.Margin = new Thickness(0, 3, 0, 3); title.Children.Add(tag); }
                 if (c.Flag("leader")) AddTag(SidebarTag(T("common.leader"), false)); if (c.Flag("secretary")) AddTag(SidebarTag(T("common.secretary"), true)); if (c["ex_officio"] != null) AddTag(Tag(T("card.ex_officio_tag")));
                 var editName = IconButton("\uE70F", "card.new_name", () => { editingName = true; Fill(); return Task.CompletedTask; }, T("card.rename_hint")); editName.Content = ReferenceIcon("edit", 14); editName.Width = editName.Height = 24; editName.Padding = new Thickness(5); title.Children.Add(editName); identity.Children.Add(title);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(editName, "member-card-rename");
             }
             var identityLabel = Mono(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named")), 12); identityLabel.Foreground = Muted; identity.Children.Add(identityLabel); box.Children.Add(heading);
             var kv = new Grid { ColumnSpacing = 12, RowSpacing = 7 }; kv.ColumnDefinitions.Add(new() { Width = new GridLength(52) }); kv.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
@@ -103,7 +107,12 @@ public sealed partial class MainWindow
                 Row("card.also_in", seats);
             }
             var modelCell = new StackPanel(); var modelLine = new ActionRow { Spacing = 3 }; var modelLabel = OverviewText((c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + (c.Text("effort").Length > 0 ? " · " + c.Text("effort") : "")); modelLabel.Margin = new Thickness(0, c.Flag("model_editable") ? 3 : 0, 0, 0); modelLine.Children.Add(modelLabel);
-            if (c.Flag("model_editable")) modelLine.Children.Add(Ghost(T(editingModel ? "common.collapse" : "common.change"), () => { editingModel = !editingModel; Fill(); return Task.CompletedTask; })); modelCell.Children.Add(modelLine);
+            if (c.Flag("model_editable"))
+            {
+                var changeModel = Ghost(T(editingModel ? "common.collapse" : "common.change"), () => { editingModel = !editingModel; Fill(); return Task.CompletedTask; });
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(changeModel, "member-card-model"); modelLine.Children.Add(changeModel);
+            }
+            modelCell.Children.Add(modelLine);
             if (!c.Flag("model_editable") && c.Text("model_note").Length > 0) { var hint = OverviewText(c.Text("model_note"), 11.5, true); hint.Margin = new Thickness(0, 2, 0, 0); modelCell.Children.Add(hint); }
             if (editingModel && c.Flag("model_editable"))
             {
@@ -114,6 +123,7 @@ public sealed partial class MainWindow
                     choice.Items.Add(new ComboBoxItem { Content = defaultText, Tag = "" }); foreach (var value in values) choice.Items.Add(new ComboBoxItem { Content = value, Tag = value }); SetChoice(choice, selected); modelFields.Children.Add(choice); return choice;
                 }
                 var model = Select(c.Text("model"), T("common.default_model"), c.Rows("models").Select(x => x.Text())); var effort = Select(c.Text("effort"), T("common.default_effort"), c.Rows("efforts").Select(x => x.Text()));
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(model, "member-card-model-input");
                 modelFields.Children.Add(OverviewText(c.Text("model_note"), 11.5, true)); modelFields.Children.Add(OverviewAction(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); editingModel = false; await Reload(); }, true)); modelCell.Children.Add(modelFields);
             }
             Row("common.model", modelCell);
