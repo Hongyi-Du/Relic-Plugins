@@ -3,6 +3,7 @@
 (meta) => {
   'use strict';
   const elements = [], raw_nodes = [], extraction_errors = [], unmeasured = [];
+  for (const error of meta.input_text_errors || []) extraction_errors.push({ type: 'input_text_capture_error', detail: error });
   const viewport = { width: innerWidth, height: innerHeight, scale: devicePixelRatio };
   const nodeIds = new WeakMap(), emittedIds = new WeakMap(), styles = new WeakMap();
   const colorCanvas = new OffscreenCanvas(1, 1);
@@ -96,7 +97,7 @@
       const actual = Array.from(actualParent.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)[position];
       // Verify the text identity too; a mismatch means the DOM changed between
       // snapshots, rather than permission to attach another node's AX name.
-      if (actual && actual.nodeValue === snapshotStrings[snapshotNodes.nodeValue[i]]) {
+      if (actual && actual.nodeValue === (snapshotStrings[snapshotNodes.nodeValue[i]] || '')) {
         snapshotBackend.set(actual, snapshotNodes.backendNodeId?.[i]);
         const layoutIndex = layoutByNode.get(i);
         if (layoutIndex !== undefined) snapshotRenderedText.set(actual, snapshotStrings[snapshotLayout.text[layoutIndex]] || '');
@@ -171,7 +172,33 @@
     const range = document.createRange(); range.selectNodeContents(n);
     return Array.from(range.getClientRects()).map(rect).map(r => visibleRect(n.parentElement, r)).filter(Boolean);
   });
-  const lineCount = boxes => new Set(boxes.filter(nonempty).map(b => Math.round(b.y * 2) / 2)).size;
+  const lineCount = boxes => new Set(boxes.filter(b => b.width >= 0 && b.height > 0).map(b => Math.round(b.y * 2) / 2)).size;
+  const inputTextMeasurement = el => {
+    const backend = snapshotBackend.get(el), primary = snapshotInputBoxes.get(el) || [];
+    const secondary = meta.input_text_boxes?.[String(backend)];
+    const evidence = { backend_node_id: backend ?? null, snapshot_boxes: primary, supplement: secondary || null,
+      selected_source: primary.length ? 'CDP.DOMSnapshot.TextBoxSnapshot' : null };
+    if (!secondary) return { boxes: primary, evidence };
+    const validBox = box => box && ['x', 'y', 'width', 'height'].every(k => typeof box[k] === 'number' && Number.isFinite(box[k])) && box.width >= 0 && box.height > 0;
+    if (secondary.source !== 'CDP.DOM+Runtime.DOMRange' || !Array.isArray(secondary.boxes) || !Array.isArray(secondary.text_nodes) || !secondary.boxes.every(validBox)) {
+      extraction_errors.push({ type: 'invalid_input_text_measurement', backend_node_id: backend, selector: pathOf(el), reason: 'Supplement must contain actual UA-shadow DOMRange rectangles and source text-node evidence.' });
+      return { boxes: primary, evidence };
+    }
+    for (const failure of secondary.errors || []) extraction_errors.push({ type: 'input_text_measurement_error', backend_node_id: backend, detail: failure });
+    for (const node of secondary.text_nodes) {
+      if (node.error) extraction_errors.push({ type: 'input_text_node_measurement_error', backend_node_id: backend, detail: node });
+      if (typeof node.backend_node_id !== 'number' || typeof node.text !== 'string' || !Array.isArray(node.boxes) || !node.boxes.every(validBox))
+        extraction_errors.push({ type: 'invalid_input_text_node_evidence', backend_node_id: backend, detail: node });
+    }
+    if (primary.length && secondary.boxes.length) {
+      const sorted = boxes => boxes.map(box => [box.y, box.x, box.width, box.height]).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3]);
+      const a = sorted(primary), b = sorted(secondary.boxes);
+      if (a.length !== b.length || a.some((box, i) => box.some((coordinate, j) => Math.abs(coordinate - b[i][j]) > .000001)))
+        extraction_errors.push({ type: 'conflicting_input_text_measurements', backend_node_id: backend, selector: pathOf(el), snapshot_boxes: primary, dom_range_boxes: secondary.boxes });
+    }
+    if (!primary.length && secondary.boxes.length) evidence.selected_source = secondary.source;
+    return { boxes: primary.length ? primary : secondary.boxes, evidence };
+  };
   const accessibilityOf = (node, backendOverride = null) => {
     const backend = backendOverride ?? snapshotBackend.get(node), nodes = axByBackend.get(backend) || [];
     const primary = nodes.find(ax => !ax.ignored && ax.role?.value !== 'InlineTextBox') || nodes.find(ax => !ax.ignored) || nodes[0];
@@ -217,7 +244,7 @@
     const nodes = textNodes(el);
     if (!nodes.length) return { text: '', nodes, style: styleOf(el) };
     // Rich rows, badges and mixed font labels stay separate rendered elements.
-    if (el.querySelector('.avatar,.badge,.tag,.chip,kbd,input,select,textarea')) return null;
+    if (el.querySelector('.avatar,.org-badge,.badge,.ab-badge,.tag,.chip,kbd,input,select,textarea')) return null;
     const first = styleOf(nodes[0].parentElement);
     const uniform = nodes.every(n => ['fontFamily', 'fontSize', 'fontWeight', 'color', 'whiteSpace'].every(k => styleOf(n.parentElement)[k] === first[k]));
     if (!uniform) return null;
@@ -351,7 +378,8 @@
     const kind = kindOf(el, s), own = kind ? ownedText(el, kind) : null;
     if (kind) {
       const text = own?.text || '';
-      const emitted = emit(el, kind, text, bounds, parent, '', { style: own?.style || s, textBoxes: own ? own.nodes.length ? textRects(own.nodes) : snapshotInputBoxes.get(el) || [] : [], evidence: { visible_fragments: fragments, text_ownership: own?.nodes.map(n => ({ parent: nodeIds.get(n.parentElement), text: n.nodeValue })) || [] } });
+      const inputMeasurement = kind === 'input' || kind === 'dropdown' ? inputTextMeasurement(el) : null;
+      const emitted = emit(el, kind, text, bounds, parent, '', { style: own?.style || s, textBoxes: own ? own.nodes.length ? textRects(own.nodes) : inputMeasurement?.boxes || [] : [], evidence: { visible_fragments: fragments, text_ownership: own?.nodes.map(n => ({ parent: nodeIds.get(n.parentElement), text: n.nodeValue })) || [], input_text_measurement: inputMeasurement?.evidence || null } });
       raw.emitted.push(emitted); parent = emitted;
       if (own) own.nodes.forEach(n => { suppressedText.add(n); for (const t of raw.text_nodes) if (t.text === n.nodeValue) t.owned_by = emitted; });
       if (el.localName === 'canvas') extraction_errors.push({ type: 'canvas_semantics_unavailable', node: id, reason: 'Canvas pixels are captured but internal element identities require a separate instrumentation contract.' });

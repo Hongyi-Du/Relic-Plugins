@@ -18,7 +18,7 @@ permissions:
   contents: read
 concurrency:
   group: visual-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   element-checker:
     runs-on: ubuntu-latest

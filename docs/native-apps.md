@@ -8,6 +8,14 @@ remain a reference until full native parity is satisfied.
 
 ## Acceptance
 
+Changes for the clients: full element runs now finish and retain their failed
+reports when a newer commit is pushed; newer visual runs queue. Each report
+still names its actual commit, and only final-commit evidence can satisfy the
+gate. DOM input/textarea placeholder lines additionally use read-only CDP UA
+shadow DOM ranges (`.input-text.json`); absent measurements remain errors.
+Reports add small summary.json and per-scene parity JSON alongside the complete
+parity-report.json, with unchanged tolerances and no excluded elements/scenes.
+
 Changes for the clients: the macOS `61b2740` question about text-only properties
 on painted shapes is resolved in native-elements.md. No-visible-text elements
 use null font/layout properties; actual icon/edge foreground remains measured.
