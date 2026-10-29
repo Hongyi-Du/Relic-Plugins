@@ -3,7 +3,7 @@
 **v0.7.0-beta.1（插件 0.18.0-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
 共用功能源码和版本号。这个未签名的源码候选包包含 Relic App 与 Claude Code/Codex 插件，Python、Node.js
 和已登录宿主需要另行准备。HaochenGu 的真机观察针对合并前的 v0.4.1 基础移植；合并版自动测试及尚待完成的
-真机验收见[验证记录](validation.md)。不再单独发布 v0.4.1-macos。
+真机验收见[验证记录](validation.md)。旧 v0.4.1-macos 是历史发布，v0.7.0 起使用统一发布线。
 
 [English](macos.en.md) · [完整使用指南](guide.zh-CN.md)
 

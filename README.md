@@ -1,6 +1,6 @@
 # Relic · Public Beta
 
-[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1)
+[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Earlier Windows downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1)
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
@@ -8,9 +8,12 @@
 v0.6.0. Relic is one product and one feature source: the Relic App and plugin for Claude Code and Codex, packaged for
 Windows and macOS. Both keep check programs, Copies to the person, rules on the reply that ends a turn, protocols
 issued by the person, sidebar subtree folding and the movable organization chart. The original macOS commits and
-authorship are preserved; there is no separate v0.4.1-macos release line. See the [changelog](CHANGELOG.md).
+authorship are preserved; v0.7.0 uses one release line for both platforms. See the [changelog](CHANGELOG.md).
 
-This source candidate has not been published as a GitHub Release. The linked v0.6.0 downloads remain Windows-only.
+This source candidate has not been published as a GitHub Release. Earlier downloads remain available:
+[Windows v0.6.0](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) and
+[macOS v0.4.1](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-macos-beta.1).
+The earlier Mac prerelease was published during this integration and does not contain v0.5/v0.6 features.
 HaochenGu's pre-merge Mac installation and signed-in organization tests are recorded separately from merged CI and
 remaining live acceptance in [validation](docs/validation.md). Relic runs locally using your existing Claude Code/Codex
 login; it does not include model access or a hosted service.
@@ -73,7 +76,7 @@ v0.2.0-beta.1 had three editions: Relic Claude 0.1.0-beta.1, Relic Codex / GPT 0
 
 - [Complete user guide](docs/guide.en.md) / [完整中文指南](docs/guide.zh-CN.md)
 - [Windows installation](docs/windows.en.md) / [Windows 中文说明](docs/windows.zh-CN.md)
-- [macOS development draft — not released](docs/macos.en.md) / [macOS 开发草稿 — 未发布](docs/macos.zh-CN.md)
+- [macOS Apple silicon guide](docs/macos.en.md) / [macOS Apple silicon 指南](docs/macos.zh-CN.md)
 - [Tool reference](docs/reference.en.md) / [工具参考](docs/reference.zh-CN.md)
 - [Privacy and data](docs/privacy.en.md) / [隐私与数据](docs/privacy.zh-CN.md)
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), [validation](docs/validation.md)

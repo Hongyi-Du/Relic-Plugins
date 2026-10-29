@@ -4,7 +4,7 @@
 feature source and release version. This unsigned source candidate includes the Relic App and Claude Code/Codex
 plugin; Python, Node.js and signed-in hosts are external prerequisites. HaochenGu's real-Mac observations were made
 before this merge on the v0.4.1-based port. Merged automated results and remaining live acceptance are tracked in
-the [validation record](validation.md); no separate v0.4.1-macos release is planned.
+the [validation record](validation.md); the earlier v0.4.1-macos prerelease is historical; v0.7.0 uses one release line.
 
 [中文](macos.zh-CN.md) · [User guide](guide.en.md)
 

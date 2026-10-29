@@ -7,9 +7,12 @@
 **v0.7.0-beta.1 候选版（插件 0.18.0-beta.1）**将 HaochenGu 贡献的 Apple silicon macOS 移植与
 v0.6.0 合并。Relic 是一个产品、一套功能源码：Relic App 和 Claude Code/Codex 插件，分别打包给 Windows
 与 macOS。两端都保留检查程序、给人的抄送、每轮最后回复的规则、人下发协议、侧栏子树折叠和可移动组织
-关系图。保留 macOS 原始提交和作者，不再另设 v0.4.1-macos 发布线。见[更新记录](CHANGELOG.md)。
+关系图。保留 macOS 原始提交和作者，v0.7.0 起两端使用同一发布线。见[更新记录](CHANGELOG.md)。
 
-当前源码候选版尚未发布 GitHub Release；上面的 v0.6.0 下载仍只面向 Windows。HaochenGu 合并前的 Mac
+当前源码候选版尚未发布 GitHub Release。历史下载保留：
+[Windows v0.6.0](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) 与
+[macOS v0.4.1](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-macos-beta.1)。
+旧 Mac 内测版在本次集成期间由移植方发布，不含 v0.5/v0.6 功能。HaochenGu 合并前的 Mac
 安装及已登录组织测试，与合并版 CI、剩余真机验收分别记录于[验证记录](docs/validation.md)。Relic 在本机
 运行，使用已有 Claude Code/Codex 登录，不附带模型额度或云端服务。
 

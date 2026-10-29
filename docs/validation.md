@@ -36,7 +36,14 @@ The port has one shared implementation, not a second feature tree. The resulting
 | Source hook/Claude launch templates, `scripts/package.py`, packaging fixtures | Revert the port's unconditional `python3` change for Windows Claude/hooks. Mac archives use `python3`; Windows preserves `python` (Codex keeps its existing `python3` template). Mac-only README and `scripts/macos_app.py` are selected during packaging; `install.command` keeps executable metadata. Verify other plugin bytes match across all archives |
 | `release/`, release metadata and docs | Remove the superseded independent v0.4.1-macos publication plan/notes/README patch. Move installation content to normal docs and the single macOS package README, retain attributed historical validation, and use one 0.7.0-beta.1 / 0.18.0-beta.1 version pair |
 
-Ten files conflicted: `server.py` (load checker plus paths/platform support), `store.py` (combine both runtime paths),
+During this integration, the remote advanced: HaochenGu published the existing v0.4.1-macos prerelease at
+2026-10-29 03:00 UTC, added its CI evidence in `e1170f4`, and linked it from main in `d2aaed6`. Both documentation
+commits are also merged without rewriting their history. Their existing release/tag/assets are retained as historical
+downloads; this task creates no Release. The unified v0.7.0 candidate replaces the separate development plan.
+The follow-up documentation conflicts retain unified candidate instructions, preserve the historical download links,
+and place the port's final CI table alongside its earlier observations; the superseded `release/` plan stays removed.
+
+Ten files conflicted in the initial merge: `server.py` (load checker plus paths/platform support), `store.py` (combine both runtime paths),
 `docs/validation.md` (published records first, separate attributed port evidence), the two root READMEs and
 `CHANGELOG.md` (unified candidate while preserving published entries), and four version files (`release.json`, both
 plugin manifests, `relic_core/__init__.py`) set to the unified versions.
@@ -258,6 +265,50 @@ Tests establish fixture behavior, launchable MCP endpoints, and package structur
 The following evidence was recorded by HaochenGu for the v0.4.1-based port. It is retained as historical evidence, not a validation of the merged v0.7.0 candidate. The separate macOS release plan is superseded by the unified version.
 
 以下为 HaochenGu 对 v0.4.1 基础移植记录的历史验证，不代表合并后 v0.7.0 的验证结果；独立 macOS 发布计划已由统一版本取代。
+
+### v0.4.1-macos-beta.1 final CI — 2026-10-28
+
+All four jobs passed in [CI run 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809)
+on runtime commit [`2d790de6777454fc04013ff1ba2830c567da7108`](https://github.com/Hongyi-Du/Relic-Plugins/commit/2d790de6777454fc04013ff1ba2830c567da7108).
+The release uses a documentation-only descendant of that commit; this passing result belongs to the named runtime
+commit, not a separate CI run on the documentation update. The final archive's `release-manifest.json` records its
+source commit and hashes. Publication is approved from the pushed `release/macos-v0.4.1-beta.1` branch; `main` and
+the newer Windows release remain unchanged.
+
+| CI job | Packaging | Relic | Total |
+| --- | --- | --- | --- |
+| macOS 15 arm64, Python 3.11 | 15 passed | 402 passed, 2 skipped / 404 discovered | 417 passed, 2 skipped |
+| macOS 26 arm64, Python 3.13 | 15 passed | 402 passed, 2 skipped / 404 discovered | 417 passed, 2 skipped |
+| Windows 2025, Python 3.11 | 13 passed, 2 skipped / 15 discovered | 366 passed, 38 skipped / 404 discovered | 379 passed, 40 skipped |
+| Windows 2025, Python 3.13 | 13 passed, 2 skipped / 15 discovered | 366 passed, 38 skipped / 404 discovered | 379 passed, 40 skipped |
+
+The Mac jobs verified native arm64 Python and Node.js 22. Each job also passed the release-content packaging step.
+The two Mac skips are Windows-only fixtures. Windows skips cover POSIX process groups and signals, Unix sockets,
+Mac filesystem/launcher behavior and fixtures requiring POSIX filenames or symlink privileges. The run's artifacts
+retain individual skip reasons, per-suite logs and exit-code summaries. Earlier failed diagnostic runs are not counted
+as passes. CI preparation corrected portable fixtures and Chinese locale mapping, subprocess cleanup, and App startup
+behavior; the final run covers those fixes.
+
+CI uses temporary stores and fake hosts and makes no model calls. The separate signed-in Claude Code/Codex
+organization smoke test and local archive installation checks are recorded in the preparation section below. Neither
+the passing CI nor that smoke test establishes full browser interaction, native desktop delivery, all live governance
+cases or host sleep/wake acceptance. The package and generated Finder launcher remain unsigned and not notarized.
+
+[CI 40808895809](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40808895809) 的四个任务全部通过，
+受测运行时代码提交为 `2d790de6777454fc04013ff1ba2830c567da7108`。发行版在该提交之后仅更新文档；
+这里记录的是该运行时代码提交的 CI，不代表文档更新后另跑了一次 CI。最终压缩包的 `release-manifest.json`
+记录打包源码提交及校验值。用户已批准从已推送的 `release/macos-v0.4.1-beta.1` 分支发布；`main` 和较新的
+Windows 发行版保持不变。
+
+两个 Mac 任务各通过 417 项、跳过 2 项 Windows 专用测试；两个 Windows 任务各通过 379 项、跳过 40 项
+POSIX/macOS 或依赖平台权限的测试。各套数量见上表，具体跳过原因、日志和退出码保存在该 CI 的附件中；
+此前失败的排查运行不计作通过。两个 Mac 任务确认了原生 arm64 Python 与 Node.js 22，四个任务的发布包
+内容检查也均通过。CI 使用临时数据和宿主替身，不调用模型。此前已登录组织实测及本地压缩包安装检查
+继续单独记录，不将其扩大为完整浏览器、原生桌面投递、全部真实治理或休眠唤醒验收；安装包及生成的
+Finder 启动器仍未经签名或公证。
+
+The preparation and implementation sections below are unchanged historical records; their approval and CI status
+describe those earlier stages. / 下方准备与实现各节原样保留；其中的批准和 CI 状态描述对应的历史阶段。
 
 ### v0.4.1-macos-beta.1 prerelease preparation — 2026-10-28
 

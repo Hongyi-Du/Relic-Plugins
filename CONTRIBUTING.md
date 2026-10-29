@@ -22,7 +22,7 @@ Tests use isolated temporary data and fake hosts. Do not add test dependencies o
 
 Both platforms use `plugins/relic` and the version in `release.json`. Keep OS integration in
 `relic_core/platform_support.py` or explicit OS branches; shared feature fixes must work on Windows too.
-Preserve contributor commits when integrating a port. There is no separate v0.4.1-macos release line.
+Preserve contributor commits when integrating a port. The earlier v0.4.1-macos prerelease is historical; future development uses the unified version.
 
 ```sh
 python -X utf8 scripts/check.py
