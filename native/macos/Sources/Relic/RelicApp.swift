@@ -21,7 +21,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     var body: some Scene {
         Window("Relic", id: "main") {
             MainView().environmentObject(model)
-                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if VisualCapture.enabled { await VisualCapture.run(model) } else { await model.start() } }
+                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if VisualCapture.enabled { Task { await VisualCapture.run(model) } } else { await model.start() } }
                 .frame(minWidth: 920, minHeight: 620)
         }
         .defaultSize(width: 1440, height: 900)

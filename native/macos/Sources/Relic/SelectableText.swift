@@ -29,7 +29,8 @@ struct SelectableText: NSViewRepresentable {
         }
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
-        rendered.addAttributes([.font: NSFont.systemFont(ofSize: m.preferences["font"].text == "large" ? 16 : m.preferences["font"].text == "small" ? 12 : 14), .foregroundColor: NSColor.labelColor], range: range)
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 4
+        rendered.addAttributes([.font: NSFont.systemFont(ofSize: m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph], range: range)
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         for run in value.runs {
             guard let intent = run.inlinePresentationIntent else { continue }

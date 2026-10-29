@@ -12,6 +12,7 @@ struct MainView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         VStack(spacing: 0) {
+            AppToolbar()
             if !m.error.isEmpty { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
@@ -21,21 +22,7 @@ struct MainView: View {
                 if m.panelOpen { RightPane().frame(minWidth: 280, idealWidth: 320, maxWidth: 740) }
             }
         }.background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button { m.sidebarOpen.toggle() } label: { Image(systemName: "sidebar.left") }.help(m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"))
-                Button { m.navigate(-1) } label: { Image(systemName: "chevron.left") }.disabled(!m.history.canBack).help(m.t("appbar.back"))
-                Button { m.navigate(1) } label: { Image(systemName: "chevron.right") }.disabled(!m.history.canForward).help(m.t("appbar.forward"))
-                IconButton(title: m.t("appbar.menus"), icon: "ellipsis") { m.appMenu = m.appMenu == nil ? "file" : nil }
-                    .popover(isPresented: Binding(get: { m.appMenu != nil }, set: { if !$0 { m.appMenu = nil } }), arrowEdge: .bottom) { ActionMenu().environmentObject(m) }
-            }
-            ToolbarItemGroup {
-                IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "tray", badge: m.snapshot["decisions"].rows.count) { m.setPane("overview") }
-                IconButton(title: m.t("chart.title"), icon: "point.3.connected.trianglepath.dotted") { m.sheet = .chart }
-                IconButton(title: m.t("cc.title") + " · " + m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "doc.on.doc", badge: m.copies.filter { !$0["read"].flag }.count) { m.sheet = .copies }
-                Button { m.panelOpen.toggle() } label: { Image(systemName: "sidebar.right") }.help(m.t(m.panelOpen ? "panel.hide_title" : "page.panel")).accessibilityLabel(m.t(m.panelOpen ? "panel.hide" : "page.panel"))
-            }
-        }
+        .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop() }
@@ -48,6 +35,26 @@ struct MainView: View {
     }
 }
 
+struct AppToolbar: View {
+    @EnvironmentObject var m: Model
+    var body: some View {
+        HStack(spacing: 3) {
+            IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar.left") { m.sidebarOpen.toggle() }
+            IconButton(title: m.t("appbar.back"), icon: "chevron.left") { m.navigate(-1) }.disabled(!m.history.canBack)
+            IconButton(title: m.t("appbar.forward"), icon: "chevron.right") { m.navigate(1) }.disabled(!m.history.canForward)
+            IconButton(title: m.t("appbar.menus"), icon: "ellipsis") { m.appMenu = m.appMenu == nil ? "file" : nil }
+                .popover(isPresented: Binding(get: { m.appMenu != nil }, set: { if !$0 { m.appMenu = nil } }), arrowEdge: .bottom) { ActionMenu().environmentObject(m) }
+            Spacer(minLength: 12)
+            Text(m.snapshot["org"]["name"].text + (m.organization.isEmpty ? "" : " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.name(m.member)))).font(.system(size: 12)).foregroundStyle(RelicStyle.muted).lineLimit(1)
+            Spacer(minLength: 12)
+            IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count) { m.setPane("overview") }
+            IconButton(title: m.t("chart.title"), icon: "point.3.connected.trianglepath.dotted") { m.sheet = .chart }
+            IconButton(title: m.t("cc.title") + " · " + m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "doc.on.doc", badge: m.copies.filter { !$0["read"].flag }.count) { m.sheet = .copies }
+            IconButton(title: m.t(m.panelOpen ? "panel.hide_title" : "page.panel"), icon: "sidebar.right", selected: m.panelOpen) { m.panelOpen.toggle() }
+        }.padding(.horizontal, 8).frame(height: 40).background(RelicStyle.sidebar).overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+    }
+}
+
 func accent(_ name: String) -> Color {
     switch name { case "ink": return RelicStyle.ink; case "indigo": return Color(red: 0.36, green: 0.38, blue: 0.84); case "rose": return .pink; case "amber": return .orange; case "blue": return .blue; default: return RelicStyle.accent }
 }
@@ -55,9 +62,11 @@ func accent(_ name: String) -> Color {
 struct SheetContent: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
+    private var width: CGFloat { min([Model.Sheet.settings, .chart, .details].contains(sheet) ? 920 : sheet == .forward ? 720 : 620, max(560, m.windowSize.width - 80)) }
+    private var height: CGFloat { min(sheet == .create ? 420 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 80)) }
     var body: some View {
-        VStack {
-            HStack { Spacer(); Button(m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close")) { m.sheet = nil }.keyboardShortcut(.cancelAction) }
+        VStack(spacing: 12) {
+            HStack { Spacer(); IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction) }
             switch sheet {
             case .create: CreateOrgView()
             case .member: MemberForm()
@@ -71,7 +80,7 @@ struct SheetContent: View {
             case .details: DetailsView()
             case .shortcuts: ShortcutsView()
             }
-        }.padding(20).frame(minWidth: 560, idealWidth: sheet == .chart ? 850 : 620, maxWidth: 980, minHeight: 280, maxHeight: 620)
+        }.padding(20).frame(width: width, height: height)
             .background(RelicStyle.background).buttonStyle(.bordered).controlSize(.regular)
     }
 }
