@@ -36,6 +36,18 @@ final class ModelTransport: URLProtocol {
         do { try await model.send(); XCTFail("Expected error") } catch { XCTAssertEqual(error.localizedDescription, "delivery failed") }
         XCTAssertEqual(model.draft, "unsent"); XCTAssertEqual(model.quote, "> quote"); XCTAssertFalse(model.sending)
     }
+    func testQuoteOnlyMainSendIsDispatchedAndSurvivesRejection() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a")); model.quote = "> quote only"
+        var requests = 0
+        ModelTransport.handler = { request in
+            requests += 1; XCTAssertEqual(request.url?.path, "/api/org/a/send")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? request.httpBodyStream!.readAll()) as! [String: Any]
+            XCTAssertEqual(body["body"] as? String, "> quote only\n\n")
+            return (503, #"{"error":"temporarily unavailable"}"#)
+        }
+        do { try await model.send(); XCTFail("Expected error") } catch {}
+        XCTAssertEqual(requests, 1); XCTAssertEqual(model.quote, "> quote only"); XCTAssertTrue(model.draft.isEmpty)
+    }
     func testSuccessClearsOnlySentDraft() async throws {
         let model = try model(); model.setSelection(ChatSelection("a")); model.draft = "sent"; model.quote = "> quoted"
         ModelTransport.handler = { request in
@@ -112,6 +124,30 @@ final class ModelTransport: URLProtocol {
         model.setQuote("> old\n\nnew", from: "ana", stripExisting: true); XCTAssertEqual(model.quote, "> ana: new")
         model.setQuote("> old", from: "ana"); XCTAssertEqual(model.quote, "> ana: > old")
         model.setQuote(String(repeating: "字", count: 1300), from: "ana"); XCTAssertTrue(model.quote.hasSuffix("…")); XCTAssertLessThan(model.quote.count, 1250)
+    }
+    func testQuoteOnlyThreadSendLocksDuplicateEnterAndPreservesReplyTo() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a")); model.threadID = "7"; model.quote = "> quote only"
+        let requested = expectation(description: "single quoted reply sent")
+        ModelTransport.handler = { request in
+            if request.url?.path == "/api/org/a/send" {
+                let body = try JSONSerialization.jsonObject(with: request.httpBody ?? request.httpBodyStream!.readAll()) as! [String: Any]
+                XCTAssertEqual(body["reply_to"] as? Int, 7); XCTAssertEqual(body["body"] as? String, "> quote only\n\n"); XCTAssertNil(body["to"])
+                requested.fulfill(); Thread.sleep(forTimeInterval: 0.1); return (200, #"{"id":8}"#)
+            }
+            XCTAssertEqual(request.url?.path, "/api/org/a/thread"); return (200, #"{"root":{"id":7},"replies":[{"id":8}]}"#)
+        }
+        let first = Task { try await model.sendThread() }
+        await fulfillment(of: [requested], timeout: 2); try await model.sendThread(); try await first.value
+        model.stop(); XCTAssertFalse(model.threadSending); XCTAssertTrue(model.quote.isEmpty)
+    }
+    func testHistoryCursorSkipsOrganizationNotices() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a")); model.messages = [Node(["id": "e4", "type": "notice"]), Node(["id": 22, "body": "oldest message"])]
+        ModelTransport.handler = { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(query?.first(where: { $0.name == "before" })?.value, "22")
+            return (200, #"{"items":[{"id":10,"body":"older"}],"more":false}"#)
+        }
+        try await model.loadOlder(); XCTAssertEqual(model.messages.first?["id"].integer, 10); XCTAssertFalse(model.moreChat)
     }
 }
 

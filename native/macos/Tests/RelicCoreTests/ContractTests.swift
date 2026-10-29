@@ -58,6 +58,50 @@ final class ContractTests: XCTestCase {
         do { _ = try await client().post("/api/org/o/request", ["request_id": "R1", "decision": "approve"]); XCTFail("Business error must be surfaced") }
         catch { XCTAssertEqual(error.localizedDescription, "parent would form a cycle") }
     }
+    func testMissingTokenRefreshesVerifiedRecordAndRetriesRejectedPostOnce() async throws {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+        let client = try Client(port: 39321, token: "old", session: URLSession(configuration: configuration), serverRecord: { Node(["port": 39322, "token": "new", "pid": 42, "instance": "new-instance"]) })
+        var calls: [String] = []
+        Stub.handle = { request in
+            calls.append(request.url!.path + ":" + (request.value(forHTTPHeaderField: "X-Relic-Token") ?? ""))
+            if request.value(forHTTPHeaderField: "X-Relic-Token") == "old" { return (403, #"{"error":"missing token"}"#) }
+            XCTAssertEqual(request.url?.host, "127.0.0.1"); XCTAssertEqual(request.url?.port, 39322)
+            if request.url?.path == "/api/lifecycle" { return (200, #"{"app":"relic","state":"running","port":39322,"pid":42,"instance":"new-instance"}"#) }
+            return (200, #"{"id":7}"#)
+        }
+        let sent = try await client.post("/api/org/a/send", ["body": "only once accepted"])
+        XCTAssertEqual(sent["id"].integer, 7)
+        XCTAssertEqual(calls, ["/api/org/a/send:old", "/api/lifecycle:new", "/api/org/a/send:new"])
+    }
+    func testForgedLifecycleRecordIsNeverAdopted() async throws {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+        let client = try Client(port: 39321, token: "old", session: URLSession(configuration: configuration), serverRecord: { Node(["port": 39322, "token": "candidate", "pid": 42, "instance": "expected"]) })
+        Stub.handle = { request in
+            if request.url?.path == "/api/lifecycle" { return (200, #"{"app":"relic","state":"running","port":39322,"pid":99,"instance":"wrong"}"#) }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Relic-Token"), "old"); return (403, #"{"error":"missing token"}"#)
+        }
+        do { _ = try await client.post("/api/org/a/send", ["body": "keep draft"]); XCTFail("Expected rejection") } catch { XCTAssertEqual(error.localizedDescription, "missing token") }
+        XCTAssertEqual(try client.request("/api/orgs").value(forHTTPHeaderField: "X-Relic-Token"), "old")
+    }
+    func testAmbiguousWriteFailureNeverRefreshesOrReplays() async throws {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+        let client = try Client(port: 39321, token: "old", session: URLSession(configuration: configuration), serverRecord: { XCTFail("Ambiguous write must not read a new token or retry"); return Node() })
+        var requests = 0
+        Stub.handle = { _ in requests += 1; throw URLError(.networkConnectionLost) }
+        do { _ = try await client.post("/api/org/a/send", ["body": "may already be sent"]); XCTFail("Expected transport error") } catch {}
+        XCTAssertEqual(requests, 1)
+        Stub.handle = { _ in requests += 1; return (403, #"{"error":"request denied by policy"}"#) }
+        do { _ = try await client.post("/api/org/a/request", ["decision": "approve"]); XCTFail("Expected policy rejection") } catch { XCTAssertEqual(error.localizedDescription, "request denied by policy") }
+        XCTAssertEqual(requests, 2)
+    }
+    func testReconnectRenewsTransportOnlyAfterLifecycleVerification() async throws {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+        let client = try Client(port: 39321, token: "old", session: URLSession(configuration: configuration), serverRecord: { Node(["port": 39322, "token": "new", "pid": 42, "instance": "next"]) })
+        Stub.handle = { request in XCTAssertEqual(request.url?.path, "/api/lifecycle"); return (200, #"{"app":"relic","state":"running","port":39322,"pid":42,"instance":"next"}"#) }
+        let renewed = await client.refreshRecord(); XCTAssertTrue(renewed)
+        let events = try client.request("/api/events"); XCTAssertEqual(events.url?.port, 39322); XCTAssertEqual(events.value(forHTTPHeaderField: "X-Relic-Token"), "new")
+        let unchanged = await client.refreshRecord(); XCTAssertFalse(unchanged)
+    }
     func testNonJSONFailureIsReportedWithoutClearingState() async throws {
         Stub.handle = { _ in (502, "temporarily unavailable") }
         do { _ = try await client().get("/api/orgs"); XCTFail("Expected failure") } catch { XCTAssertTrue(error.localizedDescription.contains("502")) }

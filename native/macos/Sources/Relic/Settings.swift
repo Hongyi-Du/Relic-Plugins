@@ -29,7 +29,7 @@ struct SettingsView: View {
         Section(m.t("settings.profile")) {
             HStack { Avatar(member: "human", size: 60); Button(m.t("common.change")) { m.run { try await pickAvatar(m) } }; Button(m.t("settings.remove")) { m.run { try await m.post("/api/avatar", ["data": ""]); m.preferences = try await m.get("/api/prefs") } } }
             Text(m.t("settings.avatar")).font(.caption); Text(m.t("settings.avatar_hint")).font(.caption)
-            TextField(m.t("common.name"), text: $name).onSubmit { m.run { try await m.savePreferences(["name": name]) } }
+            TextField(m.t("common.name"), text: $name).onSubmit { m.run { try await m.savePreferences(["name": name]) } }.dictation($name)
             Text(m.t("settings.name_hint")).font(.caption)
             Button(m.t("common.save")) { m.run { try await m.savePreferences(["name": name]) } }
         }

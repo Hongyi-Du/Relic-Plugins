@@ -22,7 +22,7 @@ struct MemberCard: View {
                         HStack { if card["leader"].flag { Text(m.t("common.leader")) }; if card["secretary"].flag { Text(m.t("common.secretary")) }; if !card["ex_officio"].isNull { Text(m.t("card.ex_officio_tag")) } }.font(.caption)
                     }
                 }
-                HStack { TextField(m.t("card.new_name"), text: $name).help(m.t("card.rename_hint")); Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; try await m.refresh(); try await load() } } }
+                HStack { TextField(m.t("card.new_name"), text: $name).help(m.t("card.rename_hint")).dictation($name); Button(m.t("common.save")) { m.run { let result = try await m.post(m.path("/rename"), ["member": who, "name": name]); status = m.t(name.isEmpty ? "card.name_reset" : "card.renamed") + " " + result["note"].text; try await m.refresh(); try await load() } } }
                 LabeledContent(m.t("common.role"), value: card["role"].text.isEmpty ? m.t("card.no_role") : card["role"].text)
                 LabeledContent(m.t("card.identity"), value: m.identity(card))
                 LabeledContent(m.t("common.status"), value: m.stateLabel(card["state"].text) + " · " + card["detail"].text)
@@ -91,10 +91,10 @@ struct ForwardForm: View {
         Form {
             Text(m.t("forward.title", ["name": m.name(m.cardMember)])).font(.title2)
             Text(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""]))
-            TextField(m.t("forward.to"), text: $recipients, prompt: Text(m.t("forward.to_placeholder")))
+            TextField(m.t("forward.to"), text: $recipients, prompt: Text(m.t("forward.to_placeholder"))).dictation($recipients)
             TextField(m.t("common.reply"), text: $reply, prompt: Text(m.t("forward.body_placeholder")), axis: .vertical).lineLimit(10...20)
             VoiceButton(text: $reply)
-            SaveButton {
+            SaveButton(labelKey: "common.send") {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !body.isEmpty else { throw RelicError.message(m.t("forward.need_body")) }
                 if body.hasPrefix("【Relic") && !acknowledged { acknowledged = true; throw RelicError.message(m.t("forward.not_reply", ["prefix": "【Relic"])) }

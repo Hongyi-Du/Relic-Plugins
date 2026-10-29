@@ -296,14 +296,13 @@ struct ComposerView: View {
             MentionEditor(text: $m.draft, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .frame(minHeight: 70, maxHeight: 140).overlay(RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.3)))
                 .accessibilityLabel(m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]))
-            HStack { VoiceButton(text: $m.draft); Spacer(); Button(m.t("common.send"), action: send).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { VoiceButton(text: $m.draft); Spacer(); Button(m.t("common.send"), action: send).keyboardShortcut(.return, modifiers: .command).help(m.t("composer.send_title")).disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
         }.onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
 
 struct ThreadView: View {
     @EnvironmentObject var m: Model
-    @State private var sending = false
     var body: some View {
         VStack(alignment: .leading) {
             HStack { Text(m.t("thread.replies", ["n": String(m.threadData["replies"].rows.count)])); Spacer(); Button(m.t("panel.close_thread")) { m.closeThread() } }
@@ -314,10 +313,10 @@ struct ThreadView: View {
             } }
             MentionEditor(text: $m.threadDraft, members: [], onMention: { _ in }, send: send).frame(height: 100).accessibilityLabel(m.t("thread.reply_placeholder"))
             if !m.quote.isEmpty { HStack { Text(m.quote).lineLimit(2); Button(m.t("composer.cancel_quote")) { m.quote = "" } }.font(.caption) }
-            HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send"), action: send).help(m.t("composer.send_title")).disabled(sending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { VoiceButton(text: $m.threadDraft); Spacer(); Button(m.t("common.send"), action: send).help(m.t("composer.send_title")).disabled(m.threadSending || m.threadDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty) }
         }.onChange(of: m.threadDraft) { m.defaults.set(m.threadDraft, forKey: "thread." + m.organization + "/" + m.threadID) }
     }
-    private func send() { guard !sending else { return }; sending = true; m.run { defer { sending = false }; try await m.sendThread() } }
+    private func send() { m.run { try await m.sendThread() } }
 }
 
 struct DigestCard: View {

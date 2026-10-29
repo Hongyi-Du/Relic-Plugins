@@ -73,6 +73,7 @@ final class ComposerTextView: NSTextView {
     private var requestID = UUID()
     func start(language: String, model: Model, update: @escaping (String) -> Void) async throws {
         guard !starting && !recording else { return }; stop(); starting = true
+        if model.activeSpeech !== self { model.activeSpeech?.stop() }; model.activeSpeech = self
         let id = UUID(); requestID = id
         defer { starting = false }
         // Shared packaging supplies the privacy keys; never trigger Apple's fatal missing-key path.
@@ -120,6 +121,10 @@ struct VoiceButton: View {
             Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
         }
     }
+}
+
+extension View {
+    func dictation(_ text: Binding<String>) -> some View { HStack(alignment: .top) { self; VoiceButton(text: text).labelStyle(.iconOnly) } }
 }
 
 @MainActor func pickAvatar(_ model: Model, member: String? = nil) async throws {

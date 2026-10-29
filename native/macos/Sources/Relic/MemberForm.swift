@@ -37,8 +37,8 @@ struct MemberForm: View {
                 heading
                 if mode == "existing" { existingFields }
                 else {
-                    TextField(m.t("member.name_label"), text: $name, prompt: Text(m.t("member.name_placeholder"))).disabled(!m.editMember.isEmpty)
-                    TextField(m.t("common.role"), text: $role, prompt: Text(m.t(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder")))
+                    TextField(m.t("member.name_label"), text: $name, prompt: Text(m.t("member.name_placeholder"))).dictation($name).disabled(!m.editMember.isEmpty)
+                    TextField(m.t("common.role"), text: $role, prompt: Text(m.t(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder"))).dictation($role)
                     if mode == "app" { appFields } else { hostFields }
                 }
                 SaveButton(labelKey: submitLabel, action: save).disabled(loading)
@@ -73,7 +73,7 @@ struct MemberForm: View {
     }
 
     @ViewBuilder private var existingFields: some View {
-        TextField(m.t("member.session_search"), text: $search)
+        TextField(m.t("member.session_search"), text: $search).dictation($search)
         if loading { Text(m.t("member.finding_sessions")) }
         if !loading && sessions.isEmpty { Text(m.t("member.no_sessions")) }
         if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined().localizedCaseInsensitiveContains(search) }) { Text(m.t("member.no_match")) }
@@ -87,10 +87,10 @@ struct MemberForm: View {
         }
         Text(problems.map(\.text).joined(separator: m.t("member.problem_sep"))).foregroundStyle(.secondary)
         HStack {
-            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder")))
+            TextField(m.t("member.which_seat"), text: $name, prompt: Text(m.t("member.seat_placeholder"))).dictation($name)
             Menu(m.t("member.which_seat")) { Rows(m.members) { who in Button(who.display + " · " + who["name"].text) { name = who["name"].text } } }
         }
-        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder")))
+        TextField(m.t("member.role_new"), text: $role, prompt: Text(m.t("member.role_placeholder"))).dictation($role)
     }
 
     @ViewBuilder private var appFields: some View {
@@ -98,8 +98,8 @@ struct MemberForm: View {
         Rows(harnesses.filter { !$0["available"].flag && !$0["later"].flag }) { Text($0["title"].text + " · " + $0["problem"].text).font(.caption).foregroundStyle(.secondary) }
         if let connected = harnesses.first(where: { $0["id"].text == harness }) { Text(m.t("member.connected", ["program": connected["program"].text])).font(.caption) }
         DisclosureGroup(m.t("member.later_acp")) { Rows(harnesses.filter { $0["later"].flag }) { Text($0["title"].text + " · " + $0["vendor"].text) } }
-        TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder")))
-        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder")))
+        TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
+        TextField(m.t("common.work_folder"), text: $folder, prompt: Text(m.t("member.folder_placeholder"))).dictation($folder)
         Toggle(m.t("member.make_secretary"), isOn: $secretary)
     }
 
@@ -111,11 +111,11 @@ struct MemberForm: View {
             if Capabilities.automatic(m.platform, harness: hostHarness, surface: "gui") { Text(m.t("member.harness_gui", ["harness": hostHarness == "codex" ? "Codex" : "Claude Code"])).tag("gui") }
         }
         HStack {
-            TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder")))
+            TextField(m.t("common.model"), text: $model, prompt: Text(m.t("member.model_placeholder"))).dictation($model)
             if hostHarness == "claude-code" { Menu(m.t("common.model")) { Rows(options["claude_models"].rows) { option in Button(option.text.isEmpty ? m.t("common.default_model") : option.text) { model = option.text } } } }
         }
         Picker(m.t("member.effort"), selection: $effort) { Rows(options["efforts"].rows) { Text($0.text.isEmpty ? m.t("common.default_effort") : $0.text).tag($0.text) } }
-        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder")))
+        TextField(m.t("member.work_folder"), text: $folder, prompt: Text(m.t("member.host_folder_placeholder"))).dictation($folder)
         Picker(m.t("member.environment"), selection: $environment) { Text(m.t("member.env_local")).tag("local"); Text(m.t("member.env_worktree")).tag("worktree") }
         Picker(m.t("member.permission"), selection: $permission) { Rows(options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows) { Text($0.text).tag($0.text) } }
         TextField(m.t("member.env_vars"), text: $env, prompt: Text(m.t("member.env_placeholder")), axis: .vertical)
