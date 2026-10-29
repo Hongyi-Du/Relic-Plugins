@@ -20,6 +20,7 @@ public sealed partial class MainWindow
 
     private async Task Dialog(ContentDialog dialog)
     {
+        transientFlyout?.Hide();
         if (visibleDialog != null)
         {
             visibleDialog.Hide();
@@ -28,7 +29,7 @@ public sealed partial class MainWindow
         visibleDialog = dialog;
         dialog.RequestedTheme = root.ActualTheme;
         foreach (var resource in root.Resources) dialog.Resources[resource.Key] = resource.Value;
-        dialog.Resources["ContentDialogMaxWidth"] = Math.Min(940d, Math.Max(480d, root.ActualWidth - 96));
+        dialog.Resources["ContentDialogMaxWidth"] = Math.Max(480d, root.ActualWidth - 48);
         dialog.Resources["ContentDialogMaxHeight"] = Math.Max(400d, root.ActualHeight - 80);
         visibleDialogTask = dialog.ShowAsync().AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
@@ -163,31 +164,33 @@ public sealed partial class MainWindow
         }
         foreach (var runtime in new[] { "node", "npm" })
         {
-            var input = new TextBox { Header = runtime == "node" ? "Node.js" : "npm", Text = preferences["paths"].Text(runtime), PlaceholderText = T("settings.auto_find") };
-            content.Children.Add(input); content.Children.Add(Text(T("settings.runtime_path_hint"), 12));
-            content.Children.Add(Button(T("common.save"), () => SavePath(runtime, input.Text)));
+            var input = new TextBox { Text = preferences["paths"].Text(runtime), PlaceholderText = T("settings.auto_find"), FontSize = 13, MinWidth = 140 };
+            var controls = TwoColumns(input, Button(T("common.save"), () => SavePath(runtime, input.Text))); controls.Width = 260;
+            content.Children.Add(new Border { Child = TwoColumns(Stack(Heading(runtime == "node" ? "Node.js" : "npm", 13), Quiet(T("settings.runtime_path_hint"), 11)), controls), Padding = new Thickness(0, 8, 0, 16), BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = Line });
         }
         var platform = await api!.Get("/api/platform");
-        var connections = Stack(Text(T("settings.desktop_connections")), Text(platform.Text("desktop_transport")), Text(platform.Text("claude_desktop")));
+        var connections = Stack(Quiet(T("settings.desktop_probe_hint"), 12));
+        foreach (var connection in new[] { "desktop_transport", "claude_desktop" }) if (platform[connection].Text("reason").Length > 0) connections.Children.Add(Text(platform[connection].Text("reason"), 12));
         if (!platform.Flag("claude_desktop_wake")) connections.Children.Add(Text(T("settings.claude_desktop_hint")));
-        connections.Children.Add(Button(T("settings.desktop_probe"), async () => { var result = await api.Post("/api/platform", new { probe = true }); Note(result.ToJsonString()); }));
-        content.Children.Add(new Expander { Header = T("settings.desktop_probe_hint"), Content = connections });
+        connections.Children.Add(Button(T("settings.desktop_probe"), async () => { var result = await api.Post("/api/platform", new { probe = true }); var reasons = new[] { result["desktop_transport"].Text("reason"), result["claude_desktop"].Text("reason") }.Where(value => value.Length > 0); Note(string.Join("\n", reasons.DefaultIfEmpty(T(result.Flag("codex_desktop_wake") ? "settings.connected" : "settings.not_connected")))); }));
+        content.Children.Add(new Expander { Header = T("settings.desktop_connections"), Content = connections, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         var list = (await api.Get("/api/harnesses")).Rows();
         foreach (var harness in list.Where(h => !h.Flag("later")))
         {
             var id = harness.Text("id");
-            var card = Stack(Text(harness.Text("title") + " · " + harness.Text("vendor"), 18));
-            card.Children.Add(Text(T("common.status") + " · " + (harness.Flag("available") ? T("settings.connected") : harness.Text("problem").Length > 0 ? harness.Text("problem") : T("settings.not_connected"))));
-            var program = new TextBox { Header = T("settings.program"), Text = preferences["paths"].Text(id), PlaceholderText = harness.Text("program").Length > 0 ? harness.Text("program") : T("settings.auto_find") };
-            card.Children.Add(program); card.Children.Add(Button(T("common.save"), () => SavePath(id, program.Text)));
-            card.Children.Add(Text(T("settings.adapter") + " · " + (harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter"))))));
-            card.Children.Add(Text("Node.js · " + (harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found"))));
-            card.Children.Add(Text(T("settings.default_mode") + " · " + (harness.Text("mode").Length > 0 ? harness.Text("mode") : harness.Text("note").Length > 0 ? T("settings.adapter_default_note", ("note", harness.Text("note"))) : T("settings.adapter_default"))));
+            var card = new StackPanel { Spacing = 10 };
+            var log = Text(string.Join("\n", installLines.GetValueOrDefault(id, []))); installViews[id] = log; log.Visibility = log.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            var install = Button(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
+            { installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; log.Visibility = Visibility.Visible; await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { }); });
+            card.Children.Add(TwoColumns(Stack(Heading(harness.Text("title"), 14), Quiet(harness.Text("vendor"), 11)), install));
+            card.Children.Add(Badge(harness.Flag("available") ? T("settings.connected") : harness.Text("problem").Length > 0 ? harness.Text("problem") : T("settings.not_connected"), !harness.Flag("available")));
+            var program = new TextBox { Header = T("settings.program"), Text = preferences["paths"].Text(id), PlaceholderText = harness.Text("program").Length > 0 ? harness.Text("program") : T("settings.auto_find"), FontSize = 13 };
+            var save = Button(T("common.save"), () => SavePath(id, program.Text)); save.VerticalAlignment = VerticalAlignment.Bottom; card.Children.Add(TwoColumns(program, save));
+            card.Children.Add(Quiet(T("settings.adapter") + " · " + (harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter")))), 12));
+            card.Children.Add(Quiet("Node.js · " + (harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found")), 12));
+            card.Children.Add(Quiet(T("settings.default_mode") + " · " + (harness.Text("mode").Length > 0 ? harness.Text("mode") : harness.Text("note").Length > 0 ? T("settings.adapter_default_note", ("note", harness.Text("note"))) : T("settings.adapter_default")), 12));
             if (harness.Rows("models").Count > 0) card.Children.Add(Text(T("settings.models") + " · " + string.Join(T("settings.models_sep"), harness.Rows("models").Select(x => x.Text()))));
-            var log = Text(string.Join("\n", installLines.GetValueOrDefault(id, []))); installViews[id] = log;
-            card.Children.Add(Button(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
-            { installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { }); }));
-            card.Children.Add(log); content.Children.Add(card);
+            card.Children.Add(log); content.Children.Add(Card(card));
         }
         content.Children.Add(Text(T("settings.later"), 18));
         foreach (var h in list.Where(h => h.Flag("later"))) content.Children.Add(Text(h.Text("title") + " · " + h.Text("vendor") + "\n" + h.Text("launch")));

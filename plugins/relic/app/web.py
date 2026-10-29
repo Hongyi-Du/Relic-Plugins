@@ -614,7 +614,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "instance": self.app.instance,
                                    "state": "stopping" if self.app.stopping.is_set() else "running"})
             if api == ["platform"]:
-                return self._json(platform_support.capabilities())
+                return self._json(views.platform_info(platform_support.capabilities()))
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:
@@ -766,7 +766,7 @@ class Handler(BaseHTTPRequestHandler):
             if getattr(app, "stopping", None) and app.stopping.is_set():
                 return self._error(503, "the Relic App is stopping")
             if api == ["platform"]:
-                return self._json(platform_support.configure_capabilities(a))
+                return self._json(views.platform_info(platform_support.configure_capabilities(a)))
             if api == ["orgs"]:
                 org = store.found(a["name"], a.get("purpose", ""), a.get("governance") or "leader")
                 return self._json({"org_id": org["id"]})

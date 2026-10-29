@@ -137,7 +137,7 @@ public sealed partial class MainWindow
         AddShortcut(VirtualKey.R, VirtualKeyModifiers.Control, Refresh);
         foreach (var (key, value) in new[] { (VirtualKey.Number1, "overview"), (VirtualKey.Number2, "workspace"), (VirtualKey.Number3, "files") })
             AddShortcut(key, VirtualKeyModifiers.Menu, () => pane == value && panelOpen ? TogglePanel() : SetPane(value));
-        AddShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async () => { visibleDialog?.Hide(); await StopVoice(); });
+        AddShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async () => { visibleDialog?.Hide(); transientFlyout?.Hide(); await StopVoice(); });
     }
     private TextBox? editing;
     private void BuildMenus()
@@ -145,26 +145,28 @@ public sealed partial class MainWindow
         menu.Items.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
         MenuBarItem Group(string title) { var group = new MenuBarItem { Title = T(title) }; menu.Items.Add(group); return group; }
-        void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true) { var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled }; item.Click += async (_, _) => await Run(action); group.Items.Add(item); }
+        void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "") { var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut }; item.Click += async (_, _) => await Run(action); group.Items.Add(item); }
         var file = Group("common.file");
         Item(file, T("appmenu.new_org"), CreateOrg); Item(file, T("appmenu.add_member"), AddMember, org.Length > 0);
         Item(file, T("appmenu.add_existing"), () => MemberDialog("existing"), org.Length > 0);
         var secretary = snap["org"].Text("secretary");
         Item(file, T(secretary.Length > 0 ? "appmenu.open_secretary" : "appmenu.set_up_secretary"), () => secretary.Length > 0 ? Select(org, secretary) : SecretarySetup(), org.Length > 0);
+        file.Items.Add(new MenuFlyoutSeparator());
         Item(file, T("appmenu.org_details"), () => Details(), org.Length > 0);
         Item(file, T("appmenu.open_data"), async () => { await api!.Post("/api/open", new { what = "data" }); });
         Item(file, T("appmenu.open_logs"), async () => { await api!.Post("/api/open", new { what = "logs" }); });
-        Item(file, T("appmenu.settings"), Settings);
+        file.Items.Add(new MenuFlyoutSeparator()); Item(file, T("appmenu.settings"), Settings, shortcut: "Ctrl+,");
         var edit = Group("appmenu.edit");
         foreach (var (key, action) in new[] { ("appmenu.undo", "undo"), ("appmenu.redo", "redo"), ("appmenu.cut", "cut"), ("common.copy", "copy"), ("appmenu.paste", "paste"), ("appmenu.select_all", "all"), ("appmenu.quote_selection", "quote") })
-            Item(edit, T(key), () => Edit(action));
-        Item(edit, T("page.search"), FocusSearch);
-        var view = Group("appmenu.view"); Item(view, T("appmenu.sidebar"), ToggleSide); Item(view, T("page.panel"), TogglePanel);
+            Item(edit, T(key), () => Edit(action), shortcut: action switch { "undo" => "Ctrl+Z", "redo" => "Ctrl+Y", "cut" => "Ctrl+X", "copy" => "Ctrl+C", "paste" => "Ctrl+V", "all" => "Ctrl+A", _ => "" });
+        edit.Items.Add(new MenuFlyoutSeparator()); Item(edit, T("page.search"), FocusSearch, shortcut: "Ctrl+K");
+        var view = Group("appmenu.view"); Item(view, T("appmenu.sidebar"), ToggleSide, shortcut: "Ctrl+B"); Item(view, T("page.panel"), TogglePanel, shortcut: "Ctrl+Alt+B");
         foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") }) Item(view, T("appmenu.pane", ("pane", T(key))), () => SetPane(id));
-        Item(view, T("appmenu.org_chart"), Chart); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); });
+        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.org_chart"), Chart); Item(view, T("appmenu.plain_group"), async () => { await Select(org); await TogglePlain(); }, shortcut: "Ctrl+Shift+L"); Item(view, T("appmenu.group_digest"), async () => { await Select(org); await ToggleDigest(); });
+        view.Items.Add(new MenuFlyoutSeparator());
         foreach (var (value, key) in new[] { ("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark") }) Item(view, T("appmenu.theme", ("theme", T(key))), () => SavePreferences(new() { ["theme"] = value }));
         foreach (var (value, key) in new[] { ("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large") }) Item(view, T("appmenu.font_size", ("size", T(key))), () => SavePreferences(new() { ["font"] = value }));
-        Item(view, T("appmenu.reload"), Refresh);
+        view.Items.Add(new MenuFlyoutSeparator()); Item(view, T("appmenu.reload"), Refresh, shortcut: "Ctrl+R");
         var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
         if (sendButton != null) { AutomationProperties.SetName(sendButton, T("common.send")); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
         search.PlaceholderText = T("page.search"); AutomationProperties.SetName(search, T("page.search")); AutomationProperties.SetName(side, T("page.side")); AutomationProperties.SetName(stream, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));

@@ -21,11 +21,14 @@ public sealed partial class MainWindow
             var manifest = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(path))!; var fixture = manifest["fixture"]!;
             foreach (var shot in manifest.Rows("cases"))
             {
+                await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "current-case.txt"), shot.Text("id"));
                 try
                 {
                     if (visibleDialog != null) { visibleDialog.Hide(); if (visibleDialogTask != null) await visibleDialogTask; }
+                    transientFlyout?.Hide(); foreach (var item in menu.Items) new Microsoft.UI.Xaml.Automation.Peers.MenuBarItemAutomationPeer(item).Collapse();
                     await StopVoice(); plainTimer.Stop(); error.IsOpen = false;
                     AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
+                    SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
                     sideWidth = 276; panelWidth = 320; fileWidth = 460; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     await Select(fixture.Text("org")); LayoutColumns();
@@ -36,7 +39,7 @@ public sealed partial class MainWindow
                     {
                         var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, scene[5..]);
                         var automation = new Microsoft.UI.Xaml.Automation.Peers.MenuBarItemAutomationPeer(menu.Items[index]);
-                        (automation.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.ExpandCollapse) as Microsoft.UI.Xaml.Automation.Provider.IExpandCollapseProvider)?.Expand();
+                        automation.Expand();
                     }
                     else switch (scene)
                     {
@@ -73,9 +76,12 @@ public sealed partial class MainWindow
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
                     if (scene == "copy-rules" && visibleDialog != null) ExpandCaptureRules(visibleDialog);
                     root.UpdateLayout(); await Task.Delay(250);
+                    if ((scene.StartsWith("menu-") || scene is "mention" or "recipients" or "member-card") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
+                        throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    Console.WriteLine("Relic visual capture: " + shot.Text("file"));
                     count++;
                 }
                 catch (Exception ex) { failures.Add(shot.Text("id") + ": " + ex); }
@@ -94,10 +100,14 @@ public sealed partial class MainWindow
     private async Task CaptureClient(string path, int width, int height)
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        var dc = GetDC(handle); var memory = CreateCompatibleDC(dc); var bitmap = CreateCompatibleBitmap(dc, width, height); var previous = SelectObject(memory, bitmap);
+        var dc = GetDC(0); var memory = CreateCompatibleDC(dc); var bitmap = CreateCompatibleBitmap(dc, width, height); var previous = SelectObject(memory, bitmap);
         try
         {
-            if (!PrintWindow(handle, memory, 3)) throw new InvalidOperationException("PrintWindow failed");
+            // Native Flyouts and MenuBar popups have separate HWNDs. Capture the
+            // actual CI desktop pixels within the client rectangle, including
+            // those real overlays; PrintWindow alone silently omits them.
+            var origin = new CapturePoint(); if (!ClientToScreen(handle, ref origin)) throw new InvalidOperationException("ClientToScreen failed");
+            if (!BitBlt(memory, 0, 0, width, height, dc, origin.x, origin.y, 0x40CC0020)) throw new InvalidOperationException("Desktop window capture failed");
             var info = new BitmapInfo { size = 40, width = width, height = -height, planes = 1, bits = 32, imageSize = (uint)(width * height * 4) };
             var pixels = new byte[width * height * 4];
             if (GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0) == 0) throw new InvalidOperationException("GetDIBits failed");
@@ -106,12 +116,15 @@ public sealed partial class MainWindow
             encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels); await encoder.FlushAsync();
             using var reader = new DataReader(output.GetInputStreamAt(0)); await reader.LoadAsync((uint)output.Size); var encoded = new byte[(int)output.Size]; reader.ReadBytes(encoded); await System.IO.File.WriteAllBytesAsync(path, encoded);
         }
-        finally { SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(handle, dc); }
+        finally { SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(0, dc); }
     }
     [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo { public uint size; public int width, height; public ushort planes, bits; public uint compression, imageSize; public int xppm, yppm; public uint used, important; }
     [DllImport("user32.dll")] private static extern nint GetDC(nint handle);
     [DllImport("user32.dll")] private static extern int ReleaseDC(nint handle, nint dc);
-    [DllImport("user32.dll")] private static extern bool PrintWindow(nint handle, nint dc, uint flags);
+    [StructLayout(LayoutKind.Sequential)] private struct CapturePoint { public int x, y; }
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint handle, ref CapturePoint point);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
+    [DllImport("gdi32.dll")] private static extern bool BitBlt(nint target, int x, int y, int width, int height, nint source, int sourceX, int sourceY, uint operation);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleBitmap(nint dc, int width, int height);
     [DllImport("gdi32.dll")] private static extern nint SelectObject(nint dc, nint value);

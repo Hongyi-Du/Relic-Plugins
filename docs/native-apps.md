@@ -54,8 +54,23 @@ The Windows `DrawSidebar` COM exception reported by macOS for `40868069780`
 is fixed: reusable inputs are explicitly removed from their owning containers,
 without relying on a detached WinUI element's visual `Parent` property. The
 new field wrappers and thread composer follow the same ownership rule.
-The platform diagnostic localization request is being implemented in the App
-response layer so transport state and cached diagnostics remain unchanged.
+The platform diagnostic localization request is implemented by
+`views.platform_info` on both GET and POST `/api/platform`. Fixed reasons and
+missing-provider messages now use the shared lists, while transport state,
+unknown provider errors and cached diagnostics remain unchanged. Pure mocked
+regression tests are in `tests/test_native_diagnostics.py` (CI only here).
+Changes for the clients: the full visual workflow now splits language/theme
+variants into four jobs per platform to shorten feedback time. Each native
+manifest and its `complete.json` are unchanged. Harness completion receipts are
+uniquely named per variant, and composition requires all 504 exact filenames.
+The fixture includes real-format Claude transcript files and an existing session
+for the trajectory/member-picker views; no session or provider is launched.
+The reference `plain` preference reset requested in macOS `REQUESTS.md` is fixed
+using the renderer's real `relic.plain.<org>` preference. Windows capture now
+includes separate native popup HWNDs by copying the real CI desktop's client
+rectangle, and fails menu/mention/recipient/member-card cases if no popup opens.
+Older PrintWindow-only menu captures are not acceptance evidence. Member and
+recipient controls now use native Flyouts; the member's edit fields start folded.
 
 All reference functionality is required on both systems. The draft PR cannot
 leave draft until the per-function inventory is done on both, the route and

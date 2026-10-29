@@ -70,6 +70,23 @@ def seed(folder, lang):
         store._copy_to_person(db, o, p)
     store.record_activity(build, "Read", {"file_path": str(workspace / "README.md")}, cwd=str(workspace))
     store.record_activity(design, "Read", {"file_path": str(workspace / "layout.png")}, cwd=str(workspace))
+    # Real transcript/session discovery formats, written as fixture data only.
+    # No CLI, provider, peer bridge, or member session is started.
+    project = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "visual-workspace"
+    project.mkdir(parents=True)
+    transcript = [
+        {"type": "user", "timestamp": stores.now(), "cwd": str(workspace), "message": {"content": word("请核对本轮界面交付和截图记录。", "Review this delivery and its screenshot evidence.")}},
+        {"type": "assistant", "timestamp": stores.now(), "message": {"model": "Claude", "content": [{"type": "text", "text": word("我先读取验收计划，再对照页面检查。", "I'll read the review plan and compare the screens.")}, {"type": "tool_use", "id": "visual-read", "name": "Read", "input": {"file_path": str(workspace / "README.md")}}]}},
+        {"type": "user", "timestamp": stores.now(), "message": {"content": [{"type": "tool_result", "tool_use_id": "visual-read", "content": (workspace / "README.md").read_text(encoding="utf-8")}]}},
+        {"type": "assistant", "timestamp": stores.now(), "message": {"content": [{"type": "text", "text": word("已列出三种窗口尺寸、两种语言和浅深主题的检查项。", "The checklist now covers three sizes, both languages, and light and dark themes.")}]}}
+    ]
+    (project / (lead + ".jsonl")).write_text("\n".join(json.dumps(line, ensure_ascii=False) for line in transcript), encoding="utf-8")
+    (project / "visual-existing-session.jsonl").write_text(json.dumps({"type": "user", "timestamp": stores.now(), "cwd": str(workspace), "message": {"content": word("准备接手原生界面的验收工作", "Prepare to review the native interface")}}, ensure_ascii=False), encoding="utf-8")
+    # Keep activity states stable during the longer full screenshot matrix.
+    from app import views
+    from types import SimpleNamespace
+    fixture_now = time.time()
+    views.time = SimpleNamespace(time=lambda: fixture_now, strptime=time.strptime, strftime=time.strftime, gmtime=time.gmtime)
     store.work(lead, "doc_write", {"key": "review-plan", "body": (workspace / "README.md").read_text(encoding="utf-8")})
     store.file_request(design, "leader", {"org": oid, "member": "engineer"}, word("让工程师协调本轮集成。", "Let the engineer coordinate this integration."))
     root_message = store.send_from_human(oid, ["all"], word("这轮请把两个平台的页面放在一起看。布局要一致，也要像各自系统里完成度高的应用。", "Please compare both platforms side by side. Keep the layout consistent and make each feel like a finished desktop app."), channel="group")

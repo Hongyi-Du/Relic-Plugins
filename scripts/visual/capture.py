@@ -77,6 +77,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", choices=["reference", "windows", "macos"], required=True)
     parser.add_argument("--matrix", choices=["smoke", "full"], default="full")
+    parser.add_argument("--lang", choices=["zh-CN", "en-US"])
+    parser.add_argument("--theme", choices=["light", "dark"])
     parser.add_argument("--exe", type=Path)
     parser.add_argument("--reference", action="store_true", help="Capture reference against this exact native fixture/server on the Windows runner")
     parser.add_argument("--output", type=Path, required=True)
@@ -85,8 +87,8 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart"]
-    languages = spec["languages"] if args.matrix == "full" else ["zh-CN"]
-    themes = spec["themes"] if args.matrix == "full" else ["light"]
+    languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
+    themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
     for lang in languages:
         data = output / "data" / lang
@@ -118,9 +120,10 @@ def main():
             finally:
                 server.terminate()
                 server.wait(timeout=20)
-    (output / "capture-complete.json").write_text(json.dumps({"client": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+    receipt_name = "capture-complete" + ("-" + args.lang + "-" + args.theme if args.lang and args.theme else "") + ".json"
+    (output / receipt_name).write_text(json.dumps({"client": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
     if args.reference:
-        (output.parent / "reference/capture-complete.json").write_text(json.dumps({"client": "reference", "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+        (output.parent / "reference" / receipt_name).write_text(json.dumps({"client": "reference", "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
 
 
 if __name__ == "__main__":

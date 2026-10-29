@@ -50,5 +50,13 @@ Composition checks receipt counts, matching matrices and exact PNG dimensions
 before producing comparisons. A successful workflow means complete evidence,
 not visual acceptance: its `coverage.json` explicitly requires human review.
 
+Full runs split the four language/theme variants into separate jobs per platform;
+each job captures all 42 scenes at all three sizes. Native `complete.json`
+remains beside each manifest. The harness writes root
+`capture-complete-<lang>-<theme>.json` receipts, and compose checks their sum and
+the exact 504 names from `scenes.json`. Downloaded artifact groups are merged by
+client. The realistic fixture also includes stored Claude transcript/tool-result
+records and an existing unseated session; these are files, never launched agents.
+
 The local machine is off limits for installing, launching, restarting, UI capture,
 or tests. The Python entry points fail outside GitHub Actions by default.

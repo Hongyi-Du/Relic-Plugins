@@ -40,22 +40,26 @@ public sealed partial class MainWindow
         return string.Join("\n", lines.Select(l => "> " + l)) + "\n\n" + text;
     }
     private void ClearQuote() { quoteWho = quoteText = quoteLabel.Text = ""; quoteRow.Visibility = Visibility.Collapsed; }
-    private async Task PickRecipients()
+    private Task PickRecipients()
     {
-        var box = new StackPanel { Spacing = 8 };
+        var box = new StackPanel { Spacing = 2, Width = 270 };
         var options = new[] { ("all", T("composer.all_members")) }.Concat(snap.Rows("members").Select(m => (m.Text("name"), m.Text("display"))));
-        var toggles = new List<CheckBox>();
+        var toggles = new List<CheckBox>(); bool changing = false;
         foreach (var (id, label) in options)
         {
-            var check = new CheckBox { Content = label, Tag = id, IsChecked = recipientNames.Contains(id) };
-            check.Checked += (_, _) => { foreach (var other in toggles) if (other != check && (id == "all" || other.Tag?.ToString() == "all")) other.IsChecked = false; };
+            var check = new CheckBox { Content = Ellipsis(label), Tag = id, IsChecked = recipientNames.Contains(id), MinHeight = 34, HorizontalAlignment = HorizontalAlignment.Stretch };
+            void Changed()
+            {
+                if (changing) return; changing = true;
+                if (check.IsChecked == true) foreach (var other in toggles) if (other != check && (id == "all" || other.Tag?.ToString() == "all")) other.IsChecked = false;
+                if (!toggles.Any(c => c.IsChecked == true)) toggles[0].IsChecked = true;
+                recipientNames.Clear(); foreach (var selected in toggles.Where(c => c.IsChecked == true)) recipientNames.Add(selected.Tag!.ToString()!);
+                UpdateRecipient(); SaveViewState(); changing = false;
+            }
+            check.Checked += (_, _) => Changed(); check.Unchecked += (_, _) => Changed();
             toggles.Add(check); box.Children.Add(check);
         }
-        await Form(T("composer.send_to", ("to", "")), box, () =>
-        {
-            recipientNames.Clear(); foreach (var check in toggles.Where(c => c.IsChecked == true)) recipientNames.Add(check.Tag!.ToString()!);
-            if (recipientNames.Count == 0) recipientNames.Add("all"); UpdateRecipient(); SaveViewState(); return Task.CompletedTask;
-        });
+        ShowPopover(box, recipientButton!, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft); return Task.CompletedTask;
     }
     private void UpdateRecipient()
     {
@@ -74,7 +78,7 @@ public sealed partial class MainWindow
             option.Click += (_, _) => { var at = text.LastIndexOf('@'); var inserted = "@" + m.Text("display") + " "; editor.Text = editor.Text[..at] + inserted + editor.Text[start..]; editor.SelectionStart = at + inserted.Length; recipientNames.Remove("all"); recipientNames.Add(m.Text("name")); UpdateRecipient(); SaveViewState(); editor.Focus(FocusState.Programmatic); };
             menu.Items.Add(option);
         }
-        menu.ShowAt(editor);
+        transientFlyout?.Hide(); transientFlyout = menu; menu.ShowAt(editor);
     }
     private void WireComposer()
     {

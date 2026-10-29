@@ -21,31 +21,37 @@ public sealed partial class MainWindow
     private async Task MemberCard(string name)
     {
         var id = org; var c = await api!.Get(Client.Org(id, "/member/" + Client.Segment(name)));
-        var box = Stack(Avatar(c.Text("avatar"), Display(name), 56));
-        box.Children.Add(Button(T("card.change_avatar"), async () => { await ChangeAvatar(name); await MemberCard(name); }));
-        var label = Field(box, "card.new_name"); label.MaxLength = 40; label.PlaceholderText = c.Text("display"); label.Text = c.Flag("display_custom") ? c.Text("display") : "";
-        box.Children.Add(Text(T("card.rename_hint"), 12));
-        box.Children.Add(Button(T("common.save"), async () => { var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = label.Text.Trim() }); Note((label.Text.Trim().Length > 0 ? T("card.renamed") : T("card.name_reset")) + " " + result.Text("note")); await Refresh(); }));
-        box.Children.Add(Text(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named"))));
-        if (c.Flag("leader")) box.Children.Add(Text(T("common.leader")));
-        if (c.Flag("secretary")) box.Children.Add(Text(T("common.secretary")));
-        void Row(string key, string value) { if (value.Length > 0) box.Children.Add(Stack(Text(T(key), 12), Text(value))); }
+        var box = new StackPanel { Spacing = 10, Width = 350 }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(box, T("card.aria", ("name", Display(name))));
+        var rename = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
+        var label = Field(rename, "card.new_name"); label.MaxLength = 40; label.PlaceholderText = c.Text("display"); label.Text = c.Flag("display_custom") ? c.Text("display") : "";
+        rename.Children.Add(Quiet(T("card.rename_hint"), 11));
+        rename.Children.Add(Button(T("common.save"), async () => { var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = label.Text.Trim() }); Note((label.Text.Trim().Length > 0 ? T("card.renamed") : T("card.name_reset")) + " " + result.Text("note")); await Refresh(); await MemberCard(name); }));
+        var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name); }); avatar.Content = Avatar(c.Text("avatar"), Display(name), 48); avatar.Padding = new Thickness(0); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
+        var heading = new Grid { ColumnSpacing = 10 }; heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.Children.Add(avatar);
+        var identity = Stack(Heading(Display(name), 16), Quiet(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named")), 11)); identity.Spacing = 3;
+        var badges = new ActionRow { Spacing = 4 }; if (c.Flag("leader")) badges.Children.Add(Badge(T("common.leader"))); if (c.Flag("secretary")) badges.Children.Add(Badge(T("common.secretary"), true)); identity.Children.Add(badges); Grid.SetColumn(identity, 1); heading.Children.Add(identity);
+        var editName = IconButton("\uE70F", "card.new_name", () => { rename.Visibility = rename.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; return Task.CompletedTask; }); Grid.SetColumn(editName, 2); heading.Children.Add(editName); box.Children.Add(heading); box.Children.Add(rename); box.Children.Add(new Border { Height = 1, Background = Line, Margin = new Thickness(0, 6, 0, 6) });
+        void Row(string key, string value)
+        {
+            if (value.Length == 0) return; var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(64) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.Children.Add(Quiet(T(key), 12)); var text = Text(value, 12); text.MaxLines = 3; text.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(text, value); Grid.SetColumn(text, 1); row.Children.Add(text); box.Children.Add(row);
+        }
         Row("common.role", c.Text("role").Length > 0 ? c.Text("role") : T("card.no_role")); Row("card.identity", Identity(c));
         if (c["ex_officio"] != null)
         {
             Row("card.seat_origin", T("card.ex_officio_tag"));
             box.Children.Add(Button(T("card.ex_officio", ("org", c["ex_officio"].Text("org_name"))), async () => { visibleDialog?.Hide(); await Select(c["ex_officio"].Text("org")); }));
         }
-        if (c.Rows("also_in").Count > 0) box.Children.Add(Text(T("card.also_in")));
-        foreach (var seat in c.Rows("also_in")) box.Children.Add(Button(T("card.also_in_item", ("org", seat.Text("org_name")), ("member", seat.Text("member"))) + (seat.Flag("main") ? " · " + T("card.main_seat") : ""), async () => { visibleDialog?.Hide(); await Select(seat.Text("org"), seat.Text("member")); }));
+        if (c.Rows("also_in").Count > 0) box.Children.Add(Quiet(T("card.also_in"), 12));
+        foreach (var seat in c.Rows("also_in")) box.Children.Add(QuietButton(T("card.also_in_item", ("org", seat.Text("org_name")), ("member", seat.Text("member"))) + (seat.Flag("main") ? " · " + T("card.main_seat") : ""), async () => { transientFlyout?.Hide(); await Select(seat.Text("org"), seat.Text("member")); }));
         Row("common.model", (c.Text("model").Length > 0 ? c.Text("model") : T("common.default_model")) + " · " + c.Text("effort"));
         if (c.Flag("model_editable"))
         {
-            var model = Choice(box, "common.model", new[] { ("", T("common.default_model")) }.Concat(c.Rows("models").Select(x => (x.Text(), x.Text())))); SetChoice(model, c.Text("model"));
-            var effort = Choice(box, "member.effort", new[] { ("", T("common.default_effort")) }.Concat(c.Rows("efforts").Select(x => (x.Text(), x.Text())))); SetChoice(effort, c.Text("effort"));
-            box.Children.Add(Button(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); await Refresh(); }));
+            var modelFields = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; box.Children.Add(QuietButton(T("common.change") + " · " + T("common.model"), () => { modelFields.Visibility = modelFields.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; return Task.CompletedTask; })); box.Children.Add(modelFields);
+            var model = Choice(modelFields, "common.model", new[] { ("", T("common.default_model")) }.Concat(c.Rows("models").Select(x => (x.Text(), x.Text())))); SetChoice(model, c.Text("model"));
+            var effort = Choice(modelFields, "member.effort", new[] { ("", T("common.default_effort")) }.Concat(c.Rows("efforts").Select(x => (x.Text(), x.Text())))); SetChoice(effort, c.Text("effort"));
+            modelFields.Children.Add(Button(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); await Refresh(); }));
         }
-        box.Children.Add(Text(c.Text("model_note"), 12));
+        if (c.Text("model_note").Length > 0) box.Children.Add(Quiet(c.Text("model_note"), 11));
         Row("common.status", T("state." + c.Text("state")) + " " + c.Text("detail"));
         Row("card.doing", c.Text("doing_at").Length > 0 ? T("card.doing_since", ("doing", c.Text("doing")), ("ago", Ago(c.Text("doing_at")))) : c.Text("doing"));
         Row("card.owns", string.Join("\n", c.Rows("tasks").Where(t => t.Text("status") is not ("done" or "dropped")).Select(t => t.Text("id") + " " + t.Text("title"))));
@@ -53,26 +59,25 @@ public sealed partial class MainWindow
         Row("common.session", c.Text("session") + (c.Text("agent").Length > 0 ? " / " + c.Text("agent") : "") + (c.Text("parent").Length > 0 ? T("card.in_parent_session", ("parent", Display(c.Text("parent")))) : ""));
         Row("card.folder", c.Text("cwd")); Row("card.joined", When(c.Text("joined_at")) + " " + T("card.session_nth", ("n", c.Text("carriers"))));
         Row("card.recent", string.Join("\n", c.Rows("recent").Take(4).Select(r => r.Text("tool") + " " + r.Text("summary"))));
-        box.Children.Add(Button(T("card.message"), async () => { visibleDialog?.Hide(); await Select(id, name); }));
-        box.Children.Add(Button(T("common.context_trace"), () => Details("trace", name)));
+        var actions = new ActionRow(); actions.Children.Add(Button(T("card.message"), async () => { transientFlyout?.Hide(); await Select(id, name); })); actions.Children.Add(Button(T("common.context_trace"), () => Details("trace", name))); box.Children.Add(actions);
+        var seatActions = new ActionRow { Spacing = 4 }; box.Children.Add(seatActions);
+        void SeatButton(string title, string hint, Func<Task> action) { var button = QuietButton(title, action); ToolTipService.SetToolTip(button, T(hint)); seatActions.Children.Add(button); }
         var own = c.Text("surface") is not ("chat" or "subagent"); var hosted = own && !c.Flag("embedded") && (c["config"].Text("harness").Length > 0 || c.Text("surface") is "cli" or "desktop");
         if (own && (c.Flag("embedded") || hosted && Delivery(c.Text("harness"), c["config"].Text("surface"))))
         {
-            box.Children.Add(Text(T("card.new_session_hint"), 12));
-            box.Children.Add(Button(T("card.new_session"), () => SeatAction("fresh", name, c.Text("session").Length > 0 ? T("card.new_session_confirm", ("name", Display(name))) : "")));
+            SeatButton(T("card.new_session"), "card.new_session_hint", () => SeatAction("fresh", name, c.Text("session").Length > 0 ? T("card.new_session_confirm", ("name", Display(name))) : ""));
         }
         if (hosted)
         {
-            if (c.Text("session").Length > 0) { box.Children.Add(Text(T("card.open_session_hint"), 12)); box.Children.Add(Button(T("card.open_session"), () => SeatAction("open_session", name))); }
-            box.Children.Add(Text(T("card.edit_setup_hint"), 12)); box.Children.Add(Button(T("card.edit_setup"), () => MemberDialog(edit: name)));
+            if (c.Text("session").Length > 0) SeatButton(T("card.open_session"), "card.open_session_hint", () => SeatAction("open_session", name));
+            SeatButton(T("card.edit_setup"), "card.edit_setup_hint", () => MemberDialog(edit: name));
         }
         if (c.Text("harness") == "chatgpt")
         {
-            box.Children.Add(Text(T("card.forward_reply_hint"), 12));
-            box.Children.Add(Button(c.Text("waiting_replies") is "" or "0" ? T("card.forward_reply") : T("card.forward_reply_waiting", ("n", c.Text("waiting_replies"))), () => Forward(name)));
+            SeatButton(c.Text("waiting_replies") is "" or "0" ? T("card.forward_reply") : T("card.forward_reply_waiting", ("n", c.Text("waiting_replies"))), "card.forward_reply_hint", () => Forward(name));
         }
-        if (c.Text("session").Length > 0) { box.Children.Add(Text(T("card.leave_seat_hint"), 12)); box.Children.Add(Button(T("card.leave_seat"), () => SeatAction("unbind", name, T("card.leave_seat_confirm", ("name", Display(name)))))); }
-        await Show(T("card.aria", ("name", Display(name))), box, 440);
+        if (c.Text("session").Length > 0) SeatButton(T("card.leave_seat"), "card.leave_seat_hint", () => SeatAction("unbind", name, T("card.leave_seat_confirm", ("name", Display(name)))));
+        ShowPopover(box, chatHead, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight);
     }
     private async Task SeatAction(string action, string who, string confirm = "")
     {

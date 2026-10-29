@@ -14,6 +14,14 @@ public sealed partial class MainWindow
 {
     private readonly Border sidebarSurface = new(), inspectorSurface = new(), composerSurface = new();
     private readonly Grid inspector = new(), paneHeader = new(), quoteRow = new();
+    private Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase? transientFlyout;
+    private void ShowPopover(FrameworkElement content, FrameworkElement anchor, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode placement)
+    {
+        transientFlyout?.Hide(); content.RequestedTheme = root.RequestedTheme;
+        foreach (var resource in root.Resources) content.Resources[resource.Key] = resource.Value;
+        var scroll = Scroll(content); scroll.MaxHeight = Math.Max(320, root.ActualHeight - 120);
+        var flyout = new Flyout { Content = scroll, Placement = placement }; transientFlyout = flyout; flyout.ShowAt(anchor);
+    }
     private readonly StackPanel sidebarFooter = new() { Spacing = 4, Padding = new Thickness(12, 8, 12, 12) };
     private bool Dark => preferences.Text("theme") == "dark" || preferences.Text("theme") is "" or "system" && root.ActualTheme == ElementTheme.Dark;
     private SolidColorBrush Paint(string light, string dark = "")

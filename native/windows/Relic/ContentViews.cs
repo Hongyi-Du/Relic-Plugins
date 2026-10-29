@@ -114,8 +114,8 @@ public sealed partial class MainWindow
     private async Task Details(string tab = "trace", string? who = null, string? taskId = null)
     {
         if (org.Length == 0) return;
-        var box = new StackPanel { Spacing = 16 }; var tabs = new SelectorBar(); var content = new StackPanel { Spacing = 12 };
-        box.Children.Add(tabs); box.Children.Add(content);
+        var box = new Grid { Width = Math.Min(1120, root.ActualWidth - 96), Height = Math.Max(380, root.ActualHeight - 190), RowSpacing = 16 }; var tabs = new SelectorBar(); var content = new StackPanel { Spacing = 12 };
+        box.RowDefinitions.Add(new() { Height = GridLength.Auto }); box.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); box.Children.Add(tabs); var bodyScroll = Scroll(content); Grid.SetRow(bodyScroll, 1); box.Children.Add(bodyScroll);
         async Task Draw(string key)
         {
             content.Children.Clear();
@@ -152,11 +152,12 @@ public sealed partial class MainWindow
     }
     private void DrawTasks(StackPanel box, string? focus)
     {
-        var filters = Choice(box, "common.tasks", [("open", T("task.working")), ("blocked", T("task.blocked")), ("done", T("details.filter_done")), ("all", T("common.all"))]);
-        SetChoice(filters, focus == "done" ? "done" : focus == null ? "open" : "all"); var list = new StackPanel { Spacing = 12 }; box.Children.Add(list);
+        var filters = new SelectorBar(); var selected = focus == "done" ? "done" : focus == null ? "open" : "all";
+        foreach (var (id, key) in new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") }) filters.Items.Add(new SelectorBarItem { Text = T(key), Tag = id, IsSelected = selected == id, FontSize = 12 }); box.Children.Add(filters);
+        var list = new StackPanel { Spacing = 10 }; box.Children.Add(list);
         void Draw()
         {
-            list.Children.Clear(); var filter = Value(filters);
+            list.Children.Clear(); var filter = filters.SelectedItem?.Tag?.ToString() ?? selected;
             var tasks = snap.Rows("tasks").Where(t => filter == "all" || (filter == "open" ? t.Text("status") is not ("done" or "dropped") : t.Text("status") == filter)).Reverse().ToArray();
             if (tasks.Length == 0) list.Children.Add(Text(T("details.no_tasks")));
             foreach (var task in tasks)
