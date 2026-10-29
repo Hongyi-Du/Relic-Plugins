@@ -68,7 +68,7 @@ struct SelectableText: NSViewRepresentable {
         // last probe width behind and can draw a second line outside its height.
         let storage = NSTextStorage(attributedString: nsView.attributedString())
         let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         layout.ensureLayout(for: container)
