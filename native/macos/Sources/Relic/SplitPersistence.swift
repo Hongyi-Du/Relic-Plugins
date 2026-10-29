@@ -46,11 +46,11 @@ struct SplitPersistence: NSViewRepresentable {
             }
             if hasSidebar, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: "width.sidebar")
-                found.setPosition(min(320, max(208, saved > 0 ? saved : 276)), ofDividerAt: 0)
+                found.setPosition(min(340, max(276, saved > 0 ? saved : 276)), ofDividerAt: 0)
             }
             if hasPanel, found.subviews.count >= 2 {
                 let saved = model.defaults.double(forKey: key), width = saved > 0 ? saved : key == "width.files" ? 460 : 320
-                let available = max(280, found.bounds.width - (hasSidebar ? 208 : 0) - 320)
+                let available = max(280, found.bounds.width - (hasSidebar ? 276 : 0) - 320)
                 found.setPosition(found.bounds.width - min(740, available, max(280, width)) - found.dividerThickness, ofDividerAt: found.subviews.count - 2)
             }
         }

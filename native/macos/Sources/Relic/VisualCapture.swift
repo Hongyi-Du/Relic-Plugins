@@ -124,7 +124,12 @@ import RelicCore
             if child === window.attachedSheet { NSColor.black.withAlphaComponent(0.18).setFill(); canvas.fill() }
             let childRect = child.convertToScreen(content.bounds)
             let rect = NSRect(x: childRect.minX - contentRect.minX, y: childRect.minY - contentRect.minY, width: childRect.width, height: childRect.height)
+            NSGraphicsContext.saveGraphicsState()
+            // cacheDisplay may flatten a transparent hosting view against black;
+            // retain the same rounded mask that SheetContent uses in the real app.
+            if child === window.attachedSheet { NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16).addClip() }
             childBitmap.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
         }
         NSGraphicsContext.restoreGraphicsState()
         guard let png = result.representation(using: .png, properties: [:]) else { throw RelicError.message("Cannot encode native PNG") }

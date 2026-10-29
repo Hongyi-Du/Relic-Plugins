@@ -59,7 +59,7 @@ struct ChartView: View {
                     ForEach(Array(graph.nodes.enumerated()), id: \.offset) { _, node in
                         card(node).position(graph.centers[node["id"].text] ?? .zero)
                     }
-                }.frame(width: graph.size.width, height: graph.size.height).scaleEffect(zoom, anchor: .topLeading).offset(offset)
+                }.frame(width: graph.size.width + (showShared ? 120 : 0), height: graph.size.height).scaleEffect(zoom, anchor: .topLeading).offset(offset)
                 if graph.nodes.isEmpty { Text(m.t("chart.empty")).padding(30) }
             }.frame(maxWidth: .infinity, minHeight: 260, maxHeight: .infinity).clipped().background(GeometryReader { proxy in Color.clear.onAppear { viewport = proxy.size; if autoFit { fit() } }.onChange(of: proxy.size) { viewport = proxy.size; if autoFit { fit() } } })
                 .background(WheelZoomCapture { delta, point in zoomAt(zoom * exp(-delta * 0.006), at: point) })
@@ -90,11 +90,10 @@ struct ChartView: View {
         Button {
             guard Date() > draggedUntil else { return }; m.run { try await m.select(node["id"].text); m.sheet = nil }
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack { Text(node["name"].text).font(.headline).lineLimit(1); if node["cabinet"].flag { Image(systemName: "star.fill").help(m.t("org.cabinet_chip")) } }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack { Text(node["name"].text).font(.system(size: 12.5, weight: .semibold)).lineLimit(1); if node["cabinet"].flag { Image(systemName: "star.fill").help(m.t("org.cabinet_chip")) } }
                 Text(node["leader_display"].text.isEmpty ? m.t("chart.no_leader") : node["leader_display"].text).font(.caption).lineLimit(1)
-                HStack { Text(m.t("common.members", ["n": node["members"].text])); Text(m.t("chart.decisions", ["n": node["decisions"].text])) }.font(.caption)
-                if sharedCount(node) > 0 { Text(m.t("chart.shared", ["n": String(sharedCount(node))])).font(.caption).help(sharedTip(node)) }
+                HStack(spacing: 5) { Text(m.t("common.members", ["n": node["members"].text])).font(.system(size: 10.5)); SmallBadge(text: m.t("chart.decisions", ["n": node["decisions"].text]), color: node["decisions"].integer > 0 ? RelicStyle.amber : RelicStyle.secondary); if sharedCount(node) > 0 { SmallBadge(text: m.t("chart.shared", ["n": String(sharedCount(node))]), color: RelicStyle.violet).help(sharedTip(node)) } }
             }.padding(10).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
                 .background(node["cabinet"].flag ? accent(m.preferences["accent"].text).opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(node["cabinet"].flag || node["id"].text == m.organization ? accent(m.preferences["accent"].text) : RelicStyle.border, style: StrokeStyle(lineWidth: node["id"].text == m.organization ? 2 : 1, dash: node["kind"].text == "subgroup" ? [5, 4] : [])))
@@ -109,7 +108,7 @@ struct ChartView: View {
         }.joined(separator: "\n")
     }
     private func fit(focus: String = "") {
-        let bounds = layout.bounds(focus: focus)
+        var bounds = layout.bounds(focus: focus); if showShared { bounds.size.width += 100 }
         zoom = max(0.15, min(1, (viewport.width - 56) / bounds.width, (viewport.height - 56) / bounds.height))
         offset = CGSize(width: (viewport.width - bounds.width * zoom) / 2 - bounds.minX * zoom, height: max(28, (viewport.height - bounds.height * zoom) / 2) - bounds.minY * zoom)
         lastZoom = zoom; baseOffset = offset

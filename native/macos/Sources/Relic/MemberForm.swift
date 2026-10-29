@@ -144,7 +144,7 @@ struct MemberForm: View {
     private func sessionLabel(_ session: Node) -> String {
         var parts = [session["title"].text.isEmpty ? session["id"].text : session["title"].text, session["harness"].text, session["cwd"].text, m.ago(session["updated"])]
         if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) { parts.append(m.t("member.manual_delivery")) }
-        return parts.filter { !$0.isEmpty }.joined(separator: " ? ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
 }

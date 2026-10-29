@@ -6,7 +6,7 @@ public struct OrganizationLayout {
     public let centers: [String: CGPoint]
     public let parents: [String: String]
     public let size: CGSize
-    public static let card = CGSize(width: 236, height: 100)
+    public static let card = CGSize(width: 236, height: 80)
     private final class Branch {
         let node: Node
         let children: [Branch]

@@ -17,9 +17,9 @@ struct MainView: View {
             if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HSplitView {
-                if m.sidebarOpen { Sidebar().frame(minWidth: 208, idealWidth: 276, maxWidth: 320) }
+                if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340) }
                 ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: 280, idealWidth: 320, maxWidth: 740) }
+                if m.panelOpen { RightPane().frame(minWidth: 320, idealWidth: 320, maxWidth: 740) }
             }
         }.background(RelicStyle.background).foregroundStyle(RelicStyle.ink)
         .background(GeometryReader { geometry in Color.clear.onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size } })
@@ -67,7 +67,6 @@ struct SheetContent: View {
     private var height: CGFloat { min(sheet == .chart ? m.windowSize.height - 60 : sheet == .create ? 440 : sheet == .shortcuts ? 480 : 640, max(360, m.windowSize.height - 60)) }
     var body: some View {
         VStack(spacing: 12) {
-            HStack { Spacer(); IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction) }
             switch sheet {
             case .create: CreateOrgView()
             case .member: MemberForm()
@@ -81,7 +80,7 @@ struct SheetContent: View {
             case .details: DetailsView()
             case .shortcuts: ShortcutsView()
             }
-        }.padding(20).frame(width: width, height: height)
+        }.padding(20).frame(width: width, height: height).overlay(alignment: .topTrailing) { IconButton(title: m.t([Model.Sheet.create, .member, .protocolForm, .forward].contains(sheet) ? "common.cancel" : "common.close"), icon: "xmark") { m.sheet = nil }.keyboardShortcut(.cancelAction).padding(10) }
             .background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).background(SheetSurface()).buttonStyle(.bordered).controlSize(.regular)
             .tint(accent(m.preferences["accent"].text)).preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : .light).environment(\.locale, Locale(identifier: m.words.language))
     }
