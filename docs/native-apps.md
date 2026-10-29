@@ -471,6 +471,9 @@ Full v0.6 parity is required. No row is deferred. Each function and flow must be
 
 ## Changes for the clients
 
+- 2026-10-29: Final macOS integration abbb5bb is merged; REQUESTS.md now records every shared request resolved. All 34 screen/callback rows and 214 named functions are done on both platforms. At 028e270, Native apps run 40835859590 passed Windows/macOS builds, client tests, package assembly and the complete parity gate (52 routes, 686 keys, no browser UI). This final integration and its shared Python checks are revalidated by CI before PR readiness; real-window acceptance remains outstanding.
+
+
 - 2026-10-29: validate.yml now cancels superseded checks per branch, matching native-apps.yml, so simultaneous push/pull_request runs do not keep two identical four-platform matrices queued. Tests still run on each latest branch/PR head.
 
 
