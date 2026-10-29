@@ -57,6 +57,7 @@ def route_present(route, text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "test-results/native-parity.json")
+    parser.add_argument("--platform", choices=("windows", "macos"), help="Report one client on its development branch; combined gate remains required on native-apps")
     args = parser.parse_args()
     keys, routes, functions = reference_contract(REFERENCE.read_text(encoding="utf-8"))
     allow = json.loads((ROOT / "native/parity-allowlist.json").read_text(encoding="utf-8"))
@@ -64,13 +65,17 @@ def main():
     inventory = dict((name, (windows, macos)) for name, windows, macos in re.findall(
         r"^\| `([^`]+)` \| [^|]+ \| (done|pending) \| (done|pending) \|", docs, re.M))
     result = {"reference_functions": len(functions), "reference_keys": len(keys), "reference_routes": len(routes)}
-    for platform in ("windows", "macos"):
+    platforms = (args.platform,) if args.platform else ("windows", "macos")
+    for platform in platforms:
         source = implementation(platform)
         missing_keys = sorted(key for key in keys if key not in allow["keys"] and ('"' + key + '"') not in source)
         missing_routes = sorted(route for route in routes if route not in allow["routes"] and not route_present(route, source))
         column = 0 if platform == "windows" else 1
         missing_flows = [name + "@" + str(line) for name, line in functions
                          if inventory.get(name + "@" + str(line), ("pending", "pending"))[column] != "done"]
+        for name, windows, macos in re.findall(r"^\| ([^|]+) \| [^|]+ \| (done|pending) \| (done|pending) \|", docs, re.M):
+            if (windows, macos)[column] != "done" and "@" not in name:
+                missing_flows.append(name.strip())
         result[platform] = {"missing_keys": missing_keys, "missing_routes": missing_routes, "incomplete_flows": missing_flows}
     for section in ("keys", "routes"):
         if any(not isinstance(reason, str) or len(reason.strip()) < 20 for reason in allow[section].values()):
@@ -78,7 +83,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return int(any(any(result[p].values()) for p in ("windows", "macos")))
+    return int(any(any(result[p].values()) for p in platforms))
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ using Windows.System;
 
 namespace Relic;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private readonly ServerHost host = new();
     private readonly CancellationTokenSource lifetime = new();
@@ -27,7 +27,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel side = new() { Spacing = 6 }, stream = new() { Spacing = 14 }, detail = new() { Spacing = 12 };
     private readonly TextBox editor = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 70, MaxHeight = 180 };
     private readonly TextBox search = new();
-    private readonly ComboBox recipients = new();
+
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ScrollViewer chatScroll;
     private readonly StackPanel chatHead = new() { Orientation = Orientation.Horizontal, Spacing = 10 };
@@ -41,7 +41,7 @@ public sealed class MainWindow : Window
 
     private string T(string key, params (string, object)[] args) => words.T(key, args);
     private string PathFor(string action = "") => Client.Org(org, action);
-    private static TextBlock Text(string value, double size = 14) => new() { Text = value, TextWrapping = TextWrapping.Wrap, FontSize = size, IsTextSelectionEnabled = true };
+    private TextBlock Text(string value, double size = 14) => new() { Text = value, TextWrapping = TextWrapping.Wrap, FontSize = size * (preferences.Text("font") == "large" ? 1.18 : preferences.Text("font") == "small" ? .86 : 1), IsTextSelectionEnabled = true };
     private Button Button(string label, Func<Task> action)
     {
         var button = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -53,7 +53,7 @@ public sealed class MainWindow : Window
     {
         try { await action(); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception ex) { error.Message = ex.Message; error.IsOpen = true; }
+        catch (Exception ex) { error.Severity = InfoBarSeverity.Error; error.Message = ex.Message; error.IsOpen = true; }
     }
 
     public MainWindow()
@@ -65,7 +65,7 @@ public sealed class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(menu); Grid.SetRow(error, 1); root.Children.Add(error);
-        var columns = new Grid { ColumnSpacing = 16, Padding = new Thickness(12) };
+
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(260) });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(370) });
@@ -77,14 +77,16 @@ public sealed class MainWindow : Window
         chat.Children.Add(chatHead);
         chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 1); chat.Children.Add(chatScroll);
         var compose = new StackPanel { Spacing = 6 };
-        compose.Children.Add(recipients); compose.Children.Add(editor);
+        recipientButton = Button("", PickRecipients); compose.Children.Add(recipientButton); compose.Children.Add(quoteLabel); compose.Children.Add(Button("×", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; })); compose.Children.Add(editor); compose.Children.Add(Microphone(editor));
         sendButton = Button("↵", Send); compose.Children.Add(sendButton);
         Grid.SetRow(compose, 2); chat.Children.Add(compose);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         var right = Scroll(detail); Grid.SetColumn(right, 2); columns.Children.Add(right);
-        Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root;
+        Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
+        root.GotFocus += (_, e) => { if (e.OriginalSource is TextBox box) editing = box; };
+        threadEditor.TextChanged += (_, _) => { drafts[org + "/thread/" + threadId] = threadEditor.Text; SaveViewState(); };
         search.TextChanged += (_, _) => { if (ready) DrawSide(); };
-        editor.TextChanged += (_, _) => drafts[org + "/" + member] = editor.Text;
+        editor.TextChanged += (_, _) => { drafts[org + "/" + member] = editor.Text; SaveViewState(); };
         AddShortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, Send);
         AddShortcut(VirtualKey.N, VirtualKeyModifiers.Control, CreateOrg);
         AddShortcut((VirtualKey)188, VirtualKeyModifiers.Control, Settings);
@@ -93,8 +95,8 @@ public sealed class MainWindow : Window
         Closed += async (_, e) =>
         {
             if (closing) return;
-            e.Handled = true; closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop();
-            await host.DisposeAsync(); api?.Dispose(); Close();
+            e.Handled = true; SaveViewState(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop();
+            await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
         root.Loaded += async (_, _) =>
         {
@@ -107,15 +109,22 @@ public sealed class MainWindow : Window
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
-                ready = true;
+                LoadViewState(); ready = true; LayoutColumns();
                 AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
                 AppNotificationManager.Default.Register();
-                DrawMenu(); await Refresh();
+                ApplyAppearance(); DrawMenu(); await Refresh();
                 _ = api.Events(ev =>
                 {
                     DispatcherQueue.TryEnqueue(async () =>
                     {
                         if (ev.Text("type") == "prefs") await Run(LoadPreferences);
+                        if (ev.Text("type") == "install") InstallEvent(ev);
+                        if (ev.Text("org") == org && ev.Text("type") == "plain")
+                        {
+                            GotPlain(ev["items"]);
+                            foreach (var id in ev.Rows("ids")) if (!plain.ContainsKey(PlainKey(id.Text()))) { plainPending.Remove(PlainKey(id.Text())); if (ev.Text("error").Length > 0) plainFailed.Add(PlainKey(id.Text())); }
+                        }
+                        if (ev.Text("org") == org && ev.Text("type") == "digest") { digestPending = false; if (ev["digest"] != null) digest = ev["digest"]!.DeepClone(); if (ev.Text("error").Length > 0) Note(T("digest.failed", ("error", ev.Text("error")))); }
                         Schedule();
                     });
                     return Task.CompletedTask;
@@ -141,18 +150,23 @@ public sealed class MainWindow : Window
             var selectedOrg = org; var selectedMember = member;
             orgs = (await api.Get("/api/orgs")).Rows();
             copies = (await api.Get("/api/cc")).Rows("items");
+            if (org.Length > 0 && !orgs.Any(x => x.Text("id") == org)) { org = ""; member = ""; }
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
             if (org.Length > 0)
             {
                 var snapshot = await api.Get(PathFor());
-                var chat = await api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member)));
+                var chat = await api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-                snap = snapshot; messages = chat.Rows("items");
+                snap = snapshot; messages = chat.Rows("items"); chatMore = chat.Flag("more");
                 if (member.Length > 0)
                 {
-                    var live = await api.Get(PathFor("/live?member=" + Client.Segment(member)));
-                    foreach (var item in live.Rows("items")) messages.Add(item?.DeepClone());
+                    var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
+                    conversation = m.Flag("has_transcript") ? await api.Get(PathFor("/convo?member=" + Client.Segment(member) + "&limit=" + chatLimit)) : new JsonObject();
+                    liveData = m.Flag("embedded") ? await api.Get(PathFor("/live?member=" + Client.Segment(member))) : new JsonObject();
                 }
+                else { conversation = new JsonObject(); liveData = new JsonObject(); }
+                if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+                if (pane == "thread" && threadId.Length > 0) threadData = await api.Get(PathFor("/thread?root=" + Client.Segment(threadId)));
                 var ids = snap.Rows("decisions").Select(d => d.Text("kind") + ":" + d.Text("id") + ":" + d.Text("member")).ToHashSet();
                 if (!active && preferences.Flag("notify") && lastDecisions.TryGetValue(org, out var previous) && ids.Except(previous).Any()) Notify(T("notify.decisions", ("n", ids.Count)));
                 lastDecisions[org] = ids;
@@ -164,25 +178,20 @@ public sealed class MainWindow : Window
                         lastMessages[key] = id;
                     }
             }
-            DrawSide(); DrawChat(); DrawDetail();
+            if (active) MarkSeen();
+            DrawMenu(); DrawSide(); DrawChat(); DrawDetail();
+            if (pane == "workspace") await Workspace();
         }
         finally { refreshing = false; if (pending) Schedule(); }
     }
-    private async Task Select(string id, string who = "")
+    private async Task Select(string id, string who = "", bool fromHistory = false)
     {
-        org = id; member = who; editor.Text = drafts.GetValueOrDefault(org + "/" + member, "");
+        RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
+        if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
+        RestoreChat(); if (!fromHistory) PushHistory(); folded.Remove(id); SaveViewState();
         await Refresh();
     }
-    private void DrawMenu()
-    {
-        if (sendButton != null) sendButton.Content = T("common.send");
-        search.PlaceholderText = T("page.search");
-        menu.Items.Clear();
-        var file = new MenuBarItem { Title = T("common.file") };
-        foreach (var (key, action) in new (string, Func<Task>)[] { ("common.new_org", CreateOrg), ("common.add_member", AddMember), ("cc.title", Copies), ("chart.title", Chart), ("common.settings", Settings) })
-        { var item = new MenuFlyoutItem { Text = T(key) }; item.Click += async (_, _) => await Run(action); file.Items.Add(item); }
-        menu.Items.Add(file);
-    }
+    private void DrawMenu() => BuildMenus();
     private async Task LoadPreferences()
     {
         preferences = await api!.Get("/api/prefs");
@@ -223,36 +232,15 @@ public sealed class MainWindow : Window
         }
         side.Children.Add(Button(T("cc.title"), Copies)); side.Children.Add(Button(T("chart.title"), Chart)); side.Children.Add(Button(T("common.settings"), Settings));
     }
-    private void DrawChat()
-    {
-        chatHead.Children.Clear(); chatHead.Children.Add(Text(snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member), 20));
-        if (member.Length > 0) chatHead.Children.Add(Button(T("common.cancel"), () => Post("/cancel", new { member })));
-        var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 100;
-        stream.Children.Clear();
-        foreach (var item in messages)
-        {
-            var block = new StackPanel { Spacing = 4 };
-            block.Children.Add(Text(item.Text("from") + "  " + item.Text("at"), 12));
-            var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
-            if (body.Length == 0) body = item.Text("title");
-            block.Children.Add(Text(body)); stream.Children.Add(block);
-        }
-        if (atBottom) stream.Loaded += ToBottom;
-        var selected = (recipients.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all";
-        recipients.Items.Clear(); recipients.Items.Add(new ComboBoxItem { Content = T("composer.all_members"), Tag = "all" });
-        foreach (var m in snap.Rows("members")) recipients.Items.Add(new ComboBoxItem { Content = "@" + m.Text("display"), Tag = m.Text("name") });
-        recipients.SelectedItem = recipients.Items.Cast<ComboBoxItem>().FirstOrDefault(x => x.Tag?.ToString() == selected) ?? recipients.Items[0];
-        recipients.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", member));
-    }
+    private void DrawChat() => DrawConversation();
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {
         if (api == null || org.Length == 0 || string.IsNullOrWhiteSpace(editor.Text)) return;
         var body = editor.Text; var destination = PathFor("/send"); var key = org + "/" + member;
-        var payload = Composer.Message(body, member, [(recipients.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all"], snap.Rows("members"));
+        var payload = Composer.Message(Quoted(body), member, recipientNames.ToArray(), snap.Rows("members"));
         await api.Post(destination, payload);
-        drafts[key] = ""; if (key == org + "/" + member && editor.Text == body) editor.Text = "";
+        drafts[key] = ""; if (key == org + "/" + member && editor.Text == body) { editor.Text = ""; ClearQuote(); recipientNames.Clear(); recipientNames.Add("all"); SaveViewState(); }
         await Refresh(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null);
     }
     private async Task Post(string action, object value) { await api!.Post(PathFor(action), value); await Refresh(); }
@@ -262,76 +250,25 @@ public sealed class MainWindow : Window
         detail.Children.Clear();
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         foreach (var (id, key) in new[] { ("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file") })
-            tabs.Children.Add(Button(T(key), async () => { pane = id; DrawDetail(); if (id != "overview") await Workspace(); }));
+            tabs.Children.Add(Button(T(key), () => SetPane(id)));
         detail.Children.Add(tabs);
-        if (pane != "overview") return;
-        detail.Children.Add(Text(snap["org"].Text("purpose"), 16));
-        detail.Children.Add(Text(T("appbar.decisions", ("n", snap.Rows("decisions").Count)), 18));
-        foreach (var d in snap.Rows("decisions"))
+        switch (pane)
         {
-            var card = new StackPanel { Spacing = 6 };
-            card.Children.Add(Text(string.Join("\n", new[] { d.Text("label"), d.Text("title"), d.Text("text"), d.Text("reason"), d.Text("error") }.Where(s => s.Length > 0))));
-            if (d.Text("kind") == "permission")
-                foreach (var option in d.Rows("options")) card.Children.Add(Button(option.Text("name"), async () => { await api!.Post("/api/permission/" + Client.Segment(d.Text("id")), new { option = option.Text("id") }); await Refresh(); }));
-            else if (d.Text("kind") is "approval" or "trajectory")
-                foreach (var decision in new[] { "approve", "deny" }) card.Children.Add(Button(T("decision." + decision), async () =>
-                {
-                    var result = await api!.Post(Client.Org(d.Text("org").Length > 0 ? d.Text("org") : org, d.Text("kind") == "approval" ? "/request" : "/trajectory_answer"), new { request_id = d.Text("id"), decision });
-                    if (result.Text("status") == "failed") throw new InvalidOperationException(result.Text("error"));
-                    await Refresh();
-                }));
-            else if (d.Text("member").Length > 0) card.Children.Add(Button(T("decision.open_chat"), () => Select(org, d.Text("member"))));
-            detail.Children.Add(card);
+            case "thread": DrawThread(); break;
+            case "workspace": detail.Children.Add(workspaceBody); break;
+            case "files": DrawFile(); break;
+            default: DrawOverview(); break;
         }
-        detail.Children.Add(Text(T("org.members"), 18));
-        foreach (var m in snap.Rows("members")) detail.Children.Add(Button(m.Text("display") + " · " + T("state." + m.Text("state")) + "\n" + m.Text("role") + "\n" + m.Text("doing"), () => Select(org, m.Text("name"))));
-        detail.Children.Add(Text(T("common.tasks"), 18));
-        foreach (var task in snap.Rows("tasks")) detail.Children.Add(Text(task.Text("id") + " " + task.Text("title") + "\n" + task.Text("owner") + " · " + T("task." + task.Text("status")) + "\n" + task.Text("report")));
-        detail.Children.Add(Text(T("org.protocols"), 18)); detail.Children.Add(Button(T("org.add"), IssueProtocol));
-        foreach (var key in new[] { "protocols", "inherited_protocols", "replaced_protocols" })
-            foreach (var p in snap.Rows(key))
-            {
-                var content = new StackPanel { Spacing = 5 };
-                content.Children.Add(Text(p.Text("guidance") + "\n" + p.Text("summary_for_person")));
-                if (p.Text("from").Length > 0) content.Children.Add(Text(T("org.inherited_from", ("name", p.Text("from")))));
-                if (p?["issued_by"] != null) content.Children.Add(Text(p["issued_by"].Flag("person") ? T("org.issued_by_person") : T("org.issued_by", ("name", p["issued_by"].Text("name")))));
-                foreach (var rule in p.Rows("rules")) content.Children.Add(Text(rule?.ToJsonString(new() { WriteIndented = true }) ?? ""));
-                detail.Children.Add(new Expander { Header = p.Text("id") + " " + p.Text("title") + " · " + p.Text("status"), Content = content, HorizontalAlignment = HorizontalAlignment.Stretch });
-            }
     }
-
-    private async Task Workspace()
-    {
-        if (org.Length == 0) return;
-        if (member.Length == 0)
-        {
-            detail.Children.Add(Text(T("work.whose")));
-            foreach (var m in snap.Rows("members")) detail.Children.Add(Button(m.Text("display"), async () => { await Select(org, m.Text("name")); await Workspace(); }));
-            return;
-        }
-        var ws = await api!.Get(PathFor("/workspace?member=" + Client.Segment(member)));
-        detail.Children.Add(Text(ws.Text("folder")));
-        if (ws.Text("folder").Length > 0) await Files(ws.Text("folder"));
-    }
-    private async Task Files(string path)
-    {
-        var list = await api!.Get("/api/fs/list?path=" + Client.Segment(path));
-        foreach (var entry in list.Rows("entries")) detail.Children.Add(Button(entry.Text("name"), async () =>
-        {
-            if (entry.Flag("dir")) { DrawDetail(); await Files(entry.Text("path")); }
-            else { var file = await api.Get("/api/fs/read?path=" + Client.Segment(entry.Text("path"))); await Show(entry.Text("name"), Text(file.Text("text"))); }
-        }));
-    }
-
     private async Task Show(string title, UIElement content)
     {
         var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(content), CloseButtonText = T("common.close") };
-        await dialog.ShowAsync();
+        await Dialog(dialog);
     }
-    private async Task Form(string title, StackPanel form, Func<Task> submit)
+    private async Task Form(string title, StackPanel form, Func<Task> submit, string? submitText = null)
     {
         var message = Text(""); form.Children.Add(message);
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = T("common.save"), CloseButtonText = T("common.cancel") };
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel") };
         dialog.PrimaryButtonClick += async (_, e) =>
         {
             var hold = e.GetDeferral();
@@ -339,12 +276,12 @@ public sealed class MainWindow : Window
             catch (Exception ex) { message.Text = ex.Message; e.Cancel = true; }
             finally { hold.Complete(); }
         };
-        await dialog.ShowAsync();
+        await Dialog(dialog);
     }
     private TextBox Field(StackPanel form, string key, bool multiline = false)
     {
         var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap };
-        form.Children.Add(field); return field;
+        form.Children.Add(field); if (preferences.Text("voice") != "off") form.Children.Add(Microphone(field)); return field;
     }
     private ComboBox Choice(StackPanel form, string label, IEnumerable<(string, string)> options)
     {
@@ -357,55 +294,19 @@ public sealed class MainWindow : Window
     {
         var form = new StackPanel { Spacing = 10 };
         var name = Field(form, "common.name"); var purpose = Field(form, "neworg.purpose", true);
+        name.PlaceholderText = T("neworg.name_placeholder"); purpose.PlaceholderText = T("neworg.purpose_placeholder");
         var governance = Choice(form, "neworg.governance", [("leader", T("neworg.gov_leader")), ("peer", T("neworg.gov_peer"))]);
+        var created = false;
         await Form(T("common.new_org"), form, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new ArgumentException(T("neworg.need_name"));
             var result = await api!.Post("/api/orgs", new { name = name.Text.Trim(), purpose = purpose.Text, governance = Value(governance) });
             await Select(result.Text("org_id"));
-        });
+            created = true;
+        }, T("neworg.create"));
+        if (created) await MemberDialog(secretary: true);
     }
-    private async Task AddMember()
-    {
-        if (org.Length == 0) return;
-        var harnesses = await api!.Get("/api/harnesses"); var sessions = await api.Get("/api/sessions"); var options = await api.Get("/api/seat-options");
-        var form = new StackPanel { Spacing = 10 };
-        var mode = Choice(form, "member.where_run", [("app", T("member.run_app")), ("host", T("member.run_host")), ("existing", T("member.run_existing"))]);
-        var name = Field(form, "member.name_label"); var role = Field(form, "common.role");
-        var appFields = new StackPanel { Spacing = 8 }; form.Children.Add(appFields);
-        var harness = Choice(appFields, "common.harness", harnesses.Rows().Where(h => h.Flag("available") && !h.Flag("later")).Select(h => (h.Text("id"), h.Text("title"))));
-        var secretary = new CheckBox { Content = T("member.make_secretary") }; appFields.Children.Add(secretary);
-        var hostFields = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; form.Children.Add(hostFields);
-        var hostHarness = Choice(hostFields, "member.where_run", [("claude-code", "Claude Code"), ("codex", "Codex")]);
-        var effort = Choice(hostFields, "member.effort", options.Rows("efforts").Select(x => (x.Text(), x.Text().Length == 0 ? T("common.default_effort") : x.Text())));
-        var environment = Choice(hostFields, "member.environment", [("local", T("member.env_local")), ("worktree", T("member.env_worktree"))]);
-        var permission = Choice(hostFields, "member.permission", options.Rows("claude_modes").Select(x => (x.Text(), x.Text())));
-        hostHarness.SelectionChanged += (_, _) => { permission.Items.Clear(); foreach (var p in options.Rows(Value(hostHarness) == "codex" ? "codex_sandboxes" : "claude_modes")) permission.Items.Add(new ComboBoxItem { Content = p.Text(), Tag = p.Text() }); permission.SelectedIndex = 0; };
-        var env = Field(hostFields, "member.env_vars", true); var start = new CheckBox { Content = T("member.start_now"), IsChecked = true }; hostFields.Children.Add(start);
-        var existing = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed }; form.Children.Add(existing);
-        var sessionList = sessions.Rows("sessions").Where(s => s.Text("harness") != "chatgpt").ToArray();
-        var session = Choice(existing, "common.session", sessionList.Select((s, i) => (i.ToString(), s.Text("title") + " · " + s.Text("cwd"))));
-        foreach (var problem in sessions.Rows("problems")) existing.Children.Add(Text(problem.Text()));
-        var model = Field(form, "common.model"); var folder = Field(form, "common.work_folder");
-        mode.SelectionChanged += (_, _) => { appFields.Visibility = Value(mode) == "app" ? Visibility.Visible : Visibility.Collapsed; hostFields.Visibility = Value(mode) == "host" ? Visibility.Visible : Visibility.Collapsed; existing.Visibility = Value(mode) == "existing" ? Visibility.Visible : Visibility.Collapsed; };
-        var target = org;
-        await Form(T("common.add_member"), form, async () =>
-        {
-            if (string.IsNullOrWhiteSpace(name.Text)) throw new ArgumentException(T("member.need_name"));
-            if (Value(mode) == "existing")
-            {
-                if (session.SelectedIndex < 0) throw new ArgumentException(T("member.pick_session"));
-                await api.Post(Client.Org(target, "/bind"), new { member = name.Text.Trim(), role = role.Text, session = sessionList[int.Parse(Value(session))] });
-            }
-            else if (Value(mode) == "app")
-            {
-                if (Value(harness).Length == 0) throw new ArgumentException(T("member.need_harness"));
-                await api.Post(Client.Org(target, "/members"), new { name = name.Text.Trim(), role = role.Text, harness = Value(harness), model = model.Text, folder = folder.Text, secretary = secretary.IsChecked == true });
-            }
-            else await api.Post(Client.Org(target, "/seat"), new { name = name.Text.Trim(), role = role.Text, harness = Value(hostHarness), surface = "cli", model = model.Text, folder = folder.Text, effort = Value(effort), environment = Value(environment), permission = Value(permission), env = env.Text, start = start.IsChecked == true });
-            await Select(target, name.Text.Trim());
-        });
-    }
+    private Task AddMember() => MemberDialog();
     private async Task IssueProtocol()
     {
         var form = new StackPanel { Spacing = 10 };
@@ -435,17 +336,7 @@ public sealed class MainWindow : Window
         }
         await Show(T("cc.title"), content);
     }
-    private async Task Settings()
-    {
-        var form = new StackPanel { Spacing = 12 };
-        var lang = Choice(form, "settings.language.title", [("zh-CN", "简体中文"), ("en-US", "English")]); lang.SelectedIndex = words.Language == "zh-CN" ? 0 : 1;
-        var notify = new CheckBox { Content = T("settings.notify"), IsChecked = preferences.Flag("notify") }; form.Children.Add(notify);
-        await Form(T("common.settings"), form, async () =>
-        {
-            preferences = await api!.Post("/api/prefs", new { lang = Value(lang), notify = notify.IsChecked == true });
-            words.Load(await api.Get("/api/i18n?lang=" + Value(lang))); DrawMenu(); await Refresh();
-        });
-    }
+    private Task Settings() => SettingsScreen();
     private void Notify(string message)
     {
         try { AppNotificationManager.Default.Show(new AppNotificationBuilder().AddText("Relic").AddText(message).BuildNotification()); }

@@ -50,6 +50,19 @@ def server_keys():
     return keys
 
 
+def native_keys():
+    native = ROOT.parents[1] / "native"
+    keys = set()
+    for path in native.rglob("*"):
+        if path.suffix not in (".cs", ".swift", ".xaml") or any(part in ("bin", "obj", ".build", "Tests") for part in path.parts):
+            continue
+        keys.update(re.findall(r'"(native\.[a-z_]+)"', path.read_text(encoding="utf-8-sig")))
+    packaging = ROOT.parents[1] / "scripts/native_package.py"
+    if packaging.exists():
+        keys.update(re.findall(r'"(native\.[a-z_]+)"', packaging.read_text(encoding="utf-8")))
+    return keys
+
+
 class WordLists(unittest.TestCase):
     def test_the_app_ships_simplified_chinese_and_english(self):
         self.assertEqual(i18n.codes(), SHIPPED)
@@ -87,7 +100,7 @@ class WordLists(unittest.TestCase):
             self.assertEqual(sorted(keys - set(word_list(code))), [], code)
 
     def test_every_text_is_used(self):
-        used = page_keys() | server_keys() | {"list.pair", "list.middle", "list.end"}
+        used = page_keys() | server_keys() | native_keys() | {"list.pair", "list.middle", "list.end"}
         unused = sorted(k for k in word_list("en-US") if not k.startswith("@") and k not in used)
         self.assertEqual(unused, [])
 
