@@ -1,0 +1,6 @@
+{
+  "routes": {
+    "/api/install-window": "Browser/PWA installation is replaced by the native installer and Finder app bundle. The native App must never open this route."
+  },
+  "keys": {}
+}
