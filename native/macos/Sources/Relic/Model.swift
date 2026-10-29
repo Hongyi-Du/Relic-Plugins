@@ -60,6 +60,7 @@ import RelicCore
     @Published var threadDraft = ""
     private var threadPreviousPane = "overview"
     @Published var file = Node()
+    @Published var workspaceMember = ""
     @Published var fileImage: NSImage?
     @Published var fileLine = 0
     @Published var plainMode = false
@@ -320,10 +321,17 @@ import RelicCore
     }
     func openFile(_ path: String, line: Int = 0) async throws {
         let selected = selection, request = UUID(); fileRequest = request
-        let result: Node
-        do { result = try await get("/api/fs/read?path=" + Client.segment(path)) } catch { throw RelicError.message(t("file.open_failed", ["error": error.localizedDescription])) }
-        var image: NSImage?; if result["kind"].text == "image" { image = NSImage(data: try await bytes("/api/fs/raw?path=" + Client.segment(path))) }
-        guard selection == selected, fileRequest == request else { return }; file = result; fileImage = image; fileLine = line; setPane("files")
+        file = Node(["path": path]); fileImage = nil; fileLine = line; setPane("files")
+        do {
+            let result = try await get("/api/fs/read?path=" + Client.segment(path))
+            var image: NSImage?
+            if result["kind"].text == "image" { image = NSImage(data: try await bytes("/api/fs/raw?path=" + Client.segment(path))) }
+            guard selection == selected, fileRequest == request else { return }
+            file = result; fileImage = image
+        } catch {
+            guard selection == selected, fileRequest == request else { return }
+            file = Node(["path": path, "error": error.localizedDescription])
+        }
     }
     func acceptPlain(_ items: Node, ids: [String]) {
         for (id, value) in items.object { plain[id] = Node(value) }

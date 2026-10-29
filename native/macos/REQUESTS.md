@@ -506,3 +506,15 @@ no notification-key exception is required.
 All other vocabulary is integrated into matching controls, status formatting,
 accessibility labels, errors and success states. The Enter/Shift-Enter labels
 are used directly and require no exemption.
+
+
+## File JSON display order (2026-10-29, after e0bbd64)
+
+Please add `display_text: string` to `GET /api/fs/read?path=...` for `kind == "json"`.
+The reference parses the file and applies `JSON.stringify(parsed, null, 2)`: preserve
+object insertion order except JavaScript array-index ordering, use JS numeric display,
+and do not sort ordinary keys. macOS reads `display_text` when present, otherwise keeps
+the original text, which is an explicitly remaining mismatch. The previous client-side
+JSONSerialization `.sortedKeys` changed the visible order and has been removed. A shared
+formatter avoids introducing another JSON parser/number formatter in the native client.
+Existing raw `text`, truncation, size, path, and filesystem authorization stay unchanged.

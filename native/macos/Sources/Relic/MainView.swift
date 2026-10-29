@@ -159,7 +159,7 @@ struct RightPane: View {
                 .overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
             switch m.pane {
             case "workspace": WorkspaceView()
-            case "files": FilePreview().padding(14)
+            case "files": FilePreview()
             case "thread": ThreadView()
             default: ScrollView { Overview() }
             }

@@ -50,7 +50,7 @@ struct ReferenceLabel: NSViewRepresentable {
         container.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        return CGSize(width: min(width, ceil(used.width)), height: max(lineHeight ?? size * 1.6, ceil(used.height)))
+        return CGSize(width: min(width, ceil(used.width)), height: max(lineHeight ?? size * 1.6, used.height))
     }
 }
 
