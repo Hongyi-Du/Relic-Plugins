@@ -58,7 +58,7 @@ public sealed partial class MainWindow
     }
     private void UpdateRecipient()
     {
-        if (recipientButton != null) { recipientButton.Content = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : string.Join(", ", recipientNames.Select(Display)))); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed; }
+        if (recipientButton != null) { recipientButton.Content = T("composer.send_to", ("to", recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display)))); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed; }
     }
     private void MentionMenu()
     {
@@ -185,9 +185,9 @@ public sealed partial class MainWindow
             var avatar = Button("", () => from == "human" ? Settings() : MemberCard(from)); avatar.Content = Avatar(from == "human" ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from)); row.Children.Add(avatar);
             row.Children.Add(Text((item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from)) + " · " + When(item.Text("at")), 12)); box.Children.Add(row);
         }
-        if (!inThread && member.Length == 0) box.Children.Add(Text(T("msg.to", ("names", string.Join(", ", item.Rows("to").Select(x => Display(x.Text()))))), 12));
+        if (!inThread && member.Length == 0) box.Children.Add(Text(T("msg.to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), 12));
         var key = PlainKey(item.Text("id")); var explainable = from != "human" && long.TryParse(item.Text("id"), out _);
-        if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", string.Join(", ", item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
+        if (item.Text("type") == "receipt") box.Children.Add(new Expander { Header = T("msg.auto_receipt_to", ("names", words.List(item.Rows("to").Select(x => Display(x.Text()))))), Content = Text(body.Replace("[Relic auto-receipt]", "")) });
         else if (explainable && (plainOne.Contains(key) || plainMode && member.Length == 0 && !inThread) && plain.TryGetValue(key, out var explained))
         { box.Children.Add(Text(T("msg.plain"), 12)); box.Children.Add(Rich(explained)); box.Children.Add(new Expander { Header = T("msg.original"), Content = Rich(body) }); }
         else

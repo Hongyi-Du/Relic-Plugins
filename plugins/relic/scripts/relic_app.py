@@ -1,4 +1,4 @@
-"""Open the Relic App: start its local server when it is not running, then open its window.
+"""Open the native Relic App, or explicitly manage its shared headless engine.
 
     python scripts/relic_app.py               open the native App (it owns its server)
     python scripts/relic_app.py --no-window   only make sure the server runs
@@ -12,7 +12,6 @@ The window is the installed WinUI or SwiftUI application. There is no browser fa
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -220,6 +219,7 @@ def open_native_app():
                      close_fds=True, start_new_session=not WINDOWS,
                      creationflags=platform_support.creation_flags(0x00000200))
     return str(bundle if not WINDOWS and bundle.suffix == ".app" else executable)
+
 
 def main():
     parser = argparse.ArgumentParser()

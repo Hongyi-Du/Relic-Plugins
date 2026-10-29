@@ -198,10 +198,10 @@ public sealed partial class MainWindow
         {
             var scope = new List<string> { rule.Rows("tools").Count == 1 && rule.Rows("tools")[0].Text() == "Reply" ? T("cc.scope_reply") : string.Join(" / ", rule.Rows("tools").Select(x => x.Text())) };
             if (rule.Text("path_glob").Length > 0) scope.Add(T("cc.scope_path", ("glob", rule.Text("path_glob"))));
-            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", string.Join(", ", rule.Rows("input_contains").Select(x => x.Text())))));
+            if (rule.Rows("input_contains").Count > 0) scope.Add(T("cc.scope_contains", ("words", words.List(rule.Rows("input_contains").Select(x => x.Text())))));
             var who = rule.Rows("roles").Concat(rule.Rows("members")).ToArray(); var except = rule.Rows("except_roles").Concat(rule.Rows("except_members")).ToArray();
-            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", string.Join(", ", who.Select(x => x.Text())))));
-            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", string.Join(", ", except.Select(x => x.Text())))));
+            if (who.Length > 0) scope.Add(T("cc.scope_who", ("names", words.List(who.Select(x => x.Text())))));
+            if (except.Length > 0) scope.Add(T("cc.scope_except", ("names", words.List(except.Select(x => x.Text())))));
             body.Children.Add(Text(T("cc.scope", ("what", string.Join(" · ", scope)))));
             body.Children.Add(Text(rule.Text("on_error") == "deny" ? T("cc.on_error_deny") : T("cc.on_error_allow")));
             var code = Text(rule.Text("code"), 12); code.FontFamily = new FontFamily("Consolas"); body.Children.Add(code);

@@ -98,6 +98,15 @@ class NativeOpen(unittest.TestCase):
 
 
 class NativeWindows(unittest.TestCase):
+    def test_panel_uses_the_same_native_launcher_and_reports_missing_installation(self):
+        from relic_core import runner
+        with mock.patch("scripts.relic_app.open_native_app", return_value="Relic.exe") as launch:
+            self.assertEqual(runner.open_window(), "Relic.exe")
+            launch.assert_called_once_with()
+            launch.side_effect = RuntimeError("native Relic App is not installed")
+            with self.assertRaisesRegex(RuntimeError, "native Relic App is not installed"):
+                runner.open_window()
+
     def test_unsupported_python_is_rejected_before_starting_the_server(self):
         with mock.patch.object(sys, "argv", ["relic_app.py", "--no-window"]), \
                 mock.patch.object(platform_support, "require_supported_python", side_effect=RuntimeError("native arm64 required")), \

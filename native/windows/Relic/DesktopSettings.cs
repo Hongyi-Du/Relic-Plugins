@@ -245,7 +245,8 @@ public sealed partial class MainWindow
             if (installed == null) { Note(T("native.voice_language_missing", ("language", words.Language))); return; }
             var recognizer = new SpeechRecognitionEngine(installed); speech = recognizer; speechButton = button;
             recognizer.LoadGrammar(new DictationGrammar());
-            recognizer.SetInputToDefaultAudioDevice();
+            try { recognizer.SetInputToDefaultAudioDevice(); }
+            catch (InvalidOperationException) { await StopVoice(); Note(T("composer.voice_no_mic")); return; }
             var before = target.Text[..target.SelectionStart]; var after = target.Text[(target.SelectionStart + target.SelectionLength)..]; var final = "";
             recognizer.SpeechRecognized += (_, e) => DispatcherQueue.TryEnqueue(() =>
             {

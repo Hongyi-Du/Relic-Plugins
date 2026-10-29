@@ -80,7 +80,7 @@ public sealed partial class MainWindow
                 foreach (var seat in seats)
                 {
                     var id = seat.Text("org"); if (!tips.ContainsKey(id)) tips[id] = [];
-                    tips[id].Add(T("chart.shared_tip", ("member", seat.Text("member")), ("orgs", string.Join(", ", seats.Where(s => s.Text("org") != id).Select(s => nodes.FirstOrDefault(n => n.Text("id") == s.Text("org")).Text("name"))))));
+                    tips[id].Add(T("chart.shared_tip", ("member", seat.Text("member")), ("orgs", words.List(seats.Where(s => s.Text("org") != id).Select(s => nodes.FirstOrDefault(n => n.Text("id") == s.Text("org")).Text("name"))))));
                 }
                 if (!chartLinks) continue;
                 for (int i = 0; i < seats.Length; i++) for (int j = i + 1; j < seats.Length; j++)

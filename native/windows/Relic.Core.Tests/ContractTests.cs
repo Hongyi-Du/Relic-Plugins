@@ -6,6 +6,25 @@ using Xunit;
 
 public class ContractTests
 {
+    [Fact] public void ListsUseTheSharedLanguageTemplates()
+    {
+        var words = new Words();
+        words.Load(JsonNode.Parse("{\"lang\":\"en-US\",\"strings\":{\"list.pair\":\"{a} and {b}\",\"list.middle\":\"{a}, {b}\",\"list.end\":\"{a}, and {b}\"}}")!);
+        Assert.Equal("A and B", words.List(["A", "B"])); Assert.Equal("A, B, and C", words.List(["A", "B", "C"]));
+        words.Load(JsonNode.Parse("{\"lang\":\"zh-CN\",\"strings\":{\"list.pair\":\"{a}、{b}\",\"list.middle\":\"{a}、{b}\",\"list.end\":\"{a}、{b}\"}}")!);
+        Assert.Equal("甲、乙、丙", words.List(["甲", "乙", "丙"]));
+    }
+    [Fact] public async Task RejectedReplacementIdentityDoesNotRepeatTheWrite()
+    {
+        int writes = 0;
+        using var client = new Client(39321, "old", new Handler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/lifecycle") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"app\":\"relic\",\"state\":\"running\",\"pid\":11,\"instance\":\"unexpected\"}") });
+            writes++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"error\":\"missing token\"}") });
+        }), () => JsonNode.Parse("{\"port\":39321,\"token\":\"new\",\"pid\":11,\"instance\":\"expected\"}"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.Post("/api/org/o/send", new { body = "hello" }));
+        Assert.Equal(1, writes);
+    }
     [Fact] public void InlinePathsRespectUrlsPunctuationAndLineNumbers()
     {
         var parts = InlineParts.Parse("See /tmp/a.py:12:3， and `C:\\work folder\\x.py:4` https://example.com/a/b.").ToArray();
