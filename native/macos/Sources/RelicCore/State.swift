@@ -1,5 +1,25 @@
 import Foundation
 
+// Speech results contain the whole current transcription, including interim text.
+// Keep the original selection so each update replaces it without accumulating words.
+public struct DictationInsertion {
+    private let before: String
+    private let after: String
+    public init(text: String, selection: NSRange? = nil) {
+        let source = text as NSString
+        let range: NSRange
+        if let selection, selection.location <= source.length,
+           selection.length <= source.length - selection.location,
+           Range(selection, in: text) != nil { range = selection }
+        else { range = NSRange(location: source.length, length: 0) }
+        before = source.substring(to: range.location)
+        after = source.substring(from: range.location + range.length)
+    }
+    public func applying(_ transcription: String) -> (text: String, caret: Int) {
+        (before + transcription + after, (before + transcription).utf16.count)
+    }
+}
+
 public struct NodeRow: Identifiable {
     public let id: String
     public let node: Node

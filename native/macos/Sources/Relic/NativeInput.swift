@@ -71,9 +71,11 @@ final class ComposerTextView: NSTextView {
     private var task: SFSpeechRecognitionTask?
     private var tapInstalled = false
     private var requestID = UUID()
-    func start(language: String, model: Model, update: @escaping (String) -> Void) async throws {
+    private var ended: (() -> Void)?
+    func start(language: String, model: Model, ended: @escaping () -> Void = {}, update: @escaping (String) -> Void) async throws {
         guard !starting && !recording else { return }; stop(); starting = true
         if model.activeSpeech !== self { model.activeSpeech?.stop() }; model.activeSpeech = self
+        self.ended = ended
         let id = UUID(); requestID = id
         defer { starting = false }
         // Shared packaging supplies the privacy keys; never trigger Apple's fatal missing-key path.
@@ -105,7 +107,12 @@ final class ComposerTextView: NSTextView {
         }
         do { audio.prepare(); try audio.start(); recording = true } catch { stop(); throw error }
     }
-    func stop() { requestID = UUID(); audio.stop(); if tapInstalled { audio.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); task?.cancel(); task = nil; request = nil; recording = false }
+    func stop() {
+        requestID = UUID(); audio.stop()
+        if tapInstalled { audio.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        request?.endAudio(); task?.cancel(); task = nil; request = nil; recording = false
+        let completion = ended; ended = nil; completion?()
+    }
 }
 
 struct VoiceButton: View {
@@ -114,11 +121,32 @@ struct VoiceButton: View {
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            Button { if voice.recording { voice.stop() } else { let before = text; m.run { try await voice.start(language: m.words.language, model: m) { text = before + (before.isEmpty ? "" : " ") + $0 } } } } label: {
+            Button(action: toggle) {
                 Label(m.t("common.voice_input"), systemImage: voice.recording ? "stop.circle.fill" : "mic")
             }.disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         } else {
             Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
+        }
+    }
+    private func toggle() {
+        if voice.recording { voice.stop(); return }
+        let focused = NSApp.keyWindow?.firstResponder as? NSTextView
+        let editor = focused?.string == text ? focused : nil
+        let insertion = DictationInsertion(text: text, selection: editor?.selectedRange())
+        m.run {
+            do {
+                try await voice.start(language: m.words.language, model: m, ended: { [weak editor] in
+                    if let editor, let window = editor.window, window.isKeyWindow { window.makeFirstResponder(editor) }
+                }) { [weak editor] transcription in
+                    let result = insertion.applying(transcription)
+                    text = result.text
+                    if let editor, editor.window != nil {
+                        editor.string = result.text
+                        editor.setSelectedRange(NSRange(location: result.caret, length: 0))
+                        editor.didChangeText()
+                    }
+                }
+            } catch { voice.stop(); throw error }
         }
     }
 }
