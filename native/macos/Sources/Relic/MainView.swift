@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import RelicCore
 
 struct Rows<Content: View>: View {
@@ -10,6 +11,12 @@ struct Rows<Content: View>: View {
 
 struct MainView: View {
     @EnvironmentObject var m: Model
+    @State private var resizingPanel: CGFloat?
+    @State private var resizeStart: CGFloat?
+    private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
+    private var panelWidth: CGFloat {
+        InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
+    }
     var body: some View {
         GeometryReader { geometry in
         VStack(spacing: 0) {
@@ -17,16 +24,28 @@ struct MainView: View {
             if !m.error.isEmpty { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.notice.isEmpty { HStack { Text(m.notice); Spacer(); Button(m.t("common.close")) { m.notice = "" } }.padding(8) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
-            HSplitView {
-                if m.sidebarOpen { Sidebar().frame(minWidth: 276, idealWidth: 276, maxWidth: 340).measuredRegion("sidebar") }
-                ChatView().frame(minWidth: 320, maxWidth: .infinity).background(SplitPersistence())
-                if m.panelOpen { RightPane().frame(minWidth: m.pane == "files" ? min(460, max(320, m.windowSize.width - (m.sidebarOpen ? 276 : 0) - 322)) : 320, idealWidth: m.pane == "files" ? 520 : 340, maxWidth: 740).measuredRegion("right-pane") }
+            HStack(spacing: 0) {
+                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
+                ChatView().frame(minWidth: 0, maxWidth: .infinity)
+                if m.panelOpen {
+                    RightPane().frame(width: panelWidth).measuredRegion("right-pane")
+                        .overlay(alignment: .leading) {
+                            Color.clear.frame(width: 6).contentShape(Rectangle())
+                                .onHover { hovering in if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                                    if resizeStart == nil { resizeStart = panelWidth }
+                                    resizingPanel = InspectorGeometry.width(window: m.windowSize.width, saved: (resizeStart ?? panelWidth) - value.translation.width, files: m.pane == "files")
+                                }.onEnded { _ in m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
+                                .help(m.t("panel.resize"))
+                        }
+                }
             }.frame(maxHeight: .infinity)
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop() }
+        .onChange(of: m.pane) { resizingPanel = nil; resizeStart = nil }
         .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)
         .font(RelicStyle.font(m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14, weight: 400))

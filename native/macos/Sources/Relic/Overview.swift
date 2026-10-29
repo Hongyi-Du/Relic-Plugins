@@ -10,22 +10,20 @@ struct Overview: View {
         VStack(alignment: .leading, spacing: 0) {
             OverviewBlock {
                 HStack(spacing: 8) {
-                    Text(m.t("org.heading")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); Spacer(minLength: 0)
+                    ReferenceLabel(m.t("org.heading"), size: 12, color: RelicStyle.muted).fixedSize(); Spacer(minLength: 0)
                     HStack(spacing: 2) {
                         ForEach(Choices.modes, id: \.0) { value, key in
                             Button { m.overviewMode = value } label: {
-                                Text(m.t(key)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary)
-                                    .padding(.horizontal, 9).frame(height: 23.2)
+                                ReferenceLabel(m.t(key), size: 12, color: m.overviewMode == value ? RelicStyle.ink : RelicStyle.secondary, lines: 0, alignment: .center)
+                                    .padding(.horizontal, 9).padding(.vertical, 2)
                                     .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6))
-                            }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
+                            }.buttonStyle(.plain).layoutPriority(value == "liaison" ? 0 : 1).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : [])
                         }
                     }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
                         .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
                 }
                 Text(org["name"].text).font(RelicStyle.font(16, weight: 700)).frame(minHeight: 21.6)
-                Text(org["purpose"].text.isEmpty ? m.t("org.no_purpose") : org["purpose"].text)
-                    .font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary).lineSpacing(5)
-                    .lineLimit(purposeOpen ? nil : 3).fixedSize(horizontal: false, vertical: true)
+                ReferenceLabel(org["purpose"].text.isEmpty ? m.t("org.no_purpose") : org["purpose"].text, size: 12.5, color: RelicStyle.secondary, lineHeight: 20, lines: purposeOpen ? 0 : 3)
                     .help(m.t("org.click_expand")).onTapGesture { purposeOpen.toggle() }
                 FlowLayout {
                     if org["cabinet"].flag { OverviewChip(text: m.t("org.cabinet_chip")) }

@@ -63,6 +63,17 @@ import ApplicationServices
         XCTAssertGreaterThan(try XCTUnwrap(last["line_count"] as? Int), 1)
     }
 
+    func testTextKitDynamicColorsResolveInTheActualViewAppearance() throws {
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 50))
+        view.textStorage?.setAttributedString(NSAttributedString(string: "Actual appearance", attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor(RelicStyle.ink)]))
+        for (appearance, expected) in [(NSAppearance.Name.darkAqua, [236.0, 234, 229, 255]), (.aqua, [27.0, 27, 26, 255])] {
+            view.appearance = NSAppearance(named: appearance)
+            let style = try XCTUnwrap(ElementCapture.textRuns(view).first?["style"] as? [String: Any])
+            let rgba = try XCTUnwrap(style["color"] as? [Double])
+            for index in expected.indices { XCTAssertEqual(rgba[index], expected[index], accuracy: 0.001) }
+        }
+    }
+
 }
 
 private final class InformalAccessibilityNode: NSObject {

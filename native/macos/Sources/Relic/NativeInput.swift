@@ -192,14 +192,12 @@ struct VoiceButton: View {
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            Button(action: toggle) {
-                Label(m.t("common.voice_input"), systemImage: voice.recording ? "stop.circle.fill" : "mic")
-            }.buttonStyle(.borderless).controlSize(.small).disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
-        } else {
-            Image(systemName: "mic.slash").foregroundStyle(.secondary).help(m.t("composer.voice_off"))
+            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: 26, action: toggle)
+                .disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         }
     }
     private func toggle() {
+        guard m.preferences["voice"].text != "off" else { m.notice = m.t("composer.voice_off"); return }
         if voice.recording { voice.stop(); return }
         let focused = NSApp.keyWindow?.firstResponder as? NSTextView
         let editor = focused?.string == text ? focused : nil

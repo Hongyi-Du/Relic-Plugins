@@ -75,32 +75,30 @@ struct SettingsView: View {
     private var language: some View {
         VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.language.label"), hint: m.t("settings.language.hint")) {
-                VStack(alignment: .trailing, spacing: 8) {
-                    Picker(m.t("settings.language.label"), selection: Binding(get: { m.words.language }, set: { value in m.run { try await m.saveSettings(language: value, notify: m.preferences["notify"].flag) } })) { Rows(m.words.languages) { Text($0["name"].text).tag($0["code"].text) } }.labelsHidden()
-                    Button(m.t("settings.language.system", ["lang": m.words.languages.first(where: { $0["code"].text == Words.normalize(Locale.current.identifier) })?["name"].text ?? Words.normalize(Locale.current.identifier)])) { m.run { try await m.savePreferences(["lang": Words.normalize(Locale.current.identifier)]) } }.font(RelicStyle.font(11.5, weight: 400)).buttonStyle(.link)
-                }
+                ReferenceSelectField(title: m.t("settings.language.label"), selection: preference("lang"), options: [("", m.t("settings.language.system", ["lang": Words.normalize(Locale.current.identifier)]))] + m.words.languages.map { ($0["code"].text, $0["name"].text) }).frame(width: 200)
             }
-            SettingsRow(title: m.t("settings.auto_names.label"), hint: m.t("settings.auto_names.hint")) { Toggle(m.t("settings.auto_names.label"), isOn: toggle("auto_names")).toggleStyle(.switch).labelsHidden() }
+            SettingsRow(title: m.t("settings.auto_names.label"), hint: m.t("settings.auto_names.hint"), last: true) { Toggle(m.t("settings.auto_names.label"), isOn: toggle("auto_names")).toggleStyle(SettingsToggleStyle()).labelsHidden() }
         }
     }
     private var voice: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             SettingsRow(title: m.t("common.voice_input"), hint: m.t("settings.voice_hint")) {
-                Picker(m.t("common.voice_input"), selection: preference("voice")) { Text(m.t("native.speech")).tag("browser"); Text(m.t("settings.voice_off")).tag("off") }.labelsHidden()
+                SettingsSegments(options: [("browser", m.t("settings.voice_browser")), ("off", m.t("settings.voice_off"))], selection: preference("voice"))
             }
-            SettingsRow(title: m.t("settings.voice_try")) {
-                HStack(alignment: .bottom) {
-                    TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical).textFieldStyle(.plain).labelsHidden().lineLimit(3...6)
-                    VoiceButton(text: $voiceTest).labelStyle(.iconOnly)
-                }.padding(9).overlay(RoundedRectangle(cornerRadius: 8).stroke(RelicStyle.border))
+            SettingsRow(title: m.t("settings.voice_try"), hint: m.t("settings.voice_supported_mac")) {
+                TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical).textFieldStyle(.plain).labelsHidden()
+                    .font(RelicStyle.font(14, weight: 400)).lineLimit(2...2)
+                    .padding(.vertical, 7).padding(.leading, 10).padding(.trailing, 34).frame(width: 300, height: 60.8)
+                    .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 9))
+                    .overlay(alignment: .trailing) { VoiceButton(text: $voiceTest).padding(.trailing, 4) }
             }
-            Text(m.t("settings.voice_mac")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 14)
+            ReferenceLabel(m.t("settings.voice_mac"), size: 12.5, color: RelicStyle.muted, lineHeight: 21.25, lines: 0).padding(.top, 10)
         }
     }
     private var notifications: some View {
         VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.desktop_notify"), hint: m.t("settings.desktop_notify_hint")) {
-                Toggle(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } })).toggleStyle(.switch).labelsHidden()
+                Toggle(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } })).toggleStyle(SettingsToggleStyle()).labelsHidden()
             }
             SettingsRow(title: m.t("settings.notify_test"), last: true) { TextButton(m.t("settings.notify_send_test")) { m.run { try await m.authorizeNotifications(); m.notify(m.t("settings.notify_on")) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
         }
@@ -147,7 +145,7 @@ struct HarnessSettings: View {
             Text(m.t("settings.desktop_connections")).font(RelicStyle.font(15, weight: 600)).padding(.top, 22)
             SettingsRow(title: "Codex / ChatGPT", hint: m.platform["desktop_transport"]["reason"].text) { SmallBadge(text: m.t(m.platform["desktop_transport"]["available"].flag ? "settings.connected" : "settings.not_connected"), color: m.platform["desktop_transport"]["available"].flag ? RelicStyle.green : RelicStyle.muted) }
             SettingsRow(title: "Claude Desktop", hint: m.t("settings.claude_desktop_hint")) {
-                Toggle("Claude Desktop", isOn: Binding(get: { m.platform["claude_desktop"]["enabled"].flag }, set: { value in m.run { m.platform = try await m.post("/api/platform", ["claude_desktop_enabled": value, "probe": true]) } })).toggleStyle(.switch).labelsHidden()
+                Toggle("Claude Desktop", isOn: Binding(get: { m.platform["claude_desktop"]["enabled"].flag }, set: { value in m.run { m.platform = try await m.post("/api/platform", ["claude_desktop_enabled": value, "probe": true]) } })).toggleStyle(SettingsToggleStyle()).labelsHidden()
             }
             SettingsRow(title: m.t("settings.desktop_probe"), hint: m.t("settings.desktop_probe_hint")) { Button(m.t("settings.desktop_probe")) { m.run { m.platform = try await m.post("/api/platform", ["probe": true]) } } }
             VStack(spacing: 10) { Rows(harnesses.filter { !$0["later"].flag }) { harness in

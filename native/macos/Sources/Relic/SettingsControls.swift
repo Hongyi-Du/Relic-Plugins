@@ -1,5 +1,18 @@
 import SwiftUI
 
+struct SettingsToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            Circle().fill(.white).frame(width: 14, height: 14)
+                .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+                .frame(width: 28, alignment: configuration.isOn ? .trailing : .leading).padding(2)
+                .modifier(RecordedSurface(background: configuration.isOn ? RelicStyle.accent : RelicStyle.border, radius: 9))
+        }.buttonStyle(.plain).accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
+        }
+    }
+}
+
 struct SettingsNavigationButton: View {
     let title: String, icon: String
     let selected: Bool
