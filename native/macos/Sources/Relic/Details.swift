@@ -14,6 +14,7 @@ struct DetailsView: View {
             case "tasks":
                 Picker(m.t("common.tasks"), selection: $filter) { Text(m.t("task.working")).tag("open"); Text(m.t("task.blocked")).tag("blocked"); Text(m.t("details.filter_done")).tag("done"); Text(m.t("common.all")).tag("all") }.pickerStyle(.segmented)
                 ScrollView { VStack(alignment: .leading, spacing: 12) {
+                    if m.snapshot["tasks"].rows.isEmpty { Text(m.t("details.no_tasks")) }
                     Rows(Array(m.snapshot["tasks"].rows.filter { filter == "all" || (filter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == filter) }.reversed())) { TaskCard(task: $0) }
                 } }.onAppear { if !m.detailTask.isEmpty { filter = "all" } }
             case "protocols": ScrollView { ProtocolList() }
@@ -63,6 +64,7 @@ struct TraceView: View {
             ScrollView { VStack(alignment: .leading, spacing: 12) { Rows(m.members) { who in Button(who.display) { m.detailMember = who["name"].text } } }.padding(8) }.frame(width: 180)
             VStack(alignment: .leading) {
                 Text(m.t("trace.title", ["name": m.name(m.detailMember)])).font(.headline)
+                Text(m.t("trace.session", ["id": data["session"].text]) + (m.members.first { $0["name"].text == m.detailMember }?["parent"].text.isEmpty == false ? m.t("trace.in_session", ["name": m.name(m.members.first { $0["name"].text == m.detailMember }?["parent"].text ?? "")]) : "")).font(.caption)
                 Picker("", selection: $filter) { Text(m.t("common.all")).tag("all"); Text(m.t("trace.filter_talk")).tag("talk"); Text(m.t("trace.filter_actions")).tag("tools") }.pickerStyle(.segmented)
                 TextField(m.t("trace.search"), text: $query)
                 if data["start"].integer > 0 { Button(m.t("trace.load_older")) { m.run { try await load(older: true) } }.disabled(loading) }

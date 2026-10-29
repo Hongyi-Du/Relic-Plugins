@@ -28,7 +28,7 @@ struct SettingsView: View {
     private var profile: some View {
         Section(m.t("settings.profile")) {
             HStack { Avatar(member: "human", size: 60); Button(m.t("common.change")) { m.run { try await pickAvatar(m) } }; Button(m.t("settings.remove")) { m.run { try await m.post("/api/avatar", ["data": ""]); m.preferences = try await m.get("/api/prefs") } } }
-            Text(m.t("settings.avatar_hint")).font(.caption)
+            Text(m.t("settings.avatar")).font(.caption); Text(m.t("settings.avatar_hint")).font(.caption)
             TextField(m.t("common.name"), text: $name).onSubmit { m.run { try await m.savePreferences(["name": name]) } }
             Text(m.t("settings.name_hint")).font(.caption)
             Button(m.t("common.save")) { m.run { try await m.savePreferences(["name": name]) } }
@@ -47,13 +47,14 @@ struct SettingsView: View {
         Section(m.t("settings.language.title")) {
             Picker(m.t("settings.language.label"), selection: Binding(get: { m.words.language }, set: { value in m.run { try await m.saveSettings(language: value, notify: m.preferences["notify"].flag) } })) { Rows(m.words.languages) { Text($0["name"].text).tag($0["code"].text) } }
             Text(m.t("settings.language.hint")).font(.caption)
+            Button(m.t("settings.language.system", ["lang": Words.normalize(Locale.current.identifier)])) { m.run { try await m.savePreferences(["lang": Words.normalize(Locale.current.identifier)]) } }
             Toggle(m.t("settings.auto_names.label"), isOn: toggle("auto_names")); Text(m.t("settings.auto_names.hint")).font(.caption)
         }
     }
     private var voice: some View {
         Section(m.t("common.voice_input")) {
             Picker(m.t("common.voice_input"), selection: preference("voice")) { Text(m.t("native.speech")).tag("browser"); Text(m.t("settings.voice_off")).tag("off") }
-            Text(m.t("settings.voice_hint")); TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical); VoiceButton(text: $voiceTest)
+            Text(m.t("settings.voice_hint")); Text(m.t("settings.voice_try")).bold(); TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical); VoiceButton(text: $voiceTest)
             Text(m.t("settings.voice_mac")).font(.caption)
         }
     }
@@ -61,6 +62,7 @@ struct SettingsView: View {
         Section(m.t("settings.notify")) {
             Toggle(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } }))
             Text(m.t("settings.desktop_notify_hint"))
+            Text(m.t("settings.notify_test")).font(.caption)
             Button(m.t("settings.notify_send_test")) { m.run { let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]); if allowed { m.notify(m.t("settings.notify_on")) } else { throw RelicError.message(m.t("settings.notify_denied")) } } }
         }
     }
@@ -70,7 +72,7 @@ struct SettingsView: View {
             Text(m.t("settings.data_folder")); Text(m.preferences["data"].text).textSelection(.enabled)
             Button(m.t("common.open")) { m.run { try await m.post("/api/open", ["what": "data"]) } }
             Text(m.t("settings.logs_hint")); Button(m.t("settings.logs")) { m.run { try await m.post("/api/open", ["what": "logs"]) } }
-            Text(m.t("settings.local_server_hint", ["port": m.preferences["port"].text])); Text(m.t("settings.install_app_done"))
+            Text(m.t("settings.local_server")).bold(); Text(m.t("settings.local_server_hint", ["port": m.preferences["port"].text])); Text(m.t("settings.install_app_done"))
         }
     }
 }
@@ -95,8 +97,9 @@ struct HarnessSettings: View {
                     Text(harness["available"].flag ? m.t("settings.connected") : harness["problem"].text)
                     pathRow(harness["id"].text, title: m.t("settings.program"))
                     Text(m.t(harness["adapter_installed"].flag ? "settings.adapter_version" : "settings.adapter_missing", ["adapter": harness["adapter"].text, "version": harness["adapter_version"].text]))
+                        .accessibilityLabel(m.t("settings.adapter"))
                     Text("Node.js · " + (harness["node"].text.isEmpty ? m.t("settings.not_found") : harness["node"].text))
-                    Text(m.t("settings.default_mode") + " · " + (harness["mode"].text.isEmpty ? m.t("settings.adapter_default") : harness["mode"].text))
+                    Text(m.t("settings.default_mode") + " · " + (harness["mode"].text.isEmpty ? m.t(harness["note"].text.isEmpty ? "settings.adapter_default" : "settings.adapter_default_note", ["note": harness["note"].text]) : harness["mode"].text))
                     Text(m.t("settings.models") + " · " + harness["models"].rows.map(\.text).joined(separator: m.t("settings.models_sep")))
                     Button(m.t(harness["adapter_installed"].flag ? "settings.reinstall_adapter" : "settings.install_adapter")) { m.run { m.installLogs[harness["id"].text] = [harness["install"].text]; try await m.post("/api/harnesses/" + Client.segment(harness["id"].text) + "/install", [:]) } }
                     if let lines = m.installLogs[harness["id"].text] { Text(lines.joined(separator: "\n")).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
@@ -107,6 +110,6 @@ struct HarnessSettings: View {
         .onChange(of: m.installLogs.mapValues { $0.count }) { if m.installLogs.values.contains(where: { $0.last == m.t("settings.install_done") }) { m.run { harnesses = try await m.get("/api/harnesses").rows } } }
     }
     func pathRow(_ id: String, title: String) -> some View {
-        HStack { TextField(title, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), prompt: Text(m.t("settings.auto_find"))); Button(m.t("common.save")) { m.run { var saved = m.preferences["paths"].object; saved[id] = paths[id] ?? ""; try await m.savePreferences(["paths": saved]) } } }
+        HStack { TextField(title, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), prompt: Text(m.t("settings.auto_find"))); Button(m.t("common.save")) { m.run { var saved = m.preferences["paths"].object; saved[id] = paths[id] ?? ""; try await m.savePreferences(["paths": saved]); m.notice = m.t("settings.path_saved") } } }
     }
 }

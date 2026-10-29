@@ -42,14 +42,14 @@ struct RichText: View {
         })
     }
     private func inline(_ value: String) -> some View {
-        Text((try? AttributedString(markdown: linkedPaths(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        SelectableText(value: (try? AttributedString(markdown: linkedPaths(value), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)).frame(maxWidth: .infinity, alignment: .leading).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
         case "code": ScrollView(.horizontal) { Text(block.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(8) }.background(.quaternary.opacity(0.4))
-        case "head": inline(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)).font(.headline).padding(.top, 6)
+        case "head": inline("**" + block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression) + "**").padding(.top, 6)
         case "quote":
-            HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(block.lines.map { $0.replacingOccurrences(of: #"^\s*>\s?"#, with: "", options: .regularExpression) }.joined(separator: "\n")) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))
+            HStack(alignment: .top) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3); inline(quoteText(block)) }.padding(6).fixedSize(horizontal: false, vertical: true).background(.quaternary.opacity(0.3)).accessibilityLabel(m.t("common.quote"))
         case "list":
             VStack(alignment: .leading, spacing: 3) { ForEach(Array(block.lines.enumerated()), id: \.offset) { _, line in
                 HStack(alignment: .top) { Text(line.trimmingCharacters(in: .whitespaces).prefix(1).first?.isNumber == true ? String(line.trimmingCharacters(in: .whitespaces).prefix { $0.isNumber }) + "." : "•"); inline(line.replacingOccurrences(of: #"^\s*([-*•+]|\d+[.)])\s+"#, with: "", options: .regularExpression)) }.padding(.leading, line.hasPrefix("  ") ? 20 : 0)
@@ -57,11 +57,19 @@ struct RichText: View {
         case "table":
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in inline(cell).fontWeight(index == 0 ? .semibold : .regular).padding(4) }
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in inline(index == 0 ? "**" + cell + "**" : cell).padding(4) }
                 } }
             }.padding(4) }
         default: inline(block.text)
         }
+    }
+    private func quoteText(_ block: MarkdownBlock) -> String {
+        let value = block.lines.map { $0.replacingOccurrences(of: #"^\s*>\s?"#, with: "", options: .regularExpression) }.joined(separator: "\n")
+        if let range = value.range(of: #"^[^\n：:]{1,40}[：:]\s?"#, options: .regularExpression) {
+            let head = String(value[range]).trimmingCharacters(in: CharacterSet(charactersIn: ":： "))
+            return "**" + m.t("chat.quote_from", ["name": head]) + "**" + value[range.upperBound...]
+        }
+        return value
     }
     private func linkedPaths(_ input: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: #"(?<![\w./:\\(])/(?!/)[^\s<>\"'`|*?，。；、（）)\]]+"#) else { return input }
@@ -174,7 +182,7 @@ struct MessageView: View {
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
+            }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.run { try await m.requestPlain([item["id"].text]) } } }
         }
     }
 }

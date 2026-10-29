@@ -67,4 +67,29 @@ final class ModelTransport: URLProtocol {
         await model.receive(Node(["type": "live", "org": "a", "member": "ana", "item": ["seq": 1, "text": "done"]]))
         XCTAssertEqual(model.liveItems.count, 1); XCTAssertEqual(model.liveItems[0]["text"].text, "done"); model.stop()
     }
+    func testInFlightSnapshotDoesNotOverwriteNewSelection() async throws {
+        let model = try model(); model.setSelection(ChatSelection("a"))
+        let snapshotRequested = expectation(description: "A snapshot requested")
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, #"[{"id":"a"},{"id":"b"}]"#)
+            case "/api/cc": return (200, #"{"items":[]}"#)
+            case "/api/org/a": snapshotRequested.fulfill(); Thread.sleep(forTimeInterval: 0.1); return (200, #"{"org":{"id":"a"},"members":[]}"#)
+            case "/api/org/a/chat": return (200, #"{"items":[{"id":1,"body":"A private data"}]}"#)
+            default: XCTFail("Request was retargeted while in flight: \(request.url!.path)"); return (200, "{}")
+            }
+        }
+        let refresh = Task { try await model.refresh() }
+        await fulfillment(of: [snapshotRequested], timeout: 2)
+        model.setSelection(ChatSelection("b"))
+        try await refresh.value; model.stop()
+        XCTAssertEqual(model.organization, "b"); XCTAssertTrue(model.snapshot["org"]["id"].text.isEmpty); XCTAssertTrue(model.messages.isEmpty)
+    }
+    func testUnreadUsesLocalSeenAndExcludesHumanMessages() throws {
+        let model = try model(); model.setSelection(ChatSelection("a"))
+        model.snapshot = Node(["chats": ["member:ana": ["ids": [[1, "ana"], [2, "human"], [3, "ana"]]]]])
+        XCTAssertEqual(model.unread("ana"), 2)
+        model.defaults.set(1, forKey: "seen.a/member:ana"); XCTAssertEqual(model.unread("ana"), 1)
+        model.defaults.set(3, forKey: "seen.a/member:ana"); XCTAssertEqual(model.unread("ana"), 0)
+    }
 }

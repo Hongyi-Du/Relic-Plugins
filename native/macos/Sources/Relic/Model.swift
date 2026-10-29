@@ -19,6 +19,8 @@ import RelicCore
     @Published var draft = ""
     @Published var recipients = ["all"]
     @Published var quote = ""
+    var selectedText = ""
+    var selectedAuthor = ""
     @Published var pane = "overview"
     @Published var error = ""
     @Published var notice = ""
@@ -67,6 +69,7 @@ import RelicCore
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
+    private var previousCopies: Int?
     enum Sheet: String, Identifiable {
         case create, member, settings, copies, chart, protocolForm, card, secretary, forward, details, shortcuts
         var id: String { rawValue }
@@ -79,6 +82,7 @@ import RelicCore
         sidebarOpen = defaults.object(forKey: "sidebar") as? Bool ?? true
         panelOpen = defaults.object(forKey: "panel") as? Bool ?? true
         pane = defaults.string(forKey: "pane") ?? "overview"
+        if let data = defaults.data(forKey: "selection"), let saved = try? JSONDecoder().decode(ChatSelection.self, from: data) { setSelection(saved) }
     }
     var selection: ChatSelection { ChatSelection(organization, member) }
     var members: [Node] { snapshot["members"].rows }
@@ -122,7 +126,7 @@ import RelicCore
         if type == "install" {
             let id = event["id"].text
             if !event["line"].text.isEmpty { installLogs[id, default: []].append(event["line"].text) }
-            if !event["done"].isNull { installLogs[id, default: []].append(event["done"].integer == 0 ? t("settings.install_done") : t("settings.install_failed", ["code": event["done"].text])); revision += 1 }
+            if !event["done"].isNull { installLogs[id, default: []].append(event["done"].integer == 0 ? t("settings.install_done") : t("settings.install_failed", ["code": event["done"].text])); notice = t(event["done"].integer == 0 ? "settings.adapter_installed" : "settings.adapter_install_failed"); revision += 1 }
             installLogs[id] = Array((installLogs[id] ?? []).suffix(200)); return
         }
         if event["org"].text == organization {
@@ -155,7 +159,12 @@ import RelicCore
     func refresh() async throws {
         if refreshing { pending = true; return }; refreshing = true; pending = false
         defer { refreshing = false; if pending { schedule() } }
-        organizations = try await get("/api/orgs").rows; copies = try await get("/api/cc")["items"].rows
+        do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
+        copies = try await get("/api/cc")["items"].rows
+        let unreadCopies = copies.filter { !$0["read"].flag }.count
+        if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text])) }
+        previousCopies = unreadCopies
+        if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }
         if organization.isEmpty, let first = organizations.first { setSelection(ChatSelection(first["id"].text)) }
         guard !organization.isEmpty else { return }
         let selected = selection
@@ -184,6 +193,7 @@ import RelicCore
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
+        selectedText = ""; selectedAuthor = ""
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
         plainMode = defaults.bool(forKey: "plain." + next.org); digestOpen = defaults.bool(forKey: "digest." + next.org)

@@ -126,4 +126,28 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(node["protocols"].rows[0]["rules"].rows[0]["examples"].rows[0]["expect"].text, "allow")
         XCTAssertEqual(node["decisions"].rows[0]["options"].rows[0]["id"].text, "allow_once")
     }
+    func testLiveTurnBoundaryAndCompletedTurnAreNotDuplicated() {
+        let items = [Node(["seq": 1, "start": true, "type": "prompt", "at": "2026-10-29T06:00:00Z"]), Node(["seq": 2, "type": "assistant", "text": "old"]), Node(["seq": 3, "start": true, "type": "prompt", "at": "2026-10-29T07:00:00Z"]), Node(["seq": 4, "type": "assistant", "text": "new"])]
+        XCTAssertEqual(Timeline.activeLive(items, status: Node(["state": "running"]), decisions: []).map { $0["seq"].integer }, [3, 4])
+        XCTAssertTrue(Timeline.activeLive(items, status: Node(["state": "idle"]), decisions: []).isEmpty)
+        let pending = Node(["seq": 5, "type": "permission", "id": "p1"])
+        XCTAssertEqual(Timeline.activeLive(items + [pending], status: Node(["state": "idle"]), decisions: [Node(["kind": "permission", "id": "p1"])]).count, 1)
+    }
+    func testEmbeddedTranscriptStripsEnginePromptAndFoldsTools() {
+        var words = Words(); words.load(Node(["lang": "en-US", "strings": ["msg.auto_woken": "Woken"]]))
+        let steps = [Node(["role": "user", "text": "[Relic App] The person (human) writes to you directly: hello\n\nReply in this conversation; extra", "at": "2026-10-29T06:00:00Z"]), Node(["role": "tool_call", "tool": "Bash", "text": "pwd", "at": "2026-10-29T06:00:01Z"]), Node(["role": "tool_result", "text": "/tmp", "at": "2026-10-29T06:00:02Z"]), Node(["role": "assistant", "text": "done", "at": "2026-10-29T06:00:03Z"])]
+        let items = Timeline.conversation(steps: steps, chat: [Node(["body": "duplicate"])], member: Node(["name": "ana", "embedded": true]), live: [], words: words)
+        XCTAssertEqual(items.count, 3); XCTAssertEqual(items[0]["body"].text, "hello"); XCTAssertEqual(items[1]["type"].text, "acts"); XCTAssertEqual(items[1]["steps"].rows.count, 2); XCTAssertEqual(items[2]["body"].text, "done")
+    }
+    func testMarkdownHasNativeBlocksAndTableCells() {
+        let blocks = NativeMarkdown.blocks("# Title\n\n> Quote\n- first\n  continued\n\n| Name | Value |\n| --- | --- |\n| A | **B** |\n\n```swift\nlet x = 1\n```")
+        XCTAssertEqual(blocks.map(\.kind), ["head", "quote", "list", "table", "code"])
+        XCTAssertEqual(NativeMarkdown.table(blocks[3]), [["Name", "Value"], ["A", "**B**"]])
+        XCTAssertEqual(blocks[4].text, "let x = 1")
+    }
+    func testDraftRoundTripRetainsQuoteAndMultiRecipient() throws {
+        var draft = ChatDraft(); draft.text = "你好"; draft.quote = "> Earlier"; draft.recipients = ["a", "b"]
+        let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
+        XCTAssertEqual(decoded, draft)
+    }
 }
