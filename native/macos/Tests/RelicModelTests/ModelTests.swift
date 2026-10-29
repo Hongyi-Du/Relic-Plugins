@@ -18,6 +18,27 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testMessageContinuationUsesRecipientsTimeAndThreadBoundary() throws {
+        let model = try model()
+        func message(_ id: Int, _ at: String, to: [String] = ["human", "reviewer"], thread: Any = NSNull()) -> Node {
+            Node(["id": id, "type": "message", "from": "designer", "to": to, "at": at, "thread": thread])
+        }
+        let items = [message(1, "2026-10-29T11:00:00Z"), message(2, "2026-10-29T11:01:00Z"),
+                     Node(["id": 3, "type": "acts", "at": "2026-10-29T11:01:30Z"]), message(4, "2026-10-29T11:02:00Z", thread: ["count": 1]),
+                     message(5, "2026-10-29T11:02:30Z"), message(6, "2026-10-29T11:02:45Z", to: ["reviewer", "human"]),
+                     message(7, "2026-10-29T11:05:45Z", to: ["reviewer", "human"])]
+        XCTAssertEqual(model.conversationRows(items, separators: false).map(\.continued), [false, true, false, true, false, false, false])
+        let gap = model.conversationRows([items[0], message(8, "2026-10-29T11:21:00Z")])
+        XCTAssertNotNil(gap[0].separator)
+        XCTAssertEqual(gap[1].separator, model.clock(Node("2026-10-29T11:21:00Z")))
+    }
+    func testReadReceiptOnlyCountsRecipientsOtherThanThePerson() throws {
+        let model = try model()
+        model.words.load(Node(["lang": "en-US", "strings": ["msg.read_count": "{read}/{total}", "msg.read": "Read", "msg.unread": "Unread"]]))
+        XCTAssertEqual(model.readReceipt(Node(["to": ["human", "one", "two"], "read_by": ["human", "one", "unrelated"]])), "1/2")
+        XCTAssertEqual(model.readReceipt(Node(["to": ["human", "one"], "read_by": ["one"]])), "Read")
+        XCTAssertEqual(model.readReceipt(Node(["to": ["one"], "read_by": []])), "Unread")
+    }
     func testInspectorUsesReferencePreviewAndMemberDetailOrder() throws {
         let model = try model()
         model.words.load(Node(["lang": "en-US", "strings": ["card.ex_officio": "From {org}", "state.waiting": "Waiting"]]))

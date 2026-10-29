@@ -156,11 +156,11 @@ struct SidebarChatRow: View {
     private var avatar: some View {
         Group {
             if group { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) }
-            else if secretary { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(width: 28, height: 28).background(RelicStyle.violetSoft, in: RoundedRectangle(cornerRadius: 8)) }
+            else if secretary { Avatar(member: name, size: 28, secretaryStyle: true) }
             else { Avatar(member: name, size: 28) }
         }.overlay(alignment: .bottomTrailing) {
             if let state = who?["state"].text, !state.isEmpty && state != "idle" {
-                Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10).overlay(Circle().strokeBorder(RelicStyle.sidebar, lineWidth: 2)).offset(x: 2, y: 2)
+                StateDot(state: state, border: RelicStyle.sidebar).offset(x: 2, y: 2)
             }
         }
     }

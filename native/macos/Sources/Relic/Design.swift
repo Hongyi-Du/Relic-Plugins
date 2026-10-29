@@ -134,6 +134,16 @@ struct SmallBadge: View {
     var body: some View { Text(text).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2).foregroundStyle(color).background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5)).help(text) }
 }
 
+struct StateDot: View {
+    let state: String
+    let border: Color
+    var body: some View {
+        Circle().fill(state == "vacant" ? .clear : RelicStyle.state(state)).frame(width: 10, height: 10)
+            .overlay { if state == "vacant" { Circle().strokeBorder(RelicStyle.faint, lineWidth: 1.5).padding(2) } }
+            .overlay(Circle().strokeBorder(border, lineWidth: 2))
+    }
+}
+
 extension View {
     func relicCard(_ color: Color = RelicStyle.card) -> some View {
         padding(12).frame(maxWidth: .infinity, alignment: .leading)

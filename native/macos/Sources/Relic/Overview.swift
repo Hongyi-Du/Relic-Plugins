@@ -71,7 +71,7 @@ struct Overview: View {
     private func overviewTask(_ task: Node, report: Bool) -> some View {
         Button { m.openDetails("tasks", task: task["id"].text) } label: {
             OverviewRow(title: task["title"].text, subtitle: report ? m.taskReportPreview(task["report"].text) : task["id"].text + " · " + (task["owner"].text.isEmpty ? m.t("org.no_owner") : m.name(task["owner"].text))) {
-                if task["owner"].text.isEmpty { Color.clear.frame(width: 0, height: 0) } else { Avatar(member: task["owner"].text, size: 22) }
+                if task["owner"].text.isEmpty { Color.clear.frame(width: 0, height: 0) } else { Avatar(member: task["owner"].text, size: 20) }
             } trailing: { OverviewChip(text: report ? m.t("org.report") : m.taskLabel(task["status"].text), tone: report ? "ok" : task["status"].text == "blocked" ? "bad" : task["status"].text == "working" ? "warn" : "") }
         }.buttonStyle(QuietButtonStyle())
     }
@@ -81,7 +81,7 @@ struct Overview: View {
             Rows(m.members) { member in
                 Button { m.openCard(member["name"].text) } label: {
                     OverviewRow(title: member["secretary"].flag ? m.t("org.member_secretary", ["name": roleName(member["name"].text, "common.secretary")]) : member.display, subtitle: m.overviewMemberDetail(member)) {
-                        Avatar(member: member["name"].text, size: 28)
+                        Avatar(member: member["name"].text, size: 28, showState: true)
                     } trailing: { OverviewChip(text: m.stateLabel(member["state"].text), tone: ["running", "working"].contains(member["state"].text) ? "ok" : member["state"].text == "waiting" ? "warn" : member["state"].text == "error" ? "bad" : "") }
                 }.buttonStyle(QuietButtonStyle())
             }

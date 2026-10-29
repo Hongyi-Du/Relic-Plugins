@@ -6,9 +6,14 @@ struct Avatar: View {
     @EnvironmentObject var m: Model
     let member: String
     var size: CGFloat = 30
+    var secretaryStyle = false
+    var showState = false
+    var stateBorder: Color = RelicStyle.background
     @State private var image: NSImage?
     @Environment(\.colorScheme) private var scheme
-    private var secretary: Bool { m.members.first(where: { $0["name"].text == member })?["secretary"].flag ?? false }
+    private var state: String { m.members.first(where: { $0["name"].text == member })?["state"].text ?? "" }
+    private var radius: CGFloat { size == 20 ? 6 : size == 28 ? 8 : size == 60 ? 14 : 9 }
+    private var fontSize: CGFloat { size == 20 ? 10 : size == 28 || size == 30 ? 12 : size == 60 ? 24 : 14 }
     private var cacheKey: String {
         let avatar = m.members.first(where: { $0["name"].text == member })?["avatar"].text ?? ""
         return [m.organization, member, m.preferences["avatar"].text, avatar].joined(separator: "/")
@@ -16,11 +21,16 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else { Text(String(m.name(member).prefix(1))).font(RelicStyle.font(size * 0.43, weight: 600)).frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(member == "human" ? RelicStyle.background : secretary ? RelicStyle.violet : RelicStyle.avatar(member, background: false, dark: scheme == .dark))
-                .background(member == "human" ? RelicStyle.ink : secretary ? RelicStyle.violetSoft : RelicStyle.avatar(member, background: true, dark: scheme == .dark)) }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(maxWidth: .infinity, maxHeight: .infinity).background(RelicStyle.violetSoft) }
+            else { Text(String(m.name(member).prefix(1)).uppercased()).font(RelicStyle.font(fontSize, weight: 650)).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark))
+                .background(member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark)) }
+        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius))
+            .overlay(alignment: .bottomTrailing) {
+                if showState && !["", "idle"].contains(state) { StateDot(state: state, border: stateBorder).offset(x: 2, y: 2) }
+            }
             .task(id: cacheKey) {
+                guard !member.isEmpty else { image = nil; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
             }.accessibilityLabel(m.name(member))
@@ -114,7 +124,7 @@ struct ChatView: View {
     }
     private var header: some View {
         HStack(spacing: 12) {
-            if m.member.isEmpty { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28) }
+            if m.member.isEmpty { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28, secretaryStyle: m.member == m.secretary, showState: true) }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
@@ -168,13 +178,17 @@ struct ConversationStream: View {
             VStack(spacing: 0) {
                 GeometryReader { viewport in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: m.preferences["density"].text == "compact" ? 8 : 16) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             if m.moreChat { Button(m.t("trace.load_older")) { followsBottom = false; m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
-                            Rows(m.displayMessages) { MessageView(item: $0) }
+                            ForEach(m.conversationRows(m.displayMessages)) { row in
+                                if let separator = row.separator { ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18).padding(.bottom, 8) }
+                                MessageView(item: row.item, continued: row.continued)
+                                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
+                            }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
-                        }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
+                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
                     }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation").measuredRegion("conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
@@ -200,6 +214,8 @@ struct MessageView: View {
     @EnvironmentObject var m: Model
     let item: Node
     var inThread = false
+    var continued = false
+    @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
@@ -211,7 +227,12 @@ struct MessageView: View {
         return m.t("msg.to", ["names": !everyone.isEmpty && everyone.allSatisfy(recipients.contains) ? m.t("msg.everyone") : m.list(item["to"].rows.map { m.name($0.text) })])
     }
     var body: some View {
-        if item["type"].text == "notice" { Text(item["text"].text).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(RelicStyle.muted).textSelection(.enabled).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 4).background(RelicStyle.sidebar, in: Capsule()).frame(maxWidth: .infinity).padding(.vertical, 6) }
+        if item["type"].text == "notice" {
+            NoticeLayout {
+                ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
+                    .padding(.horizontal, 10).padding(.vertical, 2).modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "region"))
+            }.padding(.vertical, 8)
+        }
         else if item["type"].text == "acts" {
             let actions = ToolActivity.pair(item["steps"].rows)
             DisclosureGroup {
@@ -226,14 +247,15 @@ struct MessageView: View {
             }
         } else {
             HStack(alignment: .top, spacing: 10) {
-                if !mine { Button { m.openCard(item["from"].text) } label: { Avatar(member: item["from"].text, size: 36) }.buttonStyle(.plain) }
-                else { Spacer(minLength: 16) }
-                VStack(alignment: mine ? .trailing : .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).bold().lineLimit(1)
+                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Button { m.openCard(item["from"].text) } label: { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
+                else { Spacer(minLength: 0) }
+                VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+                    if !continued { HStack(spacing: 6) {
+                        Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).font(RelicStyle.font(12.5, weight: 600)).foregroundStyle(RelicStyle.secondary).lineLimit(1)
+                        if m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { Text(item["from"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted) }
                         if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
                         Text(m.clock(item["at"])).foregroundStyle(RelicStyle.muted).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
-                    }.font(RelicStyle.font(12, weight: 400))
+                    }.font(RelicStyle.font(12, weight: 400)) }
                     VStack(alignment: .leading, spacing: 6) {
                     if item["type"].text == "receipt" { DisclosureGroup(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])) { RichText(bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)) } }
                     else if wantsPlain, let plain = m.plain[item["id"].text] { Label(m.t("common.plain_words"), systemImage: "sparkles").font(RelicStyle.font(11, weight: 400)).foregroundStyle(RelicStyle.violet); RichText(plain["text"].text.isEmpty ? plain.text : plain["text"].text); DisclosureGroup(m.t("msg.original")) { RichText(bodyText) } }
@@ -243,12 +265,18 @@ struct MessageView: View {
                         else { Text(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting")).font(RelicStyle.font(12, weight: 400)) }
                     }
                     }.padding(.horizontal, 13).padding(.vertical, 10).background(mine ? RelicStyle.mine : wantsPlain ? RelicStyle.violetSoft : RelicStyle.bubble, in: RoundedRectangle(cornerRadius: 13)).overlay(alignment: .leading) { if item["from"].text == m.secretary { RoundedRectangle(cornerRadius: 2).fill(RelicStyle.violet).frame(width: 3).padding(.vertical, 9) } }
-                    if item["from"].text == "human" && !item["read_by"].isNull {
-                        DisclosureGroup(item["to"].rows.count == 1 ? m.t(item["read_by"].rows.isEmpty ? "msg.unread" : "msg.read") : m.t("msg.read_count", ["read": String(item["read_by"].rows.count), "total": String(item["to"].rows.filter { $0.text != "human" }.count)])) {
-                            Text(m.list(item["read_by"].rows.map { m.name($0.text) })).font(RelicStyle.font(12, weight: 400))
-                        }.font(RelicStyle.font(12, weight: 400))
+                    if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
+                        ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted)
                     }
-                    if !inThread, !item["thread"].isNull { Button(m.t("thread.replies", ["n": item["thread"]["count"].text]) + " · " + m.t("thread.last_reply", ["when": m.clock(item["thread"]["last_at"])])) { m.run { try await m.openThread(item["id"].text) } }.font(RelicStyle.font(12, weight: 400)) }
+                    if !inThread, !item["thread"].isNull {
+                        Button { m.run { try await m.openThread(item["id"].text) } } label: {
+                            HStack(spacing: 6) {
+                                HStack(spacing: -4) { Rows(Array(item["thread"]["people"].rows.prefix(3))) { person in Avatar(member: person.text, size: 20).padding(2).background(RelicStyle.background, in: RoundedRectangle(cornerRadius: 8)) } }
+                                ReferenceLabel(m.t("thread.replies", ["n": item["thread"]["count"].text]), size: 12.5, weight: 600, color: RelicStyle.accent, owner: threadIdentity)
+                                ReferenceLabel(m.t("thread.last_reply", ["when": m.shortWhen(item["thread"]["last_at"])]), size: 12.5, color: RelicStyle.muted, owner: threadIdentity)
+                            }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
+                        }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity)
+                    }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading).overlay(alignment: .topTrailing) {
                     if hovering { HStack {
                         if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
@@ -257,8 +285,8 @@ struct MessageView: View {
                         Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
                     }.buttonStyle(.link).font(RelicStyle.font(11, weight: 400)).padding(5).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(RelicStyle.line)).offset(y: -14) }
                 }
-                if mine { Avatar(member: "human", size: 36) }
-                else { Spacer(minLength: 16) }
+                if mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Avatar(member: "human", size: inThread ? 30 : 36) } }
+                else { Spacer(minLength: 0) }
             }.onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
     }
