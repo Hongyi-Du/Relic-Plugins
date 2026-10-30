@@ -31,6 +31,8 @@ import SwiftUI
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(editor is ObservedFieldEditor)
+        XCTAssertTrue(editor.isFieldEditor)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
         let receipts = FieldEditorCapture.receipts(in: window)
         XCTAssertEqual(receipts.count, 1)
@@ -39,6 +41,17 @@ import SwiftUI
         XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
         XCTAssertEqual(receipt["first_responder_is_editor"] as? Bool, true)
         XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
+        let manager = try XCTUnwrap(editor.layoutManager as? NativeGlyphLayoutManager)
+        manager.recordDraws = true
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(editor))
+        editor.cacheDisplay(in: editor.bounds, to: bitmap)
+        let range = NSRange(location: 0, length: (editor.string as NSString).length)
+        XCTAssertEqual(manager.fontEvidence(for: range, in: editor)["status"] as? String, "measured-current-draw")
+        var measured: [String: Any] = ["style": [:]]
+        let canvas = window.convertToScreen(host.convert(host.bounds, to: nil))
+        EditableTextCapture.attach(to: &measured, view: editor, canvas: canvas)
+        XCTAssertNil(measured["native_measurement_errors"])
+        XCTAssertNotNil(measured["native_editable_text_runs"])
     }
 
     func testCommitCancelAndLengthLimitUseNativeTextFieldDelegate() {

@@ -16,6 +16,7 @@ struct MemberRenameField: NSViewRepresentable {
     func makeNSView(context: Context) -> Control {
         let field = Control(frame: .zero)
         field.cell = PaddedCell(textCell: "")
+        field.cell?.isScrollable = true; field.cell?.usesSingleLineMode = true
         field.isEditable = true; field.isSelectable = true; field.isBezeled = false
         field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
         field.font = RelicStyle.nativeFont(14, weight: 400)
@@ -58,6 +59,8 @@ struct MemberRenameField: NSViewRepresentable {
         }
     }
     final class PaddedCell: NSTextFieldCell {
+        private lazy var observedEditor = ObservedFieldEditor.make()
+        override func fieldEditor(for controlView: NSView) -> NSTextView? { observedEditor }
         override func drawingRect(forBounds rect: NSRect) -> NSRect {
             let content = NSRect(x: rect.minX + 9, y: rect.minY, width: max(0, rect.width - 44), height: rect.height)
             let height = min(content.height, cellSize(forBounds: content).height)

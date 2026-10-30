@@ -3,7 +3,7 @@ import AppKit
 @MainActor enum EditableTextCapture {
     /// The input owns its actually drawn text. Retain its AX hit rectangle and
     /// raw draw; do not add another visible text element for the same glyphs.
-    static func attach(to node: inout [String: Any], view: ComposerTextView, canvas: NSRect) {
+    static func attach(to node: inout [String: Any], view: NSTextView, canvas: NSRect) {
         guard view.isEditable, !view.string.isEmpty, view.textLayoutManager == nil, let window = view.window else { return }
         defer {
             var errors: [[String: String]] = []
