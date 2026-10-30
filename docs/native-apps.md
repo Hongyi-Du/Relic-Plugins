@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (strict state-dot annular paint): the Windows projector
+can now derive circular border/radius and zero-blur inset parameters from the
+actual two owned Ellipses, only when the new exact Grid own-paint contract and
+both independent primitive receipts are complete. Geometry and colors come
+from those native objects. Historical null contracts still fail, eccentric or
+incomplete rings remain unknown, and final PNG/AA/frame equivalence stays a
+separate failure. Five pure CI tests cover recorded old inputs, an explicitly
+synthetic new contract, actual-color propagation and 19 negative conditions.
+Only py_compile and diff-check ran locally; actual CI verification is pending.
+
 Read macOS REQUESTS through 86b52e7: its b63cd2f diagnostic subset retains
 measured scroll/typography improvements but still fails the strict full gate.
 The following native popup-title padding and member-card border-layout fixes
