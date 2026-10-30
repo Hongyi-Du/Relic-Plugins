@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (exact SDK control paint): Windows outline extraction
+now recognizes ten exact core controls whose fixed 1.6.9 renderer paints their
+content through separately captured template children. Existing actual focus,
+Composition, Shadow and child-completeness checks remain mandatory. This does
+not cover TextBoxView, ContentControl, item presenters or arbitrary subclasses,
+and never fills a child's unknown outline from its parent. Source evidence and
+new negative fixtures are recorded in `docs/native-outline-evidence.md`.
+
 Changes for the clients (measured Windows group controls): the recipient chip
 now updates its actual Button automation name with its current localized label.
 In a3ca2a3 the visible text matched but the independent UIA name was null. The

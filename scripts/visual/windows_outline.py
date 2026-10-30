@@ -23,7 +23,19 @@ LOCAL_LAYOUT_CONTRACTS = {
     "Relic.DetailsFilterRow": ("relic-details-filter-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/DetailsStyles.cs#DetailsFilterRow"),
     "Relic.NativeRegionGrid": ("relic-region-grid-peer-only", "Microsoft.UI.Xaml.Controls.Grid", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid"),
 }
+TEMPLATE_CONTROL_CONTRACT = "native-core-control-template-children-only"
+# Exact SDK 1.6.9 core types. HWWalk.cpp's pre/post-child switches do not
+# render these controls themselves. They do render ContentControl, item
+# presenters and TextBoxView; none of those is covered by this list. Applied
+# children, current focus and attached Composition retain their own checks.
+TEMPLATE_CONTROL_TYPES = {
+    **{"Microsoft.UI.Xaml.Controls." + name: TEMPLATE_CONTROL_CONTRACT
+       for name in ("Button", "ScrollViewer", "ListViewItem", "ListView", "ComboBox", "TextBox")},
+    **{"Microsoft.UI.Xaml.Controls.Primitives." + name: TEMPLATE_CONTROL_CONTRACT
+       for name in ("RepeatButton", "ToggleButton", "ScrollBar", "Thumb")},
+}
 CONTRACTS = {
+    **TEMPLATE_CONTROL_TYPES,
     "Microsoft.UI.Xaml.Controls.Border": "native-border-fill-and-border",
     "Microsoft.UI.Xaml.Controls.ContentPresenter": "native-presenter-fill-border-and-content",
     **{"Microsoft.UI.Xaml.Controls." + name: "native-panel-background" for name in ("Grid", "StackPanel", "Canvas")},

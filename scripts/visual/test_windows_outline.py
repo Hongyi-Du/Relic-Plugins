@@ -4,11 +4,12 @@ import unittest
 
 from windows_outline import (CONTRACTS, LOCAL_LAYOUT_CONTRACTS, LOCAL_LAYOUT_SOURCE,
                              RUN_SOURCE, SOURCE, VECTOR_CONTRACT, VECTOR_RUNTIME,
-                             VECTOR_SOURCE, native_outline)
+                             VECTOR_SOURCE, TEMPLATE_CONTROL_TYPES, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
     runtime = ("Microsoft.UI.Xaml.Shapes." if typ in {"Rectangle", "Ellipse", "Line", "Path", "Polygon", "Polyline"}
+               else "Microsoft.UI.Xaml.Controls.Primitives." if typ in {"RepeatButton", "ToggleButton", "ScrollBar", "Thumb"}
                else "Microsoft.UI.Xaml.Controls.") + typ
     return {"id": eid, "type": typ, "parent": parent, "render_sibling_order": 0,
             "outline_owner_evidence": {"source": SOURCE, "status": "measured", "owner_id": eid,
@@ -110,6 +111,39 @@ class WindowsOutlineTests(unittest.TestCase):
             receipt["opacity"] = 0
             self.assertUnknown(node)
 
+    def test_exact_template_control_contract_never_covers_derived_or_special_renderers(self):
+        for runtime in TEMPLATE_CONTROL_TYPES:
+            node = primitive(typ=runtime.rsplit(".", 1)[-1])
+            self.assertEqual(self.result(node)[0], "none")
+            node["outline_owner_evidence"]["runtime_type"] = "Relic.Derived" + node["type"]
+            self.assertUnknown(node)
+        for typ in ("ContentControl", "ListViewItemPresenter", "TextBoxView"):
+            node = primitive(typ=typ)
+            node["outline_owner_evidence"]["own_paint_contract"] = "native-core-control-template-children-only"
+            self.assertUnknown(node)
+
+    def test_template_control_receipt_cannot_hide_its_unmeasured_text_view(self):
+        node = primitive("textbox", "TextBox")
+        child = primitive("textview", "TextBoxView", "textbox")
+        node["outline_owner_evidence"]["children"]["items"] = [
+            {"id": "textview", "index": 0, "same_parent_object": True}]
+        # Own template container paint is separate from glyphs/caret/selection.
+        self.assertEqual(self.result(node, [child])[0], "none")
+        self.assertUnknown(child, [node])
+        node["outline_owner_evidence"]["children"]["items"] = []
+        self.assertUnknown(node, [child])
+
+    def test_template_control_keeps_focus_and_composition_obligations(self):
+        for runtime in TEMPLATE_CONTROL_TYPES:
+            typ = runtime.rsplit(".", 1)[-1]
+            node = primitive(typ=typ)
+            node["outline_owner_evidence"]["composition"].update(
+                child_visual_present=True, child_visual_type="ActualAttachedVisual")
+            self.assertUnknown(node)
+            node = primitive(typ=typ)
+            node["outline_owner_evidence"]["focus"].update(state="Keyboard", relationship="same-object")
+            self.assertUnknown(node)
+
     def test_non_system_focus_does_not_prove_no_template_focus(self):
         node = primitive()
         focus = node["outline_owner_evidence"]["focus"]
@@ -154,7 +188,7 @@ class WindowsOutlineTests(unittest.TestCase):
 
     def test_known_children_keep_separate_owned_paint_without_recursive_inference(self):
         node = primitive()
-        child = primitive("child", "Button", "paint")
+        child = primitive("child", "PersonPicture", "paint")
         node["outline_owner_evidence"]["children"]["items"] = [{"id": "child", "index": 0, "same_parent_object": True}]
         self.assertEqual(self.result(node, [child])[0], "none")
         self.assertUnknown(child, [node])
@@ -276,7 +310,7 @@ class WindowsOutlineTests(unittest.TestCase):
         for runtime in LOCAL_LAYOUT_CONTRACTS:
             with self.subTest(runtime=runtime):
                 node = local_layout(runtime)
-                child = primitive("child", "Button", "layout")
+                child = primitive("child", "PersonPicture", "layout")
                 node["outline_owner_evidence"]["children"]["items"] = [
                     {"id": "child", "index": 0, "same_parent_object": True}]
                 self.assertEqual(self.result(node, [child])[0], "none")

@@ -52,6 +52,22 @@ primitive's own paint contract.
 
 ## Pattern and contour coverage
 
+The pinned WinUI 1.6.9 renderer also establishes a limited own-paint contract
+for exact `Button`, `RepeatButton`, `ToggleButton`, `ScrollBar`, `Thumb`,
+`ScrollViewer`, `ListViewItem`, `ListView`, `ComboBox` and `TextBox` runtime types.
+Their core types are neither Panel/ContentPresenter/paint-enabled UserControl,
+nor cases in the pre/post-children rendering switches in
+[the fixed HWWalk source](https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1508).
+Their exact type indices do not inherit the special `ContentControl` renderer.
+This proves only that each such container has no ordinary own content stroke;
+its independently recorded template descendants still own their paint.
+`TextBoxView`, item presenters, exact `ContentControl` and arbitrary derived
+types are deliberately not covered. HWWalk's separate focus operation at
+lines 1707-1709 still requires the unchanged actual focus relationship proof,
+as do hand-in Composition, Shadow and complete direct-child identities.
+Fixtures verify unknown children, missing children, focused controls, attached
+visuals and unsupported derived/special renderers cannot borrow this proof.
+
 Solid outlines use `dash: []` and `dash_offset: null`; phase is inapplicable to a
 continuous line. Dashed/dotted outlines require independently measured nonempty
 dash segments and a finite actual phase. The matcher never derives a pattern
