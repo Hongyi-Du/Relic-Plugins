@@ -27,7 +27,7 @@ struct ChartLegend: View {
             HStack(spacing: 16) { symbols; Spacer(minLength: 0); hint }
             VStack(alignment: .trailing, spacing: 6) { HStack(spacing: 16) { symbols }; hint }
         }.padding(.horizontal, 16).padding(.vertical, 8).padding(.bottom, 1).frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
     }
     private var hint: some View { ReferenceLabel(m.t("chart.pan_hint"), size: 12, color: RelicStyle.faint).fixedSize() }
     @ViewBuilder private var symbols: some View {
@@ -40,9 +40,11 @@ struct ChartLegend: View {
     private func item(_ key: String, kind: String) -> some View {
         HStack(spacing: 6) {
             if kind == "link" {
-                Path { p in p.move(to: CGPoint(x: 0, y: 1)); p.addLine(to: CGPoint(x: 18, y: 1)) }.stroke(RelicStyle.violet, style: StrokeStyle(lineWidth: 1.5, dash: [3,3])).frame(width: 18, height: 2)
+                Color.clear.frame(width: 18, height: 1)
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.violet,
+                        edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "divider", borderDash: [3,3]))
             } else {
-                Color.clear.frame(width: 18, height: 12).modifier(RecordedSurface(background: kind == "cab" ? RelicStyle.violetSoft : kind == "ended" ? RelicStyle.hover : RelicStyle.card, border: kind == "cab" ? RelicStyle.violet : kind == "ended" ? RelicStyle.faint : RelicStyle.muted, borderWidth: 1.5, radius: 4, kind: "badge", borderDash: kind == "sub" ? [3,3] : []))
+                Color.clear.frame(width: 18, height: 12).modifier(RecordedSurface(background: kind == "cab" ? RelicStyle.violetSoft : kind == "ended" ? RelicStyle.hover : RelicStyle.card, border: kind == "cab" ? RelicStyle.violet : kind == "ended" ? RelicStyle.faint : RelicStyle.muted, borderWidth: 1, radius: 4, kind: "card", borderDash: kind == "sub" ? [3,3] : []))
             }
             ReferenceLabel(m.t(key), size: 12, color: RelicStyle.muted).fixedSize()
         }.fixedSize()
