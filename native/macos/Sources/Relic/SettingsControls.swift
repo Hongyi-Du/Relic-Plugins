@@ -58,16 +58,16 @@ struct SettingsNavigationButton: View {
     let selected: Bool
     let action: () -> Void
     @State private var hovered = false
-    @State private var identity = "relic-text-button/" + UUID().uuidString
+    @State private var identity = "relic-tab/settings/" + UUID().uuidString
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 ReferenceIcon(name: icon, size: 16, color: selected || hovered ? RelicStyle.ink : RelicStyle.secondary)
                 ReferenceLabel(title, weight: selected ? 600 : 400, color: selected || hovered ? RelicStyle.ink : RelicStyle.secondary, owner: identity)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }.padding(.horizontal, 10).frame(height: 34)
                 .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovered ? RelicStyle.hover : .clear, radius: 8, hovered: hovered, selected: selected))
-        }.buttonStyle(.plain).onHover { hovered = $0 }.accessibilityIdentifier(identity).accessibilityLabel(title)
+        }.buttonStyle(.plain).onHover { hovered = $0 }.accessibilityIdentifier(identity).accessibilityLabel(title).help(title)
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
