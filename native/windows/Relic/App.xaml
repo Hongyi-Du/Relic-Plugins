@@ -139,6 +139,21 @@
           </Setter.Value>
         </Setter>
       </Style>
+      <!-- The chip's selected state supplies its hover resources too, matching
+           the later .chip-btn.on rule. Text and SVG paths inherit this actual
+           ContentPresenter foreground through the native visual tree. -->
+      <ControlTemplate x:Key="RelicChipButtonTemplate" TargetType="Button">
+        <ContentPresenter x:Name="Presenter" Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{TemplateBinding Background}" BackgroundSizing="OuterBorderEdge" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Foreground="{TemplateBinding Foreground}">
+          <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="CommonStates">
+              <VisualState x:Name="Normal" />
+              <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Presenter.Background" Value="{ThemeResource RelicChipHoverBackground}" /><Setter Target="Presenter.Foreground" Value="{ThemeResource RelicChipHoverForeground}" /></VisualState.Setters></VisualState>
+              <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Presenter.Background" Value="{ThemeResource RelicChipHoverBackground}" /><Setter Target="Presenter.Foreground" Value="{ThemeResource RelicChipHoverForeground}" /></VisualState.Setters></VisualState>
+              <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="Presenter.Foreground" Value="{ThemeResource RelicControlDisabled}" /></VisualState.Setters></VisualState>
+            </VisualStateGroup>
+          </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+      </ControlTemplate>
       <Style x:Key="RelicSwatchStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="Template"><Setter.Value>

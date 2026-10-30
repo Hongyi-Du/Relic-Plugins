@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (conversation action chips): Windows now applies the
+actual .chip-btn.on violet background, 45% violet border and foreground to
+plain-language/digest actions, including hover. Its two nonselectable labels
+use the existing production NativeLabel draw path at the reference's fixed
+12.5px/20px metrics; the containing Button retains its real action, focus,
+disabled state, tooltip and accessible name. The label and icon observe the
+actual ContentPresenter foreground. These are production changes, not capture
+substitutions. The headless build passes; new CI pixels/geometry remain required.
+
+CI progress: dfeab56's Windows and macOS builds/tests, static parity and 920
+element-contract tests all pass (41143598958). The 35ac04a Windows smoke capture
+still fails in live-tool-output: external UIA reports a zero-height final line,
+while the newly recorded same-peer in-process COM format range retains its
+actual 0.4000244140625px height. Raw records and failures remain intact; this is
+not a completed scene or a passed element gate. Latest macOS commits add actual
+form focus paint and message metadata reading priority, with no shared request.
+
 Changes for the clients (digest fixture request): the reference digest scene
 now seeds its deterministic data, then invokes the existing production
 toggleDigest path, updating both renderHead and renderBanner. Previously its
