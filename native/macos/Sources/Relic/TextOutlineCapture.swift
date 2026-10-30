@@ -4,11 +4,12 @@ import AppKit
 /// A containing SwiftUI control/surface has a separate paint obligation; this
 /// receipt must never be promoted from its label to that control's outline.
 @MainActor enum TextOutlineCapture {
-    static func inspect(_ view: NSTextView, range: NSRange, fontDraw: [String: Any]) -> (paint: Any, evidence: [String: Any]) {
+    static func inspect(_ view: NSTextView, range: NSRange) -> (paint: Any, evidence: [String: Any]) {
         var errors: [String] = []
         let knownView = type(of: view) == ReferenceLabelView.self || type(of: view) == QuoteTextView.self
         let manager = view.textLayoutManager == nil ? view.layoutManager : nil
         let knownManager = manager.map { type(of: $0) == NativeGlyphLayoutManager.self || type(of: $0) == InlineCodeLayoutManager.self } ?? false
+        let fontDraw = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view) ?? [:]
         let layer = view.layer
         var evidence: [String: Any] = [
             "source": "mounted final read-only NSTextView own-paint contract and current glyph draw",

@@ -207,7 +207,7 @@ import CoreText
             let drawing = manager as? NativeGlyphLayoutManager
             let drawnFonts = drawing?.fontEvidence(for: range, in: view)
                 ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
-            let textOutline = TextOutlineCapture.inspect(view, range: range, fontDraw: drawnFonts)
+            let textOutline = TextOutlineCapture.inspect(view, range: range)
             let typographic = drawnFonts["status"] as? String == "measured-current-draw"
                 ? drawing?.lastDraw.map { NativeTypographicGeometry.measure(advances: advances, draw: $0, characters: range, origin: view.textContainerOrigin) } : nil
             let measured = typographic?.envelope == nil ? advances : typographic!

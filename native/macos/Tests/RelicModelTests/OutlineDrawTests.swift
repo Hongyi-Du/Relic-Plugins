@@ -12,7 +12,7 @@ import SwiftUI
         manager.recordDraws = true
         let range = NSRange(location: 0, length: (view.string as NSString).length)
         func inspect() -> (paint: Any, evidence: [String: Any]) {
-            TextOutlineCapture.inspect(view, range: range, fontDraw: manager.fontEvidence(for: range, in: view))
+            TextOutlineCapture.inspect(view, range: range)
         }
         XCTAssertTrue(inspect().paint is NSNull, "An unmounted, undrawn label supplies no absence proof")
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
