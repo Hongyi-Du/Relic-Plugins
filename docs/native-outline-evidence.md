@@ -37,6 +37,19 @@ default every missing field to `none`, use border width zero as proof, or treat
 an absent measurement API as proof. The boolean assertion is meaningful only
 with that producer evidence; the matcher does not manufacture it.
 
+Absence is scoped to the actual paint operation, not to the entire window.
+An identified ordinary native primitive can establish its own fill/border/stroke
+contract without another raster experiment. Children and separately attached
+Composition/focus paint retain their own owners and obligations. Windows is
+adding actual focused-object relationships, full FocusState, UseSystemFocusVisuals
+and GetElementChildVisual observations; missing or unsupported attachments stay
+unknown. A child being Unfocused alone does not exclude its parent's focus visual.
+For macOS, a recorded surface may prove its own outline branch absent from the
+same actual production optional outline value and bound owner. That does not
+prove absence of another AppKit focus ring or SwiftUI overlay. No extra hashing
+or whole-window pixel attribution is required to establish an identified
+primitive's own paint contract.
+
 ## Pattern and contour coverage
 
 Solid outlines use `dash: []` and `dash_offset: null`; phase is inapplicable to a

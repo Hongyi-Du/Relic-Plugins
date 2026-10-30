@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Relic;
 using Xunit;
 using static Relic.NativeLabelInterop;
@@ -65,12 +66,7 @@ public sealed class NativeLabelTrimmingTests
 
             Check(Method<SetFloat>(layout, 28)(layout, 80));
             var narrow = ReadLines(layout);
-            Assert.Single(narrow);
-            Assert.Equal((uint)text.Length, narrow[0].Length);
-            Assert.NotEqual(0, narrow[0].IsTrimmed);
             var hitTest = ReadBounds(layout, text.Length);
-            Assert.Contains(hitTest, item => item.IsTrimmed != 0 && item.Width > 0 && item.Height > 0);
-            Assert.All(hitTest, item => Assert.True(item.TextPosition + item.Length <= text.Length));
 
             // Invoke the real layout and the actual factory omission object's
             // Draw, through the linked production renderer. Only the terminal
@@ -79,16 +75,40 @@ public sealed class NativeLabelTrimmingTests
             using var target = new RecordingGlyphSink();
             using var renderer = new NativeLabelRenderer(target.Pointer, new IntPtr(1), 1,
                 new Matrix { M11 = 1, M22 = 1 }, sign);
-            Check(Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0));
-            Assert.Null(renderer.CallbackFailure);
-            var omission = Assert.Single(renderer.InlineDraws.Where(row => row?["is_configured_trimming_sign"]?.GetValue<bool>() == true));
-            Assert.Equal(ComIdentity(sign), omission!["inline_com_identity"]!.GetValue<string>());
-            Assert.True(omission["draw_succeeded"]!.GetValue<bool>());
-            Assert.True(omission["glyph_run_count"]!.GetValue<int>() > 0);
-            Assert.Equal(signMetrics.Height, omission["inline_metrics"]!["height"]!.GetValue<float>());
-            Assert.Contains(renderer.Runs, run => run?["inline_draw_ordinal"]?.GetValue<int>() == omission["ordinal"]!.GetValue<int>()
-                && run["submitted_to_d2d"]!.GetValue<bool>() && run["glyph_indices"]!.AsArray().Count > 0);
-            Assert.True(target.GlyphCalls > 0);
+            var drawHr = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
+            var diagnostic = JsonSerializer.Serialize(new
+            {
+                text, sign_metrics = signMetrics, line_metrics = narrow, hit_metrics = hitTest,
+                draw_hresult = drawHr, callback_failure = renderer.CallbackFailure,
+                inline_draws = renderer.InlineDraws,
+                glyph_submissions = renderer.Runs.Select(run => new
+                {
+                    ordinal = run?["ordinal"], inline_draw_ordinal = run?["inline_draw_ordinal"],
+                    submitted_to_d2d = run?["submitted_to_d2d"], glyph_indices = run?["glyph_indices"]
+                })
+            }, new JsonSerializerOptions { IncludeFields = true });
+            void Require(bool condition, string expectation) => Assert.True(condition, expectation + "\n" + diagnostic);
+            Require(drawHr >= 0 && renderer.CallbackFailure == null, "The actual layout and omission object must draw successfully");
+            var omissions = renderer.InlineDraws.Where(row => row?["is_configured_trimming_sign"]?.GetValue<bool>() == true).ToArray();
+            Require(omissions.Length == 1, "This horizontal single-line layout must draw its actual configured omission object once");
+            var omission = omissions[0]!;
+            Require(ComIdentity(sign) == omission["inline_com_identity"]!.GetValue<string>(), "The actual omission object's COM identity must match");
+            Require(omission["draw_succeeded"]!.GetValue<bool>() && omission["glyph_run_count"]!.GetValue<int>() > 0,
+                "The actual omission Draw must submit glyphs");
+            Require(signMetrics.Height == omission["inline_metrics"]!["height"]!.GetValue<float>()
+                && signMetrics.Width == omission["inline_metrics"]!["width"]!.GetValue<float>()
+                && signMetrics.Baseline == omission["inline_metrics"]!["baseline"]!.GetValue<float>(),
+                "Preserve the actual omission layout metrics, including a zero height");
+            Require(renderer.Runs.Any(run => run?["inline_draw_ordinal"]?.GetValue<int>() == omission["ordinal"]!.GetValue<int>()
+                && run["submitted_to_d2d"]!.GetValue<bool>() && run["glyph_indices"]!.AsArray().Count > 0)
+                && target.GlyphCalls > 0, "The actual inline Draw must reach the production glyph submission path");
+            Require(narrow.Length == 1 && narrow[0].Length == text.Length && narrow[0].IsTrimmed != 0,
+                "The same narrow layout must retain the full source range and report trimming");
+            Require(hitTest.Any(item => item.IsTrimmed != 0 && item.Length > 0), "The actual HitTestTextRange must report the replaced source range");
+            Require(hitTest.All(item => (ulong)item.TextPosition + item.Length <= (ulong)text.Length
+                && float.IsFinite(item.Left) && float.IsFinite(item.Top)
+                && float.IsFinite(item.Width) && item.Width >= 0 && float.IsFinite(item.Height) && item.Height >= 0),
+                "Actual hit-test layout regions must be finite and stay within the source UTF16 range; positive ink height is not required");
 
             // Re-expand this same layout. No separate measurement layout is
             // permitted to provide the untrimmed state or omitted text range.
