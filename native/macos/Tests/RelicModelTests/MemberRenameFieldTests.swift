@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import RelicAX
 @testable import Relic
 
 @MainActor final class MemberRenameFieldTests: XCTestCase {
@@ -33,6 +34,7 @@ import SwiftUI
         XCTAssertEqual(cell.accessibilityLabel(), "Member")
         XCTAssertEqual(cell.accessibilityIdentifier(), "relic-input/member-rename")
         XCTAssertEqual(cell.accessibilityFrame(), field.accessibilityFrame())
+        XCTAssertEqual(RelicAXRead(cell)["role"] as? String, "AXTextField")
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
