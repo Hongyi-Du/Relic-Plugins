@@ -320,6 +320,22 @@ import RelicAX
             try movePointer(to: NSPoint(x: target.midX, y: target.midY))
         } else { try click(target, window: window) }
         try await Task.sleep(for: .milliseconds(300))
+        if scene == "member-card-avatar-hover" {
+            let canvas = window.convertToScreen(content.convert(content.bounds, to: nil))
+            let surfaces = SurfacePaintProbe.snapshots(in: canvas).filter { $0["owner"] as? String == expected }
+            let labels = textViews(content).compactMap { $0 as? ReferenceLabelView }.filter {
+                $0.productionOwner == expected && NativeVisibility.screenClip($0).map { !$0.isNull && !$0.isEmpty } == true
+            }
+            guard surfaces.count == 1, surfaces[0]["hovered"] as? Bool == true,
+                  labels.count == 1, labels[0].string == model.t("card.change_avatar"), target.contains(NSEvent.mouseLocation) else {
+                throw RelicError.message("Actual avatar hover did not retain its visible surface, text and pointer")
+            }
+            return ["action": "native pointer motion at measured avatar", "target_screen_bounds": ElementCapture.box(target),
+                "visible_overlay_text": labels[0].string, "overlay_text_bounds": ElementCapture.box(NativeVisibility.screenClip(labels[0])!),
+                "overlay_surface_bounds": surfaces[0]["bounds"]!, "overlay_surface_style": surfaces[0]["style"]!,
+                "overlay_surface_evidence": surfaces[0]["evidence"]!,
+                "wrapper_AX_bounds": accessibilityFrame(identifier: expected, root: content).map(ElementCapture.box) as Any? ?? NSNull()]
+        }
         guard accessibilityFrame(identifier: expected, root: content) != nil else { throw RelicError.message("Member card action did not present its real state: " + scene) }
         return ["action": scene == "member-card-avatar-hover" ? "native pointer motion at measured avatar" : "native mouse down/up on measured card control", "target_screen_bounds": ElementCapture.box(target), "visible_result_identifier": expected]
     }
@@ -350,6 +366,12 @@ import RelicAX
         }
         try click(frame, window: window)
         try await Task.sleep(for: .milliseconds(250))
+        // Expanding a live result can scroll the conversation to keep its end
+        // visible. Validate against the row's current bounds, not the point
+        // where the preceding click happened before that layout change.
+        guard let expandedFrame = accessibilityFrame(identifier: "relic-row/live-tool/" + tool["id"].text, root: content) else {
+            throw RelicError.message("Expanded live tool row disappeared after its click")
+        }
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let probes = SurfacePaintProbe.snapshots(in: contentScreen).filter { $0["owner"] as? String == "relic-row/live-tool/" + tool["id"].text }
         let outputFrame = accessibilityFrame(identifier: "relic-live-output/" + tool["id"].text, root: content)
@@ -360,13 +382,13 @@ import RelicAX
         let outputs = textViews(content).filter { view in
             guard !view.isEditable, view.string == tool["text"].text,
                   let clip = NativeVisibility.screenClip(view), !clip.isNull, !clip.isEmpty else { return false }
-            return clip.maxY <= frame.minY + 1 && clip.minX >= frame.minX - 1 && clip.maxX <= frame.maxX + 1
+            return clip.maxY <= expandedFrame.minY + 1 && clip.minX >= expandedFrame.minX - 1 && clip.maxX <= expandedFrame.maxX + 1
         }
         guard probes.count == 1, probes[0]["expanded"] as? Bool == true, outputs.count == 1, let output = outputs.first else {
             throw RelicError.message("Actual live tool disclosure did not remain open: tool=\(tool["id"].text), clicked=\(frame), probes=\(probes.count), expanded=\(probes.map { String(describing: $0["expanded"]) }), visible_text_outputs=\(outputs.count), wrapper_AX=\(String(describing: outputFrame))")
         }
         return ["action": "native mouse down/up on measured production tool disclosure", "tool_title": tool["title"].text, "tool_id": tool["id"].text,
-                "open": true, "control_screen_bounds": ElementCapture.box(frame), "expanded_surface_evidence": probes[0]["evidence"]!,
+                "open": true, "clicked_screen_bounds": ElementCapture.box(frame), "control_screen_bounds": ElementCapture.box(expandedFrame), "expanded_surface_evidence": probes[0]["evidence"]!,
                 "visible_output": output.string, "output_screen_bounds": ElementCapture.box(NativeVisibility.screenClip(output)!), "wrapper_AX_bounds": outputFrame.map { ElementCapture.box($0) } as Any? ?? NSNull()]
     }
     private static func textViews(_ root: NSView) -> [NSTextView] { (root as? NSTextView).map { [$0] } ?? root.subviews.flatMap { textViews($0) } }
