@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (selected tabs and actual CI crash diagnostics): Windows
+Overview/Workspace/Files tabs and detail filters now retain a mounted native
+surface with the reference's selected 0/1/2px shadow. Selection changes update
+the actual surface, text and shadow without replacing the native selector.
+Headless build passes with zero warnings/errors; rendered geometry awaits CI.
+The macOS request at 9e80f9b is fulfilled: native tests and visual capture upload
+existing runner DiagnosticReports .ips/.crash files on failure. No debugger or
+local process is launched, and absence of a crash file is reported, not inferred.
+
+Actual 0545cf0 capture verifies both header state dots, leader tags and the real
+settings smoke brush. The modal canonical surface retains its independently
+verified UIA identity and original host rectangle. Capture is still 15/19 and
+the strict element gate remains failed; these measurements do not accept scenes.
+At fd4e1fe Windows build/tests/package and shared extractor contracts pass;
+macOS release compilation passes but its tests fail. The native-macos follow-up
+removes line-layout callback reentry; its runtime result still requires CI.
+
 Changes for the clients (fulfilled a73b570 static-font request): the shared weight
 projector now validates the already-bound actual macOS glyph callback's static
 OS/2 table receipt, preserving its complete bytes, PostScript identity and parsed
