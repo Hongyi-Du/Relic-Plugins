@@ -1,5 +1,11 @@
 # Native Relic App contract
 
+Changes for the clients (macOS measured recursion fix): native-macos 1ecee11
+uses the newly retained actual crash stack to fix accessibility registration
+reentry in its scroller provider; the previous role-only hypothesis was
+insufficient. The branch is merged for CI, retaining the full native thumb and
+child-index tests. This is a production recursion fix, not a capture exclusion.
+
 Changes for the clients (fulfilled reference CC-readiness request): every
 reference scene awaits the real production loadCc before opening its controls.
 Copies/rules await their later real reload and expand via actual summary controls.
