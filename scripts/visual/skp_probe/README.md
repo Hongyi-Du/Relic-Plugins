@@ -42,6 +42,15 @@ The pinned source contract is checked against that actual checkout before build.
 It guards the private run iterator's positional enum and known decoder behavior;
 it does not establish runtime success. No local build or run has been performed.
 
+The first CI attempt, run `41068736846`, passed all 14 input tests and all
+source-contract checks, fetched the exact dependencies and generated GN files,
+then Ninja failed before compilation on an absent Expat source. The pinned
+`gn/skia.gni` defaults JPEG gainmaps on for development builds; `BUILD.gn` enables
+the XML target when either Expat or gainmaps is enabled. The diagnostic now also
+disables JPEG gainmaps, consistently with its existing PNG-only image support.
+No image or font decoding error is suppressed; actual compilation is still
+unverified until the next CI result.
+
 ## Root workflow hookup
 
 Use a separate, explicitly diagnostic Windows job. Download only

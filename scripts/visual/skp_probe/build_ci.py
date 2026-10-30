@@ -21,6 +21,7 @@ GN_ARGS = " ".join((
     "skia_use_icu=false skia_use_harfbuzz=false skia_use_fontations=false skia_use_dawn=false",
     "skia_use_expat=false skia_use_lua=false skia_use_wuffs=false skia_use_partition_alloc=false",
     "skia_use_libjpeg_turbo_decode=false skia_use_libjpeg_turbo_encode=false",
+    "skia_use_jpeg_gainmaps=false",
     "skia_use_libwebp_decode=false skia_use_libwebp_encode=false",
     "skia_use_libpng_decode=true skia_use_libpng_encode=true skia_use_zlib=true",
 ))

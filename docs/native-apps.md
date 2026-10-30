@@ -1,5 +1,12 @@
 # Native Relic App contract
 
+Changes for the clients (actual decoder build): archived paint diagnostic run
+41068736846 passes 14 input tests and its pinned source checks. GN generation
+succeeds; Ninja finds a missing Expat dependency before compiling. The original
+Skia development default enables JPEG gainmaps even with JPEG decoding disabled,
+which independently enables XML. The PNG-only diagnostic now disables that
+unused feature explicitly. Font/source/frame measurements remain unresolved.
+
 Changes for the clients (latest macOS requests): the actual list-disc paint in
 Chromium 156.0.8078.4 is a FillEllipse symbol, not its accessibility bullet text.
 The requested separate shape/source measurement is being implemented in the
