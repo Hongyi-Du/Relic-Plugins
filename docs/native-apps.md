@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (fulfilled a73b570 static-font request): the shared weight
+projector now validates the already-bound actual macOS glyph callback's static
+OS/2 table receipt, preserving its complete bytes, PostScript identity and parsed
+big-endian usWeightClass. Missing/corrupt/conflicting receipts, fvar or nonempty
+variation data remain failures. Variable instances still require their actual
+wght coordinate. Six regression methods cover 28 malformed static receipts,
+actual-draw binding, version/range boundaries and variable/static conflicts;
+their parser fixtures are explicitly synthetic. No reference weight is inferred
+from native data. The NativeFontWeight table-tag and NativeLineMetrics argument
+compile fixes from native-macos 1d6402b are merged after their d88dda9 CI failures.
+
+At d88dda9 the Windows build/package and 28 core plus 79 capture-contract tests
+pass in job 123982903720. Shared checks at c099641 pass 101 Node/522 Python tests.
+These are implementation checks; the full element-parity gate remains failed.
+
 Changes for the clients (actual chart and resize capture contract): the chart
 already owns its full content padding. It now opts out of the second 22px modal
 template inset that clipped its close button and shifted all graph coordinates.
