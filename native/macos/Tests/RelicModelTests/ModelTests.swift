@@ -18,6 +18,21 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testCopiesCounterUsesTheServerTotalEvenWhenNotEveryCopyIsReturned() async throws {
+        let model = try model()
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, "[]")
+            case "/api/cc": return (200, #"{"items":[{"id":1,"read":false}],"unread":3}"#)
+            default: XCTFail("Unexpected refresh request " + request.url!.path); return (500, "{}")
+            }
+        }
+        try await model.refresh()
+        XCTAssertEqual(model.copies.count, 1)
+        XCTAssertEqual(model.unreadCopies, 3)
+        model.stop()
+    }
+
     func testSelectWaitsForAnInFlightRefreshAndThenLoadsItsOwnOrganization() async throws {
         let model = try model(); model.setSelection(ChatSelection("a"))
         let firstSnapshot = expectation(description: "first organization request is in flight")

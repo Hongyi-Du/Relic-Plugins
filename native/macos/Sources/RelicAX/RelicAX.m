@@ -17,6 +17,12 @@ static id Flag(id object, NSString *selector, NSString *legacy) {
         return @(((BOOL (*)(id, SEL))objc_msgSend)(object, sel));
     return legacy ? Attribute(object, @"relicNoSuchGetter", legacy) : nil;
 }
+NSString *RelicAXRole(id object) {
+    @try {
+        id role = Attribute(object, @"accessibilityRole", NSAccessibilityRoleAttribute);
+        return [role isKindOfClass:NSString.class] ? role : nil;
+    } @catch (NSException *exception) { return nil; }
+}
 NSArray *RelicAXChildren(id object) {
     @try {
         id children = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);

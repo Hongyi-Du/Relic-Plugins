@@ -93,7 +93,7 @@ struct ShortcutsView: View {
                 ForEach(rows, id: \.0) { key, label in
                     GridRow {
                         Keycap(key).gridColumnAlignment(.trailing)
-                        ReferenceLabel(m.t(label), size: 13, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+                        ReferenceLabel(m.t(label), size: 13, color: RelicStyle.secondary, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
                     }.frame(minHeight: 20.8)
                 }
             }.padding(.top, 4)

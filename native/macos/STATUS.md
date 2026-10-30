@@ -16,6 +16,14 @@ release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、�
 此后的静态字体表／文字基线修改仍待验证：`3462591` release 编译成功，XCTest 在字体绘制测试退出 signal 11；
 `f6c73ce` 移除排版代理递归后仍退出 signal 11。随后定位到字体表 API 返回未装箱整数标签，
 错误桥接为 NSNumber 会解引用整数地址；现已改用 `CFArrayGetValueAtIndex` 读取，并保留真实绘制测试。
+`ae977f2` 的 [41035024073 / macos 123993758261](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41035024073/job/123993758261)
+确认实际静态字体 Regular/Bold 绘制、固定行高基线、制表位及新增 popup 标题绘制测试通过；
+但测试进程在 `testThumbOnlyScrollerDoesNotExposeUnpaintedLegacyButtons` 退出 signal 11，整套测试仍失败。
+`e5fe085` 将滚动条子元素枚举中的完整 AX 查询改成只读取 role，避免导航属性反查父级子元素。
+`9aaf342` 诊断捕获已绘制群聊 PNG，但 AX 阶段退出 -11、完成数为 0/19；产物在
+`S:\Codex\Outputs\Relic-native-visual\parity-9aaf342\macos\`。不把这一张 PNG 计为成功捕获。
+后续源码还补齐决策按钮实际文字绘制及边框宽度、popup 原生菜单标题的实际文字绘制、
+快捷键说明的次级文字色，并加入只观察真实滚动通知的几何历史；这些须继续由新 CI 验证。
 
 最新已下载的完整矩阵失败报告是
 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\full-report\`，

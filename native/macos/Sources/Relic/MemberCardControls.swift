@@ -22,7 +22,7 @@ struct MemberNameInput: View {
     @FocusState private var focused: Bool
     private let identity = "relic-input/member-rename"
     var body: some View {
-        TextField(placeholder, text: $text).textFieldStyle(.plain).font(RelicStyle.font(14, weight: 400))
+        TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(RelicStyle.font(14, weight: 400))
             .focused($focused).onSubmit(save)
             .onKeyPress(.escape) { cancel(); return .handled }
             .onChange(of: text) { _, value in text = ReferenceText.inputPrefix(value, utf16Limit: 40) }

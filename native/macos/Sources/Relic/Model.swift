@@ -11,6 +11,7 @@ import RelicCore
     @Published var inputSuggestions: InputSuggestionsState?
     @Published var conversation = Node()
     @Published var copies: [Node] = []
+    @Published var unreadCopies = 0
     @Published var snapshot = Node()
     @Published var preferences = Node()
     @Published var platform = Node()
@@ -213,8 +214,9 @@ import RelicCore
     }
     private func refreshOnce() async throws {
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
-        copies = try await get("/api/cc")["items"].rows
-        let unreadCopies = copies.filter { !$0["read"].flag }.count
+        let copyResponse = try await get("/api/cc")
+        copies = copyResponse["items"].rows
+        unreadCopies = copyResponse["unread"].integer
         if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text]), org: copy["org"].text, member: "") }
         previousCopies = unreadCopies
         if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }

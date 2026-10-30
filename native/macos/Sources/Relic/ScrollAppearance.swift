@@ -39,7 +39,13 @@ final class ReferenceScroller: NSScroller {
         // This scroller draws one thumb. NSScroller's legacy arrow/page-button
         // providers are disabled and have no corresponding painted buttons.
         // Expose the actual native thumb; parent scrolling actions stay native.
-        super.accessibilityChildren()?.filter { RelicAXRead($0)["role"] as? String == "AXValueIndicator" }
+        super.accessibilityChildren()?.filter {
+            // A full AX snapshot also reads navigation/interaction providers,
+            // which can ask this parent for its children again. Read only the
+            // part's role here; retain a part whose role cannot be measured.
+            guard let role = RelicAXRole($0) else { return true }
+            return role == "AXValueIndicator"
+        }
     }
     override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat { 10 }
     var paintedKnob: NSRect {

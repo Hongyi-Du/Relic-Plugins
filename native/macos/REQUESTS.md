@@ -1,3 +1,20 @@
+## 2026-10-30: reference CC readiness in every scene
+
+The full `0a1d569` macOS reference quick-start PNG (en-US/light/1024x700)
+has no CC badge, while the native PNG has one unread copy. The reference hook
+awaits `loadOrgs()` / `openOrg()` but not `loadCc()` before creating the scene;
+the native model awaits `/api/cc`. Please verify the real `/api/cc` response and
+`S.cc.loaded` readiness for all cases, including quick-start, and await the
+production `loadCc()` before capture if it is still pending. Retain the actual
+response in the case evidence. Do not force the badge to a fixture value or
+clear real unread copies solely for visual matching.
+
+The native client now uses the response's `unread` total, as the reference does,
+instead of recomputing it from the returned `items` (which can omit copies whose
+organization/protocol is unavailable). Its model regression exercises a total
+larger than the returned unread list. This is a production contract correction;
+it does not claim the observed quick-start discrepancy is already resolved.
+
 ## 2026-10-30: retain native crash diagnostics on CI failure
 
 Run `41032074842`, macOS job `123983931463`, release compilation succeeded but
