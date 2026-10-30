@@ -143,16 +143,6 @@ struct NativeCountBadge: View {
     }
 }
 
-struct RelicLogo: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 15).fill(LinearGradient(colors: [Color(red: 46/255, green: 44/255, blue: 41/255), Color(red: 27/255, green: 26/255, blue: 24/255)], startPoint: .top, endPoint: .bottom))
-            if let path = try? VectorPath.parse("M21 47V17h12.8c6.4 0 10.2 3.5 10.2 8.9 0 4.2-2.3 7.2-6.2 8.3L45 47h-7.6l-6.4-12.1H27.9V47H21zm6.9-17.8h5.9c2.8 0 4.3-1.3 4.3-3.6s-1.5-3.6-4.3-3.6h-5.9v7.2z") { Path(path).fill(.white) }
-            Circle().fill(Color(red: 217/255, green: 119/255, blue: 87/255)).frame(width: 8.4, height: 8.4).position(x: 47.5, y: 46.5)
-        }.frame(width: 64, height: 64).scaleEffect(18/64).frame(width: 18, height: 18).accessibilityHidden(true)
-    }
-}
-
 struct ChipButton: View {
     let title: String
     let help: String

@@ -1,5 +1,18 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Image identity request: reference `#appbar img.ab-logo` is a visible image even
+though its web AX node is ignored. Its current canonical icon glyph is a
+per-run `http://127.0.0.1:<port>/static/icon.svg` URL. Please retain the actual
+loaded resource bytes / decoded SVG paint primitives as image evidence so
+identical image content can be compared across clients independently of their
+transport URI. Do not approve an icon mapping on that basis alone. macOS now
+renders the brand image in one actual NativeLogoView and records its real draw
+callback: view box, gradient stops/endpoints, vector letter path/fill, circle,
+outer 5px clip and local bounds. The raw node's `native_image_draw` carries these
+measurements; no reference URL or expected image identity is inserted by native
+capture. Its source identity comparison remains unresolved until the common
+format covers those actual resources.
+
 Latest verified macOS build: `14b78e0`, run `40994507899`, job `123864386261`,
 128 tests passed. The disabled-button failure is resolved without changing its
 tolerance: actual sRGB bitmap/PNG bytes are [27,27,26,255] / [175,175,175,255].

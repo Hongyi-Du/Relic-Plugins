@@ -261,6 +261,17 @@ import CoreText
             var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
             node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "indeterminate": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 2 } as Any? ?? NSNull() : NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
             node["style"] = style(object, text: text)
+            if let logo = object as? NativeLogoView {
+                node["native_image_draw"] = logo.lastDraw as Any? ?? NSNull()
+                if let draw = logo.lastDraw {
+                    var imageStyle = node["style"] as! [String: Any]
+                    imageStyle.merge(["backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0,
+                        "borderRadius": draw["outer_clip_radius"]!, "corner_radii": Array(repeating: draw["outer_clip_radius"]!, count: 4),
+                        "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4),
+                        "opacity": NativeVisibility.opacity(logo), "background_image": "none", "shadow": []], uniquingKeysWith: { _, actual in actual })
+                    node["style"] = imageStyle
+                }
+            }
             if let scroller, role == "AXScrollBar" || isThumb {
                 node["ax_hit_bounds"] = box(axRect)
                 ScrollbarCapture.apply(to: &node, scroller: scroller, thumb: isThumb)
