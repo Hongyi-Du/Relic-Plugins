@@ -54,6 +54,17 @@ public sealed partial class MainWindow
                 ["own_paint_contract"] = PrimitiveOutlineContract(actual),
                 ["scope"] = "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt" };
             node["outline_owner_evidence"] = receipt;
+            if (actual == typeof(NativeOverviewToggle) && value is NativeOverviewToggle toggle)
+            {
+                receipt["local_toggle"] = new JsonObject
+                {
+                    ["source"] = "actual sealed NativeOverviewToggle base type, retained parts and applied template",
+                    ["owner_id"] = ids[value], ["base_type"] = actual.BaseType?.FullName,
+                    ["is_sealed"] = actual.IsSealed, ["current_parts_same_objects"] = toggle.HasCurrentParts,
+                    ["template_present"] = toggle.Template != null, ["template_type"] = toggle.Template?.GetType().FullName,
+                    ["audited_source"] = "native/windows/Relic/NativeOverviewToggle.cs#NativeOverviewToggle"
+                };
+            }
             if (LocalLayoutOutlineContract(actual) is { } local)
             {
                 receipt["local_layout"] = new JsonObject
@@ -280,6 +291,11 @@ public sealed partial class MainWindow
         // are NOT covered by this contract. Do not generalize to ContentControl
         // (which has its own renderer), presenters, or arbitrary subclasses.
         : TemplateChildOnlyControl(actual) ? "native-core-control-template-children-only"
+        // Exact sealed local subclass only retains/decorates real template
+        // children and installs state-change handlers. It adds no own paint.
+        // The original native ToggleButton, child/focus/Composition checks
+        // remain independent; this does not cover arbitrary derived controls.
+        : actual == typeof(NativeOverviewToggle) ? "relic-overview-toggle-template-parts-only"
         // Exact SDK 1.6.9, commit da699b040bddc2a6adf660512a7c6db8a96bfbe3:
         // src/dxaml/xcp/core/inc/Viewbox.h and core/elements/Viewbox.cpp:
         // CFrameworkElement scale/arrange only; the internal Border is a child.

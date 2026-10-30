@@ -1,5 +1,43 @@
 # Native Relic App contract
 
+Changes for the clients (full-matrix artifact storage failure): ca8d997 full
+run 41038721093 exhausted the comparison runner's disk while downloading raw
+capture artifacts; the matcher and final upload had not started. This is an
+infrastructure failure, not a completed parity result. Comparison now downloads
+one immutable ZIP at a time and reads every member to EOF, checking actual CRC,
+size and SHA256. Only PNGs, canonical element JSON, completion receipts and
+manifests are expanded for comparison. Complete original raw trees remain in
+their original capture artifacts. Both report artifacts include raw-artifacts
+JSON/HTML, exact member names and download links; each scene has its own links.
+Local elements must match the verified original member bytes. Missing or failed
+transport still fails. No scene, measurement failure or tolerance is removed.
+Nine pure mocked transport tests and actual bounded-disk CI remain to verify.
+
+The 78c7f6b shared checks pass 106 Node / 631 Python tests. Its native captures
+are still running. The de8c4ff smoke report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-de8c4ff\report`; it still requires
+all 672 cases and accepts zero. Its diagnostics contain Windows missing 762,
+extra 242, text 462, geometry 2008, style 11876, state 1114, kind 8, region 15,
+order 920, layout 1640, icon 0 and extraction 30259; macOS missing 76, extra 625,
+text 12, geometry 1233, style 8408, state 1211, kind 0, region 2, order 645,
+layout 2325, icon 0 and extraction 30574. These are a 20-case diagnostic input,
+not a complete acceptance matrix.
+
+Retained path-line failures now preserve their original id/reason/count while
+the matcher independently revalidates the full owner/source/parent proof to
+locate them on the real source owner. Invalid ownership remains global. Path
+owner outline must be independently measured; child outline absence cannot
+prove the owner's absence. The sealed Overview toggle also has an exact local
+container-only outline receipt; children, focus and Composition remain separate.
+No derived type automatically inherits a native primitive's absence proof.
+
+Read the latest macOS requests: actual 5d4f8ea hover receipts, corrected date
+spacing and padded segment geometry, input modifier ownership, and nonfinite
+TextKit measurement serialization. Nonfinite native slots become null with
+their exact paths/spellings retained as unmeasured failures, never zero. These
+changes are integrated for the next shared run; actual visual/IME behavior and
+remaining input-width differences still need verification.
+
 Changes for the clients (actual de8c4ff results and retained element ownership):
 the 20-case smoke captured 15 Windows cases and 20 macOS cases, but accepts
 zero scenes. Windows failed settings-navigation-hover, file-code,

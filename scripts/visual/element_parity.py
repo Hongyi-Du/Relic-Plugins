@@ -249,11 +249,82 @@ def geometry_tolerance(size: float) -> float:
     return size * .03 if size > 130 else 4
 
 
+def native_path_failure_owners(elements: list[dict]) -> dict[str, dict]:
+    """Locate a retained line failure without turning it into a measurement.
+
+    The optional projected_owner_id on a gap is never ownership evidence. Only
+    the complete recorded source owner, unchanged line objects, independent
+    line projections and real intermediate parent nodes can supply this map.
+    Invalid/ambiguous proof remains a global extraction failure.
+    """
+    counts = Counter(item.get("id") for item in elements if isinstance(item, dict) and isinstance(item.get("id"), str))
+    candidates = defaultdict(list)
+    for owner in elements:
+        if not isinstance(owner, dict) or not isinstance(owner.get("id"), str) or counts[owner["id"]] != 1:
+            continue
+        evidence = owner.get("evidence")
+        proof = evidence.get("native_path_projection") if isinstance(evidence, dict) else None
+        if not isinstance(proof, dict):
+            continue
+        if (evidence.get("source") != "Actual NativePathText owner and independently measured retained NativeLabel drawing lines"
+                or evidence.get("type") != "NativePathText" or owner.get("kind") != "text"
+                or proof.get("other_child_paint_merged") is not False):
+            continue
+        raw_owner, raw_lines, raw_ancestors = (proof.get(key) for key in ("raw_owner", "raw_lines", "raw_ancestors"))
+        source_ids, independent = proof.get("source_line_ids"), proof.get("independent_line_elements")
+        if (not isinstance(raw_owner, dict) or raw_owner.get("id") != owner["id"]
+                or not isinstance(raw_lines, list) or not raw_lines or not isinstance(raw_ancestors, list)
+                or not isinstance(source_ids, list) or not source_ids
+                or not all(isinstance(source_id, str) and source_id for source_id in source_ids)
+                or len(set(source_ids)) != len(source_ids)
+                or not isinstance(independent, list) or len(independent) != len(source_ids)
+                or any(not isinstance(item, dict) for item in raw_lines + raw_ancestors + independent)):
+            continue
+        raw = [raw_owner] + raw_lines + raw_ancestors
+        raw_ids = [item.get("id") for item in raw]
+        if (not all(isinstance(source_id, str) and source_id for source_id in raw_ids)
+                or len(set(raw_ids)) != len(raw_ids)
+                or [item["id"] for item in raw_lines] != source_ids
+                or [item.get("id") for item in independent] != source_ids
+                or any(counts[source_id] for source_id in source_ids)):
+            continue
+        receipt = proof.get("source_receipt")
+        if (not isinstance(receipt, dict) or receipt != raw_owner.get("native_path_evidence")
+                or owner.get("text") != receipt.get("source_text")):
+            continue
+        # Reuse the exact production-object/span validator; this is a pure
+        # validation call, not a capture or a second text/geometry projection.
+        from windows_elements import native_path_binding
+        try:
+            lines, reason = native_path_binding(raw_owner, {item["id"]: item for item in raw})
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if reason is not None or [item["id"] for item in lines] != source_ids:
+            continue
+        actual_ancestor_ids = {edge[key] for line in lines
+                               for edge in line["native_path_line_evidence"]["actual_ancestor_edges"]
+                               for key in ("child_id", "parent_id")} - set(source_ids) - {owner["id"]}
+        if set(item["id"] for item in raw_ancestors) != actual_ancestor_ids:
+            continue
+        if any(item.get("kind") != "text" or item.get("text") != line.get("text")
+               or item.get("region") != owner.get("region")
+               for item, line in zip(independent, lines)):
+            continue
+        for source_id in source_ids:
+            candidates[source_id].append({
+                "owner": owner["id"], "source_element": source_id,
+                "method": "Complete retained NativePathText object/source/parent proof; no name or geometry inference",
+                "evidence_path": "elements[id=" + owner["id"] + "].evidence.native_path_projection",
+                "quantity": "Failure ownership only; the original measurement failure is unchanged",
+            })
+    return {source_id: matches[0] for source_id, matches in candidates.items() if len(matches) == 1}
+
+
 def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list[dict]:
     errors = []
-    def error(message, element=None):
+    def error(message, element=None, **evidence):
         if element is not None and not isinstance(element, (str, int)): element = repr(element)
-        errors.append({"client": client, "element": element, "reason": message})
+        errors.append({"client": client, "element": element, "reason": message, **evidence})
     if not isinstance(data, dict):
         error("Capture is not a JSON object")
         return errors
@@ -271,6 +342,7 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         error("Capture has no element array or an empty element array")
         return errors
     source_ids = Counter(e["id"] for e in elements if isinstance(e, dict) and isinstance(e.get("id"), str))
+    failure_owners = native_path_failure_owners(elements) if client == "windows" else {}
     coverage = data.get("coverage")
     if not isinstance(coverage, dict):
         error("Missing extraction coverage")
@@ -286,11 +358,18 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                 # Reference names its actual source `element`; XAML uses `id`.
                 # Retain attribution only for one uniquely emitted element.
                 # Unknown raw nodes or ambiguous/global gaps remain global
-                # failures; no projection ownership or parent id is guessed.
+                # failures. The one validated path-line ownership mapping may
+                # localize an unchanged failure, never remove it.
                 reported = [gap[key] for key in ("element", "id") if key in gap] if isinstance(gap, dict) else []
-                target = (reported[0] if reported and all(isinstance(value, str) and value == reported[0] for value in reported)
-                          and source_ids[reported[0]] == 1 else None)
-                error("Unmeasured: " + str(gap), target)
+                source = reported[0] if reported and all(isinstance(value, str) and value == reported[0] for value in reported) else None
+                target = source if source is not None and source_ids[source] == 1 else None
+                ownership = failure_owners.get(source) if source is not None and not source_ids[source] else None
+                if (ownership is not None and isinstance(gap, dict)
+                        and gap.get("projected_owner_id", ownership["owner"]) == ownership["owner"]):
+                    error("Unmeasured: " + str(gap), ownership["owner"], source_element=source,
+                          failure_ownership=dict(ownership))
+                else:
+                    error("Unmeasured: " + str(gap), target)
     ids = set()
     for index, element in enumerate(elements):
         if not isinstance(element, dict):
@@ -839,7 +918,7 @@ def link_captured_evidence(source: Path, destination: Path) -> None:
 
 
 def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data: dict) -> list[dict]:
-    """Keep the actual trees beside their JSON's relative basename references."""
+    """Keep local trees, or exact verified original-artifact transport links."""
     errors = []
     destination = output / "elements" / client
     destination.mkdir(parents=True, exist_ok=True)
@@ -851,6 +930,18 @@ def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data:
         if candidate.name.endswith(suffixes):
             link_captured_evidence(candidate, destination / candidate.name)
             copied.add(candidate.name)
+    # Large original trees remain in their immutable capture artifacts. Their
+    # bytes must have been streamed/CRC-checked, and the same artifact must
+    # contain byte-identical local elements. This never changes measurements.
+    if (source / "raw-artifacts.json").is_file():
+        from download_comparison_inputs import verified_raw_members, write_scene_raw_links
+        try:
+            remote = verified_raw_members(source, scene)
+            if remote:
+                write_scene_raw_links(destination, scene, client, remote)
+                copied.update(member["filename"] for member in remote)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            errors.append({"client": client, "reason": "Raw evidence artifact transport failed: " + str(error)})
     references = data.get("raw_evidence", {})
     if not isinstance(references, dict):
         return [{"client": client, "reason": "raw_evidence must map source kinds to local sidecar basenames"}]
@@ -925,6 +1016,8 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
               '<p class="legend"><span style="color:#159447">Green: match</span><span style="color:#e02020">Red: missing</span><span style="color:#ef8b00">Orange: mismatch</span><span style="color:#9b38dd">Purple: extra</span></p>',
               '<p>Dashed outlines locate a clipped layout envelope when actual glyph bounds are unknown. They are not accepted measurements; extraction and geometry failures remain in the report.</p>',
               '<label><input type="checkbox" checked onchange="document.body.classList.toggle(\'hide-outlines\', !this.checked)"> Show every extracted element</label>']
+    if (output / "raw-artifacts.html").is_file():
+        chunks.append('<p><a href="raw-artifacts.html">Complete original capture artifacts: exact raw filenames, verified byte counts and download links</a></p>')
     base_chunks = list(chunks)
     combined_chunks = list(chunks)
     for platform in PLATFORMS:

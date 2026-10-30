@@ -152,36 +152,19 @@ jobs:
     needs: [windows, macos, element-checker]
     if: always() && inputs.matrix != 'paint'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install pillow
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: reference-windows-*
-          merge-multiple: true
-          path: visual/reference
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: reference-macos-*
-          merge-multiple: true
-          path: visual/reference-macos
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: visual-windows-*
-          merge-multiple: true
-          path: visual/windows
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: visual-macos-*
-          merge-multiple: true
-          path: visual/macos
+      - name: Download every capture artifact with bounded local storage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/visual/download_comparison_inputs.py --output visual --report-output visual/parity --report-output visual/comparisons
       - name: Record actual comparison storage before reports
         if: always()
         run: |

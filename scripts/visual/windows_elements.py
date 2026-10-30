@@ -1761,6 +1761,11 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
             style[key] = copy.deepcopy(values[0]) if values[0] is not None and all(value == values[0] for value in values) else None
             if style[key] is None:
                 gap("style." + key, "Actual bound line values differ or at least one line is unmeasured")
+        owner_outline, owner_outline_evidence, owner_outline_issues = native_outline(owner, by_id)
+        unmeasured.extend(owner_outline_issues)
+        if owner_outline != "none" or style["outline"] != "none":
+            style["outline"] = None
+            gap("style.outline", "Path owner and every internal line require independent own/focus/Composition outline evidence")
         font_lists = [element.get("style", {}).get("rendered_fonts") for element in measured]
         fonts_complete = all(isinstance(fonts, list) and fonts and all(isinstance(font, dict) for font in fonts) for fonts in font_lists)
         style["rendered_fonts"] = [copy.deepcopy(font) for fonts in font_lists for font in fonts] if fonts_complete else None
@@ -1844,6 +1849,11 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
                   "truncation": trims[0] if trims[0] is not None and all(value == trims[0] for value in trims) else None}
         if not policy:
             gap("break_strategy", "Actual ICU source-bound line/character iterator receipts are incomplete")
+        ancestor_ids = dict.fromkeys(part_id
+            for binding in receipt["actual_line_bindings"]
+            for edge in binding["actual_ancestor_edges"]
+            for part_id in (edge["child_id"], edge["parent_id"])
+            if part_id not in {owner["id"], *line_ids})
         element = {"id": owner["id"], "parent": owner.get("parent"), "region": owner["region"], "order": measured[0]["order"],
                    "kind": "text", "text": receipt["source_text"], "name": name,
                    "bounds": union_boxes(geometry) if geometry_complete else None,
@@ -1854,7 +1864,9 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
                                 "uia_identity_binding": copy.deepcopy(pairs[0]) if witness else None,
                                 "native_path_projection": {"source_receipt": copy.deepcopy(receipt), "source_line_ids": line_ids,
                                                            "independent_line_elements": copy.deepcopy(measured), "raw_owner": copy.deepcopy(owner),
-                                                           "raw_lines": copy.deepcopy(lines), "other_child_paint_merged": False},
+                                                           "raw_lines": copy.deepcopy(lines),
+                                                           "raw_ancestors": [copy.deepcopy(by_id[part_id]) for part_id in ancestor_ids],
+                                                           "other_child_paint_merged": False},
                                 "text_bounds": geometry if geometry_complete else None, "text_coordinate_space": "content-window",
                                 "text_bounds_quantity": "Actual rendered-face font metrics around actual draw baselines plus actual glyph advances",
                                 "owner_layout_bounds": copy.deepcopy(owner.get("bounds")),
@@ -1864,7 +1876,10 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
                                 "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,
                                                               "xaml": copy.deepcopy(owner.get("interaction_evidence")),
                                                               "uia_state": copy.deepcopy(witness.get("state")) if witness else None},
-                                "outline": copy.deepcopy(measured[0].get("evidence", {}).get("outline")) if style.get("outline") is not None else None}}
+                                "outline": {"source": "Independently measured actual source owner and retained drawing lines",
+                                            "owner": owner_outline_evidence,
+                                            "lines": [copy.deepcopy(item.get("evidence", {}).get("outline")) for item in measured],
+                                            "absence_proven": style["outline"] == "none"}}}
         # Preserve configured and resolved independently, including every raw
         # source receipt. No line's request supplies another line's face weight.
         quantities = [item.get("evidence", {}).get("font_weight_quantities") for item in measured]
