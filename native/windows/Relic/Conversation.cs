@@ -422,7 +422,7 @@ public sealed partial class MainWindow
             var marker = OverviewText("▸ ", 11.5, true); marker.IsTextSelectionEnabled = false;
             var summary = new StackPanel { Orientation = Orientation.Horizontal, Padding = new Thickness(2, 0, 2, 0), HorizontalAlignment = HorizontalAlignment.Left }; summary.Children.Add(marker); summary.Children.Add(originalLabel);
             var original = new Border { Child = Rich(body), Background = Paint("F4F3F0", "2A2A28"), Padding = new Thickness(13, 9, 13, 9), CornerRadius = new CornerRadius(4, 14, 14, 14), Margin = new Thickness(0, 4, 0, 0) };
-            if (from == snap["org"].Text("secretary") && member.Length == 0) { original.BorderBrush = Paint("7058B8", "A894E0"); original.BorderThickness = new Thickness(3, 0, 0, 0); original.Padding = new Thickness(10, 9, 13, 9); }
+            if (from == snap["org"].Text("secretary") && member.Length == 0) NativeInsetShadow.Attach(original, Paint("7058B8", "A894E0"));
             var originalLayout = new MessageBubbleLayout { MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left }; originalLayout.Children.Add(original);
             var disclosure = DetailsDisclosure(summary, originalLayout); disclosure.HorizontalAlignment = HorizontalAlignment.Left;
             disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => marker.Text = disclosure.IsExpanded ? "▾ " : "▸ "); originalAfter = disclosure;
@@ -496,8 +496,10 @@ public sealed partial class MainWindow
         }
         var secretary = from == snap["org"].Text("secretary");
         var bubble = new Border { Child = box, Padding = new Thickness(13, 9, 13, 9), CornerRadius = mine ? new CornerRadius(14, 4, 14, 14) : new CornerRadius(4, 14, 14, 14), Background = mine ? MessageTint() : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7058B8", "A894E0") : Line, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch };
-        if (secretary && member.Length == 0) { bubble.BorderThickness = new Thickness(3, 0, 0, 0); bubble.Padding = new Thickness(10, 9, 13, 9); }
         if (showingPlain) { bubble.Background = Paint("EFEBF8", "2E2A3D"); bubble.BorderBrush = OverviewAlpha(Paint("7058B8", "A894E0"), .22); bubble.BorderThickness = new Thickness(1); bubble.Padding = new Thickness(13, 9, 13, 9); }
+        // .bubble.plain changes the real border but does not reset .msg.sec's
+        // inset shadow. The painter uses its actual inner padding-edge contour.
+        if (secretary && member.Length == 0) NativeInsetShadow.Attach(bubble, Paint("7058B8", "A894E0"));
         var bubbleLayout = new MessageBubbleLayout { MaxWidth = 720, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left }; bubbleLayout.Children.Add(bubble);
         column.Children.Add(bubbleLayout); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };

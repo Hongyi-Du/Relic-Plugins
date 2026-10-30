@@ -25,6 +25,7 @@ from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
 from windows_avatar_parts import windows_avatar_parts
 from windows_list_marker import windows_list_markers
+from windows_inset_shadow import windows_inset_shadows
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
 
@@ -2052,6 +2053,11 @@ def project(xaml_path, uia_path, png_path):
     avatar_parts = windows_avatar_parts(source_raw, uia)
     unmeasured.extend(avatar_parts["unmeasured"])
     list_markers = windows_list_markers(source_raw)
+    inset_shadows = windows_inset_shadows(source_raw)
+    for issue in inset_shadows["unmeasured"]:
+        inset_owner = source_by_id.get(issue["id"], {})
+        if not inset_owner.get("hidden_reason") and positive(inset_owner.get("visible_bounds")):
+            unmeasured.append(issue)
     for issue in list_markers["unmeasured"]:
         marker = source_by_id.get(issue["id"], {})
         if not marker.get("hidden_reason") and positive(marker.get("visible_bounds")):
@@ -2236,6 +2242,19 @@ def project(xaml_path, uia_path, png_path):
         for part in parts["owned_ids"]:
             owned[part] = (owner, "actual retained production avatar decoration")
 
+    inset_owners = {}
+    inset_layers = {}
+    for owner, audit in inset_shadows["owners"].items():
+        path_id = audit["path_id"]
+        if (not visible(by_id[owner]) or not visible(by_id[path_id])
+                or path_id in owned and owned[path_id][0] != owner):
+            unmeasured.append({"id": owner, "property": "native_inset_shadow",
+                               "reason": "Actual inset owner/path is not visible or has conflicting ownership"})
+            continue
+        inset_owners[owner] = audit
+        inset_layers[path_id] = owner
+        owned[path_id] = (owner, "actual retained native inset-shadow path")
+
     list_marker_owners = {}
     list_marker_layers = {}
     for owner, audit in list_markers["owners"].items():
@@ -2308,6 +2327,9 @@ def project(xaml_path, uia_path, png_path):
             if node["id"] in list_marker_layers:
                 marker_id = list_marker_layers[node["id"]]
                 record["ownership_evidence"] = copy.deepcopy(list_marker_owners[marker_id])
+                record["paint_evidence"] = copy.deepcopy(node)
+            if node["id"] in inset_layers:
+                record["ownership_evidence"] = copy.deepcopy(inset_owners[inset_layers[node["id"]]])
                 record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in scrollbar_page_hits:
                 owner, region_nodes = scrollbar_page_hits[node["id"]]
@@ -2622,6 +2644,10 @@ def project(xaml_path, uia_path, png_path):
             if avatar_parts_evidence["outline_source"] is not None:
                 style["outline"] = copy.deepcopy(avatar_parts_evidence["outline"])
         list_marker = list_marker_owners.get(node["id"])
+        if node["id"] in inset_shadows["audits"]:
+            # A real retained path owns this inset effect. Invalid/stale binding
+            # remains unknown, and the unowned visible Path remains an element.
+            style["shadow"] = copy.deepcopy(inset_owners[node["id"]]["shadow"]) if node["id"] in inset_owners else None
         if list_marker is not None:
             # Observed shape properties remain a different quantity from an
             # observed raster callback. Unknown outline/frame paint stays so.
@@ -2725,6 +2751,10 @@ def project(xaml_path, uia_path, png_path):
             element["evidence"]["native_list_marker"] = copy.deepcopy(list_markers["audits"][node["id"]])
             if list_marker is not None:
                 element["evidence"]["paint_sources"].append(list_marker["ellipse_id"])
+        if node["id"] in inset_shadows["audits"]:
+            element["evidence"]["native_inset_shadow"] = copy.deepcopy(inset_shadows["audits"][node["id"]])
+            if node["id"] in inset_owners:
+                element["evidence"]["paint_sources"].append(inset_owners[node["id"]]["path_id"])
         if dialog_surface is not None:
             element["evidence"]["dialog_surface"] = {
                 "source": "Actual applied NativeContentDialog surface; native host semantics remain separate from its layout box",

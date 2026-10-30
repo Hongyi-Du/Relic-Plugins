@@ -296,6 +296,7 @@ public sealed partial class MainWindow
         CaptureNativeDialogSurfaces(renderIds, renderNodes);
         CaptureNativeToggleParts(renderIds, renderNodes);
         CaptureNativeAvatarParts(renderIds, renderNodes);
+        CaptureNativeInsetShadows(renderIds, renderNodes);
         foreach (var (value, markerId) in renderIds)
             if (value is NativeListMarker marker && renderNodes.TryGetValue(value, out var markerNode))
             {

@@ -20,6 +20,8 @@
     <Compile Include="../../Relic/NativeSelectableTextLayout.cs" Link="NativeSelectableTextLayout.cs" />
     <Compile Include="../../Relic/NativeListMarkerMetrics.cs" Link="NativeListMarkerMetrics.cs" />
     <Compile Include="../../Relic/NativePrimaryLineMetrics.cs" Link="NativePrimaryLineMetrics.cs" />
+    <Compile Include="../../Relic/NativeInsetShadowGeometry.cs" Link="NativeInsetShadowGeometry.cs" />
+    <Compile Include="../../Relic/NativeInsetShadowPath.cs" Link="NativeInsetShadowPath.cs" />
     <Compile Include="../../Relic/PanelResizeCapture.cs" Link="PanelResizeCapture.cs" />
     <Compile Include="../../Relic/TextRangeFormatEnumeration.cs" Link="TextRangeFormatEnumeration.cs" />
     <Compile Include="../../Relic/RunTextBindingJournal.cs" Link="RunTextBindingJournal.cs" />

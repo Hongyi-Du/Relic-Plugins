@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (actual secretary bubble inset): Windows now paints the
+reference's zero-blur inner shadow with a retained native Path produced by D2D
+EXCLUDE on the actual rounded padding edge. The former 3px left border is removed;
+normal padding is restored. Plain-word bubbles retain their separate 1px border
+and the same inset effect, as the production CSS specifies. Ownership receipts
+bind the real Border/content/Canvas/Path and operation output. They do not relabel
+old border captures or prove final raster contribution; those unknowns still fail.
+Six pure geometry/COM ABI and seven reader negative cases run in CI.
+
 Changes for the clients (actual text-provider coordinate repair): f6220c9 binds
 the same NativePathText/range through WinRT and COM, but exposes a production
 double-clipping offset: y=96+(96-77.6499939), instead of the actual clip y=96.
