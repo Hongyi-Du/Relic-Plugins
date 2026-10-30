@@ -420,10 +420,7 @@ import CoreText
             if candidates.count == 1, let index = candidates.first {
                 var existing = elements[index]["style"] as! [String: Any]
                 existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing
-                if owner != nil, ["input", "dropdown"].contains(elements[index]["kind"] as? String ?? "") {
-                    elements[index]["ax_content_rect"] = elements[index]["rect"]
-                    elements[index]["rect"] = box(rect); elements[index]["visibleRect"] = box(visible)
-                }
+                NativeSurfaceGeometry.attach(to: &elements[index], surface: surface, viewport: viewport)
                 if let measuredRegion = surface["region"] as? String { elements[index]["region"] = measuredRegion }
                 elements[index]["surface_evidence"] = surface["evidence"]!
                 elements[index]["native_structure"] = surface["native_structure"]
