@@ -62,7 +62,10 @@ struct RecordedSurface: ViewModifier {
                             }
                         }.padding(shadowOutset).drawingGroup(opaque: false, colorMode: .nonLinear).padding(-shadowOutset)
                     }
-                    NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner)
+                // Keep AppKit's original fill path when SwiftUI composites
+                // shadows. Quantizing that fill into another 8-bit image first
+                // changed its antialiased border pixels in the mounted test.
+                NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner, ownedLayer: shadows.isEmpty)
                 }
             } else if shadows.isEmpty { shape.fill(background) }
             else {

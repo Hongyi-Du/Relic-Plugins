@@ -1,3 +1,27 @@
+## 2026-10-30: 236-test results and the shadow composition regression
+
+Native apps 41097402930 / macOS 124209280678 (`663ced3`) builds and runs 236 tests.
+Mounted banner flex/undistorted-icon tests, ordinary field-editor ownership,
+message-evidence preservation, scoped message reading order with unchanged AX
+inventory, and actual opaque-coverage positive/negative pixel tests all pass.
+There are three failures: the two old content-hit assertions (before the newer
+NSView mouse-hit fix) and one full surface bitmap comparison with dialog shadows.
+
+Downloaded draw artifacts to `parity-663ced3/draw-diagnostics`. Exactly 107 pixels
+differ at the rounded fill/border edge; the other three full-surface fixtures
+match. The actual production RecordedSurface now keeps its prior AppKit native
+fill path when shadows are present, while unshadowed fills retain the validated
+owned image. The unchanged full-PNG equality assertion must pass again; a new
+assertion also checks this renderer choice. No tolerance or scene changes.
+Shadowed fills consequently retain unknown owned-image coverage; the diagnostic
+does not treat the fallback as opaque proof. The actual intermediate precision
+causing the edge difference has not been measured.
+
+The passing native sort-priority test is now applied to production message rows:
+actual source row order scopes priorities, with avatars before their message
+contents, and date/load-older/thread/live ordering retained. Pixel layout and
+accessible-element inventory still require the next real capture.
+
 ## 2026-10-30: obsolete CI work superseded; the full matrix stays required
 
 Shared Native apps 41092324513 / macOS 124190297636 (`98841c1`) builds and runs

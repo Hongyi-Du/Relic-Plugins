@@ -85,6 +85,14 @@ import SwiftUI
                 let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
                 window.contentView = host; window.orderFront(nil)
                 host.layoutSubtreeIfNeeded(); host.display(); CATransaction.flush()
+                if native {
+                    func fills(_ view: NSView) -> [NativeSurfaceFillView] {
+                        (view as? NativeSurfaceFillView).map { [$0] } ?? view.subviews.flatMap(fills)
+                    }
+                    let fill = try XCTUnwrap(fills(host).first)
+                    XCTAssertEqual(fill.usesOwnedBackingImage, fixture.shadows.isEmpty,
+                        "A shadowed surface must retain the pixel-validated AppKit composition path")
+                }
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
                 host.cacheDisplay(in: host.bounds, to: bitmap)
                 images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
