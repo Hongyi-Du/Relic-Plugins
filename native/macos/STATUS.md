@@ -10,6 +10,14 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+最新构建证据：`14b78e0` 的 [Native apps 40994507899](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40994507899)
+macOS 构建与 128 个测试全部通过，包含原容差下的发送按钮真实像素断言和 PNG 编解码一致性。
+CI 原始通道为启用 `[27,27,26,255]`、禁用 `[175,175,175,255]`；此前失败来自
+`colorAt` 生成校准色后的二次转换。现在读取位图实际 sRGB 通道，同时保留颜色空间、格式、alpha 回执。
+同一运行确认侧栏混排的实际 advance 为 130.642880（参考 130.640625），而 glyph envelope 为
+135.528076；两者是不同测量量。后续 `e0c98f8` 读取既有 TextKit 排版的插入点，分别保留 advance、
+墨迹包络和截断未知值，待新 CI 验证。没有因这些测试通过而关闭逐元素失败项。
+
 已合入共享 `d77f162` 的 55 场景矩阵：完整 660 case、诊断 19 case。macOS 新增
 `panel-resize-hover` / `panel-resized` 的实际鼠标输入，窄窗先点击真正的 Overview 工具栏按钮；
 拖拽在窗口坐标中进行八步 64 px 移动，独立检查同一面板/手柄、实际收到的 SwiftUI 手势、

@@ -1,5 +1,37 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Image identity request: reference `#appbar img.ab-logo` is a visible image even
+though its web AX node is ignored. Its current canonical icon glyph is a
+per-run `http://127.0.0.1:<port>/static/icon.svg` URL. Please retain the actual
+loaded resource bytes / decoded SVG paint primitives as image evidence so
+identical image content can be compared across clients independently of their
+transport URI. Do not approve an icon mapping on that basis alone. macOS now
+renders the brand image in one actual NativeLogoView and records its real draw
+callback: view box, gradient stops/endpoints, vector letter path/fill, circle,
+outer 5px clip and local bounds. The raw node's `native_image_draw` carries these
+measurements; no reference URL or expected image identity is inserted by native
+capture. Its source identity comparison remains unresolved until the common
+format covers those actual resources.
+
+Latest verified macOS build: `14b78e0`, run `40994507899`, job `123864386261`,
+128 tests passed. The disabled-button failure is resolved without changing its
+tolerance: actual sRGB bitmap/PNG bytes are [27,27,26,255] / [175,175,175,255].
+`colorAt` had returned a calibrated color, so its subsequent sRGB conversion
+changed those measured bytes. Capture now samples the actual tagged sRGB data.
+The mixed-script label test independently measures advance 130.642880 versus
+reference 130.640625; TextKit's glyph envelope is 135.528076. `e0c98f8` records
+actual insertion-point advance geometry and keeps the separate ink envelope.
+Truncated/missing boundaries remain unknown and fail coverage.
+
+Consumed shared `ca134e4`: per-case bounded reference browser workers and the
+original Copy PNG before clock pause address the confirmed CDP stall request.
+Runtime success still awaits fresh CI. The older full `b3d2385` has one native
+en-US/dark 1024x700 Copy failure: its AX button was entirely above the scroll
+clip (top=68, stream starts at 96). Reference locator click scrolls that control
+into view. macOS now uses the actual document's `scrollToVisible` before its
+mouse gesture and retains the requested rectangle, before/after native clip,
+clipboard and toast evidence even on failure. No substitute click or toast.
+
 Consumed `d77f162`: all 55 shared scenes are retained (660 full / 19 diagnostic).
 macOS implements the new real panel hover/64px drag inputs, opens a hidden pane
 through its actual toolbar control, and records mounted pane/handle identities,
