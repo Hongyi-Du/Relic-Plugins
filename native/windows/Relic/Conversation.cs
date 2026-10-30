@@ -481,7 +481,7 @@ public sealed partial class MainWindow
                         if (picture.Tag is Border { Child: TextBlock initials } && initials.Text.Length > 0)
                             replyNameParts.Add(initials.Text);
                 var replyLayout = (Grid)replyAvatar;
-                faces.Children.Add(replyLayout.Children.OfType<NativeAvatarPicture>().Single().WrapReply(replyLayout, Paint("FFFFFF", "1F1F1E")));
+                faces.Children.Add(WrapReplyAvatar(replyLayout, Paint("FFFFFF", "1F1F1E")));
             }
             row.Children.Add(faces);
             var count = Text(T("thread.replies", ("n", item["thread"].Text("count"))), 12.5); count.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; count.Foreground = Accent; row.Children.Add(count);

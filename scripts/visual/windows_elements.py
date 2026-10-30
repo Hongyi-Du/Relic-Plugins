@@ -57,7 +57,7 @@ CONTROL_KINDS = {
     "NativeRegionGrid": "region",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
-AVATAR_TYPES = {"PersonPicture", "NativeAvatarPicture"}
+AVATAR_TYPES = {"PersonPicture"}
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", **{typ: "avatar" for typ in AVATAR_TYPES}}
 TEXT_TYPES = {"TextBlock", "RichTextBlock", "WorkspaceCodeView", "NativeLabel", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
@@ -1017,6 +1017,86 @@ def native_label_submission(node, frame):
         gap("evidence.native_label_frame_binding", "No matching actual object-reference capture index, draw revision and baseline are available")
     gap("evidence.native_label_visible_glyphs", "Current production draw evidence does not establish final PNG contribution, visible glyph ownership or equivalent text-line geometry")
     return result, issues
+
+
+def native_label_text_quantity(node, geometry, fonts, submission):
+    """Select complete submitted font-metric advances, never layout/hit/ink.
+
+    The three measurement arguments are produced from this actual node, its
+    unique owned Image and its capture frame by the existing independent
+    readers. This quantity is source geometry; final PNG visibility remains
+    unknown and none of those independent failures is removed here.
+    """
+    if (node.get("type") != "NativeLabel" or not isinstance(node.get("text"), str) or not node["text"]
+            or node.get("native_path_line_evidence") is not None):
+        return None
+    receipt = node.get("native_label_evidence")
+    if not isinstance(receipt, dict) or receipt.get("text") != node["text"]:
+        return None
+    draw = receipt.get("draw")
+    binding = fonts.get("binding") if isinstance(fonts, dict) else None
+    frame = submission.get("frame_binding") if isinstance(submission, dict) else None
+    if (not isinstance(draw, dict) or not isinstance(binding, dict) or not isinstance(frame, dict)
+            or fonts.get("status") != "measured-current-submission" or fonts.get("source_span_complete") is not True
+            or submission.get("style") is None or frame.get("production_draw_matches") is not True
+            or frame.get("frame_failure") is not None
+            or binding.get("capture") != receipt.get("capture_binding")
+            or not isinstance(binding.get("image"), dict) or binding["image"].get("owner_id") != node.get("id")
+            or binding.get("layout_com_identity") != draw.get("layout_com_identity")
+            or binding.get("revisions") != {key: draw.get(key) for key in ("layout_revision", "surface_revision", "draw_ordinal")}
+            or not isinstance(geometry, dict)
+            or geometry.get("source") != "Actual NativeLabel layout, production DWrite callbacks and bound XAML Image placement"
+            or geometry.get("coordinate_space") != "content-window"):
+        return None
+    source = node["text"].encode("utf-16-le", "surrogatepass")
+    source_length = len(source) // 2
+    state = geometry.get("layout_state")
+    lines = draw.get("line_metrics")
+    metrics, runs = geometry.get("font_metric_advance"), draw.get("glyph_runs")
+    if (fonts.get("source_utf16_length") != source_length
+            or not isinstance(state, dict) or state.get("is_trimmed") is not False
+            or state.get("line_metrics") != lines or not isinstance(lines, list) or len(lines) != 1 or not isinstance(lines[0], dict)
+            or lines[0].get("is_trimmed") is not False or lines[0].get("length_utf16") != source_length
+            or draw.get("inline_object_draws") != []
+            or not isinstance(metrics, list) or not metrics or not isinstance(runs, list) or len(metrics) != len(runs)):
+        return None
+    boxes, visible_boxes, spans = [], [], []
+    for ordinal, (metric, run) in enumerate(zip(metrics, runs)):
+        if (not isinstance(metric, dict) or not isinstance(run, dict)
+                or metric.get("glyph_run_ordinal") != ordinal or run.get("ordinal") != ordinal
+                or metric.get("text_scope") != "layout-source" or metric.get("inline_draw_ordinal") is not None
+                or run.get("from_inline_object") is not False or run.get("submitted_to_d2d") is not True
+                or metric.get("quantity") != "Actual rendered face ascent/descent around actual baseline, and actual glyph advance width; excludes line leading and glyph ink"
+                or metric.get("description") != run.get("description")):
+            return None
+        description, window = metric.get("description"), metric.get("window")
+        if not isinstance(description, dict) or not isinstance(window, dict) or not positive(window.get("bounds")):
+            return None
+        start, length = description.get("text_position_utf16"), description.get("text_length_utf16")
+        if (type(start) is not int or start < 0 or type(length) is not int or length <= 0
+                or start + length > source_length or not isinstance(description.get("text"), str)
+                or description["text"].encode("utf-16-le", "surrogatepass") != source[start * 2:(start + length) * 2]):
+            return None
+        spans.append((start, start + length))
+        boxes.append(copy.deepcopy(window["bounds"]))
+        visible_boxes.append(copy.deepcopy(window.get("visible_bounds")))
+    cursor = 0
+    for start, end in sorted(spans):
+        if start != cursor:
+            return None
+        cursor = end
+    if cursor != source_length:
+        return None
+    return {"source": "Complete untrimmed actual NativeLabel production font-metric advances, bound to its source, Image and capture frame",
+            "quantity": "font-metric-text-advance-range", "bounds": union_boxes(boxes), "text_bounds": boxes,
+            "visible_bounds": union_boxes(visible_boxes) if all(positive(box) for box in visible_boxes) else None,
+            "visible_bounds_quantity": "Font-metric advance envelopes intersected with measured XAML clips; not ink or final visible pixels",
+            "element_allocation": copy.deepcopy(geometry.get("element_layout")),
+            "clipped_element_allocation": copy.deepcopy(geometry.get("element_clipped_layout")),
+            "source_span_complete": True, "source_utf16_length": source_length,
+            "glyph_run_ordinals": list(range(len(runs))), "source_ranges_utf16": [[start, end] for start, end in spans],
+            "binding_evidence": "evidence.native_label_fonts.binding",
+            "final_png_attribution_proven": False, "visible_glyph_coverage": None}
 
 
 def run_font_witnesses(uia_nodes, owner, glyph_boxes):
@@ -2362,6 +2442,7 @@ def project(xaml_path, uia_path, png_path):
         submitted_label = None
         submitted_label_geometry = None
         submitted_label_fonts = None
+        submitted_label_text = None
         if text_source.get("type") == "NativeLabel":
             captured_frame = xaml.get("capture_evidence")
             frame = captured_frame.get("native_label_frame") if isinstance(captured_frame, dict) else None
@@ -2376,6 +2457,13 @@ def project(xaml_path, uia_path, png_path):
             submitted_label_fonts, font_issues = native_label_fonts(
                 text_source, actual_surfaces[0] if len(actual_surfaces) == 1 else None, frame)
             unmeasured.extend(font_issues)
+            # Only a standalone text leaf owns this quantity. Composite control
+            # owners and retained NativePath lines keep their existing projection.
+            if typ == "NativeLabel" and kind == "text" and label is None:
+                submitted_label_text = native_label_text_quantity(
+                    node, submitted_label_geometry, submitted_label_fonts, submitted_label)
+                if submitted_label_text is not None:
+                    actual_text_boxes = copy.deepcopy(submitted_label_text["text_bounds"])
             for key in ("font_size", "font_weight", "foreground"):
                 style[key] = submitted_label["style"].get(key) if submitted_label["style"] is not None else None
         run_source = text_source.get("text_run_source")
@@ -2490,6 +2578,8 @@ def project(xaml_path, uia_path, png_path):
             if avatar_parts_evidence["outline_source"] is not None:
                 style["outline"] = copy.deepcopy(avatar_parts_evidence["outline"])
         bounds = avatar_surface["bounds"] if avatar_surface is not None else scrollbar_bounds or paint_node["bounds"]
+        if submitted_label_text is not None:
+            bounds = submitted_label_text["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
         break_fields, break_evidence = project_line_break_strategies(layout, text, kind, (label or node)["id"])
@@ -2509,19 +2599,21 @@ def project(xaml_path, uia_path, png_path):
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
-                   "bounds": bounds, "visible_bounds": avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
+                   "bounds": bounds, "visible_bounds": submitted_label_text["visible_bounds"] if submitted_label_text is not None else avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
                                 "uia_group_region": copy.deepcopy(group_regions.get(node["id"])),
                                 "line_break_configuration": break_evidence,
                                 "outline": outline_evidence,
                                 "native_label_geometry": submitted_label_geometry,
+                                "native_label_text_quantity": submitted_label_text,
                                 "native_label_fonts": submitted_label_fonts,
                                 "label_source": label["id"] if label else None,
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,
                                 "placeholder": node.get("layout", {}).get("placeholder"),
                                 "text_bounds": actual_text_boxes if actual_text_boxes or not text else None,
+                                "text_bounds_quantity": submitted_label_text["quantity"] if submitted_label_text is not None else None,
                                 "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(paint_node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
