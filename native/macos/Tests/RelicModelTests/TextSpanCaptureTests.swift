@@ -3,6 +3,21 @@ import AppKit
 @testable import Relic
 
 @MainActor final class TextSpanCaptureTests: XCTestCase {
+    func testRichSpanAccessibleValuesComeFromTheActualNativeRangeAPI() throws {
+        let storage = NSTextStorage(attributedString: NativeTextStyle.render(try AttributedString(markdown: "Before **bold** after"), size: 14))
+        let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: 300, height: 80))
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
+        let view = QuoteTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 80), textContainer: container)
+        view.sourceStorage = storage; view.isEditable = false; view.isSelectable = true
+        layout.ensureLayout(for: container)
+        let rows = ElementCapture.textRuns(view)
+        XCTAssertEqual(rows.compactMap { $0["text"] as? String }, ["Before ", "bold", " after"])
+        for row in rows {
+            let accessible = try XCTUnwrap(row["native_accessible_range"] as? [String: Any])
+            XCTAssertEqual(accessible["value"] as? String, row["text"] as? String)
+            XCTAssertEqual(accessible["matches_rendered_text"] as? Bool, true)
+        }
+    }
     func testActualFallbackFontsStayInsideTheirProductionLabel() throws {
         let view = ReferenceLabel("→ 全体", size: 12, lineHeight: 15.6, lines: 0).makeLabelView()
         (view.layoutManager as? NativeGlyphLayoutManager)?.recordDraws = true
