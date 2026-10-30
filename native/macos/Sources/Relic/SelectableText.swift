@@ -20,6 +20,7 @@ struct SelectableText: NSViewRepresentable {
     var pointSize: CGFloat? = nil
     var lineHeight: CGFloat? = nil
     var monospaced = false
+    var uniformSource = false
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
@@ -43,7 +44,7 @@ struct SelectableText: NSViewRepresentable {
             selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
         }
         let baseSize: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
-        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced)
+        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced, uniformSource: uniformSource)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         if view.attributedString() != rendered {
             let selected = view.selectedRange(); view.textStorage?.setAttributedString(rendered)
@@ -112,7 +113,7 @@ final class QuoteTextView: NSTextView {
 // Width comes from TextKit, so a horizontal code scroller cannot expand a short
 // message's bubble to the whole available conversation column.
 enum NativeTextStyle {
-    static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false) -> NSAttributedString {
+    static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false, uniformSource: Bool = false) -> NSAttributedString {
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
         let paragraph = NSMutableParagraphStyle()
@@ -136,6 +137,11 @@ enum NativeTextStyle {
             rendered.addAttribute(.relicConfiguredFontWeight, value: intent.contains(.stronglyEmphasized) ? 700 : intent.contains(.code) ? 400 : weight == .bold ? 700 : weight == .semibold ? 600 : 400, range: nsRange)
         }
         NativeInlineCode.decorate(rendered, ranges: codeRanges)
+        if uniformSource && codeRanges.isEmpty && value.runs.allSatisfy({ $0.inlinePresentationIntent == nil && $0.link == nil }) {
+            // A raw tool-output string is one production text element. Preserve
+            // that source boundary when TextKit fixes fallback font attributes.
+            rendered.addAttribute(.relicLabelSpan, value: "uniform-production-label", range: NSRange(location: 0, length: rendered.length))
+        }
         return rendered
     }
     static func preferredWidth(_ value: NSAttributedString) -> CGFloat {

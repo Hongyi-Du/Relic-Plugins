@@ -71,6 +71,7 @@ struct MainView: View {
                     .accessibilityElement(children: .ignore).accessibilityLabel(m.t("panel.resize"))
                     .accessibilityIdentifier("relic-resize-handle/panel").help(m.t("panel.resize"))
             }
+            .environment(\.captureRegion, "right-pane")
     }
 }
 
