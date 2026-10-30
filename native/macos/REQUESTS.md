@@ -1,5 +1,16 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed the line-break contract announced in `f7341de`. macOS TextKit spans now
+emit `layout.break_strategy_version: 1`, `normal_break_strategy` and
+`emergency_break_strategy`, keeping legacy wrap, actual line rectangles/count
+and truncation. `evidence.line_break_configuration` binds the actual native
+owner/container, paragraph/container modes, paragraph strategy, line limit and
+the production slash-boundary delegate. Unknown delegates/modes stay unknown.
+AppKit word wrapping is normal `word` plus `break-unbreakable`; character-first
+wrapping is `character` plus `none`. Existing long-path native layout coverage
+and a new actual word-versus-character first-line test exercise the distinction
+in CI. This records configuration, never substitutes for actual glyph geometry.
+
 The old `testBoxShadowDoesNotCastASecondShadowFromInteriorContent` failure is
 resolved in `afe7f6f`: it now measures the production NSHostingView bitmap,
 because ImageRenderer substitutes unsupported-view paint for the actual AppKit

@@ -218,6 +218,9 @@ import CoreText
             let measuredWeights = Set(fonts.map { cssWeight($0) })
             let drawnFonts = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view)
                 ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
+            let breaks = NativeLineBreaks.inspect(view, range: range)
+            var measuredLayout: [String: Any] = ["wrap": wrap, "truncation": truncation, "line_count": lines.count]
+            measuredLayout.merge(breaks.layout, uniquingKeysWith: { _, actual in actual })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
                 "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
@@ -225,7 +228,7 @@ import CoreText
                 "native_line_break_configuration": ["paragraph_mode": paragraph?.lineBreakMode.rawValue as Any? ?? NSNull(),
                     "container_mode": container.lineBreakMode.rawValue, "maximum_lines": container.maximumNumberOfLines],
                 "kind": attributes[.link] == nil ? "text" : "link",
-                "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
+                "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
                 "native_reshaped_fonts": renderedFonts(storage.attributedSubstring(from: range)),
@@ -533,6 +536,9 @@ import CoreText
             evidence["raw_node_id"] = id
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
             evidence["outline"] = (node["surface_evidence"] as? [String: Any])?["outline"] ?? NSNull()
+            let labelEvidence = node["projection"] as? [String: Any]
+                ?? (node["owned_text_evidence"] as? [String: Any])?["projection"] as? [String: Any]
+            evidence["line_break_configuration"] = labelEvidence?["line_break_configuration"] ?? NSNull()
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
