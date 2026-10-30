@@ -11,27 +11,36 @@ public sealed partial class MainWindow
     private Border DetailsTabs(IEnumerable<(string Id, string Label)> choices, string selected, Func<string, Task> change, bool top = false)
     {
         var tabs = new SelectorBar { Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
-        var values = new Dictionary<SelectorBarItem, string>();
+        var values = new Dictionary<SelectorBarItem, (string Id, TextBlock Label, NativeShadowPanel Raised)>();
+        void SelectSurface(TextBlock label, NativeShadowPanel raised, bool isSelected)
+        {
+            raised.Surface.Background = isSelected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            label.Foreground = isSelected ? Ink : Paint("5A5853", "B8B5AE");
+            label.FontWeight = new Windows.UI.Text.FontWeight { Weight = (ushort)(top && isSelected ? 600 : 400) };
+            raised.SetShadows(isSelected ? [new NativeShadowLayer(0, 1, 2, Windows.UI.Color.FromArgb(255, 20, 18, 15), .06f)] : []);
+        }
         foreach (var (id, title) in choices)
         {
             var label = OverviewText(title, top ? 12.5 : 12, weight: (ushort)(top && id == selected ? 600 : 400));
-            label.IsTextSelectionEnabled = false; label.TextWrapping = TextWrapping.NoWrap; label.Foreground = id == selected ? Ink : Paint("5A5853", "B8B5AE");
-            var item = new SelectorBarItem { Text = title, Tag = label, IsSelected = id == selected, MinWidth = 0, MinHeight = 0,
-                Padding = top ? new Thickness(12, 4, 12, 4) : new Thickness(9, 2, 9, 2), Margin = new Thickness(0, 0, 2, 0), CornerRadius = new CornerRadius(top ? 7 : 6),
-                Background = id == selected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            label.IsTextSelectionEnabled = false; label.TextWrapping = TextWrapping.NoWrap;
+            var surface = new Border { Child = label, Padding = top ? new Thickness(12, 4, 12, 4) : new Thickness(9, 2, 9, 2), CornerRadius = new CornerRadius(top ? 7 : 6) };
+            var raised = new NativeShadowPanel(surface);
+            SelectSurface(label, raised, id == selected);
+            // Keep the same mounted surface when the native selector changes.
+            // Shadows paint outside its box without adding layout padding.
+            var item = new SelectorBarItem { Text = title, Tag = raised, IsSelected = id == selected, MinWidth = 0, MinHeight = 0,
+                Padding = new Thickness(0), Margin = new Thickness(0, 0, 2, 0), CornerRadius = new CornerRadius(top ? 7 : 6),
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
-            values.Add(item, id); tabs.Items.Add(item);
+            values.Add(item, (id, label, raised)); tabs.Items.Add(item);
         }
         if (tabs.Items.Count > 0) tabs.Items[^1].Margin = new Thickness(0);
         tabs.SelectionChanged += async (_, _) =>
         {
             if (tabs.SelectedItem == null || !values.TryGetValue(tabs.SelectedItem, out var value)) return;
-            foreach (var (item, id) in values)
-            {
-                item.Background = id == value ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                if (item.Tag is TextBlock label) { label.Foreground = id == value ? Ink : Paint("5A5853", "B8B5AE"); label.FontWeight = new Windows.UI.Text.FontWeight { Weight = (ushort)(top && id == value ? 600 : 400) }; }
-            }
-            await Run(() => change(value));
+            foreach (var (id, label, raised) in values.Values)
+                SelectSurface(label, raised, id == value.Id);
+            await Run(() => change(value.Id));
         };
         return new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(top ? 9 : 8), Background = Paint("EFEEEA", "262624"), HorizontalAlignment = HorizontalAlignment.Left };
     }

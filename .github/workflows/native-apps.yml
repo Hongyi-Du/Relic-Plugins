@@ -68,6 +68,15 @@ jobs:
         run: swift build --package-path native/macos -c release --arch arm64
       - name: Test client contracts without opening the App
         run: swift test --package-path native/macos --arch arm64
+      - name: Retain actual macOS crash reports after a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-crash-reports
+          if-no-files-found: warn
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
       - name: Assemble unsigned SwiftUI app bundle
         run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output dist/native
       - uses: actions/upload-artifact@v4

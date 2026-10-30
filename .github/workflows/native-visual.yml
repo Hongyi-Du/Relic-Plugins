@@ -108,6 +108,15 @@ jobs:
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
             python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
           done
+      - name: Retain actual macOS capture crash reports after a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-macos-crash-reports-${{ matrix.lang }}-${{ matrix.theme }}
+          if-no-files-found: warn
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
       - uses: actions/upload-artifact@v4
         if: always()
         with:
