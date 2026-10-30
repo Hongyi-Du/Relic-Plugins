@@ -96,8 +96,9 @@ struct QuietButtonStyle: ButtonStyle {
     var selectionApplicable = false
     var radius: CGFloat = 7
     var expanded: Bool? = nil
+    var selectionColor: Color? = nil
     func makeBody(configuration: Configuration) -> some View {
-        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable, radius: radius, expanded: expanded)
+        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable, radius: radius, expanded: expanded, selectionColor: selectionColor)
     }
     private struct QuietBody: View {
         let configuration: Configuration
@@ -105,11 +106,12 @@ struct QuietButtonStyle: ButtonStyle {
         let selectionApplicable: Bool
         let radius: CGFloat
         let expanded: Bool?
+        let selectionColor: Color?
         @State private var hovering = false
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: radius))
-                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: radius, hovered: hovering, selected: selectionApplicable ? selected : nil, expanded: expanded))
+                .modifier(RecordedSurface(background: selected ? selectionColor ?? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: radius, hovered: hovering, selected: selectionApplicable ? selected : nil, expanded: expanded))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }
@@ -140,7 +142,7 @@ struct NativeCountBadge: View {
     var toolbar = false
     @State private var identity = "relic-badge/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: toolbar ? 10 : 11, weight: 700, color: .white, lineHeight: toolbar ? 15 : 11, owner: identity)
+        ReferenceLabel(text, size: toolbar ? 10 : 11, weight: 700, color: .white, lineHeight: toolbar ? 15 : 11, lines: 0, owner: identity)
             .padding(.horizontal, toolbar ? 4 : 5).frame(minWidth: toolbar ? 15 : 18).frame(height: toolbar ? 15 : 18)
             .modifier(RecordedSurface(background: toolbar ? RelicStyle.red : RelicStyle.accent, radius: toolbar ? 8 : 9, kind: "badge", owner: identity))
             .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity)

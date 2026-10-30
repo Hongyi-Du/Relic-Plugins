@@ -107,14 +107,15 @@ struct TextButton: View {
     var color: Color = RelicStyle.ink
     var height: CGFloat? = nil
     var padding: CGFloat = 0
+    var lines = 1
     let action: () -> Void
     @State private var identity = "relic-text-button/" + UUID().uuidString
-    init(_ title: String, role: ButtonRole? = nil, size: CGFloat = 12, weight: Int = 600, color: Color = RelicStyle.ink, height: CGFloat? = nil, padding: CGFloat = 0, action: @escaping () -> Void) {
+    init(_ title: String, role: ButtonRole? = nil, size: CGFloat = 12, weight: Int = 600, color: Color = RelicStyle.ink, height: CGFloat? = nil, padding: CGFloat = 0, lines: Int = 1, action: @escaping () -> Void) {
         self.title = title; self.role = role; self.size = size; self.weight = weight; self.color = color
-        self.height = height; self.padding = padding; self.action = action
+        self.height = height; self.padding = padding; self.lines = lines; self.action = action
     }
     var body: some View {
-        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, owner: identity).padding(.horizontal, padding).frame(height: height) }
+        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity).padding(.horizontal, padding).frame(height: height) }
             .accessibilityIdentifier(identity).accessibilityLabel(title)
     }
 }

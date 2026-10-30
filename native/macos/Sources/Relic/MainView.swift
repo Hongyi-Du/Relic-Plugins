@@ -77,6 +77,7 @@ struct MainView: View {
 struct AppToolbar: View {
     @EnvironmentObject var m: Model
     @State private var anchors: [String: CGRect] = [:]
+    @State private var hoveredMenu: String?
     private let menus = [("file", "common.file"), ("edit", "appmenu.edit"), ("view", "appmenu.view"), ("help", "appmenu.help")]
     var body: some View {
         ToolbarLayout {
@@ -87,10 +88,13 @@ struct AppToolbar: View {
                 IconButton(title: m.t("appbar.forward"), icon: "fwd", size: 16, height: 28) { m.navigate(1) }.disabled(!m.history.canForward)
                 HStack(spacing: 0) {
                     ForEach(menus, id: \.0) { key, label in
-                        TextButton(m.t(label), size: 13, weight: 400, height: 28, padding: 9) { m.appMenu = m.appMenu == key ? nil : key }
-                            .buttonStyle(QuietButtonStyle(selected: m.appMenu == key))
+                        TextButton(m.t(label), size: 13, weight: 400, color: m.appMenu == key || hoveredMenu == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 9, lines: 0) { m.appMenu = m.appMenu == key ? nil : key }
+                            .buttonStyle(QuietButtonStyle(selected: m.appMenu == key, selectionColor: RelicStyle.hover))
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
-                            .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }
+                            .onHover { over in
+                                if over { hoveredMenu = key; if m.appMenu != nil { m.appMenu = key } }
+                                else if hoveredMenu == key { hoveredMenu = nil }
+                            }
                     }
                 }.modifier(RecordedSurface(background: .clear, kind: "region"))
                     .padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))

@@ -22,8 +22,8 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius))
             .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark), radius: radius, kind: "avatar", owner: identity))
             .overlay(alignment: .bottomTrailing) {

@@ -14,6 +14,16 @@ production draw, and explicitly reports common outline comparison as unimplement
 Please include actual reference computed outline / paint evidence and canonical
 outline comparison. Dashed curve phase/segment equivalence is not presumed.
 
+Pairing diagnostic request: `b3d2385` en-US/dark 1440x900 group pairs the reference
+Back glyph with the native Sidebar glyph, then Forward with Back. Both glyph
+identities actually exist; same-kind/empty-text sequence alignment shifts after
+a missing item. Please consider exact measured icon content as a same-region
+pairing anchor (unique occurrences first, repeated occurrences in real reading
+order), retaining the missing/extra items and all geometry/style/order failures.
+No icon equivalence, content normalization beyond the existing identity decoder,
+tolerance relaxation or inferred owner is requested. Raw evidence/report is at
+`S:\Codex\Outputs\Relic-native-visual\parity-b3d2385\report\en-US-dark-1440x900-group.parity.json`.
+
 Important capture regression, not acceptance: the downloaded `ee478c5` diagnostic
 (`40993478737`) contains fully transparent native PNGs (all RGBA channels zero).
 Its AX counts and 17 completed older actions do not make those screenshots valid.

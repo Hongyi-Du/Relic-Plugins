@@ -9,7 +9,7 @@ struct OrganizationAvatar: View {
     private var subgroup: Bool { node["kind"].text == "subgroup" }
     private var ended: Bool { !node["status"].text.isEmpty && node["status"].text != "active" }
     var body: some View {
-        ReferenceLabel(initial, size: 11, weight: 700, color: foreground, alignment: .center, owner: identity)
+        ReferenceLabel(initial, size: 11, weight: 700, color: foreground, lines: 0, alignment: .center, owner: identity)
             .frame(width: 22, height: 22)
             .modifier(RecordedSurface(background: RelicStyle.avatar(node["id"].text, background: true, dark: false),
                 radius: 6, kind: "avatar", owner: identity,
