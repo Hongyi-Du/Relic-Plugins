@@ -1,5 +1,33 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+New extraction-contract requests from actual c4b113d reports:
+
+* `scripts/visual/element_parity.py:KINDS` does not accept `scrollbar` and has no
+  thumb kind. Each real macOS ReferenceScroller and AXValueIndicator child is
+  currently structurally rejected (four of five rejected group elements). Add
+  measured track/thumb counterparts to the common schema/reference extraction;
+  these are visible/usable controls, not wrappers to drop. Native AX reports
+  hit rectangles wider than the actual 10px NSView gutter; production draw and
+  actual view geometry must supply paint bounds separately from AX hit bounds.
+  macOS adds raw `nodes[].native_scrollbar_paint` from the actual draw callback:
+  track/knob local bounds, the separate knob hit bounds, resolved fill/radius,
+  clipping, orientation, normalized value, knob proportion and hover state.
+  Missing draw receipts stay null; they are not supplied by expected geometry.
+* Reference `.pane-resize` is a real 5px element with `onpointerdown: startResize`
+  and a hover/drag accent fill at 40% alpha, but c4b113d extraction emits no
+  counterpart. Emit its actual interaction as `resize-handle`, with its title,
+  DOM bounds, paint and pointer state. macOS now names its existing production
+  drag target `relic-resize-handle/panel`, matches that width and actual hover/drag
+  paint, and retains it as `resize-handle`. Do not discard either control because
+  its fill is transparent when idle. Add panel-resize action/hover scenes to the
+  shared matrix to exercise this uncovered interaction on both clients.
+
+The diagnostic report downloaded from `40984430455` is under
+`S:\Codex\Outputs\Relic-native-visual\smoke-c4b113d\report\`. Its full gate still
+expects 636 cases despite 17 diagnostic inputs. It records zero passed/checked
+comparisons, 79 structurally rejected native elements, and all missing/unknown
+measurements as failures. No diagnostic receipt is a full-matrix pass.
+
 Update after shared `4afb5d1`: the aggregate-error assertion, 53-scene
 expectations and regular screenshot `caret="initial"` request below are resolved.
 Caret paint/geometry coverage itself remains unverified. macOS now writes failed
@@ -19,6 +47,13 @@ expanded output is checked relative to the actual *current* row position after
 the scroll moves, and avatar hover is verified using its actual painted label,
 surface and pointer rather than requiring an invisible wrapper AX node.
 No scene, tolerance or exception changes are requested.
+
+Verified follow-up: `40987219219` / `38af737` now has 16/17 macOS diagnostic
+cases captured, only group failing with four changed document views. The actual
+hover/expanded/rename/textarea states pass their capture assertions, and no
+TextKit 2 content views disappear. `3c652b7` lays out the currently loaded page
+with VStack and anchors after the real 24px bottom space; this remains pending
+capture validation. Its lazy-layout diagnosis must not be treated as a pass.
 
 Dropdown arrow coverage: the actual c4b113d reference PNG shows one downward
 chevron, while AppKit's default popup draws two directions. macOS now keeps the

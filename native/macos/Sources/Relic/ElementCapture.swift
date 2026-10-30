@@ -238,9 +238,9 @@ import CoreText
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
+            let elementKind = ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
@@ -259,6 +259,7 @@ import CoreText
             node["native_name_source"] = label.isEmpty && role == "AXStaticText" ? "AXValue of static text" : "AXLabel"
             if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
             if let popup = object as? ReferencePopUpButton { node["native_dropdown_arrow"] = popup.arrowDraw as Any? ?? NSNull() }
+            if let scroller = object as? ReferenceScroller { node["native_scrollbar_paint"] = scroller.lastPaint as Any? ?? NSNull() }
             if let text = object as? NSTextView {
                 node["native_text_layout_system"] = text.textLayoutManager == nil ? "TextKit1" : "TextKit2"
                 if text.textLayoutManager == nil, let drawing = text.layoutManager as? NativeGlyphLayoutManager {
