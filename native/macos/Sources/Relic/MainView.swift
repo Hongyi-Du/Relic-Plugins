@@ -104,7 +104,7 @@ struct AppToolbar: View {
             ReferenceLabel(title, size: 12.5, color: RelicStyle.muted, lineHeight: 20).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
             HStack(spacing: 2) {
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count, size: 16, height: 28, color: m.snapshot["decisions"].rows.isEmpty ? nil : RelicStyle.amber) { m.setPane("overview") }
-                IconButton(title: m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "cc", badge: m.copies.filter { !$0["read"].flag }.count, size: 16, height: 28) { m.sheet = .copies }
+                IconButton(title: m.t(m.unreadCopies > 0 ? "appbar.cc" : "appbar.cc_none", ["n": String(m.unreadCopies)]), icon: "cc", badge: m.unreadCopies, size: 16, height: 28) { m.sheet = .copies }
                 Color.clear.frame(width: 1, height: 16)
                     .modifier(RecordedSurface(background: RelicStyle.border, kind: "divider", owner: "relic-divider/toolbar"))
                     .accessibilityElement(children: .ignore).accessibilityIdentifier("relic-divider/toolbar").accessibilityLabel("")

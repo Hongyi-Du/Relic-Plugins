@@ -135,7 +135,7 @@ struct ProtocolForm: View {
 struct CopiesView: View {
     @EnvironmentObject var m: Model
     @State private var retire: Node?
-    private var unread: Int { m.copies.filter { !$0["read"].flag }.count }
+    private var unread: Int { m.unreadCopies }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
