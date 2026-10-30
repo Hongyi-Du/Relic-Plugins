@@ -13,12 +13,14 @@ struct ReferenceLabel: NSViewRepresentable {
     var alignment: NSTextAlignment = .left
     var owner: String? = nil
     var monospaced = false
+    var pathWrapping = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
+        self.pathWrapping = pathWrapping
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = makeLabelView()
@@ -31,6 +33,7 @@ struct ReferenceLabel: NSViewRepresentable {
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
+        view.pathLineBreaks.enabled = pathWrapping; layout.delegate = view.pathLineBreaks
         view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
         // SwiftUI assigns the measured frame. TextKit must not resize it during
         // draw or AX inspection after that layout has been committed.
@@ -53,6 +56,7 @@ struct ReferenceLabel: NSViewRepresentable {
     }
     func updateNSView(_ view: ReferenceLabelView, context: Context) {
         let value = attributedText
+        view.pathLineBreaks.enabled = pathWrapping
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner
@@ -63,6 +67,7 @@ struct ReferenceLabel: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
         let width = (proposal.width?.isFinite == true ? proposal.width : nil) ?? 100_000
         let storage = NSTextStorage(attributedString: nsView.attributedString()), layout = NSLayoutManager()
+        layout.delegate = nsView.pathLineBreaks
         let container = NSTextContainer(containerSize: CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; container.maximumNumberOfLines = lines
         container.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
@@ -74,11 +79,24 @@ struct ReferenceLabel: NSViewRepresentable {
 
 final class ReferenceLabelView: NSTextView {
     var sourceStorage: NSTextStorage?
+    let pathLineBreaks = PathLineBreaks()
     var measuredOpacity: Double = 1
     var productionOwner: String?
     var productionRegion = "window"
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+}
+
+/// AppKit treats a slash in a path as a convenient word boundary. The reference
+/// keeps slash-separated Latin text together, preferring ordinary word/hyphen
+/// breaks and breaking an overlong segment only when it cannot fit a whole line.
+/// Keep the source string unchanged; this participates in actual TextKit layout.
+final class PathLineBreaks: NSObject, NSLayoutManagerDelegate {
+    var enabled = false
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldBreakLineByWordBeforeCharacterAt charIndex: Int) -> Bool {
+        guard enabled, let text = layoutManager.textStorage?.string as NSString?, charIndex > 0, charIndex < text.length else { return true }
+        return text.character(at: charIndex - 1) != 0x2f
+    }
 }
 
 struct TextButton: View {

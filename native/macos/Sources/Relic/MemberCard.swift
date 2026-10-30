@@ -110,7 +110,9 @@ struct MemberCard: View {
         } else if !card["session"].text.isEmpty {
             row("common.session") { value(String(card["session"].text.prefix(18)) + (card["session"].text.count > 18 ? "…" : ""), mono: true).help(card["session"].text) }
         }
-        if !card["cwd"].text.isEmpty { row("card.folder") { value(ReferenceText.clip(card["cwd"].text, to: 64), mono: true).help(card["cwd"].text) } }
+        if !card["cwd"].text.isEmpty { row("card.folder") {
+            ReferenceLabel(ReferenceText.clip(card["cwd"].text, to: 64), size: 11.5, lineHeight: 20, lines: 0, monospaced: true, pathWrapping: true).help(card["cwd"].text)
+        } }
         if !card["joined_at"].isNull { row("card.joined") { value(m.day(card["joined_at"]) + " " + m.clock(card["joined_at"]) + (card["carriers"].integer > 1 ? " · " + m.t("card.session_nth", ["n": card["carriers"].text]) : "")) } }
         if !card["recent"].rows.isEmpty {
             row("card.recent") {

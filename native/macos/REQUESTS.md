@@ -1,5 +1,25 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Update after shared `4afb5d1`: the aggregate-error assertion, 53-scene
+expectations and regular screenshot `caret="initial"` request below are resolved.
+Caret paint/geometry coverage itself remains unverified. macOS now writes failed
+state debug PNGs under `diagnostics/`, preserving the canonical case and error.
+
+New macOS runtime evidence: `40983620508` and `40984430455` both attempted all
+17 diagnostic cases. The former confirms a real display-mode switch to
+1600x1200, and the textarea gesture observes the same +64px height / -32px top
+delta as its reference. Capture failed because inspecting `NSTextView.layoutManager`
+can switch a TextKit 2 control permanently to TextKit 1, removing hundreds of
+mounted text views; macOS `0c57b25` guards all such access and keeps the actual AX
+controls/unknown measurements. The later `c4b113d` run, before that guard, has
+mostly stable explicit TextKit 1 labels but still changes group document height
+936 -> 916 and removes four rename-editor views. These remain failures until
+new receipts prove stability. `b501f03` also fixes two diagnostic assertions:
+expanded output is checked relative to the actual *current* row position after
+the scroll moves, and avatar hover is verified using its actual painted label,
+surface and pointer rather than requiring an invisible wrapper AX node.
+No scene, tolerance or exception changes are requested.
+
 Follow-up shared checker failure after `442d1de`: run `40983885238`, job
 `123830414252`, fails `test_main_writes_failed_aggregate_then_exits_nonzero`
 at `scripts/visual/test_windows_capture_processes.py:170`. Its regex still
