@@ -56,6 +56,7 @@ struct MainView: View {
     }
     private var inspector: some View {
         RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
+            .accessibilityLabel(m.t("page.panel"))
             .background(PanelResizeProbe(part: "pane", trace: panelResizeTrace))
             .overlay(alignment: .leading) {
                 Color.clear.frame(width: 5).contentShape(Rectangle())
@@ -91,7 +92,8 @@ struct AppToolbar: View {
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
                             .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }
                     }
-                }.padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
+                }.modifier(RecordedSurface(background: .clear, kind: "region"))
+                    .padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
             }
             let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
             ReferenceLabel(title, size: 12.5, color: RelicStyle.muted, lineHeight: 20).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
