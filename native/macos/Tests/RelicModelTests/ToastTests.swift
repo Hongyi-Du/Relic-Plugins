@@ -2,6 +2,31 @@ import XCTest
 @testable import Relic
 
 @MainActor final class ToastTests: XCTestCase {
+    func testRealExpiryClockPausesAndResumesTheSameToast() async throws {
+        var expired = 0
+        let toast = NativeToastMessage(text: "Actual timer", seconds: 0.08)
+        toast.start { expired += 1 }
+        let receipt = try toast.pauseTimer()
+        let paused = try XCTUnwrap(receipt["after"] as? [String: Any])
+        let remaining = try XCTUnwrap(paused["remaining_ms"] as? Double)
+        XCTAssertGreaterThan(remaining, 0); XCTAssertLessThanOrEqual(remaining, 80)
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(expired, 0)
+        XCTAssertEqual(toast.timerSnapshot()["remaining_ms"] as? Double, remaining)
+        XCTAssertEqual(toast.timerSnapshot()["instance"] as? String, paused["instance"] as? String)
+        let resumed = toast.resumeTimer()
+        XCTAssertEqual((resumed["after"] as? [String: Any])?["state"] as? String, "running")
+        try await Task.sleep(for: .milliseconds(160))
+        XCTAssertEqual(expired, 1); XCTAssertEqual(toast.timerState, "expired")
+    }
+    func testRemovedToastCancelsItsActualExpiryTask() async throws {
+        var expired = false
+        let toast = NativeToastMessage(text: "Cancelled", seconds: 0.02)
+        toast.start { expired = true }; toast.cancelTimer()
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertFalse(expired); XCTAssertEqual(toast.timerState, "cancelled")
+        XCTAssertThrowsError(try toast.pauseTimer())
+    }
     func testRepeatedNotificationsKeepIndependentIdentityAndExpiry() {
         let model = Model()
         model.notice = "Copied"; model.notice = "Copied"

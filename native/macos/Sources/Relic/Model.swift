@@ -24,12 +24,13 @@ import RelicCore
     var selectedAuthor = ""
     weak var selectedTextView: NSTextView?
     @Published var pane = "overview"
-    @Published var toasts: [NativeToastMessage] = []
-    @Published var error = "" { didSet { if ready && !error.isEmpty { toasts.append(NativeToastMessage(text: error, seconds: 3.6)) } } }
+    @Published var toasts: [NativeToastMessage] = [] { didSet { for item in oldValue where !toasts.contains(where: { $0 === item }) { item.cancelTimer() } } }
+    var noticeSeconds: Double = 3.6
+    @Published var error = "" { didSet { if ready && !error.isEmpty { appendToast(error, seconds: 3.6) } } }
     @Published var notice = "" {
         didSet {
             if notice.isEmpty { toasts = [] }
-            else { toasts.append(NativeToastMessage(text: notice, seconds: 3.6)) }
+            else { appendToast(notice, seconds: noticeSeconds) }
         }
     }
     @Published var ready = false
