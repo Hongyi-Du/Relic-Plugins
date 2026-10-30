@@ -37,7 +37,7 @@ struct Sidebar: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(.vertical, 6).padding(.horizontal, 8)
-                }.buttonStyle(QuietButtonStyle()).help(m.t("page.me"))
+                }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier("relic-profile-button").help(m.t("page.me"))
                 IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
             }.padding(8)
         }.padding(.trailing, 1).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))

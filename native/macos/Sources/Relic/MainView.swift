@@ -22,12 +22,12 @@ struct MainView: View {
     var body: some View {
         GeometryReader { geometry in
         VStack(spacing: 0) {
-            AppToolbar().measuredRegion("header").zIndex(50)
+            AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
-                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation")
+                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
