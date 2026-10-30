@@ -55,8 +55,12 @@ enum RelicStyle {
         let converted = NSFontManager.shared.convert(font, toHaveTrait: trait)
         // NSFontManager drops CoreText's optical-size attribute when selecting
         // a bold/italic face. Preserve the actual base font configuration.
-        guard let optical = CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute) else { return converted }
-        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: optical] as CFDictionary)
+        var attributes: [CFString: Any] = [:]
+        for key in [kCTFontOpticalSizeAttribute, kCTFontCascadeListAttribute] {
+            if let value = CTFontCopyAttribute(font as CTFont, key) { attributes[key] = value }
+        }
+        guard !attributes.isEmpty else { return converted }
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
         return CTFontCreateCopyWithAttributes(converted as CTFont, converted.pointSize, nil, descriptor) as NSFont
     }
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {

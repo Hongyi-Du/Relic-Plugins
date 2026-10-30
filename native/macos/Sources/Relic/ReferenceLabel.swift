@@ -61,8 +61,8 @@ struct ReferenceLabel: NSViewRepresentable {
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        let mono = weight >= 600 ? RelicStyle.convertedFont(RelicStyle.monoFont(size), trait: .boldFontMask) : RelicStyle.monoFont(size)
-        var attributes: [NSAttributedString.Key: Any] = [.font: monospaced ? mono : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0, .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: weight]
+        let font = monospaced ? (weight >= 600 ? RelicStyle.convertedFont(RelicStyle.monoFont(size), trait: .boldFontMask) : RelicStyle.monoFont(size)) : RelicStyle.nativeFont(size, weight: weight)
+        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0, .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: weight]
         if struck { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
         return NSAttributedString(string: text, attributes: attributes)
     }
