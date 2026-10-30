@@ -14,7 +14,13 @@
 虽然旧 17 个动作完成、两个新增动作尚未实现，但其原生 PNG 的所有 RGBA 通道都是 0，不能作为有效截图。
 文件保留在 `S:\Codex\Outputs\Relic-native-visual\smoke-ee478c5\`。`9990d4f` 修正最终画布的合成路径，
 在真实 sRGB CGContext 绘制完成后才生成图像快照，测试覆盖相同的最终合成和 PNG 编解码；
-新增真实源图及成图透明度检查。CI 尚待验证，原单控件测试通过不能代替完整成图验证。
+新增真实源图及成图透明度检查。`9990d4f` 的 [Native apps 40996374487](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40996374487)
+已构建成功且 128 个测试通过，包含生产合成路径和 PNG 编解码；完整窗口的新截图仍待采集，
+不能用单控件及合成测试代替完整成图验证。
+
+已同步共享 `c705ec7`：参考滚动条区分 gutter、thumb outer box、hit box 和 ink envelope，
+未知 thumb 几何或样式仍失败。macOS 保留实际 NSScroller draw rect、AX hit bounds 和实际值域，
+不从滚动比例猜测 thumb 外框。新诊断矩阵仍为 19 case，完整矩阵为 660 case。
 
 最新构建证据：`14b78e0` 的 [Native apps 40994507899](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40994507899)
 macOS 构建与 128 个测试全部通过，包含原容差下的发送按钮真实像素断言和 PNG 编解码一致性。
