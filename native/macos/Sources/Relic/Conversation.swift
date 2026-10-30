@@ -493,6 +493,7 @@ struct ComposerView: View {
     let send: () -> Void
     @State private var focused = false
     @State private var recipientIdentity = "relic-text-button/" + UUID().uuidString
+    @State private var recipientHovered = false
     private var placeholder: String { m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]) }
     private var recipientLabel: String { m.t("composer.send_to", ["to": ReferenceText.clip(m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) }), to: 24)]) }
     var body: some View {
@@ -509,12 +510,13 @@ struct ComposerView: View {
             HStack(spacing: 6) {
                 if m.member.isEmpty {
                     Button { m.recipientPicker.toggle() } label: {
-                        HStack(spacing: 6) {
-                            ReferenceLabel(recipientLabel, size: 12.5, color: RelicStyle.secondary, owner: recipientIdentity)
-                            ReferenceIcon(name: "down", size: 14, color: RelicStyle.secondary, owner: recipientIdentity)
-                        }.padding(.horizontal, 10).frame(height: 28)
-                            .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 9, owner: recipientIdentity))
+                        HStack(spacing: 5) {
+                            ReferenceLabel(recipientLabel, size: 12.5, color: recipientHovered ? RelicStyle.ink : RelicStyle.secondary, lines: 0, owner: recipientIdentity)
+                            ReferenceIcon(name: "down", size: 14, color: recipientHovered ? RelicStyle.ink : RelicStyle.secondary, owner: recipientIdentity)
+                        }.padding(.horizontal, 12).frame(height: 28)
+                            .modifier(RecordedSurface(background: recipientHovered ? RelicStyle.hover : .clear, border: RelicStyle.border, borderWidth: 1, radius: 14, owner: recipientIdentity, hovered: recipientHovered))
                     }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
+                        .onHover { recipientHovered = $0 }
                         .background(GeometryReader { proxy in Color.clear.preference(key: RecipientAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
                         .onPreferenceChange(RecipientAnchor.self) { m.recipientAnchor = $0 }
                 }

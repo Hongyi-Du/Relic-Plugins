@@ -180,7 +180,7 @@ import CoreText
         var codeParents: [String: Int] = [:]
         let codeManager = manager as? InlineCodeLayoutManager
         let codeFragments = codeManager?.codeFragments(in: container) ?? []
-        storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length), options: []) { attributes, range, _ in
+        NativeTextSpans.enumerate(storage) { attributes, range, attributeRuns, fonts in
             if let group = attributes[.relicCodeGroup] as? String, codeParents[group] == nil {
                 codeParents[group] = rows.count
                 for fragment in codeFragments.filter({ $0.group == group }) {
@@ -210,14 +210,18 @@ import CoreText
             let wrap = mode == .byCharWrapping ? "character" : mode == .byWordWrapping ? "word" : "none"
             let truncation = [.byTruncatingHead, .byTruncatingMiddle, .byTruncatingTail].contains(mode) ? "ellipsis" : mode == .byClipping ? "clip" : "none"
             let font = attributes[.font] as? NSFont ?? view.font
+            let measuredSizes = Set(fonts.map { Double($0.pointSize) })
+            let measuredWeights = Set(fonts.map { cssWeight($0) })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
                 "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
                 "native_insertion_geometry": advances.lines, "native_ink_envelope": box(inkEnvelope),
                 "kind": attributes[.link] == nil ? "text" : "link",
                 "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
-                "style": ["fontSize": font.map { Double($0.pointSize) } as Any? ?? NSNull(),
-                          "fontWeight": font.map { cssWeight($0) } as Any? ?? NSNull(),
+                "native_attribute_runs": attributeRuns,
+                "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",
+                "style": ["fontSize": measuredSizes.count == 1 ? measuredSizes.first! as Any : NSNull(),
+                          "fontWeight": measuredWeights.count == 1 ? measuredWeights.first! as Any : NSNull(),
                           "fontFamily": font?.familyName as Any? ?? NSNull(),
                           "rendered_fonts": renderedFonts(storage.attributedSubstring(from: range)),
                           "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
