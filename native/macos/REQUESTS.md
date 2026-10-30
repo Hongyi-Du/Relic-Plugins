@@ -1,3 +1,26 @@
+## 2026-10-30: recipient menu actual activation; diagnostic coverage request
+
+The archived 72f5571 full capture places the recipients popup at the window's
+top-left, not above the composer; its first row is x7/y1 vs reference x318/y623.
+d0d8277 now reads the mounted native button's content bounds at actual activation,
+and the `recipients` scene clicks that button instead of setting picker state.
+Its scene-action receipt records actual button screen bounds and the production
+content anchor. Labels keep their intrinsic widths, names include the actually
+visible avatar initial with space separators, and the group avatar has its own
+native owner. CI has not yet verified this change.
+
+Please add `recipients` to the bounded diagnostic capture subset (both platforms,
+same reference fixture). It remains in every full matrix case; this request adds
+diagnostic coverage and removes no scene or acceptance requirement. Its physical
+click and placement need a fresh artifact rather than an old model-toggle image.
+
+The 5d4f8ea formal report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-5d4f8ea\report\` (41051920230).
+It requires all 672 cases, accepts zero, exceptions empty. Mac 20 captures,
+5039 native / 4480 valid reference / 4420 paired elements: missing60, extra619,
+text0, geometry1030, style8373, state1378, kind0, region2, order655, layout2341,
+icon0, extraction30667. No claim of full coverage or acceptance.
+
 ## 2026-10-30: editable native measurement serialization failure
 
 dc2d96a release compiled; 201/203 tests passed. Its actual editable TextKit draw
