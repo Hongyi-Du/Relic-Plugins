@@ -237,6 +237,8 @@ import CoreText
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
+                "native_font_weight_configuration": ["value": attributes[.relicConfiguredFontWeight] ?? NSNull(),
+                    "source": "actual native attributed text style input", "quantity": "configured weight, not resolved font weight or synthetic paint"],
                 "native_structure": NativeElementStructure.evidence(view, parent: (view as? ReferenceLabelView)?.productionParent),
                 "native_reshaped_fonts": reshapedFonts(storage.attributedSubstring(from: range)),
                 "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",

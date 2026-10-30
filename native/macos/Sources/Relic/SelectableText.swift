@@ -120,7 +120,8 @@ enum NativeTextStyle {
         let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
         // Keep character spacing explicit in both drawing and intrinsic sizing.
         // The CI advance regression separately checks the resolved font metrics.
-        rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0], range: range)
+        rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0,
+            .relicConfiguredFontWeight: monospaced ? 400 : weight == .bold ? 700 : weight == .semibold ? 600 : 400], range: range)
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         var codeRanges: [NSRange] = []
         for run in value.runs {
@@ -132,6 +133,7 @@ enum NativeTextStyle {
             if intent.contains(.stronglyEmphasized) { font = RelicStyle.convertedFont(font, trait: .boldFontMask) }
             if intent.contains(.emphasized) { font = RelicStyle.convertedFont(font, trait: .italicFontMask) }
             rendered.addAttribute(.font, value: font, range: nsRange)
+            rendered.addAttribute(.relicConfiguredFontWeight, value: intent.contains(.stronglyEmphasized) ? 700 : intent.contains(.code) ? 400 : weight == .bold ? 700 : weight == .semibold ? 600 : 400, range: nsRange)
         }
         NativeInlineCode.decorate(rendered, ranges: codeRanges)
         return rendered
