@@ -24,6 +24,15 @@ import RelicAX
         let children = RelicAXChildren(scroller)
         XCTAssertEqual(children.count, 1)
         XCTAssertEqual(RelicAXRead(try XCTUnwrap(children.first))["role"] as? String, "AXValueIndicator")
+        // Role registration reenters the parent's child lookup on macOS 15.
+        // Subsequent complete snapshots must retain one real native thumb.
+        for _ in 0..<3 {
+            let current = RelicAXChildren(scroller)
+            XCTAssertEqual(current.count, 1)
+            let thumb = try XCTUnwrap(current.first)
+            XCTAssertEqual(RelicAXRead(thumb)["role"] as? String, "AXValueIndicator")
+            XCTAssertEqual(scroller.accessibilityIndex(ofChild: thumb), 0)
+        }
         XCTAssertTrue(scroller.isEnabled)
         XCTAssertGreaterThan(scroller.rect(for: .knob).height, 0)
         scroller.doubleValue = 0.5
