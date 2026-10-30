@@ -24,8 +24,12 @@ import RelicAX
         let scroller = try XCTUnwrap(late.verticalScroller as? ReferenceScroller)
         XCTAssertEqual(late.contentSize.width, 190, accuracy: 0.01)
         XCTAssertEqual(scroller.frame.width, 10, accuracy: 0.01)
+        late.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        late.reflectScrolledClipView(late.contentView)
+        let position = late.contentView.bounds.origin
         window.update()
         XCTAssertTrue(late.verticalScroller === scroller, "Repeated updates retain the actual native scroller and its state")
+        XCTAssertEqual(late.contentView.bounds.origin, position)
         probe.removeFromSuperview()
         let detached = newScroll(); window.update()
         XCTAssertFalse(detached.verticalScroller is ReferenceScroller, "An unmounted observer must leave its former window alone")
