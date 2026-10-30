@@ -79,8 +79,8 @@ class DatalistCaptureTests(unittest.TestCase):
         self.assertEqual(set(MESSAGE_SCENES), {"message-hover", "message-copy-toast"})
         self.assertEqual(RESIZE_SCENES, {"new-org-textarea-resized"})
         self.assertEqual(PANEL_RESIZE_SCENES, {"panel-resize-hover", "panel-resized"})
-        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES) | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES)
-        self.assertEqual(len(spec["scenes"]), 55)
+        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES) | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES | {"settings-navigation-hover"})
+        self.assertEqual(len(spec["scenes"]), 56)
 
 
 if __name__ == "__main__":
