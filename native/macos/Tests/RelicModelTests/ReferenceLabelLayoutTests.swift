@@ -6,9 +6,11 @@ import AppKit
     func testHierarchyNoteMatchesActualReferenceLineAdvancesAndSpacing() throws {
         // 2cb073c reference macOS zh-CN/light/1440x900/group, dom-382:text-0.
         // The reference's .hier-note uses 12px text and 1.55 line height.
+        // Its measured owner box is 297px: 340px pane - 1px border -
+        // 10px actual overflow scrollbar - 32px block padding.
         let source = "全库只有一个秘书处，它的负责人就是秘书长：成员新建或调整正式组织，要秘书长批准；各正式组织的负责人也会自动在秘书处有一个席位。"
         let view = ReferenceLabel(source, size: 12, lineHeight: 18.6, lines: 0).makeLabelView()
-        view.frame = NSRect(x: 0, y: 0, width: 307, height: 100)
+        view.frame = NSRect(x: 0, y: 0, width: 297, height: 100)
         let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
         manager.ensureLayout(for: container)
         var fragments: [NSRect] = []

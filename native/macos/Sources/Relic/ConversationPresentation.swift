@@ -8,6 +8,26 @@ struct ConversationRow: Identifiable {
     let continued: Bool
 }
 
+// Opening/resizing the inspector changes line wrapping without adding a
+// message. Preserve the current scroll offset through that reflow, just as
+// the reference's applyPanelWidth does. New content at the same viewport can
+// still follow the bottom, including a live result expanded by the person.
+struct ConversationScrollFollowing {
+    var followsBottom = true
+    private var contentSize = CGSize.zero
+    private var viewportSize = CGSize.zero
+
+    mutating func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
+        let heightChanged = abs(content.height - contentSize.height) > 1
+        let reflow = contentSize.width > 0 && abs(content.width - contentSize.width) > 1
+        let resized = viewportSize != .zero && viewport != viewportSize
+        let follow = heightChanged && !reflow && !resized && followsBottom
+        if !heightChanged || reflow || resized { followsBottom = bottom - viewport.height < 120 }
+        contentSize = content; viewportSize = viewport
+        return follow
+    }
+}
+
 extension Model {
     func conversationRows(_ items: [Node], separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
         var previous: Node?, lastDay: Date?

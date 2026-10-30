@@ -69,6 +69,9 @@ final class ReferenceSwitchButton: NSButton {
     // A custom painted cell has no built-in bezel/glyph AX provider. The real
     // control exposes its own role, current native state and full hit frame.
     override func isAccessibilityElement() -> Bool { true }
+    // Bezel alignment insets otherwise expand a 32x18 SwiftUI proposal to a
+    // 36x22 actual view/hit frame, despite the custom empty cell.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
     override func accessibilityRole() -> NSAccessibility.Role? { .checkBox }
     override func accessibilityValue() -> Any? { NSNumber(value: state.rawValue) }
     override func isAccessibilityEnabled() -> Bool { isEnabled }

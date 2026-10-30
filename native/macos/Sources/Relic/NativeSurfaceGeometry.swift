@@ -8,7 +8,7 @@ import AppKit
         guard let owner = surface["owner"] as? String,
               owner == element["identifier"] as? String,
               let kind = element["kind"] as? String,
-              ["input", "dropdown", "card"].contains(kind),
+              (["input", "dropdown", "card"].contains(kind) || kind == "region" && surface["kind"] as? String == "card"),
               let value = surface["rectValue"] as? NSValue else { return }
         let rect = value.rectValue
         let visible = rect.intersection(ElementCapture.rect(surface["nativeVisibleBounds"])).intersection(viewport)
