@@ -1,3 +1,14 @@
+## 2026-10-30: retain the actual filter identity behind rejected coverage
+
+The actual chart PNG has the expected visible diagram, while its geometry
+failures include background-pane nodes whose rectangles are covered by the
+dialog. Coverage currently rejects the whole layer tree because some native
+layers have compositing filters. NativeLayerOrder now retains the actual filter
+string or public CIFilter.name/inputKeys, in both model and presentation layers,
+alongside the existing presence flag. Names alone prove no compositing semantics
+and do not remove any element or relax any condition. This provides the missing
+input for deciding which actual paint operations can affect the covered area.
+
 ## 2026-10-30: exact viewport focus versus a surrounding SwiftUI focus binding
 
 Actual `86357fe` live-tool-output has one remaining focus error: the button's
