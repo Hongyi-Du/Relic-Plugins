@@ -59,15 +59,21 @@ struct NativeFormField<Content: View>: View {
         VStack(alignment: .leading, spacing: 5) {
             ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0)
             content().environment(\.nativeControlColor, RelicStyle.secondary).environment(\.nativeFieldLabel, title)
+                .environment(\.nativeInputFocusBorder, false)
         }
     }
 }
 
 private struct NativeControlColorKey: EnvironmentKey { static var defaultValue = RelicStyle.ink }
 private struct NativeFieldLabelKey: EnvironmentKey { static let defaultValue: String? = nil }
+private struct NativeInputFocusBorderKey: EnvironmentKey { static let defaultValue = true }
 extension EnvironmentValues {
     var nativeControlColor: Color { get { self[NativeControlColorKey.self] } set { self[NativeControlColorKey.self] = newValue } }
     var nativeFieldLabel: String? { get { self[NativeFieldLabelKey.self] } set { self[NativeFieldLabelKey.self] = newValue } }
+    // The reference's .form input:not([type=checkbox]):not([type=radio])
+    // keeps its ordinary border even while focused: its specificity exceeds
+    // .form input:focus. Standalone .input controls retain the focus border.
+    var nativeInputFocusBorder: Bool { get { self[NativeInputFocusBorderKey.self] } set { self[NativeInputFocusBorderKey.self] = newValue } }
 }
 
 struct FieldAccessibilityLabel: ViewModifier {

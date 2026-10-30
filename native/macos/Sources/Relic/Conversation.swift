@@ -352,10 +352,12 @@ struct MessageView: View {
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
                         ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
-                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true) }
-                        if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0) }
-                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
+                            .accessibilitySortPriority(readingOrderPriority + 0.4)
+                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true).accessibilitySortPriority(readingOrderPriority + 0.3) }
+                        if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).accessibilitySortPriority(readingOrderPriority + 0.2) }
+                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel).accessibilitySortPriority(readingOrderPriority + 0.2) }
                         ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
+                            .accessibilitySortPriority(readingOrderPriority + 0.1)
                     } }
                     if item["type"].text == "receipt" {
                         MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))

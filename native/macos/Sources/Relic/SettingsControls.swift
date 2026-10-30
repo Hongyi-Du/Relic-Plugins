@@ -100,6 +100,8 @@ struct SettingsSwatch: View {
 struct ReferenceInput: View {
     @Environment(\.nativeControlColor) private var textColor
     @Environment(\.nativeFieldLabel) private var fieldLabel
+    @Environment(\.captureRegion) private var region
+    @Environment(\.nativeInputFocusBorder) private var drawsFocusBorder
     let placeholder: String
     @Binding var text: String
     var commit: () -> Void = {}
@@ -111,35 +113,43 @@ struct ReferenceInput: View {
     var controlID = ""
     var initiallyFocused = false
     @State private var suggestionAnchor = CGRect.zero
-    @FocusState private var focused: Bool
+    @State private var focused = false
     @State private var identity = "relic-input/" + UUID().uuidString
     @EnvironmentObject var m: Model
     private var inputIdentity: String { controlID.isEmpty ? identity : "relic-input/" + controlID }
     var body: some View {
-        TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400)).foregroundStyle(textColor)
-            .accessibilityIdentifier(inputIdentity)
-            .modifier(FieldAccessibilityLabel(label: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") } ?? placeholder))
-            .focused($focused).onSubmit { focused = false }
-            .onKeyPress(.downArrow) {
-                guard !suggestions.isEmpty else { return .ignored }
-                if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions?.move(1) } else { openSuggestions() }
-                return .handled
-            }
-            .onKeyPress(.upArrow) { guard m.inputSuggestions?.id == inputIdentity else { return .ignored }; m.inputSuggestions?.move(-1); return .handled }
-            .onKeyPress(.return) {
-                guard let menu = m.inputSuggestions, menu.id == inputIdentity, menu.values.indices.contains(menu.selected) else { return .ignored }
-                menu.choose(menu.values[menu.selected]); m.inputSuggestions = nil; return .handled
-            }
-            .onKeyPress(.escape) { guard m.inputSuggestions?.id == inputIdentity else { return .ignored }; m.inputSuggestions = nil; return .handled }
+        ObservedSearchField(placeholder: placeholder,
+            accessibleName: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") } ?? placeholder,
+            text: $text, focused: $focused,
+            configuration: .init(identifier: inputIdentity, region: region, pointSize: pointSize,
+                lineHeight: pointSize * 1.6, monospaced: monospaced, color: textColor), command: handleCommand)
             .onChange(of: focused) { old, new in if old && !new { closeSuggestions(); commit() } }
             .onChange(of: text) { if m.inputSuggestions?.id == inputIdentity { openSuggestions() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused && drawsFocusBorder ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
             .background(GeometryReader { proxy in Color.clear.preference(key: InputSuggestionAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
             .onPreferenceChange(InputSuggestionAnchor.self) { suggestionAnchor = $0 }
             .task { if initiallyFocused { await Task.yield(); focused = true } }
             .onDisappear { closeSuggestions() }
+    }
+    private func handleCommand(_ command: ObservedSearchField.Command) -> Bool {
+        switch command {
+        case .down:
+            guard !suggestions.isEmpty else { return false }
+            if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions?.move(1) } else { openSuggestions() }
+        case .up:
+            guard m.inputSuggestions?.id == inputIdentity else { return false }
+            m.inputSuggestions?.move(-1)
+        case .submit:
+            if let menu = m.inputSuggestions, menu.id == inputIdentity, menu.values.indices.contains(menu.selected) {
+                menu.choose(menu.values[menu.selected]); m.inputSuggestions = nil
+            } else { focused = false }
+        case .cancel:
+            guard m.inputSuggestions?.id == inputIdentity else { return false }
+            m.inputSuggestions = nil
+        }
+        return true
     }
     private func closeSuggestions() { if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions = nil } }
     private func openSuggestions() {
