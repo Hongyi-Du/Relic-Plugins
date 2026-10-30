@@ -38,27 +38,27 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             var runtimeId = managedElement.GetRuntimeId();
             evidence["runtime_id"] = Ints(runtimeId);
             activeContext = new JsonObject { ["runtime_id"] = Ints(runtimeId) };
-            progress.Record("native.attach", "started", activeContext);
+            progress.Record("uia-capture/native/attach", "started", activeContext);
             var lookup = new JsonObject(); evidence["lookup"] = lookup;
-            var element = progress.Measure("native.resolve", () => Resolve(managedElement, runtimeId, lookup), activeContext);
-            var nativePattern = progress.Measure("native.text-pattern", () => (INativeTextPattern)element.GetCurrentPattern(TextPattern.Pattern.Id), activeContext);
-            var document = progress.Measure("native.document-range", nativePattern.GetDocumentRange, activeContext);
-            var documentText = progress.Measure("native.document-text-before", () => document.GetText(-1), activeContext);
+            var element = progress.Measure("uia-capture/native/resolve", () => Resolve(managedElement, runtimeId, lookup), activeContext);
+            var nativePattern = progress.Measure("uia-capture/native/text-pattern", () => (INativeTextPattern)element.GetCurrentPattern(TextPattern.Pattern.Id), activeContext);
+            var document = progress.Measure("uia-capture/native/document-range", nativePattern.GetDocumentRange, activeContext);
+            var documentText = progress.Measure("uia-capture/native/document-text-before", () => document.GetText(-1), activeContext);
             evidence["document_text_before"] = documentText;
             var nativeDocument = ReadRange(document, document, false, errors);
             evidence["document"] = nativeDocument;
             var visible = new JsonArray(); evidence["visible_ranges"] = visible;
-            var nativeRanges = progress.Measure("native.visible-ranges", nativePattern.GetVisibleRanges, activeContext);
+            var nativeRanges = progress.Measure("uia-capture/native/visible-ranges", nativePattern.GetVisibleRanges, activeContext);
             var rangeCount = nativeRanges.GetLength();
             if (rangeCount < 0 || rangeCount > 10000) throw new InvalidOperationException("Invalid COM visible range count: " + rangeCount);
             for (var index = 0; index < rangeCount; index++)
             {
-                progress.Record("native.visible-range", "started", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["index"] = index });
+                progress.Record("uia-capture/native/visible-range", "started", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["index"] = index });
                 visible.Add(ReadRange(nativeRanges.GetElement(index), document, true, errors));
             }
 
-            var nativeAfter = progress.Measure("native.document-text-after", () => document.GetText(-1), activeContext);
-            var managedAfter = progress.Measure("managed.document-text-after", () => managedPattern.DocumentRange.GetText(-1), activeContext);
+            var nativeAfter = progress.Measure("uia-capture/native/document-text-after", () => document.GetText(-1), activeContext);
+            var managedAfter = progress.Measure("uia-capture/managed/document-text-after", () => managedPattern.DocumentRange.GetText(-1), activeContext);
             evidence["document_text_after"] = nativeAfter;
             evidence["managed_document_text_after"] = managedAfter;
             var capturedText = pattern["document"]?["text"]?.GetValue<string>();
@@ -98,7 +98,7 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         finally
         {
             evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
-            progress.Record("native.attach", evidence["status"]!.GetValue<string>(), new JsonObject { ["evidence"] = evidence.DeepClone() });
+            progress.Record("uia-capture/native/attach", evidence["status"]!.GetValue<string>(), new JsonObject { ["evidence"] = evidence.DeepClone() });
             activeContext = null;
         }
     }
@@ -132,7 +132,7 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         if (runtimeId.Length == 0) throw new InvalidOperationException("Managed RuntimeId is empty.");
         var foundMatch = index.Elements.TryGetValue(RuntimeKey(runtimeId), out var found);
         evidence["match_count"] = foundMatch ? 1 : 0;
-        progress.Record("native.index.lookup", "measured", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["lookup"] = evidence.DeepClone() });
+        progress.Record("uia-capture/native/index/lookup", "measured", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["lookup"] = evidence.DeepClone() });
         if (!foundMatch) throw new InvalidOperationException("RuntimeId is absent from the completed native raw HWND index.");
         var freshWatch = Stopwatch.StartNew();
         if (!found!.GetRuntimeId().SequenceEqual(runtimeId) || Convert.ToInt32(found.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture) != processId ||
@@ -149,11 +149,11 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
     {
         var watch = Stopwatch.StartNew();
         var context = new JsonObject { ["hwnd"] = hwnd.ToInt64() };
-        progress.Record("native.index", "started", context);
+        progress.Record("uia-capture/native/index", "started", context);
         try
         {
-            var root = progress.Measure("native.index.root", () => automation.ElementFromHandle(hwnd), context);
-            var walker = progress.Measure("native.index.raw-walker", automation.GetRawViewWalker, context);
+            var root = progress.Measure("uia-capture/native/index/root", () => automation.ElementFromHandle(hwnd), context);
+            var walker = progress.Measure("uia-capture/native/index/raw-walker", automation.GetRawViewWalker, context);
             Visit(root, 0);
             index.Evidence["status"] = "complete";
 
@@ -162,7 +162,7 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
                 if (depth > 1000 || index.Elements.Count >= 100000)
                     throw new InvalidOperationException("Native raw tree exceeded the traversal safety bound; index is incomplete.");
                 var stage = new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["depth"] = depth, ["indexed_nodes"] = index.Elements.Count };
-                progress.Record("native.index.node", "started", stage);
+                progress.Record("uia-capture/native/index/node", "started", stage);
                 var pid = Convert.ToInt32(element.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture);
                 if (pid != processId)
                     throw new InvalidOperationException("Native raw HWND subtree exposed a different process; index is incomplete.");
@@ -174,13 +174,13 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
                     index.Evidence["duplicate_runtime_id"] = Ints(runtimeId);
                     throw new InvalidOperationException("Native raw tree contains a duplicate RuntimeId; no element is chosen and index is incomplete.");
                 }
-                progress.Record("native.index.node", "indexed", stage);
-                var child = progress.Measure("native.index.first-child", () => walker.GetFirstChildElement(element), stage);
+                progress.Record("uia-capture/native/index/node", "indexed", stage);
+                var child = progress.Measure("uia-capture/native/index/first-child", () => walker.GetFirstChildElement(element), stage);
                 while (child != null)
                 {
                     Visit(child, depth + 1);
                     var current = child;
-                    child = progress.Measure("native.index.next-sibling", () => walker.GetNextSiblingElement(current), stage);
+                    child = progress.Measure("uia-capture/native/index/next-sibling", () => walker.GetNextSiblingElement(current), stage);
                 }
             }
         }
@@ -194,7 +194,7 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             index.Evidence["node_count"] = index.Elements.Count;
             index.Evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
             index.Evidence["hwnd"] = hwnd.ToInt64();
-            progress.Record("native.index", index.Evidence["status"]!.GetValue<string>(), index.Evidence);
+            progress.Record("uia-capture/native/index", index.Evidence["status"]!.GetValue<string>(), index.Evidence);
         }
     }
 
@@ -234,15 +234,15 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
     {
         var result = new JsonObject
         {
-            ["text"] = progress.Measure("native.range.text", () => range.GetText(-1), activeContext),
-            ["range_identity"] = progress.Measure("native.range.identity", () => NativeIdentity(range, document), activeContext)
+            ["text"] = progress.Measure("uia-capture/native/range/text", () => range.GetText(-1), activeContext),
+            ["range_identity"] = progress.Measure("uia-capture/native/range/identity", () => NativeIdentity(range, document), activeContext)
         };
-        var values = progress.Measure("native.range.bounding-rectangles", range.GetBoundingRectangles, activeContext);
+        var values = progress.Measure("uia-capture/native/range/bounding-rectangles", range.GetBoundingRectangles, activeContext);
         result["bounds_raw"] = values == null ? null : new JsonArray(values.Select(Number).ToArray());
         result["bounds_raw_ieee754_bits"] = values == null ? null : new JsonArray(values.Select(value =>
             (JsonNode?)JsonValue.Create(BitConverter.DoubleToInt64Bits(value).ToString("X16", CultureInfo.InvariantCulture))).ToArray());
         result["raw_coordinate_space"] = "UI Automation screen coordinates before window-origin subtraction";
-        progress.Record("native.range.raw-bounds", "measured", new JsonObject { ["runtime"] = activeContext?.DeepClone(), ["range"] = result.DeepClone() });
+        progress.Record("uia-capture/native/range/raw-bounds", "measured", new JsonObject { ["runtime"] = activeContext?.DeepClone(), ["range"] = result.DeepClone() });
         var rectangles = new JsonArray(); result["bounds"] = rectangles;
         var statuses = new JsonArray(); result["rectangle_statuses"] = statuses;
         var degenerate = result["range_identity"]!["degenerate"]!.GetValue<bool>();
@@ -391,6 +391,10 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
     {
         INativeElement? GetParentElement(INativeElement element);
         INativeElement? GetFirstChildElement(INativeElement element);
+        // This slot exists between first-child and next-sibling in the SDK.
+        // Omitting it calls GetLastChildElement when walking siblings, silently
+        // truncating a HWND index to its first child's descendants.
+        INativeElement? GetLastChildElement(INativeElement element);
         INativeElement? GetNextSiblingElement(INativeElement element);
     }
     [ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

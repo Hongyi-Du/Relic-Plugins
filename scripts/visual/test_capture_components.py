@@ -40,6 +40,9 @@ class ComponentCaptureTests(unittest.TestCase):
             reference.assert_called_once()
             self.assertEqual([row["count"] for row in result["components"]], [0, 2])
             self.assertEqual(result["errors"], ["windows: provider timeout"])
+            self.assertEqual(result["components"][0]["status"], "failed")
+            self.assertEqual(result["components"][1]["status"], "completed")
+            self.assertEqual(result["components"][1]["errors"], [], "A failed native component is not a reference execution failure")
 
     def test_partial_files_and_receipts_cannot_erase_native_errors(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):

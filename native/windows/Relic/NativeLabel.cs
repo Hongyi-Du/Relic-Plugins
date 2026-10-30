@@ -52,6 +52,64 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
+    internal JsonObject ObserveCaptureVersion(UIElement windowContent)
+    {
+        if (!IsLoaded || queued || rendering || failure != null || receipt == null
+            || receipt["layout_revision"]?.GetValue<long>() != layoutRevision
+            || receipt["surface_revision"]?.GetValue<long>() != surfaceRevision
+            || receipt["draw_ordinal"]?.GetValue<long>() != drawOrdinal
+            || receipt["surface_end_draw_succeeded"]?.GetValue<bool>() != true)
+            throw new InvalidOperationException("NativeLabel has no current, idle, successfully submitted production draw: " + text + "; " + failure);
+        if (surface == null || image.Source == null) throw new InvalidOperationException("NativeLabel has no bound production surface: " + text);
+        // The property's projection can be a different managed wrapper. Compare
+        // actual COM identity, not a presumed Image.Source wrapper identity.
+        var bound = WinRT.MarshalInspectable<object>.FromManaged(image.Source);
+        var produced = WinRT.MarshalInspectable<object>.FromManaged(surface);
+        IntPtr boundIdentity = IntPtr.Zero, producedIdentity = IntPtr.Zero;
+        try
+        {
+            var unknown = new Guid("00000000-0000-0000-c000-000000000046");
+            boundIdentity = Query(bound, unknown); producedIdentity = Query(produced, unknown);
+            if (boundIdentity != producedIdentity) throw new InvalidOperationException("NativeLabel Image.Source is not the surface whose draw was recorded: " + text);
+        }
+        finally { Release(ref boundIdentity); Release(ref producedIdentity); Release(ref bound); Release(ref produced); }
+        var transform = TransformToVisual(windowContent);
+        var origin = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+        var horizontal = transform.TransformPoint(new Windows.Foundation.Point(1, 0));
+        var vertical = transform.TransformPoint(new Windows.Foundation.Point(0, 1));
+        var bounds = transform.TransformBounds(new LayoutRect(0, 0, ActualWidth, ActualHeight));
+        var ancestorState = new JsonArray(); DependencyObject? current = this;
+        while (current != null)
+        {
+            if (current is UIElement ui)
+            {
+                JsonObject? clip = null;
+                if (ui.Clip is RectangleGeometry rectangle)
+                {
+                    var r = rectangle.Rect;
+                    var g = rectangle.Transform;
+                    var p0 = g?.TransformPoint(new Windows.Foundation.Point(0, 0)) ?? new Windows.Foundation.Point(0, 0);
+                    var px = g?.TransformPoint(new Windows.Foundation.Point(1, 0)) ?? new Windows.Foundation.Point(1, 0);
+                    var py = g?.TransformPoint(new Windows.Foundation.Point(0, 1)) ?? new Windows.Foundation.Point(0, 1);
+                    clip = new JsonObject { ["type"] = "RectangleGeometry", ["x"] = r.X, ["y"] = r.Y, ["width"] = r.Width, ["height"] = r.Height,
+                        ["transform"] = new JsonArray(px.X - p0.X, px.Y - p0.Y, py.X - p0.X, py.Y - p0.Y, p0.X, p0.Y) };
+                }
+                else if (ui.Clip != null) throw new NotSupportedException("NativeLabel capture cannot establish stability for clip type " + ui.Clip.GetType().FullName);
+                ancestorState.Add(new JsonObject { ["type"] = current.GetType().FullName, ["visibility"] = ui.Visibility.ToString(), ["opacity"] = ui.Opacity, ["clip"] = clip });
+            }
+            if (ReferenceEquals(current, windowContent)) break;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return new JsonObject
+        {
+            ["text"] = text, ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision, ["draw_ordinal"] = drawOrdinal,
+            ["surface_binding_same_com_identity"] = true, ["queued"] = queued, ["rendering"] = rendering,
+            ["bounds"] = new JsonObject { ["x"] = bounds.X, ["y"] = bounds.Y, ["width"] = bounds.Width, ["height"] = bounds.Height },
+            ["transform"] = new JsonArray(horizontal.X - origin.X, horizontal.Y - origin.Y, vertical.X - origin.X, vertical.Y - origin.Y, origin.X, origin.Y),
+            ["image_width"] = image.ActualWidth, ["image_height"] = image.ActualHeight, ["image_stretch"] = image.Stretch.ToString(),
+            ["rasterization_scale"] = XamlRoot?.RasterizationScale, ["ancestors"] = ancestorState
+        };
+    }
     internal JsonObject CaptureProductionReceipt() => new()
     {
         ["source"] = "NativeLabel production SurfaceImageSource / DirectWrite renderer",
@@ -76,7 +134,13 @@ public sealed class NativeLabel : Panel
             foregroundToken = presenter.RegisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, (_, _) => ObserveForeground());
         ObserveForeground(); InvalidateMeasure(); QueueDraw();
     }
-    private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args) { InvalidateDraw(); QueueDraw(); }
+    private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+    {
+        // A rasterization-scale change changes the actual image's pixel/DIP
+        // placement too, not just the surface allocation used by the renderer.
+        if (sender.RasterizationScale != scale) InvalidateArrange();
+        InvalidateDraw(); QueueDraw();
+    }
     private void ObserveForeground()
     {
         if (foreground != null)

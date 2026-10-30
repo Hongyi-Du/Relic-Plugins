@@ -129,7 +129,7 @@ class ResizeCaptureTests(unittest.TestCase):
             action.open.assert_called_once_with()
             self.assertEqual([entry.args[0] for entry in action.checkpoint.call_args_list],
                 ["before_screenshot", "after_screenshot", "after_dom_snapshot", "after_source_evidence", "after_element_extraction"])
-            page.screenshot.assert_called_once_with(path=Path(folder) / "fixture-resize.png", animations="allow")
+            page.screenshot.assert_called_once_with(path=Path(folder) / "fixture-resize.png", animations="allow", caret="initial")
             action.close.assert_called_once_with(); cdp.detach.assert_called_once_with(); page.close.assert_called_once_with()
             actual = json.loads((Path(folder) / "fixture-resize.elements.json").read_text())
             self.assertEqual(actual["capture_evidence"]["textarea_resize_action"], action.evidence)

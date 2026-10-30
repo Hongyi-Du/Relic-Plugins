@@ -61,18 +61,18 @@ public sealed partial class MainWindow
             };
             input.AddHandler(routedEvent, observer, true); textareaPointerObservers.Add((routedEvent, observer));
         }
-        MoveTextareaCapturePointer(start); await Task.Delay(40);
-        mouse_event(0x0002, 0, 0, 0, 0);
+        await CaptureMovePointer(start);
+        CapturePointerButton(true);
         try
         {
             await Task.Delay(40);
             for (var step = 1; step <= 8; step++)
             {
-                MoveTextareaCapturePointer(new Point(start.X, start.Y + 64d * step / 8));
+                await CaptureMovePointer(new Point(start.X, start.Y + 64d * step / 8));
                 await Task.Delay(25);
             }
         }
-        finally { mouse_event(0x0004, 0, 0, 0, 0); }
+        finally { CapturePointerButton(false); }
         await Task.Delay(150); root.UpdateLayout();
         var after = ObserveTextareaState(); capturedTextareaEvidence["after"] = after;
         var finalBox = input.TransformToVisual(root).TransformBounds(new Rect(0, 0, input.ActualWidth, input.ActualHeight));
@@ -84,16 +84,6 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Actual textarea resizing changed its text or placeholder.");
         capturedTextareaBaseline = null;
         CaptureTextareaCheckpoint("after_action");
-    }
-
-    private void MoveTextareaCapturePointer(Point point)
-    {
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
-        var origin = new CapturePoint();
-        if (!ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin)) throw new InvalidOperationException("Textarea capture ClientToScreen failed.");
-        var scale = root.XamlRoot.RasterizationScale;
-        if (!SetCursorPos(origin.x + (int)Math.Round(point.X * scale), origin.y + (int)Math.Round(point.Y * scale)))
-            throw new InvalidOperationException("Textarea capture actual pointer move failed.");
     }
 
     private JsonObject ObserveTextareaState()

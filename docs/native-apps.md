@@ -1,5 +1,44 @@
 # Native Relic App contract
 
+Changes for the clients (6dbdfd8 capture results): Windows and macOS native
+build/test jobs in run `40983626194` passed. The independent Windows diagnostic
+run `40983620508` attempted all 17 cases; its reference completed all 17, including
+Copy toast and textarea resizing. Native evidence remains failed: twelve cases
+produced PNG/XAML evidence but UIA extraction failed, and five real pointer
+gestures did not reach their required state. This is not a passing matrix.
+
+Changes for the clients (Windows pointer delivery): the actual textarea receipt
+showed a changed cursor and DragStarted/DragCompleted but zero DragDelta events.
+Capture now sends motion/down/up through Win32 SendInput, including desktop
+coordinates and DPI conversion, and records the requested and observed cursor.
+It still checks the same production handlers and scene results. No direct UI
+state assignment, tolerance change, or fallback pass substitutes for the gesture.
+Each case retains its `.pointer-input.json` even when the scene action fails.
+
+Changes for the clients (reference caret and checker assertion): the requests
+in `f255c3d` are addressed. Regular Playwright PNG capture preserves the actual
+caret with `caret="initial"`. Focus, selection and computed CSS are retained as
+context only; unknown caret paint/bounds/blink still fail coverage. The aggregate
+failure test checks the current component-prefixed error and nonzero exit without
+removing failure assertions. The original 53-state matrix is unchanged.
+
+Changes for the clients (Windows interaction/layout corrections): member-card
+model actions and inspector action/link labels no longer select their own text
+instead of forwarding button clicks. Body text remains selectable. The person's
+read receipt aligns to its message's right edge independently of the thread
+button, matching `.msg.mine .body` child alignment. CI still has to verify these
+production changes; their source changes are not parity evidence.
+
+Changes for the clients (failed-state diagnostics): Windows now saves an actual
+failed-state PNG under `diagnostics/<case-id>.failed.png`. It never substitutes
+for the canonical scene or increases the success count. The matcher continues
+rejecting unexpected canonical files. macOS `6dbdfd8` currently writes fifteen
+`*.before-capture-error.png` siblings, which are therefore reported as unexpected
+captures; the macOS owner should place such noncanonical debug images in the
+same `diagnostics/` subdirectory while retaining the original case failures.
+Run `40983620508` also reports native geometry removals after macOS extraction
+and two real action failures; these remain unresolved in that revision.
+
 Changes for the clients (shared checker correction): the macOS request in
 `907dcb2` and Windows checker run `40982586850` identify the same stale test
 expectations. The lifecycle regression still requires all 53 real manifest

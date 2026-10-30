@@ -91,7 +91,7 @@ public sealed partial class MainWindow
             void TextRow(string key, string value) { if (value.Length > 0) Row(key, OverviewText(value)); }
             Button SeatLink(string label, Func<Task> action)
             {
-                var button = QuietButton("", action); var text = OverviewText(label); text.Foreground = Accent; button.Content = text; button.Padding = new Thickness(0); button.MinHeight = 0; button.HorizontalAlignment = HorizontalAlignment.Left; button.CornerRadius = new CornerRadius(0); return button;
+                var button = QuietButton("", action); var text = OverviewText(label); text.IsTextSelectionEnabled = false; text.Foreground = Accent; button.Content = text; button.Padding = new Thickness(0); button.MinHeight = 0; button.HorizontalAlignment = HorizontalAlignment.Left; button.CornerRadius = new CornerRadius(0); return button;
             }
             TextRow("common.role", c.Text("role").Length > 0 ? c.Text("role") : T("card.no_role")); TextRow("card.identity", Identity(c));
             if (c["ex_officio"] != null) Row("card.seat_origin", SeatLink(T("card.ex_officio", ("org", c["ex_officio"].Text("org_name"))), async () => { transientFlyout?.Hide(); await Select(c["ex_officio"].Text("org")); }));

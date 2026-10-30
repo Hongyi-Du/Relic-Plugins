@@ -82,7 +82,7 @@ public sealed partial class MainWindow
         var viewport = chatScroll.TransformToVisual(root).TransformBounds(new Rect(0, 0, chatScroll.ActualWidth, chatScroll.ActualHeight));
         if (rowBounds.Left < viewport.Left || rowBounds.Right > viewport.Right || rowBounds.Top < viewport.Top || rowBounds.Bottom > viewport.Bottom)
             throw new InvalidOperationException("Requested message is not fully visible in the actual conversation viewport.");
-        CaptureHover(target.Row); await Task.Delay(200); root.UpdateLayout();
+        await CaptureHover(target.Row); await Task.Delay(200); root.UpdateLayout();
         if (target.Actions.Visibility != Visibility.Visible || !target.Copy.IsLoaded || target.Copy.ActualWidth <= 0)
             throw new InvalidOperationException("Actual native pointer hover did not expose the message actions.");
         capturedMessage = target; capturedMessageToast = null;
@@ -98,7 +98,7 @@ public sealed partial class MainWindow
         if (scene == "message-copy-toast")
         {
             var previousCopy = copySequence;
-            CaptureClick(target.Copy); await Task.Delay(150); root.UpdateLayout();
+            await CaptureClick(target.Copy); await Task.Delay(150); root.UpdateLayout();
             var clipboard = Clipboard.GetContent();
             var text = clipboard.Contains(StandardDataFormats.Text) ? await clipboard.GetTextAsync() : null;
             var copied = lastClipboardCopy;
@@ -124,7 +124,8 @@ public sealed partial class MainWindow
         var cursor = new CapturePoint(); var origin = new CapturePoint();
         if (!GetCursorPos(ref cursor) || !ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin))
             throw new InvalidOperationException("Could not read the actual pointer position for message hover.");
-        var point = new Point(cursor.x - origin.x, cursor.y - origin.y);
+        var scale = root.XamlRoot.RasterizationScale;
+        var point = new Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
         bool WithinRow(DependencyObject element)
         {
             for (DependencyObject? current = element; current != null; current = VisualTreeHelper.GetParent(current))

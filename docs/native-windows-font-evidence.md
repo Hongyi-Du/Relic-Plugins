@@ -98,6 +98,29 @@ CI 应分别证明：字体回退真正发生时 callback face 改变；记录�
 
 `NativeLabel` 已接到四个真实菜单入口的 Button.Content，并通过无窗口的本机 Release 编译。它的同一个 `IDWriteTextLayout` 用于 Measure、Arrange 和 Draw；SurfaceImageSource 成功 EndDraw 后才保留实际 glyph callback 记录。完整 UI 字体回退顺序应用于该生产 layout，并通过 GetFontFallback 核对对象身份。原 Button 的 Name、peer、Invoke、键盘和焦点行为保留。
 
-当前捕获只把这些原始记录放在 `native_label_evidence`。CI 尚需确认真实显示、字形数据及截图对应；`coverage_complete` 仍为 false，最终呈现帧仍未知，canonical 字体不能提前填入。全应用其余 TextBlock、RichTextBlock、输入编辑器及复杂彩色文字没有因为四个菜单入口的原型而算作完成。
+当前捕获只把这些原始记录放在 `native_label_evidence`。下述 `6dbdfd8` CI 产物已确认四个菜单入口实际显示和 glyph callback 数据；截图与具体提交版本的严格关联仍未完成。`coverage_complete` 仍为 false，最终呈现帧仍未知，canonical 字体不能提前填入。全应用其余 TextBlock、RichTextBlock、输入编辑器及复杂彩色文字没有因为四个菜单入口的原型而算作完成。
 
 现有 TextBlock 另记录实际 [IsTextTrimmed](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock.istexttrimmed?view=windows-app-sdk-1.6)。它能说明控件发生了截断，不能给出省略号的绘制边界；UIA 原始零面积范围、文本配置和截断状态分别保留，未知边界仍失败。
+
+**`6dbdfd8` 的实际 CI 观察与下一步同步证据**
+
+本轮读取已有 CI 下载文件，没有在本机运行应用或测试。产物目录为 `S:\Codex\Outputs\Relic-native-visual\smoke-6dbdfd8-windows-zh-light\`；参考目录为同级的 `smoke-6dbdfd8-reference-zh-light\`。检查了 `zh-CN-light-1440x900-group` 与 `zh-CN-light-1440x900-menu-file` 的 PNG 和 `.xaml.json`，不是仅检查源代码。
+
+| 观察项 | `group` | `menu-file` |
+|---|---|---|
+| 实际可见菜单标签 | 文件、编辑、视图、帮助，四个均有文字 | 四个均有文字，文件菜单实际展开 |
+| 记录数量 | 四个 `NativeLabel`，每个一个 run、两个 glyph | 四个 `NativeLabel`，每个一个 run、两个 glyph |
+| Draw／EndDraw | 八个 HRESULT 均为 0 | 八个 HRESULT 均为 0 |
+| layout／surface | 所有记录与当时 current revision 相同：layout 7、surface 1 | 同左 |
+| 实际 face | 全部为 `Microsoft YaHei UI`，`MSYH.TTC` 的 face index 1，simulations 0 | 同左 |
+| 实际 axes | `wght=400`、`wdth=100`、`ital=0`、`slnt=0`；`has_variations=false` | 同左 |
+| 真实颜色 | 四项均为 RGBA8 `[90,88,83,255]` | 文件为 `[27,27,26,255]`，其余三项未变 |
+| 绘制错误／run limitations | `last_failure=null`，`limitations=[]` | 同左 |
+
+实际 fallback 配置读回的 COM 身份一致；上述 face 来自真正的 Draw callback，未由 fallback 配置推断。参考 CDP 对这四项也报告 `Microsoft YaHei UI` 和两个 glyph。这只支持这八个标签记录的实际字体身份观察，不能代替全矩阵的字体比较。字体文件附带多个本地化名称是实际字体元数据，不是应用界面新增语言。
+
+记录也揭示了必须保持分开的量：layout 的 line baseline 为 `15.347998`，实际启用 pixel snapping 的 glyph callback baseline 为 `15`；`GetGlyphRunWorldBounds` 含 SurfaceImageSource atlas offset，而 XAML 标签在窗口中的位置由另一个实际变换决定。DOM Range 是字体 metrics 与 advance 的范围，不能用 glyph 墨迹或 `HitTestTextRange` 的 line-height 矩形直接替换。
+
+这轮旧捕获先读取桌面 PNG，后读取 label receipt，没有覆盖两次读取之间的版本变化。新增 `BeginNativeLabelCaptureAsync` / `CheckpointNativeLabelCapture` / `EndNativeLabelCapture` 只补足这个可实测缺口：观察真实 `Rendering` 与 `Rendered` 事件，等待实际 `Window.Compositor.RequestCommitAsync`，记录 `DwmFlush` 返回值；随后在桌面像素读取及元素提取前后比较相同生产对象、同一实际 Image.Source COM 身份、layout／surface／draw 版本、变换、clip 与当前绘制状态。任一变化、dirty draw、超时或错误都失败，并保存当时已收到的记录；未收到的事件与未完成的 API 结果保留 null／false。
+
+这些观察不会冻结应用文字或阻止真实更新。`Rendering` 发生在渲染周期中，`Rendered` 描述框架渲染完成；它们没有返回这个标签对应的桌面呈现 frame id。[微软的 Rendering 说明](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.media.compositiontarget.rendering)说明它可以帮助 DirectX／XAML 同步，但不是具体表面的呈现凭据。[DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)等待调用应用已排队的 DirectX 更新，也不返回 NativeLabel 的表面／帧身份。因此新记录仍明确 `presentation_identity_proven=false`、`presented_frame_id=null`，没有把这些 API 的完成等同于已经证明最终合成像素。此新增同步代码仍须在后续 CI 编译和运行验证；`6dbdfd8` 的旧产物不包含它。

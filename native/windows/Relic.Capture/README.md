@@ -112,3 +112,13 @@ replacement for the complete raw tree or a successful parity check.
 The original native zero-area rectangles remain in both the raw capture and
 journal and continue to fail unresolved coverage. Performance changes do not
 change the capture timeout, geometry tolerance, or visibility decisions.
+
+The `6dbdfd8` smoke captured only two entries in each primary HWND index. Its
+COM tree-walker declaration omitted the `GetLastChildElement` vtable slot,
+so the subsequent sibling call invoked the wrong method. The declaration
+now includes that slot in SDK order. The recorded 2.35–4.89 second capture
+times therefore do not demonstrate complete-tree performance. CI must
+recheck native index coverage and timings with the corrected declaration.
+Two file-code `TextPattern` provider failures in that run remain unresolved;
+the journal now distinguishes document-range, visible-range, text, geometry,
+identity, and declared-font inspection stages without suppressing failures.

@@ -131,14 +131,14 @@ internal sealed class Capture
     public JsonObject Run()
     {
         var handle = request["hwnd"]!.GetValue<long>();
-        var primary = progress.Measure("managed.primary-window", () => AutomationElement.FromHandle(new IntPtr(handle)));
+        var primary = progress.Measure("uia-capture/managed/primary-window", () => AutomationElement.FromHandle(new IntPtr(handle)));
         if (primary.Current.ProcessId != processId)
             throw new InvalidOperationException("Requested HWND does not belong to the requested process.");
         Walk(primary, null, "primary-window");
 
         // Menu/Flyout HWNDs can be separate desktop children. Only enumerate
         // this PID's immediate desktop children; never inspect other apps.
-        var roots = progress.Measure("managed.process-popup-roots", () => AutomationElement.RootElement.FindAll(TreeScope.Children,
+        var roots = progress.Measure("uia-capture/managed/process-popup-roots", () => AutomationElement.RootElement.FindAll(TreeScope.Children,
             new PropertyCondition(AutomationElement.ProcessIdProperty, processId)));
         foreach (AutomationElement root in roots) Walk(root, null, "process-popup-or-window");
 
@@ -166,7 +166,7 @@ internal sealed class Capture
     private void Walk(AutomationElement element, string? parent, string rootKind)
     {
         var id = "uia-" + nextId++.ToString(CultureInfo.InvariantCulture);
-        progress.Record("managed.node", "started", new JsonObject { ["id"] = id, ["parent"] = parent });
+        progress.Record("uia-capture/managed/node", "started", new JsonObject { ["id"] = id, ["parent"] = parent });
         try
         {
             // Do not emit embedded foreign-process content, even when a native
@@ -203,11 +203,11 @@ internal sealed class Capture
                 ["unsupported_properties"] = unsupported,
                 ["measurement_errors"] = nodeErrors
             };
-            progress.Record("managed.node.properties", "measured", new JsonObject { ["node"] = node.DeepClone() });
-            progress.Measure("managed.node.patterns", () => { ReadPatterns(element, node, nodeErrors); return true; },
+            progress.Record("uia-capture/managed/node/properties", "measured", new JsonObject { ["node"] = node.DeepClone() });
+            progress.Measure("uia-capture/managed/node/patterns", () => { ReadPatterns(element, node, nodeErrors); return true; },
                 new JsonObject { ["id"] = id, ["runtime_id"] = runtimeId });
             nodes.Add(node);
-            progress.Record("managed.node", "measured", new JsonObject { ["node"] = node.DeepClone() });
+            progress.Record("uia-capture/managed/node", "measured", new JsonObject { ["node"] = node.DeepClone() });
             foreach (var error in nodeErrors) errors.Add(id + ": " + error?.ToString());
 
             // Do not prune offscreen/zero-size/title-bar parents here: visible
@@ -222,7 +222,7 @@ internal sealed class Capture
         catch (Exception error)
         {
             errors.Add(id + ": tree traversal/identity: " + error.GetType().Name + ": " + error.Message);
-            progress.Record("managed.node", "failed", new JsonObject { ["id"] = id, ["error"] = error.ToString() });
+            progress.Record("uia-capture/managed/node", "failed", new JsonObject { ["id"] = id, ["error"] = error.ToString() });
         }
     }
 
@@ -262,18 +262,24 @@ internal sealed class Capture
         });
         ReadPattern<TextPattern>(element, TextPattern.Pattern, supported, nodeErrors, value =>
         {
-            var document = value.DocumentRange;
+            var context = new JsonObject { ["id"] = node["id"]!.DeepClone(), ["runtime_id"] = node["runtime_id"]!.DeepClone() };
+            var document = progress.Measure("uia-capture/managed/text/document-range", () => value.DocumentRange, context);
             var ranges = new JsonArray();
-            foreach (var range in value.GetVisibleRanges()) ranges.Add(ReadTextRange(range, document, nodeErrors, includeRuns: true));
+            var visibleRanges = progress.Measure("uia-capture/managed/text/visible-ranges", value.GetVisibleRanges, context);
+            foreach (var range in visibleRanges)
+            {
+                context["visible_range_index"] = ranges.Count;
+                ranges.Add(progress.Measure("uia-capture/managed/text/visible-range", () => ReadTextRange(range, document, nodeErrors, includeRuns: true), context));
+            }
             var pattern = new JsonObject
             {
-                ["document"] = ReadTextRange(document, document, nodeErrors, includeRuns: false),
+                ["document"] = progress.Measure("uia-capture/managed/text/document", () => ReadTextRange(document, document, nodeErrors, includeRuns: false), context),
                 ["visible_ranges"] = ranges,
                 ["supported_text_selection"] = value.SupportedTextSelection.ToString()
             };
             node["text_pattern"] = pattern;
-            progress.Record("managed.text-pattern", "measured", new JsonObject { ["id"] = node["id"]!.DeepClone(), ["pattern"] = pattern.DeepClone() });
-            nativeText ??= progress.Measure("native.initialize", () => new NativeTextEvidence(processId, originX, originY, progress));
+            progress.Record("uia-capture/managed/text-pattern", "measured", new JsonObject { ["id"] = node["id"]!.DeepClone(), ["pattern"] = pattern.DeepClone() });
+            nativeText ??= progress.Measure("uia-capture/native/initialize", () => new NativeTextEvidence(processId, originX, originY, progress));
             nativeText.Attach(element, value, pattern, nodeErrors);
         });
     }
@@ -316,7 +322,7 @@ internal sealed class Capture
             catch (Exception error) { attributes[name] = null; status[name] = "error"; errors.Add(attribute.ProgrammaticName + ": " + error.Message); }
         }
         var rectangles = new JsonArray(); var managedRectangles = new JsonArray(); var diagnostics = new JsonArray();
-        var bounds = range.GetBoundingRectangles();
+        var bounds = progress.Measure("uia-capture/managed/range/bounding-rectangles", range.GetBoundingRectangles);
         foreach (var box in bounds)
         {
             managedRectangles.Add(NativeTextEvidence.ManagedRectangle(box));
@@ -329,16 +335,17 @@ internal sealed class Capture
         }
         var result = new JsonObject
         {
-            ["text"] = range.GetText(-1), ["bounds"] = rectangles,
+            ["text"] = progress.Measure("uia-capture/managed/range/text", () => range.GetText(-1)), ["bounds"] = rectangles,
             ["managed_bounds"] = managedRectangles, ["managed_bounds_diagnostics"] = diagnostics,
-            ["range_identity"] = NativeTextEvidence.ManagedIdentity(range, document),
+            ["range_identity"] = progress.Measure("uia-capture/managed/range/identity", () => NativeTextEvidence.ManagedIdentity(range, document)),
             ["bounds_source"] = "Managed UIA Rect[]; awaiting independent native COM range identity/geometry verification",
             ["attributes"] = attributes, ["attribute_status"] = status,
             ["font_size_unit"] = "pt"
         };
         if (status["font_family"]?.ToString() == "measured" && attributes["font_family"] is JsonValue familyValue &&
             familyValue.TryGetValue<string>(out var familyName) && !string.IsNullOrEmpty(familyName))
-            result["font_family_coverage"] = FontFamilyEvidence.Inspect(familyName, result["text"]?.ToString() ?? "");
+            result["font_family_coverage"] = progress.Measure("uia-capture/managed/range/declared-font-coverage",
+                () => FontFamilyEvidence.Inspect(familyName, result["text"]?.ToString() ?? ""));
         if (includeRuns)
         {
             var runs = new JsonArray();
