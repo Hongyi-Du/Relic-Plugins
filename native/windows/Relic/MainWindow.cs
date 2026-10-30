@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> folded = new();
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
+    private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();
     private readonly Border composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
     private readonly ComposerInput editor = new();
@@ -77,7 +78,7 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var top = new Grid { Height = 40, BorderThickness = new Thickness(0, 0, 0, 1) }; top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var top = titlebarRegion; top.Height = 40; top.BorderThickness = new Thickness(0, 0, 0, 1); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         void PaintToolbarSurface() { top.BorderBrush = Line; top.Background = Paint("F8F7F5", "191918"); }
         top.Loaded += (_, _) => PaintToolbarSurface(); root.ActualThemeChanged += (_, _) => PaintToolbarSurface();
         top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 2); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
@@ -88,9 +89,9 @@ public sealed partial class MainWindow : Window
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
         var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto }); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        sideLayout.Children.Add(sideTools); var treeScroll = Scroll(side); Grid.SetRow(treeScroll, 1); sideLayout.Children.Add(treeScroll); Grid.SetRow(sidebarFooter, 2); sideLayout.Children.Add(sidebarFooter);
+        sideLayout.Children.Add(sideTools); var treeScroll = Scroll(side); treeRegion.Children.Add(treeScroll); Grid.SetRow(treeRegion, 1); sideLayout.Children.Add(treeRegion); Grid.SetRow(sidebarFooter, 2); sideLayout.Children.Add(sidebarFooter);
         sidebarSurface.Child = sideLayout; sidebarSurface.BorderThickness = new Thickness(0, 0, 1, 0); columns.Children.Add(sidebarSurface);
-        var chat = new Grid();
+        var chat = chatRegion;
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });

@@ -89,6 +89,27 @@ class ProjectionTests(unittest.TestCase):
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
 
+    def test_native_region_runtime_types_keep_region_with_painted_panel_and_real_provider(self):
+        for typ, provider_type in (("NativeRegionGrid", "Group"), ("ScrollViewer", "Pane")):
+            with self.subTest(typ=typ):
+                region = measured([xaml_node("region", typ, accessible_name="Conversation", bounds=box(20, 20, 300, 400),
+                                             render_type_evidence={"is_panel": typ == "NativeRegionGrid"})])[0]
+                region["style"]["background"] = [250, 250, 250, 255]
+                if typ == "ScrollViewer":
+                    region["region_container_evidence"] = {"source": "actual MainWindow.chatScroll object identity", "owner_type": "MainWindow"}
+                result = self.capture([region], [uia_node("uia-region", provider_type, name="Conversation", bounds=region["bounds"])])
+                self.assertEqual(self.by_id(result)["region"]["kind"], "region")
+                self.assertEqual(self.by_id(result)["region"]["evidence"]["uia_id"], "uia-region")
+                missing = self.capture([region])
+                self.assertTrue(any(row.get("id") == "region" and row["property"] == "UIA correspondence"
+                                    for row in missing["coverage"]["unmeasured"]))
+                if typ == "ScrollViewer":
+                    region.pop("region_container_evidence")
+                    ordinary = self.capture([region], [uia_node("uia-region", "Pane", name="Conversation", bounds=region["bounds"])])
+                    self.assertNotIn("region", self.by_id(ordinary))
+                    self.assertTrue(any(row.get("id") == "uia-region" and row["property"] == "render correspondence"
+                                        for row in ordinary["coverage"]["unmeasured"]))
+
     @staticmethod
     def scrollbar_fixture():
         bar = xaml_node("scrollbar", "ScrollBar", bounds=box(400, 30, 10, 200),

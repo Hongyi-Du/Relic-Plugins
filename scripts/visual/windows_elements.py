@@ -24,6 +24,7 @@ CONTROL_KINDS = {
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
+    "NativeRegionGrid": "region",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
@@ -43,6 +44,9 @@ PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image"
 
 def semantic_control_kind(node, scrollbar_thumbs=None):
     """Use captured production object identity, not a Thumb name or guessed role."""
+    if (node.get("type") == "ScrollViewer"
+            and node.get("region_container_evidence", {}).get("source") == "actual MainWindow.chatScroll object identity"):
+        return "region"
     evidence = node.get("resize_handle_evidence")
     if (node.get("type") == "Thumb" and isinstance(evidence, dict)
             and evidence.get("source") in {"actual NativeTextarea.ResizeGrip.Handle object identity",
@@ -1175,7 +1179,7 @@ def project(xaml_path, uia_path, png_path):
             kind = "chart-edge" if ancestor(node, {n["id"] for n in raw if n["type"] == "Canvas"}) else "divider"
         elif typ == "Ellipse":
             kind = "state-dot" if node["bounds"]["width"] <= 10 else "image"
-        elif typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"} or node.get("render_type_evidence", {}).get("is_panel") is True:
+        elif not kind and (typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"} or node.get("render_type_evidence", {}).get("is_panel") is True):
             if (painted(style.get("background"))
                     or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0
                     or node.get("render_type_evidence", {}).get("is_shape") is True
@@ -1408,6 +1412,7 @@ def project(xaml_path, uia_path, png_path):
                                                              "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
                                 "resize_handle_evidence": copy.deepcopy(node.get("resize_handle_evidence")),
+                                "region_container_evidence": copy.deepcopy(node.get("region_container_evidence")),
                                 "scrollbar_evidence": copy.deepcopy(node.get("scrollbar_evidence")),
                                 "scrollbar_thumb_evidence": copy.deepcopy(node.get("scrollbar_thumb_evidence")),
                                 "scrollbar_page_hit_evidence": copy.deepcopy(node.get("scrollbar_page_hit_evidence")),
