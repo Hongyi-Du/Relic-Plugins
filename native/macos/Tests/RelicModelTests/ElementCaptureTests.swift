@@ -6,6 +6,16 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testActualStaticTextValueSuppliesItsNameWithoutPromotingEditableValues() throws {
+        let label = NSTextField(labelWithString: "Native static label")
+        label.setAccessibilityLabel("")
+        let raw = RelicAXRead(label)
+        let role = try XCTUnwrap(raw["role"] as? String), value = try XCTUnwrap(raw["value"] as? String)
+        XCTAssertEqual(role, "AXStaticText")
+        XCTAssertEqual(ElementCapture.accessibleName(role: role, label: "", value: value), "Native static label")
+        XCTAssertEqual(ElementCapture.accessibleName(role: "AXTextField", label: "", value: "Editable content"), "")
+        XCTAssertEqual(ElementCapture.accessibleName(role: role, label: "Explicit accessibility label", value: value), "Explicit accessibility label")
+    }
     func testEmptyNamedGroupRetainsActionCapabilityWithoutPerformingIt() throws {
         let target = InteractionAccessibilityNode()
         target.setAccessibilityRole(.group); target.setAccessibilityLabel("")

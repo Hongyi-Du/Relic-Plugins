@@ -44,6 +44,12 @@ import CoreText
         default: return "unknown"
         }
     }
+    static func accessibleName(role: String, label: String, value: String) -> String {
+        // AXStaticText exposes its spoken text as AXValue when there is no
+        // explicit AXLabel. Editable values and numeric control states are
+        // never promoted to names.
+        label.isEmpty && role == "AXStaticText" ? value : label
+    }
     static func cssWeight(_ font: NSFont) -> Int {
         let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
         let value = (traits?[.weight] as? NSNumber)?.doubleValue ?? 0
@@ -225,6 +231,7 @@ import CoreText
             let activeClip = nativeClip.map { $0.isNull ? NSRect.null : clip.intersection(topLeft($0, in: contentScreen)) } ?? clip
             let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
+            let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
             let elementKind = isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
@@ -242,6 +249,9 @@ import CoreText
             node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
             node["object_identity"] = String(describing: ObjectIdentifier(object))
+            node["name"] = accessibleName
+            node["native_ax_label"] = label
+            node["native_name_source"] = label.isEmpty && role == "AXStaticText" ? "AXValue of static text" : "AXLabel"
             if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
             if let text = object as? NSTextView, let drawing = text.layoutManager as? NativeGlyphLayoutManager {
                 node["native_glyph_drawing"] = drawing.lastDraw as Any? ?? NSNull()
@@ -261,7 +271,7 @@ import CoreText
                     let screen = textWindow.convertToScreen(textView.convert((run["local_rect"] as! NSValue).rectValue, to: nil))
                     let boxRect = topLeft(screen, in: contentScreen), visible = boxRect.intersection(activeClip)
                     var projected: [String: Any] = ["id": path + "/text-" + String(index), "parent": path, "kind": run["kind"]!, "region": assignedRegion,
-                        "text": run["text"]!, "name": "", "rect": box(boxRect), "visibleRect": visible.isNull ? NSNull() : box(visible),
+                        "text": run["text"]!, "name": run["text"] as? String == accessibleName ? accessibleName : "", "rect": box(boxRect), "visibleRect": visible.isNull ? NSNull() : box(visible),
                         "style": run["style"]!, "layout": run["layout"]!, "source": "live-TextKit-layout",
                         "state": ["enabled": textView.isSelectable, "focused": false, "selected": NSNull(), "expanded": NSNull(), "checked": NSNull()],
                         "visible": !visible.isNull && visible.width > 0 && visible.height > 0,
@@ -269,6 +279,7 @@ import CoreText
                     if let parent = run["parent_run"] as? Int { projected["parent"] = path + "/text-" + String(parent) }
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
+                    projected["native_name_evidence"] = ["owner_role": role, "owner_label": label, "owner_value": valueText, "complete_owner_text_matches_run": run["text"] as? String == accessibleName]
                     projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
                         let local = NSRect(x: line["x"]!, y: line["y"]!, width: line["width"]!, height: line["height"]!)
                         return box(topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen))
