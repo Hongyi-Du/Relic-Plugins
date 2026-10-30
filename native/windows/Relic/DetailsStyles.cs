@@ -54,7 +54,7 @@ public sealed partial class MainWindow
                   </VisualStateGroup>
                   <VisualStateGroup x:Name="ExpandDirectionStates"><VisualState x:Name="Down"/><VisualState x:Name="Up"/></VisualStateGroup>
                 </VisualStateManager.VisualStateGroups>
-                <ToggleButton x:Name="ExpanderHeader" Content="{TemplateBinding Header}" IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" Padding="0" BorderThickness="0" MinWidth="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <ToggleButton x:Name="ExpanderHeader" AutomationProperties.AutomationId="ExpanderToggleButton" Content="{TemplateBinding Header}" IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" Padding="0" BorderThickness="0" MinWidth="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                   <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><ContentPresenter Content="{TemplateBinding Content}" Background="Transparent" HorizontalContentAlignment="Stretch"/></ControlTemplate></ToggleButton.Template>
                 </ToggleButton>
                 <Border x:Name="ExpanderContentClip" Grid.Row="1"><Border x:Name="ExpanderContent" Visibility="Collapsed"><Border.RenderTransform><CompositeTransform/></Border.RenderTransform><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch"/></Border></Border>

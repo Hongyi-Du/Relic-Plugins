@@ -45,7 +45,7 @@ public sealed partial class MainWindow
         return result;
     }
 
-    private static async Task ObserveNativeLabelRenderCycle(JsonObject record)
+    private static async Task ObserveNativeLabelRenderCycle(JsonObject record, Action requestActualRedraw)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         JsonObject? rendering = null;
@@ -69,7 +69,16 @@ public sealed partial class MainWindow
             completion.TrySetResult(true);
         }
         CompositionTarget.Rendering += onRendering; CompositionTarget.Rendered += OnRendered;
-        try { await completion.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+        try
+        {
+            // Static windows may produce Rendering without a new Rendered
+            // event. Submit the same labels through their production renderer
+            // after subscribing, instead of waiting for unrelated UI damage.
+            record["redraw_request_started_qpc"] = Stopwatch.GetTimestamp();
+            requestActualRedraw();
+            record["redraw_request_completed_qpc"] = Stopwatch.GetTimestamp();
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
         finally { CompositionTarget.Rendering -= onRendering; CompositionTarget.Rendered -= OnRendered; }
     }
 
@@ -90,7 +99,12 @@ public sealed partial class MainWindow
         try
         {
             root.UpdateLayout();
-            await ObserveNativeLabelRenderCycle(cycle);
+            var labelsToDraw = NativeLabelsForCapture();
+            cycle["requested_label_count"] = labelsToDraw.Length;
+            await ObserveNativeLabelRenderCycle(cycle, () =>
+            {
+                foreach (var label in labelsToDraw) label.RequestCaptureRedraw();
+            });
             capturedNativeLabels = NativeLabelsForCapture();
             capturedNativeLabelBaseline = ObserveNativeLabelVersions(capturedNativeLabels);
             capturedNativeLabelEvidence["baseline"] = capturedNativeLabelBaseline.DeepClone();
@@ -110,7 +124,20 @@ public sealed partial class MainWindow
             NativeLabelInterop.Check(flushResult);
             CheckpointNativeLabelCapture("after_render_and_commit_requests");
         }
-        catch (Exception ex) { capturedNativeLabelEvidence["failure"] = ex.ToString(); throw; }
+        catch (Exception ex)
+        {
+            capturedNativeLabelEvidence["failure"] = ex.ToString();
+            // Preserve the actual PNG and other source measurements even when
+            // this independent observer fails. The scene still fails after
+            // extraction, and its raw JSON retains the missing frame evidence.
+            capturedNativeLabels = null; capturedNativeLabelBaseline = null;
+        }
+    }
+
+    private void RequireNativeLabelCaptureCompleted()
+    {
+        if (capturedNativeLabelEvidence?["failure"] is { } failure)
+            throw new InvalidOperationException("NativeLabel frame evidence failed: " + failure);
     }
 
     private void CheckpointNativeLabelCapture(string stage)

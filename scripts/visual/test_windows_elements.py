@@ -204,6 +204,84 @@ class ProjectionTests(unittest.TestCase):
         self.assertIsNone(actual["style"]["rendered_fonts"])
         self.assertTrue(any(row.get("property") == "style.rendered_fonts" for row in result["coverage"]["unmeasured"]))
 
+    def test_only_identity_bound_native_label_image_is_owned_as_text_paint(self):
+        for verified in (True, False, None):
+            with self.subTest(verified=verified):
+                button = xaml_node("button", "Button")
+                label = xaml_node("label", "NativeLabel", "File", parent="button", bounds=box(20, 25, 40, 18))
+                surface = xaml_node("surface", "Image", parent="label", bounds=box(20, 25, 40, 19),
+                                    interaction_evidence={"is_control": False, "is_tab_stop": None, "is_hit_test_visible": False})
+                if verified is not None:
+                    surface["native_label_surface_evidence"] = {
+                        "source": "actual NativeLabel production Image object identity and SurfaceImageSource COM binding",
+                        "owner_id": "label", "same_image_object": True, "surface_binding_same_com_identity": verified,
+                        "source_type": "Microsoft.UI.Xaml.Media.Imaging.SurfaceImageSource", "surface_revision": 1}
+                result = self.capture(measured([button, label, surface]), [uia_node("uia-button", "Button", "File")])
+                elements = self.by_id(result)
+                if verified is True:
+                    self.assertNotIn("surface", elements)
+                    proof = next(row for row in result["projection"] if row.get("source") == "surface")
+                    self.assertEqual(proof["owner"], "label")
+                    self.assertEqual(proof["ownership_evidence"], surface["native_label_surface_evidence"])
+                    self.assertEqual(elements["button"]["text"], "File")
+                    self.assertIsNone(elements["button"]["style"]["rendered_fonts"])
+                else:
+                    self.assertEqual(elements["surface"]["kind"], "image")
+                    if verified is False:
+                        self.assertTrue(any(row.get("property") == "ownership.native_label_surface" for row in result["coverage"]["unmeasured"]))
+
+    @staticmethod
+    def inline_sequence_fixture():
+        owner = xaml_node("paragraph", "RichTextBlock", "Before  after", bounds=box(10, 20, 180, 20))
+        before = {"type": "Run", "text": "Before ", "start_offset": 2, "end_offset": 9,
+                  "font_size": 13, "font_weight": 400, "foreground": [27, 27, 26, 255],
+                  "font_family": "Fixture Sans", "bounds": [box(10, 20, 50, 20)], "geometry_complete": True}
+        after = dict(before, text=" after", start_offset=13, end_offset=19, bounds=[box(110, 20, 40, 20)])
+        owner["layout"].update(rich_text_runs=[before, after], character_boxes_coordinate_space="content-window")
+        owner["inline_order_evidence"] = {"source": "actual InlineCollection order and InlineUIContainer.Child object identity", "complete": True,
+            "entries": [
+                {"ordinal": 0, "type": "Run", "collection_path": [0, 0], "start_offset": 2, "end_offset": 9, "run_index": 0},
+                {"ordinal": 1, "type": "InlineUIContainer", "collection_path": [0, 1], "start_offset": 9, "end_offset": 13,
+                 "child_id": "code-card", "child_source": "actual InlineUIContainer.Child object identity"},
+                {"ordinal": 2, "type": "Run", "collection_path": [0, 2], "start_offset": 13, "end_offset": 19, "run_index": 1}]}
+        code = xaml_node("code-card", "Border", parent="paragraph", bounds=box(60, 20, 50, 20),
+                         inline_child_evidence={"source": "actual InlineUIContainer.Child object identity", "owner_id": "paragraph",
+                                                "ordinal": 1, "collection_path": [0, 1], "start_offset": 9, "end_offset": 13})
+        code["style"]["background"] = [27, 27, 26, 18]
+        text = xaml_node("code-text", text="code", parent="code-card", bounds=box(65, 21, 40, 18))
+        return measured([owner, code, text])
+
+    def test_actual_inline_collection_interleaves_ui_child_between_text_runs_once(self):
+        nodes = self.inline_sequence_fixture()
+        result = self.capture(nodes, [uia_node("uia-paragraph", name="Before code after", bounds=nodes[0]["bounds"])])
+        ids = [element["id"] for element in result["elements"]]
+        self.assertEqual(ids, ["paragraph:run:0", "code-card", "code-text", "paragraph:run:1"])
+        self.assertEqual(len(ids), len(set(ids)))
+        after = self.by_id(result)["paragraph:run:1"]
+        self.assertEqual(after["text"], " after")
+        self.assertEqual(after["evidence"]["inline_sequence_evidence"]["entry"]["collection_path"], [0, 2])
+        self.assertFalse(any(row.get("property") == "reading_order.inline_collection" for row in result["coverage"]["unmeasured"]))
+
+    def test_incomplete_or_repeated_inline_identity_keeps_original_order_and_fails_coverage(self):
+        for change in ("missing-child-proof", "wrong-owner", "wrong-offset", "repeated-run", "incomplete"):
+            with self.subTest(change=change):
+                nodes = self.inline_sequence_fixture()
+                if change == "missing-child-proof":
+                    nodes[1].pop("inline_child_evidence")
+                elif change == "wrong-owner":
+                    nodes[1]["inline_child_evidence"]["owner_id"] = "other"
+                elif change == "wrong-offset":
+                    nodes[0]["inline_order_evidence"]["entries"][0]["start_offset"] = 999
+                elif change == "repeated-run":
+                    nodes[0]["inline_order_evidence"]["entries"][2].update(run_index=0, start_offset=2, end_offset=9)
+                else:
+                    nodes[0]["inline_order_evidence"]["complete"] = False
+                result = self.capture(nodes, [uia_node("uia-paragraph", name="Before code after", bounds=nodes[0]["bounds"])])
+                ids = [element["id"] for element in result["elements"]]
+                self.assertEqual(ids, ["paragraph:run:0", "paragraph:run:1", "code-card", "code-text"])
+                self.assertEqual(len(ids), len(set(ids)))
+                self.assertTrue(any(row.get("property") == "reading_order.inline_collection" for row in result["coverage"]["unmeasured"]))
+
     def test_actual_trimming_is_raw_evidence_and_does_not_invent_an_ellipsis_box(self):
         label = xaml_node("label", text="Long label")
         trimming = {"is_text_trimmed": True, "source": "Live TextBlock.IsTextTrimmed", "ellipsis_bounds": None}

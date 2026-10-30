@@ -26,6 +26,7 @@ public sealed partial class MainWindow
     private TextBox FormInput(string value, string placeholder, string automationId = "", bool multiline = false, bool mono = false)
     {
         var input = SettingsInput(value, placeholder, multiline: multiline, mono: mono, fontSize: mono ? 11.5 : 12.5);
+        input.Foreground = Paint("5A5853", "B8B5AE");
         if (multiline) input.Height = mono ? 71.2 : 76;
         if (automationId.Length > 0) AutomationProperties.SetAutomationId(input, automationId);
         return input;
@@ -33,7 +34,7 @@ public sealed partial class MainWindow
     private ComboBox FormSelect(IEnumerable<(string Id, string Label)> options, string selected = "")
     {
         var select = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0, MinHeight = 0, Height = 34,
-            FontSize = 12.5, FontFamily = new FontFamily(FontFamilies.UI), Foreground = Ink, Background = Paint("FFFFFF", "1F1F1E"),
+            FontSize = 12.5, FontFamily = new FontFamily(FontFamilies.UI), Foreground = Paint("5A5853", "B8B5AE"), Background = Paint("FFFFFF", "1F1F1E"),
             BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, 10, 7) };
         foreach (var (id, label) in options) select.Items.Add(new ComboBoxItem { Tag = id, Content = label, FontSize = 12.5 });
         SetChoice(select, selected); return select;
@@ -41,7 +42,7 @@ public sealed partial class MainWindow
     private Button FormAction(string label, Func<Task> action, bool primary = false)
     {
         var button = OverviewAction(label, action, primary); button.Height = 32; button.Padding = new Thickness(13, 0, 13, 0); button.CornerRadius = new CornerRadius(9);
-        var text = (TextBlock)button.Content; text.FontSize = 13; text.FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal; text.LineHeight = 20.8;
+        var text = (TextBlock)button.Content; text.FontSize = 13; text.FontWeight = FontWeights.SemiBold; text.LineHeight = 20.8;
         return button;
     }
     private StackPanel FormSwitch(string key, bool value, Action<bool> changed)
@@ -83,7 +84,7 @@ public sealed partial class MainWindow
         };
         void Resize(object sender, SizeChangedEventArgs args) { body.Width = Math.Min(width, Math.Max(0, args.NewSize.Width - 32)); scroll.MaxHeight = Math.Max(0, args.NewSize.Height - 60); }
         root.SizeChanged += Resize;
-        try { await Dialog(dialog); } finally { root.SizeChanged -= Resize; }
+        try { await Dialog(dialog, contentOwnsPadding: true); } finally { root.SizeChanged -= Resize; }
     }
     private void FormSuggestions(TextBox input, Func<IEnumerable<(string Value, string Label)>> options)
     {

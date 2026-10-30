@@ -207,6 +207,7 @@ public sealed partial class MainWindow
                         capturedMessageEvidence["after_extraction"] = CaptureMessageSceneState();
                         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedMessageEvidence.ToJsonString());
                     }
+                    RequireNativeLabelCaptureCompleted();
                     Console.WriteLine("Relic visual capture: " + shot.Text("file"));
                     count++;
                 }

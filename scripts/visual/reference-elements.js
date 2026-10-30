@@ -195,9 +195,9 @@
       const boxes = (snapshotTextBoxes?.layoutIndex || []).flatMap((l, k) => descendantOf(snapshotLayout.nodeIndex[l], index) ? [snapshotRect(snapshotTextBoxes.bounds[k])] : []);
       snapshotInputBoxes.set(actual, boxes);
       const fontOwners = snapshotLayout.nodeIndex.flatMap((node, layoutIndex) => {
-        if (!descendantOf(node, index) || !(snapshotStrings[snapshotLayout.text[layoutIndex]] || '').trim()) return [];
-        const owner = snapshotNodes.nodeType[node] === Node.TEXT_NODE ? snapshotNodes.parentIndex[node] : node;
-        return [snapshotNodes.backendNodeId[owner]];
+        if (snapshotNodes.nodeType[node] !== Node.TEXT_NODE || !descendantOf(node, index) ||
+            !(snapshotStrings[snapshotLayout.text[layoutIndex]] || '').trim()) return [];
+        return [snapshotNodes.backendNodeId[node]];
       });
       snapshotInputFontOwners.set(actual, Array.from(new Set(fontOwners)));
     }
@@ -361,40 +361,42 @@
   const platformFonts = (el, text, id, options) => {
     if (!text) return { fonts: [], evidence: null };
     const measured = meta.reference_environment?.fonts;
-    let owners = [], attribution = [];
+    let owners = [];
     if (options.pseudo) owners = [options.axBackend];
     else if (el.matches('input,textarea,select')) {
       owners = snapshotInputFontOwners.get(el) || [];
       if (!owners.length) {
         const supplement = meta.input_text_boxes?.[String(snapshotBackend.get(el))];
-        owners = (supplement?.text_nodes || []).filter(n => n.boxes?.length && n.text?.trim()).map(n => n.font_owner_backend_node_id);
+        owners = (supplement?.text_nodes || []).filter(n => n.boxes?.length && n.text?.trim()).map(n => n.backend_node_id);
       }
     }
     else {
       const textNodes = options.ownedTextNodes || (options.textNode ? [options.textNode] : []);
-      const hosts = Array.from(new Set(textNodes.map(n => n.parentElement)));
-      owners = hosts.map(host => snapshotBackend.get(host));
-      for (const host of hosts) {
-        const other = Array.from(host.childNodes).filter(n => n.nodeType === Node.TEXT_NODE && visibleText(n, styleOf(host)).trim() && !textNodes.includes(n));
-        if (other.length) attribution.push({ owner_backend_node_id: snapshotBackend.get(host), other_text_nodes: other.map(n => n.nodeValue),
-          reason: 'CDP reports the combined fonts of direct text children; their glyph counts cannot be attributed to this one text element.' });
-      }
+      // snapshotBackend was associated with each actual live Text node only
+      // after matching its snapshot ancestry, sibling position and nodeValue.
+      // Parent Element font statistics can also include nested rich text; they
+      // remain raw evidence and are never substituted for this node's result.
+      owners = textNodes.map(node => snapshotBackend.get(node));
     }
     owners = Array.from(new Set(owners));
-    const records = owners.map(backend => ({ backend_node_id: backend ?? null, fonts: measured?.by_backend_node?.[String(backend)] ?? null,
-      errors: (measured?.errors || []).filter(error => error.backend_node_id === backend) }));
-    // A host with a single actual font identifies every one of its text runs,
-    // even when its glyph count is aggregated. Mixed actual fonts require a
-    // run-level measurement before they can be assigned to separate elements.
-    const ambiguous = attribution.filter(item => {
-      const record = records.find(record => record.backend_node_id === item.owner_backend_node_id);
-      return new Set((record?.fonts || []).map(font => JSON.stringify([font.familyName, font.postScriptName]))).size > 1;
+    const records = owners.map(backend => {
+      const query = measured?.queries?.[String(backend)] ?? null;
+      return { backend_node_id: backend ?? null, fonts: query?.result?.fonts ?? null, query,
+        errors: (measured?.errors || []).filter(error => error.backend_node_id === backend) };
     });
-    const evidence = { source: measured?.source || null, owners: records, attribution, glyph_count_scope: 'actual-font-hosts', ambiguous_font_hosts: ambiguous };
-    if (measured?.source !== 'CDP.CSS.getPlatformFontsForNode' || !owners.length || owners.some(x => !Number.isInteger(x)) || ambiguous.length ||
-        records.some(record => record.errors.length || !Array.isArray(record.fonts) || !record.fonts.length || record.fonts.some(font =>
+    const evidence = { source: measured?.source || null, owners: records,
+      attribution: options.pseudo ? 'whole-pseudo-layout' : 'actual-text-node-layouts',
+      glyph_count_scope: options.pseudo ? 'whole-pseudo-layout-shaping' : 'actual-text-node-layout-shaping',
+      quantity: 'Actual shaping font usage; not a count of visible painted glyphs or ellipsis ink bounds.' };
+    if (measured?.source !== 'CDP.CSS.getPlatformFontsForNode' || !owners.length || owners.some(x => !Number.isInteger(x)) ||
+        records.some(record => record.errors.length || !record.query || record.query.error ||
+          record.query.request_sent !== true ||
+          record.query.backend_node_id !== record.backend_node_id || !Number.isInteger(record.query.frontend_node_id) || record.query.frontend_node_id <= 0 ||
+          record.query.request?.method !== 'CSS.getPlatformFontsForNode' || record.query.request?.parameters?.nodeId !== record.query.frontend_node_id ||
+          (!options.pseudo && (record.query.node_type !== Node.TEXT_NODE || record.query.scope !== 'text-node-layout')) ||
+          !Array.isArray(record.fonts) || !record.fonts.length || record.fonts.some(font =>
           typeof font.familyName !== 'string' || !font.familyName.trim() || typeof font.postScriptName !== 'string' || !font.postScriptName.trim() || !Number.isFinite(font.glyphCount) || font.glyphCount <= 0))) {
-      unmeasured.push({ element: id, property: 'style.rendered_fonts', reason: 'No unambiguous actual platform-font measurement for every visible text host.', evidence });
+      unmeasured.push({ element: id, property: 'style.rendered_fonts', reason: 'No successful platform-font query with actual node identity for every owned text node or whole pseudo layout.', evidence });
       return { fonts: null, evidence };
     }
     const combined = new Map();
