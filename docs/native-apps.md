@@ -1,5 +1,26 @@
 # Native Relic App contract
 
+Changes for the clients (actual settings/forms/member-card controls): Windows
+selected settings segments now draw the reference's small production shadow;
+form ComboBoxes use the measured 15px selected-text inset while keeping their
+native popup and keyboard behavior. Check-rule disclosures limit the real header
+hit target to its content width; expanded content still fills the card. The
+parent inline line-box difference remains unresolved. Reference form fields have
+no clear-text button: the stock TextBox's extra DeleteButton is now a zero-size,
+empty, noninteractive template so it cannot overlap the microphone. Member-card
+primary actions center their labels. Session/directory fields retain a 12.5px/20px
+parent line box around the 11.5px monospace Run; the recorded cwd still needs the
+reference's normal/emergency wrapping behavior, not fixture-specific newlines.
+Headless build passes. New control rendering awaits CI, with no gate exclusions.
+
+Actual 7bf2bab capture confirms the previous day/message margin fix: private
+first message y222.3999939 versus reference y222.390625, both with a 14px gap;
+live-typing likewise has a 14px gap. Compact density was not sampled by that
+smoke fixture and is not declared validated. Its panel hover still gets an
+additional same-coordinate PointerMoved with IsGenerated=false; resized captures
+observe CaptureLost before normal DragCompleted and no opened tooltip. Those
+capture failures remain recorded, with no event filtering or deadline change.
+
 Changes for the clients (measured modal-surface projection): e5f092b now provides
 the real applied-template proof. The Windows extractor validates the current
 GetTemplateChild objects, unchanged template revision, UI-thread observation,

@@ -394,7 +394,7 @@ public sealed partial class MainWindow
         var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, HorizontalAlignment = HorizontalAlignment.Left };
         var chevron = (ReferenceVectorIcon)ReferenceIcon("chev", 13); chevron.Foreground = Paint("5A5853", "B8B5AE"); chevron.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(chevron);
         var title = OverviewText(T("cc.code"), 12.5); title.IsTextSelectionEnabled = false; title.Foreground = Paint("5A5853", "B8B5AE"); header.Children.Add(title);
-        var disclosure = DetailsDisclosure(header, body); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(disclosure, T("cc.code"));
+        var disclosure = DetailsDisclosure(header, body, headerAlignment: HorizontalAlignment.Left); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(disclosure, T("cc.code"));
         disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => { chevron.RenderTransformOrigin = new(.5, .5); chevron.RenderTransform = new RotateTransform { Angle = disclosure.IsExpanded ? 90 : 0 }; });
         return disclosure;
     }

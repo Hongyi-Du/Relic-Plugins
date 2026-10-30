@@ -138,6 +138,18 @@ public sealed partial class MainWindow
         input.Height = multiline ? 60.8 : fontSize * 1.6 + 16; input.MinHeight = 0;
         input.Padding = new Thickness(10, 7, 10, 7); input.BorderThickness = new Thickness(1); input.BorderBrush = Paint("DEDBD4", "3A3936");
         input.CornerRadius = new CornerRadius(9); input.Background = Paint("FFFFFF", "1F1F1E"); input.Foreground = Ink;
+        input.Loaded += (_, _) =>
+        {
+            // Reference form fields have no clear-text action. The SDK's
+            // focused/nonempty state otherwise inserts a DeleteButton over
+            // the field's own microphone. Remove its production affordance,
+            // rather than hiding the resulting extra element in capture.
+            if (DialogPart<Button>(input, "DeleteButton") is not { } clear) return;
+            clear.IsHitTestVisible = false; clear.IsTabStop = false;
+            clear.MinWidth = clear.MinHeight = clear.Width = clear.Height = 0;
+            clear.MaxWidth = clear.MaxHeight = 0; clear.Padding = new Thickness(0);
+            clear.Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Grid/></ControlTemplate>");
+        };
         input.Resources["TextControlBorderThicknessFocused"] = new Thickness(1); return input;
     }
     private Grid SettingsVoiceField(TextBox input, double width, bool always = false)
@@ -156,8 +168,17 @@ public sealed partial class MainWindow
         foreach (var (value, text) in choices)
         {
             var selected = preferences.Text(field) == value; var label = OverviewText(text, 12); label.TextWrapping = TextWrapping.NoWrap; label.IsTextSelectionEnabled = false; label.Foreground = selected ? Ink : Paint("5A5853", "B8B5AE");
-            var item = new SelectorBarItem { Text = text, Tag = label, IsSelected = selected, Padding = new Thickness(9, 2, 9, 2), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
-                CornerRadius = new CornerRadius(6), Background = selected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            var surface = new Border { Child = label, Padding = new Thickness(9, 2, 9, 2), CornerRadius = new CornerRadius(6),
+                Background = selected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            UIElement content = surface;
+            if (selected)
+            {
+                var raised = new NativeShadowPanel(surface);
+                raised.SetShadows([new NativeShadowLayer(0, 1, 2, Windows.UI.Color.FromArgb(255, 20, 18, 15), .06f)]);
+                content = raised;
+            }
+            var item = new SelectorBarItem { Text = text, Tag = content, IsSelected = selected, Padding = new Thickness(0), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
+                CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
             values.Add(item, value); tabs.Items.Add(item);
             if (selected) tabs.SelectedItem = item;

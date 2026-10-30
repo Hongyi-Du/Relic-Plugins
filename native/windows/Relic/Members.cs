@@ -31,6 +31,20 @@ public sealed partial class MainWindow
         {
             var label = OverviewText(text, size); label.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); return label;
         }
+        TextBlock InlineMono(string text)
+        {
+            // .kv dd owns the 12.5px/20px line box; .mono changes only its
+            // inline font. A standalone 11.5px block incorrectly shrinks
+            // every wrapped line to 18.4px and moves the following rows up.
+            var label = OverviewText("", 12.5, lineHeight: 20);
+            label.LineStackingStrategy = LineStackingStrategy.MaxHeight;
+            label.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            {
+                Text = text, FontSize = 11.5,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code")
+            });
+            return label;
+        }
         OverviewBadgeView Tag(string label)
         {
             var text = OverviewText(label, 10.5, weight: 600, lineHeight: 18); text.Foreground = Paint("5A5853", "B8B5AE");
@@ -145,8 +159,8 @@ public sealed partial class MainWindow
                 session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "subagent " }); session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = c.Text("agent")[..Math.Min(12, c.Text("agent").Length)], FontSize = 11.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code") });
                 if (c.Text("parent").Length > 0) session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = T("card.in_parent_session", ("parent", Display(c.Text("parent")))) }); ToolTipService.SetToolTip(session, c.Text("agent")); Row("common.session", session);
             }
-            else if (c.Text("session").Length > 0) { var session = Mono(c.Text("session")[..Math.Min(18, c.Text("session").Length)] + (c.Text("session").Length > 18 ? "…" : "")); ToolTipService.SetToolTip(session, c.Text("session")); Row("common.session", session); }
-            if (c.Text("cwd").Length > 0) Row("card.folder", Mono(OverviewClip(c.Text("cwd"), 64)));
+            else if (c.Text("session").Length > 0) { var session = InlineMono(c.Text("session")[..Math.Min(18, c.Text("session").Length)] + (c.Text("session").Length > 18 ? "…" : "")); ToolTipService.SetToolTip(session, c.Text("session")); Row("common.session", session); }
+            if (c.Text("cwd").Length > 0) Row("card.folder", InlineMono(OverviewClip(c.Text("cwd"), 64)));
             TextRow("card.joined", c.Text("joined_at").Length > 0 ? When(c.Text("joined_at")) + (int.TryParse(c.Text("carriers"), out var carriers) && carriers > 1 ? " · " + T("card.session_nth", ("n", carriers)) : "") : "");
             if (c.Rows("recent").Count > 0)
             {
@@ -160,7 +174,7 @@ public sealed partial class MainWindow
             box.Children.Add(new Border { Child = kv, BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 12.5, 0, 12.5) });
             Button Action(string label, Func<Task> action, bool primary = false)
             {
-                var button = OverviewAction(label, action, primary); button.Height = 32; button.Padding = new Thickness(13, 0, 13, 0); button.CornerRadius = new CornerRadius(9); if (button.Content is TextBlock text) { text.FontSize = 13; text.LineHeight = 20.8; } button.HorizontalAlignment = HorizontalAlignment.Stretch; return button;
+                var button = OverviewAction(label, action, primary); button.Height = 32; button.Padding = new Thickness(13, 0, 13, 0); button.CornerRadius = new CornerRadius(9); if (button.Content is TextBlock text) { text.FontSize = 13; text.LineHeight = 20.8; } button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center; return button;
             }
             var message = Action(T("card.message"), async () => { transientFlyout?.Hide(); await Select(id, name); }, true); var trace = Action(T("common.context_trace"), async () => { transientFlyout?.Hide(); await Details("trace", name); });
             message.Measure(new(double.PositiveInfinity, double.PositiveInfinity)); trace.Measure(new(double.PositiveInfinity, double.PositiveInfinity));

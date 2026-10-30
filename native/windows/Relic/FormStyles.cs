@@ -39,7 +39,10 @@ public sealed partial class MainWindow
     {
         var select = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0, MinHeight = 0, Height = 34,
             FontSize = 12.5, FontFamily = new FontFamily(FontFamilies.UI), Foreground = Paint("5A5853", "B8B5AE"), Background = Paint("FFFFFF", "1F1F1E"),
-            BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, 10, 7) };
+            BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(15, 7, 10, 7) };
+        // The reference native select's measured selected-text inset is 15px
+        // (including its UA content inset), while WinUI consumes Padding
+        // directly. Keep the control's border box and popup behavior unchanged.
         foreach (var (id, label) in options) select.Items.Add(new ComboBoxItem { Tag = id, Content = label, FontSize = 12.5 });
         SetChoice(select, selected); return select;
     }

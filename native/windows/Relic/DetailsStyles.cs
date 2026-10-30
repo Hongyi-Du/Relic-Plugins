@@ -36,12 +36,15 @@ public sealed partial class MainWindow
         return new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(top ? 9 : 8), Background = Paint("EFEEEA", "262624"), HorizontalAlignment = HorizontalAlignment.Left };
     }
 
-    private Expander DetailsDisclosure(UIElement header, UIElement content, bool expanded = false)
+    private Expander DetailsDisclosure(UIElement header, UIElement content, bool expanded = false,
+        HorizontalAlignment headerAlignment = HorizontalAlignment.Stretch)
     {
         // Keep the real WinUI Expander parts and its two-way header binding.
         // Its ExpandCollapse provider and the CI capture therefore operate on
         // the same production control as mouse and keyboard interaction.
-        var template = (ControlTemplate)XamlReader.Load("""
+        // Inline summaries only expose their own content box to pointer input.
+        // Align the ToggleButton itself, independently of the expanded body.
+        var template = (ControlTemplate)XamlReader.Load($$$"""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Expander">
               <Grid>
                 <Grid.RowDefinitions><RowDefinition x:Name="Row0" Height="Auto"/><RowDefinition x:Name="Row1" Height="Auto"/></Grid.RowDefinitions>
@@ -54,7 +57,7 @@ public sealed partial class MainWindow
                   </VisualStateGroup>
                   <VisualStateGroup x:Name="ExpandDirectionStates"><VisualState x:Name="Down"/><VisualState x:Name="Up"/></VisualStateGroup>
                 </VisualStateManager.VisualStateGroups>
-                <ToggleButton x:Name="ExpanderHeader" AutomationProperties.AutomationId="ExpanderToggleButton" Content="{TemplateBinding Header}" IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" Padding="0" BorderThickness="0" MinWidth="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <ToggleButton x:Name="ExpanderHeader" AutomationProperties.AutomationId="ExpanderToggleButton" Content="{TemplateBinding Header}" IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" Padding="0" BorderThickness="0" MinWidth="0" MinHeight="0" HorizontalAlignment="{{{headerAlignment}}}" HorizontalContentAlignment="Stretch">
                   <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><ContentPresenter Content="{TemplateBinding Content}" Background="Transparent" HorizontalContentAlignment="Stretch"/></ControlTemplate></ToggleButton.Template>
                 </ToggleButton>
                 <Border x:Name="ExpanderContentClip" Grid.Row="1"><Border x:Name="ExpanderContent" Visibility="Collapsed"><Border.RenderTransform><CompositeTransform/></Border.RenderTransform><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch"/></Border></Border>
