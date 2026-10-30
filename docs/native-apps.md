@@ -1,5 +1,32 @@
 # Native Relic App contract
 
+Changes for the clients (registered Markdown blocks): Windows records the actual
+fenced-code Border, ScrollViewer and TextBlock object identities in production.
+Extraction validates current child/content references and rendered ancestry before
+classifying that container as code; ordinary painted Borders remain unchanged and
+all code text is retained. Invalid registration fails coverage. Inline-code pills
+now use their natural font line height and the reference's 7% brush alpha. The
+headless Windows build passed with zero warnings/errors; runtime verification is
+pending and no tolerance, scene or exception changes were made.
+
+Changes for the clients (38af737 capture results): Windows diagnostic run
+`40987219219` saved all 17 canonical PNGs and source records. Every case still
+fails UIA extraction, so the successful count remains zero. The older frame
+observer timeouts are absent in this receipt. Native apps run `40987197787`
+passes Windows but macOS reports six assertions across static-text accessibility
+and two TextKit tests (123 tests); those remain for the macOS owner. The four
+Windows vocabulary gaps also remain failures, not accepted exceptions.
+
+Changes for the clients (38af737 checker verification): diagnostic workflow
+`40987219219` passed 50 Node fixtures and 253 Python fixtures, including real
+Text-node font attribution, native surface identity and actual inline sequence
+failure cases. Real client captures and the full matrix remain pending; these
+fixture results do not prove rendered parity. macOS build run `40985545529`
+on the older `34d4c35` reports two assertions in
+`ElementCaptureTests.testActualStaticTextValueSuppliesItsNameWithoutPromotingEditableValues`
+(AXUnknown and empty Name for the test field). The macOS owner must resolve
+that actual test failure on its branch; no shared exception is added.
+
 Changes for the clients (34d4c35 runtime verification): run `40985550458` confirms
 the previous Windows pointer-action failures no longer occur. The real textarea
 grew by 64px with ten DragStarted/Delta/Completed records and four stable

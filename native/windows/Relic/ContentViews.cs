@@ -70,7 +70,9 @@ public sealed partial class MainWindow
                 var code = new List<string>(); while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
                 var source = string.Join("\n", code); var codeSize = documentStyle ? 12 : 12.5; var codeText = OverviewText(source, codeSize, lineHeight: codeSize * 1.55); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
                 var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
-                Add(new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) }, documentStyle ? 12 : 6, documentStyle ? 12 : 6); continue;
+                var codeBlock = new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) };
+                MarkdownSemantic.RegisterFencedCode(codeBlock, codeScroll, codeText);
+                Add(codeBlock, documentStyle ? 12 : 6, documentStyle ? 12 : 6); continue;
             }
             if (Regex.IsMatch(line, @"^\s*\|.*\|\s*$"))
             {
@@ -153,9 +155,11 @@ public sealed partial class MainWindow
                 case "path": paragraph.Inlines.Add(Link(part.Text, true)); break;
                 case "url": paragraph.Inlines.Add(Link(part.Text, false)); break;
                 case "code":
-                    var shade = Ink.Color; shade.A = 18;
+                    // CSS `font: .9em var(--mono)` resets line-height to normal.
+                    // Reusing the surrounding paragraph's 1.65 line box made
+                    // the inline pill 25.1px tall instead of its natural height.
                     var code = new TextBlock { FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code"), Foreground = Ink,
-                        LineHeight = fontSize * lineRatio, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
+                        IsTextSelectionEnabled = true };
                     UIElement codeContent = code;
                     if (InlineParts.IsAbsolute(part.Text))
                     {
@@ -167,7 +171,7 @@ public sealed partial class MainWindow
                         codeContent = decorated;
                     }
                     else code.Text = part.Text;
-                    paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = codeContent, Padding = new Thickness(5, 1, 5, 1), Background = new SolidColorBrush(shade), CornerRadius = new CornerRadius(5) } }); break;
+                    paragraph.Inlines.Add(new InlineUIContainer { Child = new Border { Child = codeContent, Padding = new Thickness(5, 1, 5, 1), Background = OverviewAlpha(Ink, .07), CornerRadius = new CornerRadius(5) } }); break;
                 case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
                 default: paragraph.Inlines.Add(new Run { Text = part.Text }); break;
             }
