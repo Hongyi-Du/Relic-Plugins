@@ -42,6 +42,14 @@ macOS 构建和 **138 个测试通过**，包含真实外轮廓路径/虚线、�
 虽然声明参数相同。当前将阴影形状显式放入非线性 sRGB 合成组，并以原参考六个像素位置增加回归测试，
 等待 CI；没有通过调低阴影颜色要求或改变颜色容差来接受旧画面。
 
+新增诊断捕获 [41004201773 / 597e113](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41004201773)
+已下载至 `S:\Codex\Outputs\Relic-native-visual\parity-597e113\`，包含原生/参考文件及 `report`。
+19 个诊断 case 中 18 个 captured，复制提示保持到元素提取结束；重命名仍失败，日志显示实际点击用了
+资料加载前的位置。已改为等待真实成员资料的 AX 标识挂载后再测量、单次点击，并保留失败尝试证据。
+该诊断输入仍按完整 660 case 门禁判断，两个平台均 0 个验收通过场景。
+正文同一段的实际红色通道墨迹覆盖量为原生 2065.15 / 参考 2068.80；旧原生为 2444.42。
+这验证了该段字形过重的改善，不代表全部字体、布局或场景一致。
+
 完整捕获 [40996703093 / 56253c7](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40996703093)
 已完成并按要求失败。最新完整失败报告已下载至 `S:\Codex\Outputs\Relic-native-visual\parity-56253c7\report\`，
 包含 `parity-report.json`、`summary.json`、各场景 HTML 和热图，预期矩阵为每平台 660 case。

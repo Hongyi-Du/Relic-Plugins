@@ -158,8 +158,13 @@ import RelicAX
                         try await Task.sleep(for: .milliseconds(100))
                     }
                 }
+                if scene == "member-card" || scene.hasPrefix("member-card-") {
+                    let readiness = try await waitForMemberCard(model.cardMember, window: window)
+                    try evidence(readiness, suffix: ".card-readiness.json", item: item, output: output)
+                }
                 if scene.hasPrefix("member-card-") {
-                    let action = try await openMemberCardState(scene, model: model, window: window)
+                    let action = try await openMemberCardState(scene, model: model, window: window,
+                        evidencePath: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
                 }
                 if scene == "message-hover" || scene == "message-copy-toast" {
@@ -321,7 +326,27 @@ import RelicAX
     private static func evidence(_ value: Any, suffix: String, item: Node, output: URL) throws {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent(item["id"].text + suffix))
     }
-    private static func openMemberCardState(_ scene: String, model: Model, window: NSWindow) async throws -> [String: Any] {
+    private static func waitForMemberCard(_ member: String, window: NSWindow) async throws -> [String: Any] {
+        guard let content = window.contentView else { throw RelicError.message("Member card has no native content") }
+        let identifier = "relic-member-card/" + member
+        let start = ProcessInfo.processInfo.systemUptime
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while true {
+            content.layoutSubtreeIfNeeded()
+            if let frame = accessibilityFrame(identifier: identifier, root: content) {
+                return ["source": "actual production card AX identity from the loaded server member name",
+                    "member": member, "identifier": identifier, "bounds": ElementCapture.box(frame),
+                    "elapsed_seconds": ProcessInfo.processInfo.systemUptime - start, "status": "loaded-and-laid-out"]
+            }
+            guard ContinuousClock.now < deadline else { throw RelicError.message("Native member card did not finish loading: " + member) }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+    }
+    private static func openMemberCardState(_ scene: String, model: Model, window: NSWindow, evidencePath: URL) async throws -> [String: Any] {
+        var receipt: [String: Any] = ["scene": scene, "status": "started", "completed": false]
+        defer {
+            if let data = try? JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]) { try? data.write(to: evidencePath) }
+        }
         guard let content = window.contentView else { throw RelicError.message("Member card has no native content") }
         let target: NSRect?, expected: String
         if scene == "member-card-avatar-hover" {
@@ -335,10 +360,15 @@ import RelicAX
             expected = scene == "member-card-rename" ? "relic-input/member-rename" : "relic-dropdown/" + model.t("common.model")
         }
         guard let target else { throw RelicError.message("Member card action is not visible: " + scene) }
+        receipt["target_screen_bounds"] = ElementCapture.box(target)
+        receipt["expected_result_identifier"] = expected
+        receipt["window_identity"] = String(describing: ObjectIdentifier(window))
         if scene == "member-card-avatar-hover" {
             try movePointer(to: NSPoint(x: target.midX, y: target.midY))
         } else { try click(target, window: window) }
+        receipt["status"] = "dispatched-once"
         try await Task.sleep(for: .milliseconds(300))
+        receipt["result_screen_bounds"] = accessibilityFrame(identifier: expected, root: content).map(ElementCapture.box) as Any? ?? NSNull()
         if scene == "member-card-avatar-hover" {
             let canvas = window.convertToScreen(content.convert(content.bounds, to: nil))
             let surfaces = SurfacePaintProbe.snapshots(in: canvas).filter { $0["owner"] as? String == expected }
@@ -349,14 +379,18 @@ import RelicAX
                   labels.count == 1, labels[0].string == model.t("card.change_avatar"), target.contains(NSEvent.mouseLocation) else {
                 throw RelicError.message("Actual avatar hover did not retain its visible surface, text and pointer")
             }
-            return ["action": "native pointer motion at measured avatar", "target_screen_bounds": ElementCapture.box(target),
+            receipt.merge(["action": "native pointer motion at measured avatar", "target_screen_bounds": ElementCapture.box(target),
                 "visible_overlay_text": labels[0].string, "overlay_text_bounds": ElementCapture.box(NativeVisibility.screenClip(labels[0])!),
                 "overlay_surface_bounds": surfaces[0]["bounds"]!, "overlay_surface_style": surfaces[0]["style"]!,
                 "overlay_surface_evidence": surfaces[0]["evidence"]!,
-                "wrapper_AX_bounds": accessibilityFrame(identifier: expected, root: content).map(ElementCapture.box) as Any? ?? NSNull()]
+                "wrapper_AX_bounds": accessibilityFrame(identifier: expected, root: content).map(ElementCapture.box) as Any? ?? NSNull()], uniquingKeysWith: { _, actual in actual })
+            receipt["status"] = "presented"; receipt["completed"] = true
+            return receipt
         }
         guard accessibilityFrame(identifier: expected, root: content) != nil else { throw RelicError.message("Member card action did not present its real state: " + scene) }
-        return ["action": scene == "member-card-avatar-hover" ? "native pointer motion at measured avatar" : "native mouse down/up on measured card control", "target_screen_bounds": ElementCapture.box(target), "visible_result_identifier": expected]
+        receipt["action"] = "native mouse down/up on measured card control"
+        receipt["visible_result_identifier"] = expected; receipt["status"] = "presented"; receipt["completed"] = true
+        return receipt
     }
     private static func openMessageAction(_ scene: String, messageID: String, model: Model, window: NSWindow, evidencePath: URL) async throws -> [String: Any] {
         var result: [String: Any] = ["action": "native pointer motion at measured production message", "message_id": messageID, "status": "started"]
