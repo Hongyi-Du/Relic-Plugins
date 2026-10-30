@@ -3,6 +3,20 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ReferenceLabelLayoutTests: XCTestCase {
+    func testSidebarMixedScriptAdvancesMatchActualReferenceText() throws {
+        // Actual DOMRange from 3c652b7 macOS zh-CN/light/group. This checks the
+        // production text layout separately from its ink envelope; those are
+        // different quantities and cannot be exchanged in element extraction.
+        let view = ReferenceLabel("在做：Read layout.png", size: 12, lineHeight: 16.2).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 200, height: 16.2)
+        let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+        manager.ensureLayout(for: container)
+        let advance = manager.usedRect(for: container).width
+        let envelope = manager.boundingRect(forGlyphRange: manager.glyphRange(for: container), in: container)
+        print("SIDEBAR MIXED advance=\(advance) envelope=\(envelope)")
+        XCTAssertEqual(advance, 130.640625, accuracy: 0.5)
+    }
+
     func testPurposeWrappingUsesTheActualBorderBoxContentWidth() throws {
         // Independent DOMSnapshot text fragments, f7b6bf0 reference macOS,
         // zh-CN/light/1440x900/group. A 340px panel has a 1px border and 32px

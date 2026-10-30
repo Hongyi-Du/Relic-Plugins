@@ -1,5 +1,20 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+New confirmed shared reference stall: full `40984430181`, macOS zh-CN/light job
+`123832322148` exhausted its 45-minute job deadline. Native completed all 159
+cases (151 captured / 8 preserved failed states); reference wrote only 51 cases.
+The actual `zh-CN-light-1440x900-message-copy-toast.scene-action.json` has completed
+clipboard reads, `clock_pause`, both state checkpoints and viewport validation.
+Its final step is `screenshot:Page.captureScreenshot` with status `started`, at
+host monotonic `1407.937113625`; no PNG returned before the job was cancelled.
+Thus this is now the CDP capture itself stalling under paused virtual time,
+not the already-fixed async clipboard read. Evidence is downloaded under
+`S:\Codex\Outputs\Relic-native-visual\parity-c4b113d\reference-macos-zh-CN-light\`.
+Please resolve the frame/clock coordination and retain bounded per-case failure
+receipts so one CDP wait cannot consume the rest of the full reference matrix.
+Keep the original toast/timer/clipboard identity checks, exact PNG and all cases;
+do not replace the actual toast or skip Copy/textarea/remaining viewport sizes.
+
 New extraction-contract requests from actual c4b113d reports:
 
 * `scripts/visual/element_parity.py:KINDS` does not accept `scrollbar` and has no

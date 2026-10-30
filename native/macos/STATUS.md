@@ -10,7 +10,21 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新已核实的采集修复证据：共享提交 `38af737` 的
+最新采集证据：`3c652b7` 的 [40988685123](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40988685123)
+已完成全部 17 个诊断 case，均为 captured、错误列表为空。群聊改用实际布局的 VStack 后，
+四个文档视图的高度漂移不再出现；截图及回执在 `S:\Codex\Outputs\Relic-native-visual\smoke-3c652b7\`。
+这只验证采集与交互；逐元素门禁仍未通过。实际发送按钮 PNG 像素与参考相差 1 个 sRGB 通道值，
+但旧提取器把 SwiftUI 声明的 0.35 和同一次操作的原生祖先 alpha 再乘一次，误报为 0.1225。
+`72592a6` 改为只记录实际原生祖先的乘积，同时保留声明值和每层原始 alpha。
+`ae76905` 在绘制前将空白兼容位图配置为 sRGB，并记录实际颜色空间；其像素断言尚待 CI，容差未变。
+
+完整失败报告 `c4b113d` 已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-c4b113d\report\`，
+含 summary.json、parity-report.json 和逐场景 HTML。Windows/macOS 均为 0 个已验收场景，
+原始元素分别 107962 / 149839，匹配为 0；macOS 另有 2600 个结构无效元素。
+该版本参考捕获不完整，不能把聚合计数解释为完整 636 case 的有效比较。
+未添加例外、图标映射或放宽容差。
+
+先前已核实的采集修复证据：共享提交 `38af737` 的
 [40987219219](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40987219219) 含 macOS
 17 个诊断 case，16 个 captured、1 个 failed-state-captured。成员卡悬停/重命名、实时工具展开、
 消息悬停和 textarea 拖拽均完成真实动作与采集；TextKit 2 内部视图被删除的问题没有再次出现。

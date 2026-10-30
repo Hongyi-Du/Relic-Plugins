@@ -1,6 +1,14 @@
 import AppKit
 
 enum NativeVisibility {
+    static func opacityAncestry(_ view: NSView) -> [[String: Any]] {
+        var result: [[String: Any]] = [], ancestor: NSView? = view
+        while let current = ancestor {
+            result.append(["identity": String(describing: ObjectIdentifier(current)), "class": String(describing: type(of: current)), "alpha": Double(current.alphaValue)])
+            ancestor = current.superview
+        }
+        return result
+    }
     static func opacity(_ view: NSView) -> Double {
         var value = 1.0, ancestor: NSView? = view
         while let current = ancestor { value *= Double(current.alphaValue); ancestor = current.superview }

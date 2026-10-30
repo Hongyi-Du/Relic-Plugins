@@ -8,7 +8,7 @@ struct Sidebar: View {
         VStack(spacing: 0) {
             VStack(spacing: 2) {
                 Button { m.sheet = .create } label: {
-                    HStack(spacing: 10) { ReferenceIcon(name: "neworg"); Text(m.t("common.new_org")); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
+                    HStack(spacing: 10) { ReferenceIcon(name: "neworg"); ReferenceLabel(m.t("common.new_org"), lines: 0); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
                 }.buttonStyle(QuietButtonStyle())
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "search", size: 16, color: RelicStyle.muted)
@@ -19,9 +19,9 @@ struct Sidebar: View {
             ScrollView {
                 VStack(spacing: 0) {
                     HStack {
-                        Text(m.t("page.tree")); Spacer()
-                        if !m.organizations.isEmpty { Text(String(m.organizations.count)) }
-                    }.font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
+                        ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
+                        if !m.organizations.isEmpty { ReferenceLabel(String(m.organizations.count), size: 12, color: RelicStyle.muted, lines: 0) }
+                    }.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
                     Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
                     if m.organizations.isEmpty { Text(m.t("side.no_orgs")).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
@@ -32,15 +32,15 @@ struct Sidebar: View {
                     HStack(spacing: 10) {
                         Avatar(member: "human", size: 28)
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(m.name("human")).font(RelicStyle.font(13.3, weight: 600)).lineLimit(1)
-                            Text(m.t("side.profile")).font(RelicStyle.font(11.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1)
+                            ReferenceLabel(m.name("human"), size: 13.3, weight: 600)
+                            ReferenceLabel(m.t("side.profile"), size: 11.5, color: RelicStyle.muted)
                         }
                         Spacer(minLength: 0)
                     }.padding(.vertical, 6).padding(.horizontal, 8)
                 }.buttonStyle(QuietButtonStyle()).help(m.t("page.me"))
                 IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
             }.padding(8)
-        }.modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
+        }.padding(.trailing, 1).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
     }
@@ -93,9 +93,9 @@ struct OrgTree: View {
                         }
                         Rows(memberHits.filter { !$0["secretary"].flag }) { MemberRow(who: $0) }
                         Button { m.openMemberForm() } label: {
-                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted); Text(m.t("common.add_member")).font(RelicStyle.font(12.5, weight: 400)); Spacer(minLength: 0) }.foregroundStyle(RelicStyle.muted).padding(.horizontal, 8).padding(.vertical, 6)
+                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted); ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0); Spacer(minLength: 0) }.padding(.horizontal, 8).padding(.vertical, 6)
                         }.buttonStyle(QuietButtonStyle())
-                    }.padding(.leading, 14).padding(.top, 2).padding(.bottom, 8)
+                    }.padding(.leading, 15).padding(.top, 2).padding(.bottom, 8)
                         .overlay(alignment: .leading) { RelicStyle.border.frame(width: 1) }.padding(.leading, 10)
                 }
             }
