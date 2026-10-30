@@ -48,11 +48,21 @@ public sealed partial class MainWindow
         foreach (var (value, node) in nodes)
         {
             if (value is not FrameworkElement element) continue;
+            var actual = value.GetType();
             var receipt = new JsonObject { ["source"] = source, ["owner_id"] = ids[value],
-                ["runtime_type"] = value.GetType().FullName,
-                ["own_paint_contract"] = PrimitiveOutlineContract(value.GetType()),
+                ["runtime_type"] = actual.FullName,
+                ["own_paint_contract"] = PrimitiveOutlineContract(actual),
                 ["scope"] = "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt" };
             node["outline_owner_evidence"] = receipt;
+            if (LocalLayoutOutlineContract(actual) is { } local)
+            {
+                receipt["local_layout"] = new JsonObject
+                {
+                    ["source"] = "actual local layout Type.BaseType/IsSealed and exact audited source contract",
+                    ["owner_id"] = ids[value], ["base_type"] = actual.BaseType?.FullName,
+                    ["is_sealed"] = actual.IsSealed, ["audited_source"] = local.Source
+                };
+            }
             try
             {
                 var focus = new JsonObject { ["status"] = "measured", ["state"] = element.FocusState.ToString(),
@@ -153,5 +163,19 @@ public sealed partial class MainWindow
         // stroke is the independently captured VectorPath under its live Canvas.
         // Focus, hand-in Composition and direct-child proofs still apply above.
         : actual == typeof(Viewbox) ? "native-viewbox-child-transform"
-        : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only" : null;
+        : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only"
+        : LocalLayoutOutlineContract(actual)?.Contract;
+
+    // These six exact sealed production types add layout or a region peer only.
+    // Their own background/border follows the fixed SDK's CPanel path:
+    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1508
+    // This is not a contract for arbitrary Panel subclasses. Actual focus,
+    // hand-in Composition, Shadow and visual-child identities remain required.
+    private static (string Contract, string Source)? LocalLayoutOutlineContract(Type actual) =>
+        actual == typeof(CenteredFractionLayout) ? ("relic-centered-fraction-panel-layout-only", "native/windows/Relic/Conversation.cs#CenteredFractionLayout")
+        : actual == typeof(MessageBubbleLayout) ? ("relic-message-bubble-panel-layout-only", "native/windows/Relic/Conversation.cs#MessageBubbleLayout")
+        : actual == typeof(MessageHeaderRow) ? ("relic-message-header-panel-layout-only", "native/windows/Relic/MessageHeaderRow.cs#MessageHeaderRow")
+        : actual == typeof(ActionRow) ? ("relic-action-row-panel-layout-only", "native/windows/Relic/Design.cs#ActionRow")
+        : actual == typeof(DetailsFilterRow) ? ("relic-details-filter-panel-layout-only", "native/windows/Relic/DetailsStyles.cs#DetailsFilterRow")
+        : actual == typeof(NativeRegionGrid) ? ("relic-region-grid-peer-only", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid") : null;
 }

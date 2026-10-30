@@ -2,8 +2,9 @@
 from copy import deepcopy
 import unittest
 
-from windows_outline import (CONTRACTS, RUN_SOURCE, SOURCE, VECTOR_CONTRACT,
-                             VECTOR_RUNTIME, VECTOR_SOURCE, native_outline)
+from windows_outline import (CONTRACTS, LOCAL_LAYOUT_CONTRACTS, LOCAL_LAYOUT_SOURCE,
+                             RUN_SOURCE, SOURCE, VECTOR_CONTRACT, VECTOR_RUNTIME,
+                             VECTOR_SOURCE, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
@@ -49,6 +50,16 @@ def vector_icon():
         "canvas_children_are_vector_path": True, "canvas_visual_path_complete": True,
         "canvas_visual_path": ["canvas", "container", "viewbox", "icon"]}
     return icon, children
+
+
+def local_layout(runtime="Relic.ActionRow", eid="layout"):
+    """Synthetic receipt, including the separately measured CLR type facts."""
+    contract, base, audited_source = LOCAL_LAYOUT_CONTRACTS[runtime]
+    node = primitive(eid, runtime.rsplit(".", 1)[-1])
+    node["outline_owner_evidence"].update(runtime_type=runtime, own_paint_contract=contract,
+        local_layout={"source": LOCAL_LAYOUT_SOURCE, "owner_id": eid,
+                      "base_type": base, "is_sealed": True, "audited_source": audited_source})
+    return node
 
 
 class WindowsOutlineTests(unittest.TestCase):
@@ -208,6 +219,72 @@ class WindowsOutlineTests(unittest.TestCase):
             icon, children = vector_icon()
             icon["outline_owner_evidence"][section].update(updates)
             self.assertUnknown(icon, children)
+
+    def test_exact_sealed_local_layouts_prove_only_their_native_own_paint(self):
+        for runtime in LOCAL_LAYOUT_CONTRACTS:
+            with self.subTest(runtime=runtime):
+                node = local_layout(runtime)
+                # A nonempty native background is still background, not an
+                # outline. This proof never replaces or removes that paint.
+                node["style"] = {"background": [248, 247, 245, 255]}
+                before = deepcopy(node)
+                value, evidence, gaps = self.result(node)
+                self.assertEqual(value, "none")
+                self.assertTrue(evidence["absence_proven"])
+                self.assertEqual(gaps, [])
+                self.assertEqual(node, before)
+                self.assertEqual(evidence["raw"], before["outline_owner_evidence"])
+
+    def test_local_layout_requires_exact_source_base_sealed_and_owner_binding(self):
+        for runtime in LOCAL_LAYOUT_CONTRACTS:
+            for key in ("source", "owner_id", "base_type", "is_sealed", "audited_source"):
+                with self.subTest(runtime=runtime, missing=key):
+                    node = local_layout(runtime)
+                    node["outline_owner_evidence"]["local_layout"].pop(key)
+                    self.assertUnknown(node)
+            for updates in ({"base_type": "Relic.OtherPanel"}, {"is_sealed": False},
+                            {"is_sealed": 1}, {"owner_id": "other"},
+                            {"audited_source": "native/windows/Relic/NativeLabel.cs#NativeLabel"}):
+                with self.subTest(runtime=runtime, changed=updates):
+                    node = local_layout(runtime)
+                    node["outline_owner_evidence"]["local_layout"].update(updates)
+                    self.assertUnknown(node)
+            node = local_layout(runtime)
+            node["outline_owner_evidence"]["own_paint_contract"] = "native-panel-background"
+            self.assertUnknown(node)
+        for runtime in ("Relic.OtherLayout", "Relic.NativeShadowPanel", "Relic.NativeLabel"):
+            node = local_layout()
+            node["type"] = runtime.rsplit(".", 1)[-1]
+            node["outline_owner_evidence"]["runtime_type"] = runtime
+            self.assertUnknown(node)
+
+    def test_local_layout_keeps_focus_composition_and_actual_child_completeness_checks(self):
+        for runtime in LOCAL_LAYOUT_CONTRACTS:
+            for section, updates in (
+                ("focus", {"state": "Keyboard"}),
+                ("focus", {"owner_ancestry_complete": False}),
+                ("composition", {"child_visual_present": True, "child_visual_type": "Microsoft.UI.Composition.ContainerVisual"}),
+                ("composition", {"shadow_present": True, "shadow_type": "Microsoft.UI.Xaml.Media.ThemeShadow"}),
+                ("children", {"complete": False}),
+            ):
+                with self.subTest(runtime=runtime, section=section, changed=updates):
+                    node = local_layout(runtime)
+                    node["outline_owner_evidence"][section].update(updates)
+                    self.assertUnknown(node)
+
+    def test_local_layout_neither_inherits_nor_erases_a_childs_unknown_outline(self):
+        for runtime in LOCAL_LAYOUT_CONTRACTS:
+            with self.subTest(runtime=runtime):
+                node = local_layout(runtime)
+                child = primitive("child", "Button", "layout")
+                node["outline_owner_evidence"]["children"]["items"] = [
+                    {"id": "child", "index": 0, "same_parent_object": True}]
+                self.assertEqual(self.result(node, [child])[0], "none")
+                self.assertUnknown(child, [node])
+                node["outline_owner_evidence"]["children"]["items"][0]["same_parent_object"] = False
+                self.assertUnknown(node, [child])
+                node["outline_owner_evidence"]["children"]["items"] = []
+                self.assertUnknown(node, [child])
 
     def test_real_text_run_does_not_copy_its_owners_outline_proof(self):
         owner = primitive("text", "TextBlock")

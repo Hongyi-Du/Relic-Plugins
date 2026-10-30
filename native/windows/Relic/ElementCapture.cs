@@ -813,12 +813,13 @@ public sealed partial class MainWindow
             var draw = production["draw"];
             var rows = draw?["line_metrics"] as JsonArray;
             var trimming = draw?["trimming"];
+            var wordWrapping = current ? draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() : null;
             return new JsonObject
             {
-                ["wrap"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["wrap"] = wordWrapping switch { 1 => "none", 3 => "word", _ => null },
                 ["break_strategy_version"] = 1,
-                ["normal_break_strategy"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
-                ["emergency_break_strategy"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["normal_break_strategy"] = wordWrapping switch { 1 => "none", 3 => "word", _ => null },
+                ["emergency_break_strategy"] = wordWrapping is 1 or 3 ? "none" : null,
                 ["line_break_configuration"] = new JsonObject
                 {
                     ["source"] = "IDWriteTextLayout.GetWordWrapping on the current production NativeLabel layout", ["owner"] = id,

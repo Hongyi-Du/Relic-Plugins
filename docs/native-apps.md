@@ -1,5 +1,25 @@
 # Native Relic App contract
 
+Changes for the clients (74b14eb actual Windows follow-up): group now has 23
+complete-source production label font receipts; trimmed previews still retain
+unknown font coverage. The header renderer had retained a single-line mode;
+it now uses DirectWrite WHOLE_WORD and the height of its actual measured lines,
+matching the reference's ordinary word breaks without emergency splitting.
+The extractor reads the actual layout mode, not the requested option. Current
+headless build passes. New runtime geometry still needs CI verification.
+
+Six exact sealed local layout/region classes now retain their actual base type,
+sealed flag and audited source contract for own-outline evidence. Their focus,
+Composition, Shadow and complete direct-child checks remain mandatory, and
+children keep independent paint obligations. This adds no generic derived-type
+allowance or parity exception. New focused regression cases run in CI.
+
+The 74b14eb Windows diagnostic still captures 15/19 cases. In hover, the actual
+tooltip now appears during PNG readback; resized still changes during element
+extraction. Both failures remain. Its Windows and reference artifacts were
+downloaded before cancelling that superseded workflow's still-queued macOS job
+so the current provider diagnostic can run. No full-matrix result is inferred.
+
 Changes for the clients (macOS evidence-shape request consumed): the latest
 native-macos merge includes `raw`/`applicable` line-break evidence and explicit
 non-text values required by the shared schema. Unknown text modes remain
