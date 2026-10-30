@@ -1,5 +1,33 @@
 # Native Relic App contract
 
+Changes for the clients (fulfilled reference CC-readiness request): every
+reference scene awaits the real production loadCc before opening its controls.
+Copies/rules await their later real reload and expand via actual summary controls.
+The pre-navigation network observer retains actual GET responses and full bytes,
+then binds request order/ccAsked, unread/items and loaded state to detached closure
+snapshots before/after PNG and extraction. Evidence lives in each .cc.json and
+capture_evidence.cc_readiness. No badge or unread value is assigned by capture;
+superseded, unknown or changing state fails. Five Node async/source tests and
+seven Python observer tests run in CI. The Windows reattachment-shadow fix also
+builds headlessly with zero warnings/errors; its rendering is still pending.
+
+Changes for the clients (actual 75fddb6 rendering and macOS crash evidence): the
+three historical action cards now measure x342/width720 in private/live-typing/
+live-tool-output, matching their reference left edge and width. Both ordinary
+chart nodes retain their actual one-layer Composition shadows. Settings selected
+segments still lose theirs: measured load1, render1, unload1/2, then IsLoaded=true
+with no retained visual. Windows now rechecks real IsLoaded on the next production
+UI turn after Unloaded and redraws only when mounted; new screenshots are required.
+
+The requested macOS crash upload produced real evidence in smoke 41035583436:
+`S:\Codex\Outputs\Relic-native-visual\parity-75fddb6\macos-crash\Relic-2026-10-30-100041.ips`.
+Its faulting main-thread stack contains Attribute -> RelicAXRead ->
+ReferenceScroller.accessibilityChildren -> AppKit accessibility child/index
+enumeration, with EXC_BAD_ACCESS/SIGSEGV. This is the pre-e5fe085 capture, not proof
+that its subsequent role-only fix succeeded. Native-apps d7b164c job124001003474
+still exits with signal11 in tests; its log is saved as
+`S:\Codex\Temp\relic-native\macos-d7b164c.log`, with no DiagnosticReports file.
+
 Changes for the clients (CC totals, form bounds and measured label ownership):
 Windows now uses the server's `/api/cc.unread` for toolbar/card-header counts,
 including copies omitted from `items`. Like production `loadCc`, notifications
@@ -22,9 +50,8 @@ macOS compiled but its tests again exited with signal 11; no crash report was
 found. The latest native-macos branch includes a scroller accessibility fix, whose
 actual result is still pending. No element-parity scene is accepted.
 
-Read native-macos REQUESTS at 79b2cf1: the reference must await its real CC load
-before every scene and retain the actual response/readiness. That shared capture
-change is in progress; it must not manufacture the badge or clear unread copies.
+Read native-macos REQUESTS at 79b2cf1: the reference CC-load request is fulfilled
+above, preserving the actual response/readiness without manufacturing its badge.
 
 Changes for the clients (full report storage and real text ranges): immutable
 captured PNG/element/raw-tree files now share storage with the report through

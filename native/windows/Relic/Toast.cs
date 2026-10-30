@@ -224,6 +224,8 @@ public class NativeShadowPanel : Grid
     private double renderedRadius;
     private long layerRevision, renderedLayerRevision = -1;
     private long loadCount, unloadCount, arrangeCount, renderCount, zeroExtentCount;
+    private long unloadRecheckCount;
+    private bool? lastUnloadIsLoaded, lastUnloadRecheckIsLoaded;
     public Border Surface { get; }
     public IReadOnlyList<DropShadow> RenderedShadows => renderedShadows;
     public NativeShadowPanel(Border surface)
@@ -233,8 +235,18 @@ public class NativeShadowPanel : Grid
         SizeChanged += (_, args) => DrawShadows(args.NewSize);
         Unloaded += (_, _) =>
         {
+            lastUnloadIsLoaded = IsLoaded;
             unloadCount++; ElementCompositionPreview.SetElementChildVisual(shadowHost, null);
             shadows = null; renderedShadows.Clear(); renderedLayerRevision = -1;
+            // ContentDialog/template reparenting can deliver an old Unloaded
+            // after this panel was already arranged in its new live subtree.
+            // Recheck the real lifecycle on the next UI turn; detached panels
+            // stay cleared, while mounted panels restore their actual visuals.
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                unloadRecheckCount++; lastUnloadRecheckIsLoaded = IsLoaded;
+                if (IsLoaded) DrawShadows(new Size(ActualWidth, ActualHeight));
+            });
         };
     }
     public void SetShadows(NativeShadowLayer[] values)
@@ -256,6 +268,8 @@ public class NativeShadowPanel : Grid
         ["source"] = "Actual NativeShadowPanel production lifecycle and retained compositor object identity",
         ["is_loaded"] = IsLoaded, ["load_count"] = loadCount, ["unload_count"] = unloadCount,
         ["arrange_count"] = arrangeCount, ["render_count"] = renderCount, ["zero_extent_count"] = zeroExtentCount,
+        ["last_unload_is_loaded"] = lastUnloadIsLoaded, ["unload_recheck_count"] = unloadRecheckCount,
+        ["last_unload_recheck_is_loaded"] = lastUnloadRecheckIsLoaded,
         ["requested_layer_count"] = layers.Length, ["rendered_layer_count"] = renderedShadows.Count,
         ["layer_revision"] = layerRevision, ["rendered_layer_revision"] = renderedLayerRevision,
         ["actual_width"] = ActualWidth, ["actual_height"] = ActualHeight,
