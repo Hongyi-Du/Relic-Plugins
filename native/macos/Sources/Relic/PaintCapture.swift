@@ -24,6 +24,7 @@ struct ElementPaintProbe: NSViewRepresentable {
             let rect = ElementCapture.topLeft(screen, in: content)
             let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content) } ?? .null
             let draw = view.currentDraw()
+            let outline = IconOutlineCapture.inspect(view)
             let foreground: Any = draw?["foreground"] ?? NSNull()
             let dimension = String(format: "%g", Double(view.size))
             func json(_ value: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]), encoding: .utf8)! }
@@ -33,9 +34,11 @@ struct ElementPaintProbe: NSViewRepresentable {
                     "native_structure": NativeElementStructure.evidence(view, parent: view.owner),
                     "icon": draw == nil ? NSNull() : ["source": "svg", "glyph": glyph] as Any,
                     "stroke_width": draw?["stroke_width"] ?? NSNull(),
+                    "outline": outline.paint,
                     "evidence": ["source": "production CoreGraphics icon draw", "renderer": "final native PaintView.draw",
                         "resource": view.name, "path": source, "viewBox": "0 0 24 24",
                         "current_draw": draw as Any? ?? NSNull(), "last_draw": view.lastDraw as Any? ?? NSNull(),
+                        "native_icon_outline": outline.evidence,
                         "draw_binding_valid": draw != nil, "presentation_identity_proven": false,
                         "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view)]]
         }

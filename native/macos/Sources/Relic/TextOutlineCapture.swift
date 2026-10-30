@@ -36,7 +36,8 @@ import AppKit
                 "class": String(describing: type(of: layer)), "border_width": layer.borderWidth,
                 "shadow_opacity": layer.shadowOpacity, "sublayer_count": childCount, "animation_keys": animations,
                 "mask_present": layer.mask != nil, "compositing_filter_present": layer.compositingFilter != nil,
-                "filter_count": layer.filters?.count ?? 0, "background_filter_count": layer.backgroundFilters?.count ?? 0]
+                "filter_count": layer.filters?.count ?? 0, "background_filter_count": layer.backgroundFilters?.count ?? 0,
+                "child_layers": (layer.sublayers ?? []).map { layerObservation($0) }]
             if layer.borderWidth != 0 || layer.shadowOpacity != 0 || childCount != 0 || !animations.isEmpty ||
                 layer.mask != nil || layer.compositingFilter != nil || !(layer.filters ?? []).isEmpty || !(layer.backgroundFilters ?? []).isEmpty {
                 errors.append("Additional layer paint/effects are outside the text renderer contract")
@@ -45,7 +46,8 @@ import AppKit
                 evidence["presentation_layer"] = ["border_width": presented.borderWidth, "shadow_opacity": presented.shadowOpacity,
                     "sublayer_count": presented.sublayers?.count ?? 0, "mask_present": presented.mask != nil,
                     "compositing_filter_present": presented.compositingFilter != nil,
-                    "filter_count": presented.filters?.count ?? 0, "background_filter_count": presented.backgroundFilters?.count ?? 0]
+                    "filter_count": presented.filters?.count ?? 0, "background_filter_count": presented.backgroundFilters?.count ?? 0,
+                    "child_layers": (presented.sublayers ?? []).map { layerObservation($0) }]
                 if presented.borderWidth != 0 || presented.shadowOpacity != 0 || !(presented.sublayers ?? []).isEmpty ||
                     presented.mask != nil || presented.compositingFilter != nil || !(presented.filters ?? []).isEmpty || !(presented.backgroundFilters ?? []).isEmpty {
                     errors.append("Presentation layer retains additional paint/effects")
@@ -69,5 +71,25 @@ import AppKit
         evidence["errors"] = errors
         evidence["absence_proven"] = errors.isEmpty
         return (errors.isEmpty ? "none" as Any : NSNull(), evidence)
+    }
+
+    // Retain the actual AppKit-created sublayers that prevent own-paint proof.
+    // Their class/delegate/content type are diagnostic evidence, never an
+    // allow-list or a substitute for establishing their drawing duty.
+    private static func layerObservation(_ layer: CALayer, depth: Int = 0) -> [String: Any] {
+        let children = layer.sublayers ?? []
+        return ["identity": String(describing: ObjectIdentifier(layer)), "class": String(describing: type(of: layer)),
+            "delegate_class": layer.delegate.map { String(describing: type(of: $0)) } as Any? ?? NSNull(),
+            "contents_type": layer.contents.map { String(describing: type(of: $0)) } as Any? ?? NSNull(),
+            "bounds": ElementCapture.box(layer.bounds), "frame": ElementCapture.box(layer.frame),
+            "opacity": layer.opacity, "hidden": layer.isHidden, "border_width": layer.borderWidth,
+            "border_color": layer.borderColor.flatMap { NSColor(cgColor: $0) }.map { ElementCapture.rgba($0) } ?? NSNull(),
+            "background": layer.backgroundColor.flatMap { NSColor(cgColor: $0) }.map { ElementCapture.rgba($0) } ?? NSNull(),
+            "shadow_opacity": layer.shadowOpacity, "corner_radius": layer.cornerRadius,
+            "mask_present": layer.mask != nil, "compositing_filter_present": layer.compositingFilter != nil,
+            "filter_count": layer.filters?.count ?? 0, "background_filter_count": layer.backgroundFilters?.count ?? 0,
+            "animation_keys": layer.animationKeys() ?? [], "sublayer_count": children.count,
+            "child_layers": depth < 3 ? children.map { layerObservation($0, depth: depth + 1) } : [],
+            "children_truncated": depth >= 3 && !children.isEmpty, "drawing_duty_proven": false]
     }
 }

@@ -33,6 +33,13 @@ import SwiftUI
             XCTAssertEqual(current.evidence["absence_proven"] as? Bool, false)
             let errors = try XCTUnwrap(current.evidence["errors"] as? [String])
             XCTAssertTrue(errors.contains { $0.contains("layer paint/effects") })
+            let layer = try XCTUnwrap(current.evidence["layer"] as? [String: Any])
+            let children = try XCTUnwrap(layer["child_layers"] as? [[String: Any]])
+            XCTAssertEqual(children.count, nativeChildren)
+            for child in children {
+                XCTAssertFalse((child["class"] as? String ?? "").isEmpty)
+                XCTAssertEqual(child["drawing_duty_proven"] as? Bool, false)
+            }
         } else if view.layer == nil || view.layer?.presentation() != nil {
             XCTAssertEqual(current.paint as? String, "none", String(describing: current.evidence))
             XCTAssertEqual(current.evidence["absence_proven"] as? Bool, true)
