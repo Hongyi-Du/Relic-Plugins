@@ -1,5 +1,21 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**Full macOS capture recovered, `2cb073c` / run `41011131381`:** downloaded
+all four native artifacts to `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`.
+Each language/theme manifest records 165/165 cases, with `errors: []`;
+660 actual PNGs and 660 element files are present. All three sequential viewport
+processes now start and finish. The en-US/light job's subsequent browser-paint
+diagnostic failed, but its native capture and upload succeeded. The comparison
+job is still running; this is capture completeness, not a parity pass.
+
+`f9562b3` corrects an independently observed geometry projection: SwiftUI
+AXGroup supplies inner content bounds, while the uniquely identified mounted
+card surface already measures its full padding/border bounds. The native
+export now uses that actual surface for card geometry and retains
+`ax_content_rect` plus the surface identity/ancestry evidence. No reference
+box is read by the projection. A mounted padded-card regression also rejects
+an unrelated owner with identical geometry. Fresh CI is required.
+
 `da54b3c` Native apps run `41014596650`, job `123927946212`, compiled the
 production app and ran 150 tests. Four assertions in the new checkbox test
 failed: the custom empty NSButtonCell supplied AXUnknown, a 30x16 interior
@@ -33,7 +49,8 @@ capture-disabled draw. Native actual font projection still does not assert
 final-window glyph contribution. The same run's parity failure is Windows-only:
 missing `settings.claude_desktop_hint`, `settings.desktop_connections`,
 `settings.desktop_probe`, `settings.desktop_probe_hint`; macOS lists are empty.
-Please retain those actual Windows Settings controls/labels in the shared work.
+This earlier Windows-controls request is superseded by the platform-guard
+source finding above; do not add nonexistent Windows controls.
 
 
 **a3ca2a3 actual diagnostic follow-up:** downloaded macOS/reference/HTML/JSON
