@@ -1,5 +1,24 @@
 # Native Relic App contract
 
+Changes for the clients (report count definitions): the report now separately
+counts cases with both JSON/PNG artifact sets and cases with at least one paired
+element. Neither count implies readable, complete or matching measurements.
+scenes_checked still requires no extraction errors; scenes_passed keeps every
+existing strict requirement. Definitions and per-case file-presence receipts
+make a 22-case diagnostic run distinguishable from the required 672-case matrix.
+Missing captures and failed extraction fixtures exercise these distinctions.
+
+Changes for the clients (profile spoken name): Windows now composes the profile
+button name from its actual initials/name/subtitle children. page.me remains the
+tooltip, while side.profile remains the visible subtitle. This repairs the real
+3a924e7 name mismatch without changing the visible words or avatar label policy.
+
+Changes for the clients (macOS compile repair and isolated paint candidates):
+the measured text clip's NSNull/dictionary conditional now has an explicit Any
+type, fixing the Swift build error in runs 41088852536 and 41089334759. The owner's
+icon/fill backing-image candidates remain disabled in production pending mounted
+bitmap tests; no private layer is allowlisted, and occlusion remains unproved.
+
 Changes for the clients (non-mutating composition observation): the Windows
 extractor no longer calls GetElementVisual for each element between the PNG and
 UIA reads. Fixed WinUI source shows this getter can create handoff visuals and
