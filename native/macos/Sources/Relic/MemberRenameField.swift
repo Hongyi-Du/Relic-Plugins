@@ -37,6 +37,9 @@ struct MemberRenameField: NSViewRepresentable {
     }
     final class Control: NSTextField {
         private var initiallyFocused = false
+        // AppKit's standard text-field bezel has alignment outsets. This
+        // borderless control paints no bezel; its frame is the input box.
+        override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
         override func isAccessibilityElement() -> Bool { true }
         override func accessibilityFrame() -> NSRect {
             window.map { $0.convertToScreen(convert(bounds, to: nil)) } ?? .zero

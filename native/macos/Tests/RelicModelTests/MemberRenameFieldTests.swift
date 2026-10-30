@@ -18,6 +18,8 @@ import SwiftUI
         }
         let field = try XCTUnwrap(find(host))
         XCTAssertEqual(field.frame.width, 195)
+        XCTAssertEqual(field.alignmentRectInsets.left, 0)
+        XCTAssertEqual(field.alignmentRectInsets.right, 0)
         XCTAssertEqual(field.accessibilityIdentifier(), "relic-input/member-rename")
         XCTAssertEqual(field.accessibilityFrame(), window.convertToScreen(field.convert(field.bounds, to: nil)))
         let cell = try XCTUnwrap(field.cell as? MemberRenameField.PaddedCell)
