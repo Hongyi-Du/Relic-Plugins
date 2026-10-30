@@ -3,6 +3,35 @@ import AppKit
 @testable import Relic
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
+    func testOnlyTheCurrentActualDrawSuppliesACompleteLabelsFonts() throws {
+        let view = ReferenceLabel("Relic → 组织", size: 14, lines: 0).makeLabelView()
+        let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
+        layout.recordDraws = true
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: 60)
+        view.textContainer?.containerSize = view.bounds.size
+        let full = NSRange(location: 0, length: (view.string as NSString).length)
+        func draw() throws {
+            view.layoutManager?.ensureLayout(for: try XCTUnwrap(view.textContainer))
+            view.cacheDisplay(in: view.bounds, to: try XCTUnwrap(CaptureRaster.forView(view)))
+        }
+        XCTAssertTrue(layout.fontEvidence(for: full, in: view)["fonts"] is NSNull,
+                      "Source attributes and layout alone do not prove the font actually drawn")
+        try draw()
+        let actual = layout.fontEvidence(for: full, in: view)
+        XCTAssertEqual(actual["status"] as? String, "measured-current-draw")
+        XCTAssertFalse(try XCTUnwrap(actual["fonts"] as? [[String: Any]]).isEmpty)
+        XCTAssertTrue(layout.fontEvidence(for: NSRange(location: 0, length: 5), in: view)["fonts"] is NSNull,
+                      "A callback without source indices cannot be assigned to a partial rich-text span")
+        view.setFrameSize(NSSize(width: 180, height: 60))
+        XCTAssertTrue(layout.fontEvidence(for: full, in: view)["fonts"] is NSNull,
+                      "Old glyph callbacks cannot survive a change in native text layout")
+        try draw()
+        XCTAssertEqual(layout.fontEvidence(for: full, in: view)["status"] as? String, "measured-current-draw")
+        view.textStorage?.addAttribute(.foregroundColor, value: NSColor.red, range: full)
+        XCTAssertTrue(layout.fontEvidence(for: full, in: view)["fonts"] is NSNull,
+                      "Even same-length source changes invalidate the previous draw binding")
+    }
+
     func testActualProductionTextPaintDoesNotDependOnAmbientFontSmoothing() throws {
         let storage = NSTextStorage(attributedString: ReferenceLabel("Relic 组织 11:00", size: 14).attributedText)
         let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: CGSize(width: 220, height: 50))

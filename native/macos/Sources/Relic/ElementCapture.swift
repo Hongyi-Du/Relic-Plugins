@@ -216,6 +216,8 @@ import CoreText
             let font = attributes[.font] as? NSFont ?? view.font
             let measuredSizes = Set(fonts.map { Double($0.pointSize) })
             let measuredWeights = Set(fonts.map { cssWeight($0) })
+            let drawnFonts = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view)
+                ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
                 "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
@@ -225,11 +227,13 @@ import CoreText
                 "kind": attributes[.link] == nil ? "text" : "link",
                 "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
                 "native_attribute_runs": attributeRuns,
+                "native_font_drawing": drawnFonts,
+                "native_reshaped_fonts": renderedFonts(storage.attributedSubstring(from: range)),
                 "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",
                 "style": ["fontSize": measuredSizes.count == 1 ? measuredSizes.first! as Any : NSNull(),
                           "fontWeight": measuredWeights.count == 1 ? measuredWeights.first! as Any : NSNull(),
                           "fontFamily": font?.familyName as Any? ?? NSNull(),
-                          "rendered_fonts": renderedFonts(storage.attributedSubstring(from: range)),
+                          "rendered_fonts": drawnFonts["fonts"] ?? NSNull(),
                           "color": rgba(attributes[.foregroundColor] as? NSColor ?? view.textColor),
                           "backgroundColor": rgba(attributes[.backgroundColor] as? NSColor ?? .clear),
                           "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
@@ -500,7 +504,7 @@ import CoreText
                 if applicable && value is NSNull { unmeasured.append(id + ":style." + key) }
             }
             actualStyle["rendered_fonts"] = text.isEmpty ? NSNull() : sourceStyle["rendered_fonts"] ?? NSNull()
-            if !text.isEmpty && sourceStyle["rendered_fonts"] == nil { unmeasured.append(id + ":style.rendered_fonts") }
+            if !text.isEmpty && (sourceStyle["rendered_fonts"] == nil || sourceStyle["rendered_fonts"] is NSNull) { unmeasured.append(id + ":style.rendered_fonts") }
             if ["icon", "chart-edge"].contains(kind) {
                 for key in ["stroke_width", "stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin"] {
                     actualStyle[key] = sourceStyle[key] ?? NSNull()
