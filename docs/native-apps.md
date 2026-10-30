@@ -1,5 +1,24 @@
 # Native Relic App contract
 
+Changes for the clients (capture scheduling request, 2475328): macOS full
+capture uses max-parallel 2. All four language/theme shards, three viewports,
+55 scenes and the 660-case gate are unchanged. A separate manual-only browser
+paint workflow reuses the existing real fixture and diagnostic collector for
+group/file-code without requiring a native build; it is not an acceptance run.
+
+Changes for the clients (actual narrow details window): the 7df43bd English
+dark 1024x700 capture shows native Details content clipped inside a second
+22px template inset, with the close control cut off. The existing content-owned
+padding option now applies to Details (tasks/protocols/trace/docs), as it already
+does to settings and copies. The copies acknowledgement button also supplies
+its localized accessible name after composing its actual icon/text children.
+
+Latest integrated macOS REQUESTS also documents real hosted-checkbox and card
+surface follow-ups, scroll-position preservation and compound-control naming.
+These owner-side changes are merged; no additional shared route was requested.
+The full 2cb073c failed report is available locally as documented by that client;
+its 660 successful macOS captures still do not constitute a parity pass.
+
 Changes for the clients (actual pseudo quantities): the file-code reading-order
 request was already fixed by the source-tree traversal. New 2cb073c evidence
 instead showed two different quantities sharing one pseudo node: a CSS inline

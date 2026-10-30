@@ -1,0 +1,107 @@
+name: Native paint diagnostics
+run-name: Paint diagnostics ${{ github.ref_name }} ${{ inputs.language }} ${{ inputs.theme }}
+
+# Diagnostic-only: no push/PR trigger, native application, acceptance scene
+# filtering, or dependency on the full visual-review workflow.
+on:
+  # First branch-only dispatch at cb692a0 returned HTTP 404: this workflow
+  # was not found on the default branch. The already registered visual-review
+  # workflow invokes this same-ref reusable entry only for its manual paint mode.
+  workflow_call:
+    inputs:
+      language:
+        description: Fixture language
+        type: string
+        default: en-US
+      theme:
+        description: Production appearance
+        type: string
+        default: light
+  workflow_dispatch:
+    inputs:
+      language:
+        description: Fixture language
+        type: choice
+        options: [en-US, zh-CN]
+        default: en-US
+      theme:
+        description: Production appearance
+        type: choice
+        options: [light, dark]
+        default: light
+
+permissions:
+  contents: read
+
+jobs:
+  paint:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows
+            channel: headless-shell
+          - os: windows-2025
+            platform: windows
+            channel: chromium
+          - os: macos-15
+            platform: macos
+            channel: headless-shell
+          - os: macos-15
+            platform: macos
+            channel: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow playwright
+      - run: python -m playwright install chromium
+      - name: Describe the existing diagnostic cases without launching a client
+        shell: python
+        env:
+          DIAGNOSTIC_LANGUAGE: ${{ inputs.language }}
+          DIAGNOSTIC_THEME: ${{ inputs.theme }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          if os.environ.get("GITHUB_ACTIONS") != "true":
+              raise SystemExit("Paint diagnostics are CI-only.")
+          sys.path.insert(0, str(Path("scripts/visual").resolve()))
+          from capture import capture_cases
+
+          spec = json.loads(Path("scripts/visual/scenes.json").read_text(encoding="utf-8"))
+          language, theme = os.environ["DIAGNOSTIC_LANGUAGE"], os.environ["DIAGNOSTIC_THEME"]
+          scenes, sizes = ["group", "file-code"], [[1440, 900]]
+          if language not in spec["languages"] or theme not in spec["themes"]:
+              raise ValueError("Unknown shared appearance setting")
+          if any(scene not in spec["scenes"] for scene in scenes) or sizes[0] not in spec["sizes"]:
+              raise ValueError("Diagnostic cases must already exist in the shared matrix")
+          # Same configured visual clock as capture.py. paint_trace.py starts
+          # the actual existing serve.py fixture; it supplies every runtime
+          # org/file/port/token value. No native executable or fake receipt.
+          manifest = {"version": 1, "client": "reference", "lang": language, "theme": theme,
+              "fixture": {"clock": "2026-10-29T11:02:00Z"},
+              "output": str(Path("visual/paint").resolve()),
+              "cases": capture_cases(scenes, sizes, language, theme),
+              "diagnostic_only": True, "canonical_measurements_changed": False}
+          directory = Path("visual/manifest")
+          directory.mkdir(parents=True, exist_ok=True)
+          (directory / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+      - name: Collect original browser paint and post-navigation LayerTree evidence
+        timeout-minutes: 5
+        run: python -X utf8 scripts/visual/paint_trace.py --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --width 1440 --height 900 --output visual/paint
+      - name: Retain original diagnostic records even when collection fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paint-diagnostic-${{ matrix.platform }}-${{ matrix.channel }}-${{ inputs.language }}-${{ inputs.theme }}
+          path: visual
+          if-no-files-found: error

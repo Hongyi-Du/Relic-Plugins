@@ -370,6 +370,9 @@ public sealed partial class MainWindow
                 var ack = OverviewAction(T("cc.ack"), async () => { await api!.Post("/api/cc/" + c.Text("id") + "/read", new { }); await Refresh(); });
                 var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center }; row.Children.Add(ReferenceIcon("check", 14));
                 if (ack.Content is UIElement label) { ack.Content = null; row.Children.Add(label); } ack.Content = row; actions.Children.Add(ack);
+                // The native Button peer cannot derive its label from the
+                // compound icon/text panel. Preserve the action's spoken name.
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ack, T("cc.ack"));
             }
             if (live)
             {
