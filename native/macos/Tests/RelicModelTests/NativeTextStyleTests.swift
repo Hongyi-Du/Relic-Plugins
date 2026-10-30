@@ -4,6 +4,17 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class NativeTextStyleTests: XCTestCase {
+    func testPreformattedTabsUseEightActualMonospacedAdvances() throws {
+        let rendered = NativeTextStyle.render(AttributedString("a\tb"), size: 11.5, monospaced: true)
+        let storage = NSTextStorage(attributedString: rendered), layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 300, height: 100))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
+        let b = layout.glyphIndexForCharacter(at: 2)
+        XCTAssertEqual(layout.location(forGlyphAt: b).x, 55.3828125, accuracy: 0.1,
+            "Actual 11.5px Menlo space advance is 6.9228515625; CSS pre-wrap uses tab-size 8")
+        XCTAssertEqual(storage.string, "a\tb")
+    }
+
     func testFixedHeightCodeCentersLeadingWithoutChangingLineHeightOrGlyphAdvance() throws {
         let view = ReferenceLabel("# Native app review\nNext line", size: 12.5, lineHeight: 20.625, lines: 0, monospaced: true).makeLabelView()
         view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)

@@ -25,12 +25,12 @@ import CoreText
 
     func testStaticWeightCannotStandInForAnUnknownVariableInstance() throws {
         let font = RelicStyle.monoFont(12) as CTFont
-        let data = try XCTUnwrap(CTFontCopyTable(font, kCTFontTableOS2, [])) as Data
-        XCTAssertEqual(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2], hasVariationAxes: false), 400)
-        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2, NativeFontWeight.variationTag], hasVariationAxes: false))
-        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2], hasVariationAxes: true))
+        let data = try XCTUnwrap(CTFontCopyTable(font, NativeFontWeight.os2Tag, [])) as Data
+        XCTAssertEqual(NativeFontWeight.staticWeight(table: data, availableTags: [NativeFontWeight.os2Tag], hasVariationAxes: false), 400)
+        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [NativeFontWeight.os2Tag, NativeFontWeight.variationTag], hasVariationAxes: false))
+        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [NativeFontWeight.os2Tag], hasVariationAxes: true))
         XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: nil, hasVariationAxes: false))
-        XCTAssertNil(NativeFontWeight.staticWeight(table: Data(data.prefix(5)), availableTags: [kCTFontTableOS2], hasVariationAxes: false))
+        XCTAssertNil(NativeFontWeight.staticWeight(table: Data(data.prefix(5)), availableTags: [NativeFontWeight.os2Tag], hasVariationAxes: false))
     }
 
     func testRecipientArrowUsesTheActualReferenceSystemFallbackAndAdvance() throws {

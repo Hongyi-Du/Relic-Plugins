@@ -36,12 +36,13 @@ struct LiveTurnView: View {
 
 private struct LiveActions: View {
     @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let items: [Node]
     @State private var expanded = true
     @State private var identity = "relic-text-button/live-actions/" + UUID().uuidString
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expanded.toggle() } label: {
+            Button { if !items.isEmpty { preserveScroll() }; expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "chev", size: 13, color: RelicStyle.muted, owner: identity).rotationEffect(.degrees(expanded ? 90 : 0))
                     ReferenceLabel(m.t("live.turn_actions"), size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 20, owner: identity)
@@ -77,6 +78,7 @@ struct LiveItem: View {
 
 private struct LiveToolRow: View {
     @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let item: Node
     @State private var expanded = false
     @State private var hovering = false
@@ -84,7 +86,7 @@ private struct LiveToolRow: View {
     private var dot: Color { item["status"].text == "completed" ? RelicStyle.green : item["status"].text == "failed" ? RelicStyle.red : RelicStyle.faint }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expanded.toggle() } label: {
+            Button { if !item["text"].text.isEmpty { preserveScroll() }; expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: 7, height: 7).modifier(RecordedSurface(background: dot, radius: 3.5, kind: "card"))
                     ReferenceLabel(ReferenceText.clip(item["title"].text, to: 60), size: 12.5, weight: 600, lineHeight: 20, owner: identity).fixedSize()

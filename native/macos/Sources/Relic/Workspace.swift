@@ -229,7 +229,7 @@ struct FilePreview: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(lines.prefix(6000).enumerated()), id: \.offset) { index, line in
                         HStack(alignment: .top, spacing: 0) {
-                            ReferenceLabel(String(index + 1), size: 12, color: RelicStyle.faint, lineHeight: 19.2, alignment: .right, monospaced: true).frame(width: 46, alignment: .trailing).padding(.trailing, 14)
+                            ReferenceLabel(String(index + 1), size: 12, color: RelicStyle.faint, lineHeight: 19.2, alignment: .right, monospaced: true, accessibleName: "").frame(width: 46, alignment: .trailing).padding(.trailing, 14)
                             SelectableText(value: AttributedString(line.isEmpty ? " " : line), pointSize: 12, lineHeight: 19.2, monospaced: true).fixedSize(horizontal: true, vertical: true)
                             Spacer(minLength: 16)
                         }.frame(minHeight: 19.2).frame(maxWidth: .infinity, alignment: .leading)

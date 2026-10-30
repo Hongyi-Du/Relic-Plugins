@@ -70,7 +70,7 @@ struct SettingsSegments: View {
                     .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
                     .accessibilityAddTraits(value == selection ? .isSelected : [])
             }
-        }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "region"))
+        }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
     }
 }
 
@@ -78,13 +78,15 @@ struct SettingsSwatch: View {
     let name: String
     let selected: Bool
     let action: () -> Void
+    @State private var identity = "relic-icon-button/swatch/" + UUID().uuidString
     // The reference swatches keep their fixed colors in either appearance.
     private var color: Color { let rgb: UInt32 = ["clay": 0xC8643F, "ink": 0x3A3936, "indigo": 0x5B61D6, "blue": 0x2F6BD8, "rose": 0xC4456C, "amber": 0xB9821D][name] ?? 0xC8643F; return RelicStyle.color(rgb, rgb) }
     var body: some View {
         Button(action: action) {
-            Color.clear.frame(width: 24, height: 24).modifier(RecordedSurface(background: color, radius: 12))
-                .overlay { if selected { Circle().strokeBorder(RelicStyle.background, lineWidth: 2).frame(width: 28, height: 28); Circle().strokeBorder(RelicStyle.ink, lineWidth: 2).frame(width: 32, height: 32) } }
-        }.buttonStyle(.plain).help(name).accessibilityLabel(name).accessibilityAddTraits(selected ? .isSelected : [])
+            Color.clear.frame(width: 24, height: 24)
+                .modifier(RecordedSurface(background: color, border: .clear, borderWidth: 2, radius: 12, kind: "icon-button", owner: identity,
+                    selected: selected, rings: selected ? [SurfaceRing(width: 2, color: RelicStyle.background), SurfaceRing(width: 4, color: RelicStyle.ink)] : []))
+        }.buttonStyle(.plain).help(name).accessibilityIdentifier(identity).accessibilityLabel(name).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

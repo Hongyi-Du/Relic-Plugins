@@ -10,7 +10,7 @@ class NativeLineMetrics: NSObject, NSLayoutManagerDelegate {
                        baselineOffset: UnsafeMutablePointer<CGFloat>,
                        in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
         guard let storage = layoutManager.textStorage, glyphRange.length > 0 else { return false }
-        let range = layoutManager.characterRange(forGlyphRange: glyphRange, actualCharacterRange: nil)
+        let range = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
         guard range.length > 0, NSMaxRange(range) <= storage.length else { return false }
         var naturalHeight: CGFloat = 0
         storage.enumerateAttribute(.font, in: range) { value, _, _ in

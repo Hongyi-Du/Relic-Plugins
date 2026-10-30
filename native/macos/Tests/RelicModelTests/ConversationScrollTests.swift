@@ -2,6 +2,19 @@ import XCTest
 @testable import Relic
 
 final class ConversationScrollTests: XCTestCase {
+    func testOpeningExistingToolOutputPreservesPositionThroughIntermediateLayout() {
+        var state = ConversationScrollFollowing()
+        let viewport = CGSize(width: 824, height: 698)
+        _ = state.observe(content: CGSize(width: 784, height: 900), bottom: 900, viewport: viewport)
+        _ = state.observe(content: CGSize(width: 784, height: 900), bottom: 698, viewport: viewport)
+        state.disclosureChanged()
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 900), bottom: 698, viewport: viewport))
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 996), bottom: 794, viewport: viewport),
+            "The clicked disclosure adds height without issuing a bottom-scroll request")
+        XCTAssertTrue(state.followsBottom, "A later incoming message still uses the reference's 120px follow threshold")
+        XCTAssertTrue(state.observe(content: CGSize(width: 784, height: 1036), bottom: 834, viewport: viewport))
+    }
+
     func testInspectorReflowPreservesPositionButNewLiveContentCanFollow() {
         var state = ConversationScrollFollowing()
         let wide = CGSize(width: 824, height: 698), narrow = CGSize(width: 644, height: 698)

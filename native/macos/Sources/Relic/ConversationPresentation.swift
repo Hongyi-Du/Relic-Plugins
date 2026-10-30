@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import RelicCore
 
 struct ConversationRow: Identifiable {
@@ -11,20 +12,38 @@ struct ConversationRow: Identifiable {
 // Opening/resizing the inspector changes line wrapping without adding a
 // message. Preserve the current scroll offset through that reflow, just as
 // the reference's applyPanelWidth does. New content at the same viewport can
-// still follow the bottom, including a live result expanded by the person.
+// still follow the bottom. A person opening an existing disclosure preserves
+// the current reading position rather than treating it as newly received text.
 struct ConversationScrollFollowing {
     var followsBottom = true
     private var contentSize = CGSize.zero
     private var viewportSize = CGSize.zero
+    private var pendingDisclosure = false
+
+    mutating func disclosureChanged() { pendingDisclosure = true }
 
     mutating func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
         let heightChanged = abs(content.height - contentSize.height) > 1
         let reflow = contentSize.width > 0 && abs(content.width - contentSize.width) > 1
         let resized = viewportSize != .zero && viewport != viewportSize
+        if pendingDisclosure {
+            if heightChanged || reflow || resized { pendingDisclosure = false }
+            contentSize = content; viewportSize = viewport
+            followsBottom = bottom - viewport.height < 120
+            return false
+        }
         let follow = heightChanged && !reflow && !resized && followsBottom
         if !heightChanged || reflow || resized { followsBottom = bottom - viewport.height < 120 }
         contentSize = content; viewportSize = viewport
         return follow
+    }
+}
+
+private struct ConversationDisclosureKey: EnvironmentKey { static let defaultValue: () -> Void = {} }
+extension EnvironmentValues {
+    var conversationDisclosure: () -> Void {
+        get { self[ConversationDisclosureKey.self] }
+        set { self[ConversationDisclosureKey.self] = newValue }
     }
 }
 

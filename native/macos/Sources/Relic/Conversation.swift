@@ -260,6 +260,7 @@ struct ConversationStream: View {
                             // scrolled offscreen by scrollTo(anchor: .bottom).
                             Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
+                            .environment(\.conversationDisclosure, { following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
                     }.modifier(RecordedSurface(background: .clear, kind: "region"))
                         .coordinateSpace(name: "conversation")
@@ -281,6 +282,7 @@ struct ConversationStream: View {
 
 struct MessageView: View {
     @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let item: Node
     var inThread = false
     var continued = false
@@ -329,7 +331,7 @@ struct MessageView: View {
                     } else if wantsPlain, let plain = m.plain[item["id"].text] {
                         messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
                         VStack(alignment: .leading, spacing: 0) {
-                            Button { originalExpanded.toggle() } label: {
+                            Button { preserveScroll(); originalExpanded.toggle() } label: {
                                 ReferenceLabel((originalExpanded ? "▾ " : "▸ ") + m.t("msg.original"), size: 11.5, color: RelicStyle.muted)
                                     .padding(.horizontal, 2).modifier(RecordedSurface(background: .clear, expanded: originalExpanded))
                             }.buttonStyle(.plain)
@@ -398,11 +400,12 @@ struct MessageView: View {
 }
 
 struct MessageReceipt: View {
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let text: String
     @State private var expanded = false
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button { expanded.toggle() } label: {
+            Button { preserveScroll(); expanded.toggle() } label: {
                 ReferenceLabel((expanded ? "▾ " : "▸ ") + ReferenceText.clip(text, to: 90), size: 12.5, color: RelicStyle.muted, lines: 0)
                     .modifier(RecordedSurface(background: .clear, expanded: expanded))
             }.buttonStyle(.plain)
@@ -414,6 +417,7 @@ struct MessageReceipt: View {
 
 struct ActivityRow: View {
     @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let row: ToolActivity
     let member: String
     @State private var expanded = false
@@ -422,7 +426,7 @@ struct ActivityRow: View {
     @State private var identity = "relic-row/activity/" + UUID().uuidString
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expanded.toggle() } label: {
+            Button { preserveScroll(); expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: 7, height: 7).modifier(RecordedSurface(background: row.failed ? RelicStyle.red : row.result != nil ? RelicStyle.green : RelicStyle.faint, radius: 3.5, kind: "badge"))
                     ReferenceLabel(row.call == nil ? m.t("common.result") : row.title, size: 12.5, weight: 600, lineHeight: 20, owner: identity).fixedSize()
@@ -449,6 +453,7 @@ struct ActivityRow: View {
 
 struct StepView: View {
     @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
     let step: Node
     let member: String
     @State private var expanded = false
@@ -460,7 +465,7 @@ struct StepView: View {
     private var summary: String { step["role"].text == "tool_call" ? ToolActivity.pair([step]).first?.argument ?? "" : ReferenceText.clip(step["text"].text, to: 120) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expanded.toggle() } label: {
+            Button { preserveScroll(); expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.faint).frame(width: 7, height: 7)
                     ReferenceLabel(title, size: 12.5, weight: 600, owner: identity).fixedSize()

@@ -5,6 +5,25 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
+    func testSelectedSwatchKeepsItsPaintedButtonBoxSeparateFromSelectionRings() throws {
+        let host = NSHostingView(rootView: SettingsSwatch(name: "clay", selected: true, action: {}).padding(8))
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 40, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        let content = window.convertToScreen(host.convert(host.bounds, to: nil))
+        let surface = try XCTUnwrap(SurfacePaintProbe.snapshots(in: content).first { ($0["owner"] as? String)?.hasPrefix("relic-icon-button/swatch/") == true })
+        let measured = try XCTUnwrap(surface["rectValue"] as? NSValue).rectValue
+        XCTAssertEqual(measured.size, NSSize(width: 24, height: 24))
+        let style = try XCTUnwrap(surface["style"] as? [String: Any])
+        XCTAssertEqual(style["borderWidth"] as? Double, 2)
+        let rings = try XCTUnwrap(style["shadow"] as? [[String: Any]])
+        XCTAssertEqual(rings.compactMap { $0["spread_radius"] as? Double }, [2, 4])
+        var button: [String: Any] = ["kind": "icon-button", "identifier": surface["owner"]!, "rect": ElementCapture.box(measured.insetBy(dx: -4, dy: -4))]
+        NativeSurfaceGeometry.attach(to: &button, surface: surface, viewport: host.bounds)
+        XCTAssertEqual(ElementCapture.rect(button["rect"]), measured)
+        XCTAssertEqual(ElementCapture.rect(button["ax_content_rect"]).width, 32)
+    }
+
     func testSwiftUIHostedCheckboxKeepsItsActualHitFrameOnThePaintedTrack() throws {
         let host = NSHostingView(rootView: ReferenceSwitch("Auto wake", isOn: .constant(false)))
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 32, height: 18),
