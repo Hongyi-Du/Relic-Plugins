@@ -87,6 +87,7 @@ struct SettingsView: View {
             }
             SettingsRow(title: m.t("settings.voice_try"), hint: m.t("settings.voice_supported_mac")) {
                 TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical).textFieldStyle(.plain).labelsHidden()
+                    .accessibilityLabel(m.t("settings.voice_try_here"))
                     .font(RelicStyle.font(14, weight: 400)).lineLimit(2...2)
                     .padding(.vertical, 7).padding(.leading, 10).padding(.trailing, 34).frame(width: 300, height: 60.8)
                     .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 9))

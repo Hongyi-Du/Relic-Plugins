@@ -3,6 +3,53 @@ import AppKit
 @testable import Relic
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
+    func testActualDrawSeparatesFontExtentFromCodeParagraphLeading() throws {
+        let view = ReferenceLabel("review('Windows')\nreview('macOS')", size: 11.25, lineHeight: 19.375, lines: 0, monospaced: true).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 180, height: 60)
+        let manager = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
+        manager.recordDraws = true
+        let container = try XCTUnwrap(view.textContainer)
+        manager.ensureLayout(for: container)
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let before = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let range = NSRange(location: 0, length: (view.string as NSString).length)
+        let advances = NativeTextGeometry.advances(manager, container: container, characters: range)
+        let draw = try XCTUnwrap(manager.lastDraw)
+        let measured = NativeTypographicGeometry.measure(advances: advances, draw: draw, characters: range, origin: view.textContainerOrigin)
+        XCTAssertTrue(measured.complete)
+        XCTAssertEqual(measured.rectangles.count, 2)
+        XCTAssertEqual(try XCTUnwrap(measured.rectangles.first).height, 13.095703125, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(measured.envelope).height, 32.470703125, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(advances.envelope).height, 38.75, accuracy: 0.001,
+            "Original TextKit line boxes remain available and include the paragraph leading")
+        XCTAssertEqual(measured.rectangles[0].width, advances.rectangles[0].width)
+        let exported = try XCTUnwrap(ElementCapture.textRuns(view).first)
+        XCTAssertEqual(exported["text_bounds_quantity"] as? String, "native-insertion-advance-and-actual-font-typographic-extent")
+        let after = try XCTUnwrap(CaptureRaster.forView(view))
+        view.cacheDisplay(in: view.bounds, to: after)
+        XCTAssertEqual(before, after.representation(using: .png, properties: [:]), "Measurement does not alter the actual draw")
+        view.textStorage?.addAttribute(.foregroundColor, value: NSColor.red, range: range)
+        XCTAssertNotEqual(ElementCapture.textRuns(view).first?["text_bounds_quantity"] as? String,
+            "native-insertion-advance-and-actual-font-typographic-extent", "Stale draw receipts cannot replace current geometry")
+    }
+
+    func testTypographicMeasurementRejectsMissingDrawAndUnboundBaseline() {
+        var advances = NativeTextGeometry.Measurement()
+        advances.rectangles = [NSRect(x: 0, y: 0, width: 20, height: 22)]
+        advances.lines = [["fragment": ElementCapture.box(advances.rectangles[0])]]
+        let range = NSRange(location: 0, length: 2)
+        XCTAssertFalse(NativeTypographicGeometry.measure(advances: advances, draw: [:], characters: range, origin: .zero).complete)
+        let draw: [String: Any] = ["draw_returned": true, "callbacks": [[
+            "source_character_range": ["location": 0, "length": 2],
+            "actual_font": ["ascent": 10.0, "descent": 3.0],
+            "text_matrix": ["a": 1.0, "b": 0.0, "c": 0.0, "d": -1.0],
+            "context_ctm": ["a": 1.0, "b": 0.0, "c": 0.0, "d": -1.0],
+            "positions_user_space": [["x": 0.0, "y": 40.0]]
+        ]]]
+        XCTAssertFalse(NativeTypographicGeometry.measure(advances: advances, draw: draw, characters: range, origin: .zero).complete)
+    }
+
     func testActualAttributeDrawsBindRichSpansWithoutChangingTheRenderedBitmap() throws {
         let source = NativeTextStyle.render(try AttributedString(markdown: "Before **bold 组织** after →"), size: 14)
         let bold = (source.string as NSString).range(of: "bold 组织")

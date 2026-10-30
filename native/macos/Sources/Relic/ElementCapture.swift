@@ -204,13 +204,19 @@ import CoreText
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             let inkEnvelope = manager.boundingRect(forGlyphRange: glyphs, in: container)
             let advances = NativeTextGeometry.advances(manager, container: container, characters: range)
-            let rect = (advances.envelope ?? inkEnvelope).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+            let drawing = manager as? NativeGlyphLayoutManager
+            let drawnFonts = drawing?.fontEvidence(for: range, in: view)
+                ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
+            let typographic = drawnFonts["status"] as? String == "measured-current-draw"
+                ? drawing?.lastDraw.map { NativeTypographicGeometry.measure(advances: advances, draw: $0, characters: range, origin: view.textContainerOrigin) } : nil
+            let measured = typographic?.envelope == nil ? advances : typographic!
+            let rect = (measured.envelope ?? inkEnvelope).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
             var lines: [[String: Double]] = []
             manager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineRange, _ in
                 let intersection = NSIntersectionRange(glyphs, lineRange)
                 if intersection.length > 0 { lines.append(box(manager.boundingRect(forGlyphRange: intersection, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
             }
-            if advances.envelope != nil { lines = advances.rectangles.map { box($0.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)) } }
+            if measured.envelope != nil { lines = measured.rectangles.map { box($0.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)) } }
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
             // A multi-line clamp still wraps paragraphs before the final line.
             // Keep its paragraph wrapping and its container's final-line
@@ -222,8 +228,6 @@ import CoreText
             let font = attributes[.font] as? NSFont ?? view.font
             let measuredSizes = Set(fonts.map { Double($0.pointSize) })
             let measuredWeights = Set(fonts.map { cssWeight($0) })
-            let drawnFonts = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view)
-                ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
             let breaks = NativeLineBreaks.inspect(view, range: range)
             let accessibleSpan = RelicAXText(view, range)
             let accessibleText = accessibleSpan.map { NativeInlineCode.source($0) }
@@ -231,8 +235,9 @@ import CoreText
             measuredLayout.merge(breaks.layout, uniquingKeysWith: { _, actual in actual })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
-                "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
+                "text_bounds_quantity": typographic?.envelope != nil ? "native-insertion-advance-and-actual-font-typographic-extent" : advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
                 "native_insertion_geometry": advances.lines, "native_ink_envelope": box(inkEnvelope),
+                "native_typographic_geometry": typographic.map { ["complete": $0.complete, "lines": $0.lines] as [String: Any] } as Any? ?? NSNull(),
                 "native_line_break_configuration": ["paragraph_mode": paragraph?.lineBreakMode.rawValue as Any? ?? NSNull(),
                     "container_mode": container.lineBreakMode.rawValue, "maximum_lines": container.maximumNumberOfLines],
                 "kind": (view as? ReferenceLabelView)?.textGlyphIcon == true ? "icon" : attributes[.link] == nil ? "text" : "link",
