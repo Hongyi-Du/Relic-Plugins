@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (Windows retained logo clip): the existing production
+logo-clip assignment now retains its actual Image, XamlRoot and backing Visual.
+Unload invalidates the binding. Authoritative capture reads only those retained
+objects and records the revision, current clip/geometry identities and unchanged
+properties. It never creates a handoff visual. The reader can measure that bound
+contour while keeping final compositor/PNG coverage unknown; every other owner's
+unmeasured backing clip still fails. No hardcoded radius supplies a measurement.
+
+Changes for the clients (conversation metadata wrapping): Windows date dividers,
+read receipts and historical tool timestamps now use WrapWholeWords, matching
+the reference's normal word wrapping outside message bubbles. Actual d59bede
+group/private receipts showed emergency word breaking enabled in these native
+labels. Font metrics and dimensions are unchanged. The short strings at 1440px
+did not visibly split; multi-size CI still has to verify the resulting layout.
+
+Changes for the clients (macOS toolbar/pointer requests consumed): the owner moved
+each toolbar badge inside its actual Button label and separately records the
+real NSView mouse receiver and that receiver's AX hit. Unknown SwiftUI pointer
+ownership stays unknown. These changes still require their own actual captures;
+98841c1's 230 Mac tests failed the two earlier content-AX-hit assertions.
+The owner superseded its obsolete CI runs without excluding any required case.
+
 Changes for the clients (macOS current-editor request consumed): the shared reader
 now accepts appkit-current-field-editor-v3 only with the actual three base-type
 observations, retained owner/editor runtime classes and nonempty control class.
