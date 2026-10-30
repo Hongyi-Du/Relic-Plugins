@@ -1,5 +1,33 @@
 # Native Relic App contract
 
+Changes for the clients (974c89b startup regression and measurement repair):
+the Windows artifact's actual unhandled exception says the PersonPicture Style
+cannot target the derived runtime Control (0x800F1000, then 0xC000027B).
+All 21 Windows captures failed at startup. The production avatar now retains
+an exact native PersonPicture inside a non-UI composition, using a weak-key
+object table; it adds no visual wrapper. The v2 capture checks the actual
+picture/composition references before and after, as well as all original
+template/parent/RuntimeId checks. The retired subclass receives no outline
+proof. Headless WinUI build passes with zero warnings/errors; real startup
+must still be verified in CI. The macOS requested `Control container only`
+wording is restored without weakening child-paint assertions.
+
+Standalone untrimmed NativeLabel text now uses its already captured, complete
+production DWrite font-metric advance range, with source/COM/revision/Image
+and frame bindings. The former allocation box remains in the evidence.
+This corrects allocation-versus-text comparisons seen at actual 78c7f6b
+xaml-320/356/374; it does not establish final visible glyph pixels or erase
+independent drawing failures. Trimmed/partial/composite labels retain failure.
+
+Diagnostic composition now writes all required scenes even when a capture
+fails, marking missing/invalid slots explicitly as NOT A CAPTURE. Original
+valid PNG pixels are not resized. Receipt/count/matrix/image failures still
+return nonzero; coverage distinguishes diagnostic images from actual captures.
+Archived full capture ca8d997, compared by ae9498c in run 41055285619, now
+downloads and uploads its full strict report successfully. Its parity gate
+fails; the current matrix also requires states absent from that older capture.
+This archived comparison is not verification of a newer native binary.
+
 Changes for the clients (recipient activation and 21-case diagnostics): read
 the macOS d0d8277 request and append `recipients` after all 20 previous smoke
 cases, without changing the full 56-scene / 672-case matrix. Both reference and

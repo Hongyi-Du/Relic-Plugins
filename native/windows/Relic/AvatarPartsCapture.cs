@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Text.Json.Nodes;
 
@@ -6,12 +7,12 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
-    private static void CaptureNativeAvatarParts(Dictionary<DependencyObject, string> ids,
+    private void CaptureNativeAvatarParts(Dictionary<DependencyObject, string> ids,
         Dictionary<DependencyObject, JsonObject> records)
     {
         foreach (var (value, record) in records)
         {
-            if (value is not NativeAvatarPicture owner) continue;
+            if (value is not PersonPicture picture || !nativeAvatarPictures.TryGetValue(picture, out var owner)) continue;
             var frame = owner.ReplyFrame;
             var organization = owner.Paint as NativeOrganizationAvatarPaint;
             if (frame == null && organization?.SubgroupOutline == null) continue;
@@ -25,9 +26,11 @@ public sealed partial class MainWindow
             if (frame != null) { parts["frame"] = frame.Surface; parts["layout"] = frame.Layout; }
             JsonObject State() => new()
             {
-                ["owner_tag_is_paint"] = ReferenceEquals(owner.Tag, owner.Paint),
-                ["owner_template_is_retained"] = ReferenceEquals(owner.Template, owner.PaintTemplate),
-                ["owner_is_loaded"] = owner.IsLoaded, ["owner_is_tab_stop"] = owner.IsTabStop,
+                ["owner_tag_is_paint"] = ReferenceEquals(picture.Tag, owner.Paint),
+                ["owner_template_is_retained"] = ReferenceEquals(picture.Template, owner.PaintTemplate),
+                ["owner_is_loaded"] = picture.IsLoaded, ["owner_is_tab_stop"] = picture.IsTabStop,
+                ["composition_picture_is_owner"] = ReferenceEquals(owner.Picture, picture),
+                ["retained_composition_same_object"] = nativeAvatarPictures.TryGetValue(picture, out var current) && ReferenceEquals(current, owner),
                 ["organization_current_parts"] = organization?.HasCurrentParts,
                 ["organization_has_cabinet_ring"] = organization == null ? null : organization.CabinetRing != null,
                 ["reply_current_parts"] = frame?.HasCurrentParts,
@@ -62,23 +65,24 @@ public sealed partial class MainWindow
                 }
                 complete &= reached;
             }
-            Path(owner.Paint, owner);
+            Path(owner.Paint, picture);
             if (organization != null)
             {
-                Path(organization.Surface, owner); Path(organization.Initial, owner);
-                if (organization.SubgroupOutline != null) Path(organization.SubgroupOutline, owner);
+                Path(organization.Surface, picture); Path(organization.Initial, picture);
+                if (organization.SubgroupOutline != null) Path(organization.SubgroupOutline, picture);
                 complete &= organization.HasCurrentParts && organization.SubgroupOutline != null && frame == null;
             }
-            if (frame != null) { Path(owner, frame.Surface); complete &= frame.HasCurrentParts && organization == null; }
+            if (frame != null) { Path(picture, frame.Surface); complete &= frame.HasCurrentParts && organization == null; }
             else if (organization == null) complete = false;
             var after = State(); var stable = JsonNode.DeepEquals(before, after);
-            complete &= owner.HasCurrentPaint && stable;
+            complete &= owner.HasCurrentPaint && ReferenceEquals(owner.Picture, picture) && stable;
             if (!complete) errors.Add("Retained avatar parts or their actual parent chain are missing, ambiguous or changed");
             record["native_avatar_parts"] = new JsonObject
             {
                 ["source"] = "Actual retained NativeAvatarPicture production parts and visual parent identities",
-                ["version"] = 1, ["status"] = complete ? "measured" : "incomplete", ["kind"] = kind,
-                ["owner_id"] = ids[owner], ["owner_runtime_type"] = owner.GetType().FullName,
+                ["version"] = 2, ["status"] = complete ? "measured" : "incomplete", ["kind"] = kind,
+                ["owner_id"] = ids[picture], ["owner_runtime_type"] = picture.GetType().FullName,
+                ["composition_runtime_type"] = owner.GetType().FullName,
                 ["parts"] = partRows, ["actual_ancestor_edges"] = edges,
                 ["before"] = before, ["after"] = after, ["getters_unchanged"] = stable,
                 ["errors"] = errors, ["observed_at_utc"] = DateTimeOffset.UtcNow.ToString("O"),

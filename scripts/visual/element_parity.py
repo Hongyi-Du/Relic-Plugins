@@ -1082,7 +1082,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             "raw_native_elements": 0, "valid_native_elements": 0, "invalid_native_elements": 0,
             "counts": {category: 0 for category in CATEGORIES}}
     index_rows = []
-    for scene, viewport in sorted(cases.items()):
+    for scene_number, (scene, viewport) in enumerate(sorted(cases.items()), 1):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", scene):
             raise ValueError("Unsafe scene filename in specification: " + scene)
         captures, errors, images = {}, {}, {}
@@ -1153,6 +1153,8 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
         scene_report = {"scene_id": scene, "viewport": viewport, "platforms": results}
         report["scenes"].append(scene_report)
         (output / f"{scene}.parity.json").write_text(json.dumps(scene_report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        if scene_number == 1 or scene_number % 24 == 0 or scene_number == len(cases):
+            print(f"Compared {scene_number}/{len(cases)} required scenes: {scene}; report and failures retained", flush=True)
         write_scene_html(output, scene, viewport, captures, results, images)
         index_rows.append('<tr><td><a href="' + scene + '.html">' + html.escape(scene) + '</a></td>' + ''.join(f'<td class="{"good" if results[p]["passed"] else "bad"}">{"PASS" if results[p]["passed"] else "FAIL"}: {sum(results[p]["counts"].values())} findings; {results[p]["matched_elements"]}/{results[p]["reference_elements"]} matched</td>' for p in PLATFORMS) + '</tr>')
     report["passed"] = not report["unexpected_captures"] and all(s["scenes_passed"] == len(cases) and len(cases) > 0 for s in report["summary"].values())

@@ -3,14 +3,19 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using System.Runtime.CompilerServices;
 
 namespace Relic;
 
 // These are the production objects that paint one avatar. Retaining the actual
 // parts makes the decorative border's owner explicit without changing its paint,
 // accessibility name, event routing, or layout.
-public sealed class NativeAvatarPicture : PersonPicture
+// PersonPicture must remain the native runtime class. Deriving it in the
+// current WinUI projection makes its native Style target appear as Control.
+// This non-UI composition retains that real instance and its real paint.
+public sealed class NativeAvatarPicture
 {
+    internal PersonPicture Picture { get; }
     internal UIElement Paint { get; }
     internal ControlTemplate PaintTemplate { get; }
     internal NativeReplyAvatarFrame? ReplyFrame { get; private set; }
@@ -19,11 +24,11 @@ public sealed class NativeAvatarPicture : PersonPicture
     {
         Paint = paint;
         PaintTemplate = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='PersonPicture'><ContentPresenter Content='{TemplateBinding Tag}'/></ControlTemplate>");
-        DisplayName = label; Tag = Paint; Width = Height = size; IsTabStop = false;
-        Template = PaintTemplate;
+        Picture = new PersonPicture { DisplayName = label, Tag = Paint, Width = size, Height = size,
+            IsTabStop = false, Template = PaintTemplate };
     }
 
-    internal bool HasCurrentPaint => ReferenceEquals(Tag, Paint) && ReferenceEquals(Template, PaintTemplate);
+    internal bool HasCurrentPaint => ReferenceEquals(Picture.Tag, Paint) && ReferenceEquals(Picture.Template, PaintTemplate);
 
     internal Border WrapReply(Grid layout, Brush border)
     {
@@ -71,5 +76,20 @@ public sealed class NativeReplyAvatarFrame
     }
 
     internal bool HasCurrentParts => ReferenceEquals(Surface.Child, Layout) && Layout.Children.Count == 1
-        && ReferenceEquals(Layout.Children[0], Picture) && ReferenceEquals(Picture.ReplyFrame, this) && Picture.HasCurrentPaint;
+        && ReferenceEquals(Layout.Children[0], Picture.Picture) && ReferenceEquals(Picture.ReplyFrame, this) && Picture.HasCurrentPaint;
+}
+
+public sealed partial class MainWindow
+{
+    // Ephemeron ownership retains each composition for exactly its actual
+    // production PersonPicture's lifetime, without retaining removed chat rows.
+    private readonly ConditionalWeakTable<PersonPicture, NativeAvatarPicture> nativeAvatarPictures = new();
+
+    private Border WrapReplyAvatar(Grid layout, Brush border)
+    {
+        var picture = layout.Children.OfType<PersonPicture>().Single();
+        if (!nativeAvatarPictures.TryGetValue(picture, out var composition))
+            throw new InvalidOperationException("The reply avatar has no retained production composition");
+        return composition.WrapReply(layout, border);
+    }
 }

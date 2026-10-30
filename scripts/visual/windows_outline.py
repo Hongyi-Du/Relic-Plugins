@@ -49,9 +49,6 @@ TEMPLATE_CONTROL_CONTRACT = "native-core-control-template-children-only"
 TOGGLE_RUNTIME = "Relic.NativeOverviewToggle"
 TOGGLE_CONTRACT = "relic-overview-toggle-template-parts-only"
 TOGGLE_SOURCE = "actual sealed NativeOverviewToggle base type, retained parts and applied template"
-LOCAL_AVATAR_RUNTIME = "Relic.NativeAvatarPicture"
-LOCAL_AVATAR_CONTRACT = "relic-native-avatar-personpicture-template-only"
-LOCAL_AVATAR_SOURCE = "actual sealed NativeAvatarPicture retained paint/template and PersonPicture base type"
 # Exact SDK 1.6.9 core types. HWWalk.cpp's pre/post-child switches do not
 # render these controls themselves. They do render ContentControl, item
 # presenters and TextBoxView; none of those is covered by this list. Applied
@@ -130,7 +127,6 @@ def native_outline(node, by_id):
                 else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
                 else DOT_CONTRACT if runtime == DOT_RUNTIME else SCROLL_PRESENTER_CONTRACT if runtime == SCROLL_PRESENTER_RUNTIME
                 else TOGGLE_CONTRACT if runtime == TOGGLE_RUNTIME
-                else LOCAL_AVATAR_CONTRACT if runtime == LOCAL_AVATAR_RUNTIME
                 else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
@@ -263,7 +259,7 @@ def native_outline(node, by_id):
         else:
             evidence["scope"] = ("Exact state-dot Grid own panel paint only; the two actual Ellipse layers remain independent. "
                                  "No CSS inset-shadow or final-raster equivalence is supplied")
-    if runtime in {PERSON_RUNTIME, LOCAL_AVATAR_RUNTIME}:
+    if runtime == PERSON_RUNTIME:
         # Fixed SDK's unsealed PersonPicture updates its real template's
         # TextBlock/Ellipse/brushes/VisualState, not a second parent renderer.
         # https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.idl
@@ -272,13 +268,10 @@ def native_outline(node, by_id):
         render_type = node.get("render_type_evidence")
         actual_children = [child for child in by_id.values()
                            if child.get("parent") == node["id"] and not child.get("text_run_source")]
-        local_picture = runtime == LOCAL_AVATAR_RUNTIME
-        valid_picture = (isinstance(picture, dict) and picture.get("source") == (LOCAL_AVATAR_SOURCE if local_picture else PERSON_SOURCE)
+        valid_picture = (isinstance(picture, dict) and picture.get("source") == PERSON_SOURCE
                          and picture.get("status") == "measured" and picture.get("owner_id") == node["id"]
-                         and picture.get("base_type") == ("Microsoft.UI.Xaml.Controls.PersonPicture" if local_picture else "Microsoft.UI.Xaml.Controls.Control")
-                         and picture.get("is_sealed") is local_picture and picture.get("audited_sdk_source") == PERSON_SDK_SOURCE
-                         and (not local_picture or picture.get("current_paint_same_object") is True
-                              and picture.get("audited_local_source") == "native/windows/Relic/NativeAvatarParts.cs#NativeAvatarPicture")
+                         and picture.get("base_type") == "Microsoft.UI.Xaml.Controls.Control"
+                         and picture.get("is_sealed") is False and picture.get("audited_sdk_source") == PERSON_SDK_SOURCE
                          and picture.get("template_present") is True
                          and picture.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
                          and type(picture.get("visual_child_count")) is int
@@ -288,7 +281,7 @@ def native_outline(node, by_id):
         if not valid_picture:
             gap("Exact PersonPicture has no complete actual runtime, present ControlTemplate and nonempty current-child receipt")
         else:
-            evidence["scope"] = ("Exact SDK PersonPicture or sealed retained-paint subclass container only; current template descendants "
+            evidence["scope"] = ("Exact SDK PersonPicture Control container only; current template descendants "
                                  "and their paint/focus/Composition retain independent obligations")
     if runtime == LABEL_RUNTIME:
         label = raw.get("native_label_content")

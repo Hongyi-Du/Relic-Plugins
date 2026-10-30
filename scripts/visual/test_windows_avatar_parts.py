@@ -25,9 +25,9 @@ def current_contract():
          {"xaml-571": "xaml-570", "xaml-570": "xaml-569", "xaml-569": "xaml-568", "xaml-568": "xaml-567"}),
     ):
         owner = nodes[owner_id]
-        owner["type"] = "NativeAvatarPicture"
         state = {"owner_tag_is_paint": True, "owner_template_is_retained": True,
                  "owner_is_loaded": True, "owner_is_tab_stop": False,
+                 "composition_picture_is_owner": True, "retained_composition_same_object": True,
                  "organization_current_parts": True if kind == "organization-outline" else None,
                  "organization_has_cabinet_ring": False if kind == "organization-outline" else None,
                  "reply_current_parts": True if kind == "reply-border" else None,
@@ -40,8 +40,9 @@ def current_contract():
                        "Microsoft.UI.Xaml.Shapes." if typ == "Rectangle" else "Microsoft.UI.Xaml.Controls.") + typ
             rows.append({"role": role, "id": part_id, "runtime_type": runtime, "same_retained_object_in_capture": True})
         owner["native_avatar_parts"] = {
-            "source": SOURCE, "version": 1, "status": "measured", "kind": kind,
-            "owner_id": owner_id, "owner_runtime_type": "Relic.NativeAvatarPicture",
+            "source": SOURCE, "version": 2, "status": "measured", "kind": kind,
+            "owner_id": owner_id, "owner_runtime_type": "Microsoft.UI.Xaml.Controls.PersonPicture",
+            "composition_runtime_type": "Relic.NativeAvatarPicture",
             "parts": rows, "actual_ancestor_edges": [{"child_id": child, "parent_id": parent,
                 "actual_parent_in_visual_walk": True, "captured_parent_matches": True} for child, parent in edges.items()],
             "before": copy.deepcopy(state), "after": copy.deepcopy(state), "getters_unchanged": True,
@@ -104,7 +105,7 @@ class AvatarPartsTests(unittest.TestCase):
     def test_bad_retained_contract_or_parent_never_consumes_a_matching_rectangle(self):
         mutations = {
             "no-receipt": lambda d, n: n["xaml-411"].pop("native_avatar_parts"),
-            "old-type": lambda d, n: n["xaml-411"].update(type="PersonPicture"),
+            "old-derived-type": lambda d, n: n["xaml-411"].update(type="NativeAvatarPicture"),
             "boolean-version": lambda d, n: n["xaml-411"]["native_avatar_parts"].update(version=True),
             "unknown-parts": lambda d, n: n["xaml-411"]["native_avatar_parts"].update(parts=None),
             "wrong-tag": lambda d, n: n["xaml-411"]["native_avatar_parts"]["before"].update(owner_tag_is_paint=False),
@@ -144,6 +145,53 @@ class AvatarPartsTests(unittest.TestCase):
                     nodes["xaml-567"].pop("automation_identity_evidence")
                 result = windows_avatar_parts(data["raw_nodes"], data["uia"])
                 self.assertNotIn("xaml-569", result["owners"])
+
+    def test_v2_requires_actual_native_owner_and_stable_retained_composition(self):
+        for owner_id in ("xaml-411", "xaml-569"):
+            for mutation in ("missing-composition-type", "wrong-composition-type", "old-native-owner-type",
+                             "missing-owner-reference", "wrong-owner-reference", "missing-retained-reference",
+                             "replaced-retained-reference", "unstable-after", "numeric-reference"):
+                with self.subTest(owner_id=owner_id, mutation=mutation):
+                    data, nodes = current_contract()
+                    receipt = nodes[owner_id]["native_avatar_parts"]
+                    if mutation == "missing-composition-type":
+                        receipt.pop("composition_runtime_type")
+                    elif mutation == "wrong-composition-type":
+                        receipt["composition_runtime_type"] = "Relic.UnrelatedComposition"
+                    elif mutation == "old-native-owner-type":
+                        receipt["owner_runtime_type"] = "Relic.NativeAvatarPicture"
+                    elif mutation == "unstable-after":
+                        receipt["after"]["retained_composition_same_object"] = False
+                    else:
+                        key = "composition_picture_is_owner" if mutation in {
+                            "missing-owner-reference", "wrong-owner-reference", "numeric-reference"} else "retained_composition_same_object"
+                        for snapshot in (receipt["before"], receipt["after"]):
+                            if mutation.startswith("missing-"):
+                                snapshot.pop(key)
+                            else:
+                                snapshot[key] = 1 if mutation == "numeric-reference" else False
+                    before = copy.deepcopy(data)
+                    result = windows_avatar_parts(data["raw_nodes"], data["uia"])
+                    self.assertNotIn(owner_id, result["owners"])
+                    self.assertTrue(any(issue["owner_id"] == owner_id for issue in result["unresolved"]))
+                    self.assertEqual(before, data)
+
+    def test_v1_derived_owner_receipts_are_not_silently_upgraded(self):
+        data, nodes = current_contract()
+        for owner_id in ("xaml-411", "xaml-569"):
+            owner = nodes[owner_id]
+            owner["type"] = "NativeAvatarPicture"
+            receipt = owner["native_avatar_parts"]
+            receipt.update(version=1, owner_runtime_type="Relic.NativeAvatarPicture")
+            receipt.pop("composition_runtime_type")
+            for snapshot in (receipt["before"], receipt["after"]):
+                snapshot.pop("composition_picture_is_owner")
+                snapshot.pop("retained_composition_same_object")
+        before = copy.deepcopy(data)
+        result = windows_avatar_parts(data["raw_nodes"], data["uia"])
+        self.assertEqual({}, result["owners"])
+        self.assertEqual({"xaml-411", "xaml-569"}, {issue["owner_id"] for issue in result["unresolved"]})
+        self.assertEqual(before, data)
 
     def test_ownership_does_not_clear_existing_capture_or_paint_failures(self):
         data, nodes = current_contract()

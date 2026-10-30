@@ -69,11 +69,12 @@ def windows_avatar_parts(raw_nodes, uia):
             result["unresolved"].append({"owner_id": owner_id, "reason": reason, "evidence": audit})
 
         if (not isinstance(receipt, dict) or receipt.get("source") != SOURCE
-                or type(receipt.get("version")) is not int or receipt["version"] != 1
+                or type(receipt.get("version")) is not int or receipt["version"] != 2
                 or receipt.get("status") != "measured" or receipt.get("errors") != []
                 or receipt.get("owner_id") != owner_id or counts[owner_id] != 1
-                or owner.get("type") != "NativeAvatarPicture"
-                or receipt.get("owner_runtime_type") != "Relic.NativeAvatarPicture"
+                or owner.get("type") != "PersonPicture"
+                or receipt.get("owner_runtime_type") != "Microsoft.UI.Xaml.Controls.PersonPicture"
+                or receipt.get("composition_runtime_type") != "Relic.NativeAvatarPicture"
                 or receipt.get("getters_unchanged") is not True):
             reject("No complete current retained production avatar contract")
             continue
@@ -111,7 +112,8 @@ def windows_avatar_parts(raw_nodes, uia):
         before, after = receipt.get("before"), receipt.get("after")
         if (not typed or not isinstance(before, dict) or not isinstance(after, dict) or before != after
                 or any(snapshot.get(key) is not True for snapshot in (before, after)
-                       for key in ("owner_tag_is_paint", "owner_template_is_retained", "owner_is_loaded"))
+                       for key in ("owner_tag_is_paint", "owner_template_is_retained", "owner_is_loaded",
+                                   "composition_picture_is_owner", "retained_composition_same_object"))
                 or any(snapshot.get("owner_is_tab_stop") is not False for snapshot in (before, after))):
             reject("Actual production part types, template objects or live getter snapshots disagree")
             continue
