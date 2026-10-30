@@ -104,7 +104,10 @@ struct AppToolbar: View {
             HStack(spacing: 2) {
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count, size: 16, height: 28) { m.setPane("overview") }
                 IconButton(title: m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "cc", badge: m.copies.filter { !$0["read"].flag }.count, size: 16, height: 28) { m.sheet = .copies }
-                RelicStyle.border.frame(width: 1, height: 16).padding(.horizontal, 4)
+                Color.clear.frame(width: 1, height: 16)
+                    .modifier(RecordedSurface(background: RelicStyle.border, kind: "divider", owner: "relic-divider/toolbar"))
+                    .accessibilityElement(children: .ignore).accessibilityIdentifier("relic-divider/toolbar").accessibilityLabel("")
+                    .padding(.horizontal, 4)
                 ForEach(Array(Choices.panes.enumerated()), id: \.offset) { index, pane in
                     IconButton(title: m.t("appbar.pane_shortcut", ["pane": m.t(pane.1), "key": "Option+" + String(index + 1)]), icon: ["org", "work", "file"][index], selected: m.panelOpen && m.pane == pane.0, size: 16, height: 28) {
                         if m.panelOpen && m.pane == pane.0 { m.panelOpen = false } else { m.setPane(pane.0) }
@@ -182,17 +185,18 @@ struct RightPane: View {
                         ForEach(Array((Choices.panes + (m.threadID.isEmpty ? [] : [("thread", "panel.thread")])).enumerated()), id: \.offset) { index, pane in
                             Button { m.setPane(pane.0) } label: {
                                 HStack(spacing: 5) {
-                                    ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary)
-                                    ReferenceLabel(m.t(pane.1), size: 12.5, weight: m.pane == pane.0 ? 600 : 400)
-                                    if pane.0 == "thread" { Button { m.closeThread() } label: { ReferenceIcon(name: "x", size: 12, color: RelicStyle.muted).frame(width: 16, height: 16) }.buttonStyle(.plain).help(m.t("panel.close_thread")) }
+                                    ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
+                                    ReferenceLabel(m.t(pane.1), size: 12.5, weight: m.pane == pane.0 ? 600 : 400, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
+                                    if pane.0 == "thread" { Button { m.closeThread() } label: { ReferenceIcon(name: "x", size: 12, color: RelicStyle.muted, owner: "relic-icon-button/thread-close").frame(width: 16, height: 16) }.buttonStyle(.plain).help(m.t("panel.close_thread")).accessibilityLabel(m.t("panel.close_thread")).accessibilityIdentifier("relic-icon-button/thread-close") }
                                 }.padding(.horizontal, 9).frame(height: 28)
-                            }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
+                            }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityLabel(m.t(pane.1)).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
                         }
                     }
                 }.scrollIndicators(.hidden)
                 IconButton(title: m.t("panel.hide_title"), icon: "x", size: 16) { m.panelOpen = false }.accessibilityLabel(m.t("panel.hide"))
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
-                .overlay(alignment: .bottom) { RelicStyle.line.frame(height: 1) }
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: "relic-card/right-pane-header"))
+                .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/right-pane-header").accessibilityLabel("")
             switch m.pane {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
