@@ -325,7 +325,7 @@ public sealed partial class MainWindow
         if (!continued)
         {
             var time = DateTimeOffset.TryParse(item.Text("at"), out var at) ? at.ToLocalTime().ToString("HH:mm") : "";
-            var label = new ActionRow { Spacing = 6, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+            var label = new MessageHeaderRow { Spacing = 6, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
             TextBlock Who(string value, double size, bool bold = false)
             {
                 return new TextBlock { Text = value, FontSize = size, Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted,

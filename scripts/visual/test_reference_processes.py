@@ -71,14 +71,16 @@ class ReferenceProcessTests(unittest.TestCase):
                 return {"pid": 1234, "returncode": -1, "tree_termination": True, "errors": []}
             with patch.object(capture.subprocess, "Popen", return_value=process) as launch, \
                     patch.object(capture, "stop_reference_worker", side_effect=cleanup) as stop, \
+                    patch.object(capture.time, "monotonic", side_effect=[1000.0, 1000.25, 1090.25]), \
                     patch.object(capture, "creation_flags", return_value=0x08000000):
                 result = capture.reference_process(path, manifest)
             self.assertEqual(result["count"], 0); self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["errors"], ["Reference case exceeded its 90-second deadline"])
             self.assertTrue(result["timed_out"]); self.assertTrue(result["cleanup"]["tree_termination"])
             self.assertEqual(result["completed_checkpoints"], ["before_screenshot"])
             self.assertEqual(launch.call_args.kwargs["creationflags"], 0x08000000)
             self.assertEqual(launch.call_args.args[0][-2:], ["--reference-worker", str(path)])
-            self.assertLessEqual(process.wait.call_args.kwargs["timeout"], 90)
+            self.assertEqual(process.wait.call_args.kwargs["timeout"], 89.75)
             stop.assert_called_once_with(process)
             self.assertEqual(json.loads(action_path.read_text())["steps"], [step], "Timeout never rewrites completed action evidence")
 
