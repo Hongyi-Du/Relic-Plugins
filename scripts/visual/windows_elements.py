@@ -1223,6 +1223,114 @@ def transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs=None):
             for provider, rendered in pairs if counts[rendered["id"]] == 1]
 
 
+DIALOG_SURFACE_SOURCE = "Actual NativeContentDialog protected GetTemplateChild objects from its applied native ControlTemplate"
+
+
+def measured_dialog_surfaces(raw, by_id, unmeasured):
+    """Bind an actual modal surface, not a same-sized/name-matched descendant.
+
+    Template parts are validated against the original captured parent graph;
+    inline/semantic projection must not supply or rewrite this object proof.
+    Authored content and the separately hosted smoke layer remain independent.
+    """
+    surfaces = {}
+    for owner in raw:
+        if owner.get("type") != "NativeContentDialog":
+            continue
+        receipt = owner.get("dialog_surface_evidence")
+        reason = None
+        if not isinstance(receipt, dict):
+            reason = "Actual applied ContentDialog template-part receipt is missing"
+        elif (receipt.get("source") != DIALOG_SURFACE_SOURCE
+                or receipt.get("owner_id") != owner.get("id")
+                or receipt.get("owner_type") != "Relic.NativeContentDialog"
+                or type(receipt.get("template_revision")) is not int or receipt["template_revision"] <= 0
+                or type(receipt.get("template_revision_after")) is not int
+                or receipt["template_revision_after"] != receipt["template_revision"]
+                or receipt.get("template_is_nonnull") is not True
+                or receipt.get("same_applied_template_reference") is not True
+                or receipt.get("same_applied_template_reference_after") is not True
+                or receipt.get("ui_thread_access") is not True
+                or measured_runtime_type(owner, "is_control") is not True
+                or measured_runtime_type(owner, "control_template_present") is not True):
+            reason = "Actual dialog owner, applied template identity/revision or UI-thread receipt is incomplete or changed"
+        parts = receipt.get("parts") if isinstance(receipt, dict) else None
+        resolved = {}
+        if reason is None:
+            if not isinstance(parts, dict):
+                reason = "Actual dialog template-part collection is missing"
+            else:
+                for name, expected_type in (("BackgroundElement", "Border"), ("Content", "ContentPresenter"),
+                                            ("ContentScrollViewer", "ScrollViewer"), ("LayoutRoot", "Grid")):
+                    part = parts.get(name)
+                    part_id = part.get("id") if isinstance(part, dict) else None
+                    target = by_id.get(part_id) if isinstance(part_id, str) else None
+                    path = part.get("actual_parent_path_to_owner") if isinstance(part, dict) else None
+                    if (not target or not isinstance(path, list) or len(path) < 2
+                            or part.get("part_name") != name or part.get("is_null") is not False
+                            or part.get("same_applied_part_reference") is not True
+                            or part.get("path_reaches_owner") is not True
+                            or part.get("error") or part.get("ancestry_cycle")
+                            or part.get("runtime_type") != "Microsoft.UI.Xaml.Controls." + expected_type
+                            or target.get("type") != expected_type):
+                        reason = "Actual dialog template part has missing/changed object identity or type: " + name
+                        break
+                    ids = []
+                    for step in path:
+                        step_id = step.get("id") if isinstance(step, dict) else None
+                        item = by_id.get(step_id) if isinstance(step_id, str) else None
+                        runtime_type = step.get("runtime_type") if isinstance(step, dict) else None
+                        if (not item or not isinstance(runtime_type, str)
+                                or runtime_type.rsplit(".", 1)[-1] != item.get("type")
+                                or item["id"] in ids):
+                            reason = "Actual dialog template path has missing, changed or repeated objects: " + name
+                            break
+                        ids.append(item["id"])
+                    if reason is not None:
+                        break
+                    if (ids[0] != target["id"] or ids[-1] != owner["id"]
+                            or any(by_id[child].get("parent") != parent for child, parent in zip(ids, ids[1:]))):
+                        reason = "Actual dialog template path does not match the captured parent-object chain: " + name
+                        break
+                    resolved[name] = target
+        if reason is None:
+            if len({part["id"] for part in resolved.values()}) != len(resolved):
+                reason = "Distinct dialog template parts resolve to the same captured object"
+            else:
+                content_path = [step["id"] for step in parts["Content"]["actual_parent_path_to_owner"]]
+                surface_path = [step["id"] for step in parts["BackgroundElement"]["actual_parent_path_to_owner"]]
+                if (resolved["BackgroundElement"]["id"] not in content_path
+                        or resolved["ContentScrollViewer"]["id"] not in content_path
+                        or resolved["LayoutRoot"]["id"] not in surface_path):
+                    reason = "Actual modal surface, content presenter and scroll viewer do not share the measured template path"
+        if reason is None:
+            authored_id = receipt.get("authored_content_id")
+            authored = by_id.get(authored_id) if isinstance(authored_id, str) else None
+            if (not authored or authored["id"] in {part["id"] for part in resolved.values()}
+                    or authored.get("declared_content_owner") != owner["id"]
+                    or authored.get("declared_content_source") != "ContentControl.Content"
+                    or not isinstance(receipt.get("authored_content_type"), str)
+                    or receipt["authored_content_type"].rsplit(".", 1)[-1] != authored.get("type")):
+                reason = "Authored dialog Content is not independently bound to its actual owner"
+            else:
+                seen, current = set(), authored
+                while current and current["id"] not in seen and current["id"] != resolved["Content"]["id"]:
+                    seen.add(current["id"])
+                    current = by_id.get(current.get("parent"))
+                if not current or current["id"] != resolved["Content"]["id"]:
+                    reason = "Actual authored Content does not reach its measured template ContentPresenter"
+        if reason is None:
+            surface = resolved["BackgroundElement"]
+            if (surface.get("hidden_reason") or not positive(surface.get("bounds"))
+                    or not positive(surface.get("visible_bounds")) or not isinstance(surface.get("style"), dict)):
+                reason = "Actual modal Border has no finite visible layout/paint measurement"
+        if reason is not None:
+            unmeasured.append({"id": owner["id"], "property": "dialog.surface", "reason": reason})
+        else:
+            surfaces[owner["id"]] = resolved["BackgroundElement"]
+    return surfaces
+
+
 def uia_identity_rejection(node, provider_id, owner_by_provider, provider_by_owner):
     """Negative/unique actual identities constrain, never supply, a candidate.
 
@@ -1261,6 +1369,9 @@ def project(xaml_path, uia_path, png_path):
     if image.size != (xaml["viewport"]["width"], xaml["viewport"]["height"]):
         errors.append("Screenshot size differs from measured viewport")
     source_raw = xaml["raw_nodes"]
+    source_by_id = {node["id"]: node for node in source_raw}
+    dialog_surfaces = measured_dialog_surfaces(source_raw, source_by_id, unmeasured)
+    dialog_surface_owners = {surface["id"]: owner for owner, surface in dialog_surfaces.items()}
     identity_bindings = bind_automation_identities(source_raw, uia)
     owner_by_provider = {pair["uia_id"]: pair["xaml_id"] for pair in identity_bindings["pairs"]}
     provider_by_owner = {pair["xaml_id"]: pair["uia_id"] for pair in identity_bindings["pairs"]}
@@ -1331,6 +1442,15 @@ def project(xaml_path, uia_path, png_path):
     control_paint = defaultdict(list)
     for node in raw:
         if node["id"] not in semantic or not visible(node):
+            continue
+        if node["type"] == "NativeContentDialog":
+            # Only the actual GetTemplateChild-bound surface is owned here.
+            # Other template paint and authored Content stay independent; a
+            # generic descendant/name/geometry rule cannot enlarge this scope.
+            surface = dialog_surfaces.get(node["id"])
+            if surface is not None:
+                control_paint[node["id"]].append(surface)
+                owned[surface["id"]] = (node["id"], "actual applied dialog BackgroundElement surface")
             continue
         labels = []
         avatar_backgrounds = []
@@ -1429,12 +1549,14 @@ def project(xaml_path, uia_path, png_path):
             current = uia_by_id.get(current.get("parent"))
         return None
     for node in raw:
+        dialog_surface = dialog_surfaces.get(node["id"])
+        paint_node = dialog_surface if dialog_surface is not None else node
         if control_kind(node) in {"resize-handle", "scrollbar", "scrollbar-thumb"} and not node.get("hidden_reason"):
             measured_box = node.get("bounds")
             if not isinstance(measured_box, dict) or not all(finite(measured_box.get(k)) for k in ("x", "y", "width", "height")):
                 unmeasured.append({"id": node["id"], "property": "bounds", "reason": "Production control has no finite measured XAML bounds; no box is synthesized"})
-        if not visible(node):
-            reason = node.get("hidden_reason") or ("fully occluded by measured opaque paint" if positive(node.get("visible_bounds")) and not fragments.get(node["id"]) else "not a visible rendered box")
+        if not visible(paint_node):
+            reason = paint_node.get("hidden_reason") or ("fully occluded by measured opaque paint" if positive(paint_node.get("visible_bounds")) and not fragments.get(paint_node["id"]) else "not a visible rendered box")
             projection.append({"source": node["id"], "reason": reason, "occlusion_masks": occlusion_masks.get(node["id"], [])})
             continue
         # Check even template-owned or unpainted wrappers: unknown attached
@@ -1445,6 +1567,9 @@ def project(xaml_path, uia_path, png_path):
             owner, why = owned[node["id"]]
             record = {"source": node["id"], "owner": owner, "reason": why}
             record["outline_evidence"] = outline_evidence
+            if node["id"] in dialog_surface_owners:
+                record["ownership_evidence"] = copy.deepcopy(source_by_id[dialog_surface_owners[node["id"]]]["dialog_surface_evidence"])
+                record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in label_surfaces:
                 record["ownership_evidence"] = copy.deepcopy(node["native_label_surface_evidence"])
             if node["id"] in dot_layer_owners:
@@ -1469,9 +1594,16 @@ def project(xaml_path, uia_path, png_path):
             projection.append(record)
             continue
         typ = node["type"]
-        style = copy.deepcopy(node.get("style", {}))
-        style["outline"] = outline_value
+        style = copy.deepcopy(paint_node.get("style", {}))
+        surface_outline_evidence = None
+        if dialog_surface is not None:
+            surface_outline, surface_outline_evidence, _ = native_outline(dialog_surface, source_by_id)
+            style["outline"] = "none" if outline_value == "none" and surface_outline == "none" else None
+        else:
+            style["outline"] = outline_value
         kind = control_kind(node) or PAINT_CONTROL_KINDS.get(typ)
+        if dialog_surface is not None:
+            kind = "region"  # Actual modal dialog region, with the native host's semantic owner.
         text = node.get("text", "")
         if typ in TEXT_TYPES:
             if typ == "WorkspaceCodeView":
@@ -1544,6 +1676,8 @@ def project(xaml_path, uia_path, png_path):
                     style[key] = ps.get(key)
             break
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
+        if dialog_surface is not None:
+            state["hovered"] = dialog_surface.get("state", {}).get("hovered")
         matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind)
                     and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
         if kind == "scrollbar-thumb":
@@ -1714,7 +1848,7 @@ def project(xaml_path, uia_path, png_path):
                 style[prop] = None
             unmeasured.append({"id": node["id"], "property": "style.compound_paint",
                                "reason": "Actual indicator layers are retained; their aggregate CSS border/radius/inset-shadow equivalence has not been independently measured"})
-        bounds = scrollbar_bounds or node["bounds"]
+        bounds = scrollbar_bounds or paint_node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
         break_fields, break_evidence = project_line_break_strategies(layout, text, kind, (label or node)["id"])
@@ -1734,7 +1868,7 @@ def project(xaml_path, uia_path, png_path):
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
-                   "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or node["visible_bounds"], "style": style, "state": state,
+                   "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
                                 "line_break_configuration": break_evidence,
@@ -1747,7 +1881,7 @@ def project(xaml_path, uia_path, png_path):
                                 "placeholder": node.get("layout", {}).get("placeholder"),
                                 "text_bounds": actual_text_boxes if actual_text_boxes or not text else None,
                                 "text_coordinate_space": "content-window",
-                                "rich_text_runs": rich_runs, "visible_fragments": fragments.get(node["id"]),
+                                "rich_text_runs": rich_runs, "visible_fragments": fragments.get(paint_node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
                                 "font_family_evidence": [copy.deepcopy(record.get("font_family_coverage")) for record in font_records],
                                 "provider_fonts": provider_fonts if text else [],
@@ -1778,15 +1912,31 @@ def project(xaml_path, uia_path, png_path):
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),
-                                "brush_evidence": copy.deepcopy(node.get("style", {}).get("brush_evidence")),
+                                "brush_evidence": copy.deepcopy(paint_node.get("style", {}).get("brush_evidence")),
                                 "animated_icon_evidence": copy.deepcopy(node.get("animated_icon_evidence")),
                                 "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),
-                                "occlusion_masks": occlusion_masks.get(node["id"], []),
+                                "occlusion_masks": occlusion_masks.get(paint_node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
+        if dialog_surface is not None:
+            element["evidence"]["dialog_surface"] = {
+                "source": "Actual applied NativeContentDialog surface; native host semantics remain separate from its layout box",
+                "template_receipt": copy.deepcopy(node["dialog_surface_evidence"]),
+                "host_layout_projected_as_paint": False, "canonical_geometry_supplied": True,
+                "geometry_quantity": "Actual BackgroundElement layout rectangle transformed to content-window coordinates",
+                "host": {"id": node["id"], "bounds": copy.deepcopy(node["bounds"]),
+                         "visible_bounds": copy.deepcopy(node["visible_bounds"]), "style": copy.deepcopy(node.get("style")),
+                         "uia_id": witness["id"] if witness else None,
+                         "uia_bounds": copy.deepcopy(witness.get("bounds")) if witness else None,
+                         "identity": copy.deepcopy(node.get("automation_identity_evidence"))},
+                "surface": {"id": dialog_surface["id"], "raw": copy.deepcopy(dialog_surface),
+                            "outline_evidence": surface_outline_evidence},
+                "other_template_paint_and_authored_content_merged": False,
+                "smoke_layer_merged": False,
+            }
         element["evidence"]["font_weight_quantities"] = project_font_weights(element)
         for issue in font_weight_issues(element):
             unmeasured.append({"id": node["id"], "property": "style." + issue["field"], "reason": issue["reason"]})
-        project_background_pattern(element, node)
+        project_background_pattern(element, paint_node)
         project_windows_image(element, unmeasured, errors)
         for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):
             if style.get(key) is None:

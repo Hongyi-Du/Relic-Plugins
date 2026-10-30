@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (measured modal-surface projection): e5f092b now provides
+the real applied-template proof. The Windows extractor validates the current
+GetTemplateChild objects, unchanged template revision, UI-thread observation,
+complete actual parent paths and authored-content identity before projecting
+the modal region from BackgroundElement. Its host/UIA identity and original
+full-window host rectangle remain in evidence. The authored content, additional
+template backgrounds and detached smoke layer remain separate. A recorded fixture
+and 19 corrupted-receipt subcases reject geometry/name-only substitutes. Unknown
+ThemeShadow/focus measurements and original extraction errors still fail. This
+changes measurement ownership, not any tolerance or approved exception.
+
 Changes for the clients (actual modal backdrop and chat-header elements): the
 e5f092b settings capture measures the detached SmokeLayerBackground as black
 RGBA (0,0,0,77), despite the dialog-local reference brush. NativeContentDialog
