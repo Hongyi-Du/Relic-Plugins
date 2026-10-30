@@ -9,20 +9,39 @@ struct ScrollAppearance: NSViewRepresentable {
     func makeNSView(context: Context) -> Probe { Probe() }
     func updateNSView(_ view: Probe, context: Context) { view.needsLayout = true }
     final class Probe: NSView {
+        private var applying = false
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); needsLayout = true }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didUpdateNotification, object: nil)
+            if let window {
+                NotificationCenter.default.addObserver(self, selector: #selector(windowUpdated(_:)), name: NSWindow.didUpdateNotification, object: window)
+            }
+            needsLayout = true
+        }
+        deinit { NotificationCenter.default.removeObserver(self) }
+        @objc private func windowUpdated(_ notification: Notification) { applyToWindow() }
         override func layout() {
             super.layout()
-            guard let root = window?.contentView else { return }
+            applyToWindow()
+        }
+        private func applyToWindow() {
+            guard !applying, let root = window?.contentView else { return }
+            applying = true; defer { applying = false }
             func apply(_ view: NSView) {
                 if let scroll = view as? NSScrollView {
-                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "before-scroller-configuration") }
-                    if scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller) { scroll.verticalScroller = ReferenceScroller() }
-                    if scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller) { scroll.horizontalScroller = ReferenceScroller() }
-                    if scroll.scrollerStyle != .legacy { scroll.scrollerStyle = .legacy }
-                    if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
-                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "after-scroller-configuration") }
+                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "native-scroll-mounted", once: true) }
+                    let vertical = scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller)
+                    let horizontal = scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller)
+                    if vertical || horizontal || scroll.scrollerStyle != .legacy || !scroll.autohidesScrollers {
+                        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "before-scroller-configuration") }
+                        if vertical { scroll.verticalScroller = ReferenceScroller() }
+                        if horizontal { scroll.horizontalScroller = ReferenceScroller() }
+                        if scroll.scrollerStyle != .legacy { scroll.scrollerStyle = .legacy }
+                        if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
+                        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "after-scroller-configuration") }
+                    }
                 }
                 for child in view.subviews { apply(child) }
             }

@@ -9,10 +9,12 @@ import AppKit
     private var omitted = 0
 
     static func reset() { traces.removeAll() }
-    static func observe(_ scroll: NSScrollView, phase: String) {
+    static func observe(_ scroll: NSScrollView, phase: String, once: Bool = false) {
         let key = ObjectIdentifier(scroll)
         // ObjectIdentifier addresses can be reused after a scene releases a view.
-        let trace = traces[key].flatMap { $0.scroll === scroll ? $0 : nil } ?? ScrollGeometryTrace(scroll)
+        let existing = traces[key].flatMap { $0.scroll === scroll ? $0 : nil }
+        if once, existing != nil { return }
+        let trace = existing ?? ScrollGeometryTrace(scroll)
         traces[key] = trace
         trace.append(phase)
     }

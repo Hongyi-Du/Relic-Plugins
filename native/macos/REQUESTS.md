@@ -1,3 +1,22 @@
+## 2026-10-30: late-mounted native scroll views must receive the production style
+
+Full 711d27a en-US/light/1440x900/settings-harness retains an ordinary 17px
+AppKit scrollbar at x1164 instead of ReferenceScroller's 10px gutter. Its
+content column is consequently 629px versus the reference's 634px. The global
+styling probe only ran when its own frame laid out, so a new dialog scroll view
+could appear later without another probe layout. This code path is unchanged
+in the newer pre-fix source.
+
+The probe now also handles the public NSWindow.didUpdateNotification from its
+own mounted window. Only missing/replaced native scrollers or changed style
+properties are configured; existing instances and scroll state are retained.
+Unmounting detaches the observer. A regression mounts an overflowing native
+scroll view after the initial layout, uses the real window.update() API, verifies
+the 10px gutter and retained scroller identity, then verifies observer detachment.
+The CI geometry trace records first registration/configuration changes and
+actual bounds notifications, without duplicating unchanged setup on every event.
+No scrollbar extraction is filtered, and new full captures remain required.
+
 ## 2026-10-30: bounded own-outline evidence for native read-only text
 
 `fd93174` native apps run `41043480042`, macOS job `124021988466`, now passes
