@@ -21,7 +21,7 @@ def retain_original_receipts(case: Path, output: Path) -> None:
                  "trace-markers.json", "layer-snapshots.json", "layer-events.json", "layer-boundaries.json",
                  "layer-document.json", "trace-config.json", "target.json", "layout-metrics.json", "scene.png",
                  "producer-smb-request.json", "producer-smb-receipt.json", "trace-category-selection.json",
-                 "diagnostic.json", "progress.json"):
+                 "diagnostic.json", "diagnostic-phases.json", "progress.json"):
         path = case / name
         if path.exists():
             shutil.copyfile(path, original / name)

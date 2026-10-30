@@ -114,6 +114,7 @@ public sealed partial class MainWindow
     private void ThemeSurfaces()
     {
         root.Background = Paint("FFFFFF", "1F1F1E");
+        chatRegion.Background = Paint("FFFFFF", "1F1F1E");
         sidebarSurface.Background = Paint("F8F7F5", "191918"); sidebarSurface.BorderBrush = Line;
         inspectorSurface.Background = Paint("F8F7F5", "191918"); inspectorSurface.BorderBrush = Line;
         composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");

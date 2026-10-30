@@ -1,5 +1,68 @@
 # Native Relic App contract
 
+Changes for the clients (native sidebar own paint): the extractor now observes
+the exact sealed NativeSidebarRow class, its real current template and unique
+ContentPresenter/Content object binding. This closes the local derived-class
+contract gap without treating arbitrary derived controls as SDK primitives.
+Actual child paint, focus, Composition and historical missing receipts still
+have independent checks; seven pure regression cases run only in CI.
+
+Latest full-matrix baseline, 215a313 / workflow 41100560921: the compare job
+processed all 672 expected scene names, but Windows had only 668 paired artifact
+sets and macOS 634. Both measured/passed counts remain zero. Windows paired
+124570 elements with missing/extra/text/geometry/style/state counts
+4678/8680/17200/65754/399642/15190 and 2078444 extraction errors. macOS paired
+119702 with counts 9118/24328/43/34029/162264/13068 and 577063 extraction errors.
+These totals cover a much larger matrix than the earlier 22-case smoke report
+and are not a like-for-like regression comparison. Exceptions remain empty.
+
+Changes for the clients (measured Windows style corrections): the two file-header
+action icons now retain their button's ink-2 foreground, matching .icon-btn;
+the separate leading file glyph retains ink-3. Custom tab/resize hosts explicitly
+declare the zero border their authored templates render, and the chat region
+paints its own reference bg in both themes. These are production properties,
+not substitutions in extraction. Actual 215a313 evidence identified the mismatch.
+Small-window message hover/copy captures now ask the actual native scroll
+presenter to bring the target row into view before the unchanged visibility
+assertion, matching the reference's real hover operation. Subsequent CI must
+verify the visual changes and the four previously failing hover/copy cases.
+The member model/effort dropdowns explicitly use ink, and 26px form microphones
+use a 13px corner radius rather than retaining the 32px variant's 16px radius.
+
+Changes for the clients (same-process UIA ranges): the existing native COM reader
+also enumerates actual Format units within each observed visible range, keeping
+raw HRESULTs, doubles and document-prefix endpoints. This closes a diagnostic
+gap; it does not replace external UIA data or suppress zero-area failures.
+
+Changes for the clients (resumed measurement fixes): Windows tab paint now has
+an independent actual Tag/Border.Child identity receipt. Only a coextensive,
+unchanged simple surface can supply its owner's measured paint; independent
+content and unresolved Composition shadows remain in the evidence and gate.
+The inset-shadow reader compares local dimensions to local dimensions and
+window bounds to window bounds, and reads a filled Shape's actual Fill rather
+than its Stroke. The reduced 67ed20d receipt is a regression fixture; no native
+geometry or expected reference values are manufactured. The custom avatar host
+now explicitly has zero border thickness because its retained paint owns rings.
+
+Changes for the clients (reference trace boundary): tracing ends directly after
+the actual screenshot marker, before supplementary LayerTree/font diagnostics.
+Stop/export keeps its original deadline and every loss/error. Later diagnostics
+have a separate retained host-clock phase receipt, not fabricated trace markers.
+The existing archived paint decode completed all 134 unique SKPs, but text-to-DOM
+attribution and final screenshot paint ownership remain unproven; these records
+do not replace canonical measurements or satisfy the parity gate.
+
+Resume evidence: native build/test workflow 41100569170 and package workflow
+41100569283 passed at 215a313. Its smoke 41100562213 and full 41100560921 both
+failed; build success is not element parity. PR #4 remains draft and unmerged.
+
+Changes for the clients (macOS requests consumed): the latest owner branch
+records real NSCell paint switches and exact scroll AX focus separately from
+the surrounding SwiftUI focus binding, and retains actual layer filter names.
+Those observations do not establish generic filter/occlusion semantics or hide
+elements. Its search field changes and field-editor observations need the next
+merged CI capture. No tolerance, exception or matrix change is accepted.
+
 Changes for the clients (settings surface ownership): only the Windows settings
 dialog now uses its real BackgroundElement as the overall light/dark fill. Its
 SDK TopOverlay and authored body retain hit testing with transparent brushes.

@@ -181,16 +181,23 @@ def select_cases(manifest, scenes, width, height):
     return selected
 
 
-def read_trace_stream(cdp, handle, path):
+def read_trace_stream(cdp, handle, path, *, deadline=None):
     """Persist exact CDP stream bytes; no JSON event filtering or rewriting."""
+    # Check the shared budget around synchronous CDP calls. A blocked single
+    # protocol call still has the existing outer CI timeout; this is not an
+    # assertion that Python can cancel an in-flight browser response.
     byte_count = 0
     try:
         with path.open("wb") as target:
             while True:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("Trace stream exceeded the original stop/export deadline")
                 part = cdp.send("IO.read", {"handle": handle, "size": 1024 * 1024})
                 data = base64.b64decode(part["data"], validate=True) if part.get("base64Encoded") else part["data"].encode("utf-8")
                 target.write(data)
                 byte_count += len(data)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("Trace stream exceeded the original stop/export deadline")
                 if part.get("eof"):
                     break
     finally:
@@ -533,6 +540,7 @@ def collect_scene(browser, context, manifest, case, output, source, producer_smb
     cdp = context.new_cdp_session(page)
     trace_cdp = browser.new_browser_cdp_session()
     complete, layer_events, markers, buffer_usage, boundaries = [], [], [], [], []
+    diagnostic_phases = []
     phase = {"name": "initial"}
     progress = []
     def checkpoint(operation, state):
@@ -563,6 +571,79 @@ def collect_scene(browser, context, manifest, case, output, source, producer_smb
         result = read(trace_cdp, "Tracing.recordClockSyncMarker", {"syncId": marker_id})
         markers.append({"id": marker_id, "receipt": result, "received_monotonic": time.monotonic()})
     tracing = False
+    trace_deadline = None
+    def diagnostic_phase(name):
+        phase["name"] = name
+        diagnostic_phases.append({"name": name, "received_monotonic": time.monotonic(),
+            "trace_end_acknowledged": not tracing,
+            "quantity": "Host monotonic diagnostic boundary, not a trace clock marker"})
+        write_json(output / "diagnostic-phases.json", diagnostic_phases)
+    def finish_trace():
+        nonlocal tracing, trace_deadline
+        # Stop at the PNG boundary, before diagnostic snapshot/font work can
+        # add more paint records. This cannot repair a buffer already full
+        # before the PNG. A failed end may be cleaned up in finally, but the
+        # original deadline and every failure remain; there is no fresh budget.
+        if trace_deadline is None:
+            trace_deadline = time.monotonic() + 45
+            report["trace_stop_deadline_monotonic"] = trace_deadline
+        operation = "Tracing.end"
+        try:
+            checkpoint(operation, "started")
+            trace_cdp.send("Tracing.end")
+            tracing = False
+            checkpoint(operation, "completed")
+            operation = "Tracing.tracingComplete"
+            checkpoint(operation, "started")
+            while not complete and time.monotonic() < trace_deadline:
+                # Playwright must pump the actual CDP completion event.
+                page.wait_for_timeout(100)
+            if not complete:
+                raise TimeoutError("No Tracing.tracingComplete event within 45 seconds")
+            checkpoint(operation, "completed")
+            write_json(output / "trace-complete.json", complete[0])
+            if complete[0].get("dataLossOccurred"):
+                report["errors"].append({"source": "Tracing", "reason": "Trace data loss occurred"})
+            trace_path = output / "trace.json"
+            operation = "trace-stream"
+            checkpoint(operation, "started")
+            report["trace_byte_count"] = read_trace_stream(trace_cdp, complete[0]["stream"], trace_path,
+                                                          deadline=trace_deadline)
+            checkpoint(operation, "completed")
+            operation = "trace-parse"
+            checkpoint(operation, "started")
+            trace = json.loads(trace_path.read_text(encoding="utf-8"))
+            index = extract_pictures(trace, output / "pictures")
+            write_json(output / "pictures.json", index)
+            diagnostics = trace_diagnostics(trace, index)
+            write_json(output / "trace-diagnostics.json", diagnostics)
+            command_line = diagnostics["command_line"]
+            smb_receipt = producer_smb_receipt(producer_smb_mib, command_line)
+            report["producer_smb_receipt"] = smb_receipt
+            write_json(output / "producer-smb-receipt.json", smb_receipt)
+            report["errors"].extend({"source": "producer_smb_command_line", "reason": reason}
+                                    for reason in smb_receipt["errors"])
+            if not isinstance(command_line, str) or not command_line:
+                report["errors"].append({"source": "browser_command_line",
+                    "reason": "Actual trace metadata command line missing; scrollbar launch environment unverified"})
+            elif "--hide-scrollbars" in command_line:
+                report["errors"].append({"source": "browser_command_line",
+                    "reason": "Actual browser command line still contains --hide-scrollbars"})
+            if diagnostics["nonzero_loss_evidence"]:
+                report["errors"].append({"source": "trace_processor_stats",
+                    "reason": "Original trace processor statistics report packet loss or discarded/overwritten data",
+                    "evidence": diagnostics["nonzero_loss_evidence"]})
+            report["picture_count"] = len(index["pictures"])
+            report["trace_event_count"] = index["trace_event_count"]
+            report["errors"].extend(index["errors"])
+            if not index["pictures"]:
+                report["errors"].append({"source": "Tracing", "reason": "No actual skp64 payload exported; paint-record route remains unproven"})
+            checkpoint(operation, "completed")
+        except Exception as error:
+            checkpoint(operation, "failed")
+            report["errors"].append({"source": "trace_export", "operation": operation, "reason": str(error)})
+        finally:
+            write_json(output / "diagnostic.json", report)
     try:
         write_json(output / "browser.json", {"playwright_browser_version": browser.version,
             "cdp": read(trace_cdp, "Browser.getVersion"), "host_platform": sys.platform,
@@ -614,12 +695,13 @@ def collect_scene(browser, context, manifest, case, output, source, producer_smb
         checkpoint("page/screenshot", "completed")
         marker("after_screenshot")
         layer_boundary(layer_events, first_scene_layer_event, "after_screenshot", output, boundaries)
-        marker("before_layer_snapshots")
+        finish_trace()
+        diagnostic_phase("before_layer_snapshots")
         layer_snapshots = collect_layer_snapshots(cdp, read, output, layer_events,
                                                    first_scene_layer_event, boundaries, marker_sources)
         report["errors"].extend(layer_snapshots["errors"])
         report["layer_snapshot_status"] = layer_snapshots["status"]
-        marker("after_layer_snapshots")
+        diagnostic_phase("after_layer_snapshots")
         write_json(output / "scene-metrics.json", page.evaluate(SCENE_METRICS))
         write_json(output / "layout-metrics.json", read(cdp, "Page.getLayoutMetrics"))
         write_json(output / "target.json", read(cdp, "Target.getTargetInfo"))
@@ -634,56 +716,12 @@ def collect_scene(browser, context, manifest, case, output, source, producer_smb
             checkpoint("font-evidence", "started")
             write_json(output / "fonts.json", font_evidence(cdp, snapshot, inputs))
             checkpoint("font-evidence", "completed")
-        marker("after_source_evidence")
+        diagnostic_phase("after_source_evidence")
     except Exception as error:
         report["errors"].append({"source": "scene_capture", "reason": str(error)})
     finally:
         if tracing:
-            try:
-                checkpoint("Tracing.end", "started")
-                trace_cdp.send("Tracing.end")
-                checkpoint("Tracing.end", "completed")
-                deadline = time.monotonic() + 45
-                while not complete and time.monotonic() < deadline:
-                    # Playwright must pump the CDP completion event.
-                    page.wait_for_timeout(100)
-                if not complete:
-                    raise TimeoutError("No Tracing.tracingComplete event within 45 seconds")
-                write_json(output / "trace-complete.json", complete[0])
-                if complete[0].get("dataLossOccurred"):
-                    report["errors"].append({"source": "Tracing", "reason": "Trace data loss occurred"})
-                trace_path = output / "trace.json"
-                checkpoint("trace-stream", "started")
-                report["trace_byte_count"] = read_trace_stream(trace_cdp, complete[0]["stream"], trace_path)
-                checkpoint("trace-stream", "completed")
-                trace = json.loads(trace_path.read_text(encoding="utf-8"))
-                index = extract_pictures(trace, output / "pictures")
-                write_json(output / "pictures.json", index)
-                diagnostics = trace_diagnostics(trace, index)
-                write_json(output / "trace-diagnostics.json", diagnostics)
-                command_line = diagnostics["command_line"]
-                smb_receipt = producer_smb_receipt(producer_smb_mib, command_line)
-                report["producer_smb_receipt"] = smb_receipt
-                write_json(output / "producer-smb-receipt.json", smb_receipt)
-                report["errors"].extend({"source": "producer_smb_command_line", "reason": reason}
-                                        for reason in smb_receipt["errors"])
-                if not isinstance(command_line, str) or not command_line:
-                    report["errors"].append({"source": "browser_command_line",
-                        "reason": "Actual trace metadata command line missing; scrollbar launch environment unverified"})
-                elif "--hide-scrollbars" in command_line:
-                    report["errors"].append({"source": "browser_command_line",
-                        "reason": "Actual browser command line still contains --hide-scrollbars"})
-                if diagnostics["nonzero_loss_evidence"]:
-                    report["errors"].append({"source": "trace_processor_stats",
-                        "reason": "Original trace processor statistics report packet loss or discarded/overwritten data",
-                        "evidence": diagnostics["nonzero_loss_evidence"]})
-                report["picture_count"] = len(index["pictures"])
-                report["trace_event_count"] = index["trace_event_count"]
-                report["errors"].extend(index["errors"])
-                if not index["pictures"]:
-                    report["errors"].append({"source": "Tracing", "reason": "No actual skp64 payload exported; paint-record route remains unproven"})
-            except Exception as error:
-                report["errors"].append({"source": "trace_export", "reason": str(error)})
+            finish_trace()
         write_json(output / "layer-events.json", layer_events)
         write_json(output / "trace-markers.json", markers)
         write_json(output / "buffer-usage.json", buffer_usage)

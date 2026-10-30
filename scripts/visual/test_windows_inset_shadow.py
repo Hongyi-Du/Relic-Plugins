@@ -1,5 +1,7 @@
-"""Synthetic retained-paint receipts only; these tests create no native windows."""
+"""Synthetic and reduced recorded receipts; these tests create no native windows."""
 from copy import deepcopy
+import json
+from pathlib import Path
 import unittest
 
 from windows_inset_shadow import SOURCE, OPERATION, PRESENTATION_GAP, windows_inset_shadows
@@ -26,12 +28,24 @@ def fixture():
     return [
         {"id": "bubble", "type": "Border", "parent": None, "opacity": 1, "native_inset_shadow": r,
          "bounds": {"x": 20, "y": 30, "width": 100, "height": 40}, "axis_aligned_transform": True,
+         "local_bounds": {"x": 0, "y": 0, "width": 100, "height": 40},
          "transform": {"m11": 1, "m12": 0, "m21": 0, "m22": 1, "offset_x": 20, "offset_y": 30},
          "style": {"border_widths": [0, 0, 0, 0], "corner_radii": [0, 0, 0, 0], "shadow": []}},
         {"id": "layout", "type": "Grid", "parent": "bubble", "opacity": 1},
         {"id": "canvas", "type": "Canvas", "parent": "layout", "opacity": 1},
-        {"id": "shadow", "type": "Path", "parent": "canvas", "opacity": 1, "style": {"foreground": [112, 88, 184, 255]}},
+        {"id": "shadow", "type": "Path", "parent": "canvas", "opacity": 1,
+         "bounds": {"x": 20, "y": 30, "width": 100, "height": 40},
+         "local_bounds": {"x": 0, "y": 0, "width": 100, "height": 40}, "axis_aligned_transform": True,
+         "transform": {"m11": 1, "m12": 0, "m21": 0, "m22": 1, "offset_x": 20, "offset_y": 30},
+         "style": {"foreground": [0, 0, 0, 0], "background": [112, 88, 184, 255],
+                   "brush_evidence": {"background": {"type": "Microsoft.UI.Xaml.Media.SolidColorBrush",
+                       "opacity": 1, "solid_color_rgba8": [112, 88, 184, 255], "solid_rgba": [112, 88, 184, 255]}}}},
         {"id": "content", "type": "StackPanel", "parent": "layout", "opacity": 1}]
+
+
+def recorded_fixture():
+    path = Path(__file__).with_name("fixtures") / "windows-inset-shadow-67ed20d.json"
+    return json.loads(path.read_text(encoding="utf-8"))["raw_nodes"]
 
 
 class WindowsInsetShadowTests(unittest.TestCase):
@@ -45,6 +59,64 @@ class WindowsInsetShadowTests(unittest.TestCase):
                                            "spread_radius": 0, "color": [112, 88, 184, 255]}])
         self.assertFalse(owner["presentation_identity_proven"])
         self.assertEqual([x["reason"] for x in result["unmeasured"]], [PRESENTATION_GAP])
+
+    def test_recorded_fractional_local_dimensions_are_not_window_extents(self):
+        raw = recorded_fixture(); before = deepcopy(raw)
+        owner, path = raw[0], raw[3]
+        self.assertEqual(owner["native_inset_shadow"]["actual_size"],
+                         [426.2866516113281, 72.19999694824219])
+        self.assertEqual([owner["bounds"][k] for k in ("width", "height")],
+                         [426.28662109375, 72.20001220703125])
+        self.assertEqual(path["style"]["foreground"], [0, 0, 0, 0])
+        self.assertEqual(path["style"]["background"], [112, 88, 184, 255])
+        result = windows_inset_shadows(raw)
+        self.assertEqual(raw, before)
+        self.assertEqual(result["owners"]["xaml-635"]["path_id"], "xaml-638")
+        self.assertEqual(result["audits"]["xaml-635"]["issues"], [])
+        self.assertFalse(result["owners"]["xaml-635"]["presentation_identity_proven"])
+        self.assertEqual([item["reason"] for item in result["unmeasured"]], [PRESENTATION_GAP])
+
+    def test_recorded_local_dimensions_must_match_exactly_on_both_objects(self):
+        for index in (0, 3):
+            for key in ("x", "y", "width", "height"):
+                with self.subTest(index=index, key=key):
+                    raw = recorded_fixture()
+                    raw[index]["local_bounds"][key] += 0.000000001
+                    self.assertEqual(windows_inset_shadows(raw)["owners"], {})
+            raw = recorded_fixture(); del raw[index]["local_bounds"]
+            self.assertEqual(windows_inset_shadows(raw)["owners"], {})
+
+    def test_recorded_owner_path_window_bounds_and_transforms_stay_bound(self):
+        for index in (0, 3):
+            for field, keys in (("bounds", ("x", "y", "width", "height")),
+                                ("transform", ("m11", "m12", "m21", "m22", "offset_x", "offset_y"))):
+                for key in keys:
+                    with self.subTest(index=index, field=field, key=key):
+                        raw = recorded_fixture(); raw[index][field][key] += 0.000000001
+                        self.assertEqual(windows_inset_shadows(raw)["owners"], {})
+                raw = recorded_fixture(); del raw[index][field]
+                self.assertEqual(windows_inset_shadows(raw)["owners"], {})
+
+    def test_recorded_fill_style_and_brush_evidence_must_all_agree(self):
+        for mode in ("background", "type", "opacity", "solid_color_rgba8", "solid_rgba", "missing-brush"):
+            with self.subTest(mode=mode):
+                raw = recorded_fixture(); style = raw[3]["style"]
+                fill = style["brush_evidence"]["background"]
+                if mode == "background": style["background"][0] += 1
+                elif mode == "type": fill["type"] = "Microsoft.UI.Xaml.Media.LinearGradientBrush"
+                elif mode == "opacity": fill["opacity"] = 0.5
+                elif mode == "missing-brush": del style["brush_evidence"]["background"]
+                else: fill[mode][0] += 1
+                self.assertEqual(windows_inset_shadows(raw)["owners"], {})
+
+    def test_recorded_production_failure_is_preserved_and_not_owned(self):
+        raw = recorded_fixture(); raw[0]["native_inset_shadow"]["failure"] = "recorded-test mutation: operation failed"
+        before = deepcopy(raw); result = windows_inset_shadows(raw)
+        self.assertEqual(result["owners"], {})
+        self.assertEqual(raw, before)
+        self.assertEqual(result["audits"]["xaml-635"]["receipt"]["failure"],
+                         "recorded-test mutation: operation failed")
+        self.assertIn(PRESENTATION_GAP, [item["reason"] for item in result["unmeasured"]])
 
     def test_old_border_is_never_relabelled_as_shadow(self):
         raw = fixture(); del raw[0]["native_inset_shadow"]

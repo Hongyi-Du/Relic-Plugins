@@ -16,6 +16,7 @@ internal static class InProcessTextRangeNative
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PatternResult(IntPtr self, int pattern, out IntPtr result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int TextResult(IntPtr self, int length, out IntPtr result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int MoveEndpoint(IntPtr self, int endpoint, IntPtr target, int targetEndpoint);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int MoveEndpointUnit(IntPtr self, int endpoint, int unit, int count, out int moved);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int CompareEndpoint(IntPtr self, int endpoint, IntPtr target, int targetEndpoint, out int comparison);
 
     internal interface IApi
@@ -28,6 +29,7 @@ internal static class InProcessTextRangeNative
         int Text(IntPtr range, out IntPtr bstr);
         int Rectangles(IntPtr range, out IntPtr array);
         int Move(IntPtr range, int endpoint, IntPtr target, int targetEndpoint);
+        int MoveUnit(IntPtr range, int endpoint, int unit, int count, out int moved);
         int Compare(IntPtr range, int endpoint, IntPtr target, int targetEndpoint, out int comparison);
         uint Dimensions(IntPtr array);
         uint ElementSize(IntPtr array);
@@ -53,6 +55,7 @@ internal static class InProcessTextRangeNative
         public int Text(IntPtr range, out IntPtr bstr) => AutomationIdentityNative.Method<TextResult>(range, 12)(range, -1, out bstr);
         public int Rectangles(IntPtr range, out IntPtr array) => AutomationIdentityNative.Method<PointerResult>(range, 10)(range, out array);
         public int Move(IntPtr range, int endpoint, IntPtr target, int targetEndpoint) => AutomationIdentityNative.Method<MoveEndpoint>(range, 15)(range, endpoint, target, targetEndpoint);
+        public int MoveUnit(IntPtr range, int endpoint, int unit, int count, out int moved) => AutomationIdentityNative.Method<MoveEndpointUnit>(range, 14)(range, endpoint, unit, count, out moved);
         public int Compare(IntPtr range, int endpoint, IntPtr target, int targetEndpoint, out int comparison) => AutomationIdentityNative.Method<CompareEndpoint>(range, 5)(range, endpoint, target, targetEndpoint, out comparison);
         public uint Dimensions(IntPtr array) => SafeArrayGetDim(array);
         public uint ElementSize(IntPtr array) => SafeArrayGetElemsize(array);
@@ -246,6 +249,20 @@ internal static class InProcessTextRangeNative
             try
             {
                 var text = Text(range, path, value);
+                // Bind the actual source endpoints before geometry. A failed
+                // rectangle getter must not erase the independently read span.
+                if (document != IntPtr.Zero)
+                {
+                    var start = Endpoint(range, document, 0, path + ".start"); var end = Endpoint(range, document, 1, path + ".end");
+                    value["start"] = start; value["end"] = end;
+                    if (start["verified_prefix_utf16_length"] is JsonValue sv && end["verified_prefix_utf16_length"] is JsonValue ev
+                        && sv.TryGetValue<int>(out var s) && ev.TryGetValue<int>(out var e) && documentText != null && text != null)
+                    {
+                        var within = s >= 0 && e >= s && e <= documentText.Length;
+                        value["offsets_within_document_snapshot"] = within;
+                        value["text_matches_document_snapshot_slice"] = within && string.Equals(documentText.Substring(s, e - s), text, StringComparison.Ordinal);
+                    }
+                }
                 Trace(path + ".GetBoundingRectangles", "pending"); Check(path + ".GetBoundingRectangles", api.Rectangles(range, out array));
                 var metadata = new JsonObject(); value["safearray"] = metadata;
                 var (lower, upper) = Bounds(array, 5 /* VT_R8 */, sizeof(double), metadata);
@@ -260,22 +277,81 @@ internal static class InProcessTextRangeNative
                 value["rectangle_value_count"] = numbers.Count; value["rectangle_count"] = numbers.Count % 4 == 0 ? numbers.Count / 4 : null;
                 value["all_rectangle_values_finite"] = numbers.All(item => item != null);
                 if (numbers.Count % 4 != 0) throw new InvalidOperationException("Actual rectangle array is not a multiple of four");
-                if (document != IntPtr.Zero)
-                {
-                    var start = Endpoint(range, document, 0, path + ".start"); var end = Endpoint(range, document, 1, path + ".end");
-                    value["start"] = start; value["end"] = end;
-                    if (start["verified_prefix_utf16_length"] is JsonValue sv && end["verified_prefix_utf16_length"] is JsonValue ev
-                        && sv.TryGetValue<int>(out var s) && ev.TryGetValue<int>(out var e) && documentText != null && text != null)
-                    {
-                        var within = s >= 0 && e >= s && e <= documentText.Length;
-                        value["offsets_within_document_snapshot"] = within;
-                        value["text_matches_document_snapshot_slice"] = within && string.Equals(documentText.Substring(s, e - s), text, StringComparison.Ordinal);
-                    }
-                }
             }
             catch (Exception ex) { Fail(path, ex); value["error"] = ex.ToString(); }
             finally { Destroy(array, path + " rectangles"); value["completed_qpc"] = Stopwatch.GetTimestamp(); Trace(path, "observed", value); }
             return value;
+        }
+        void CaptureFormats(IntPtr parent, IntPtr document, string? documentText, string path, JsonObject parentValue)
+        {
+            var ranges = new JsonArray(); parentValue["format_runs"] = ranges;
+            var enumeration = new JsonObject
+            {
+                ["source"] = "Actual COM Clone/MoveEndpointByRange/MoveEndpointByUnit(End, Format, 1)/CompareEndpoints",
+                ["status"] = "incomplete", ["maximum_runs"] = 10000, ["complete"] = false
+            };
+            parentValue["format_enumeration"] = enumeration;
+            var cursor = IntPtr.Zero;
+            int Compare(IntPtr left, int leftEndpoint, IntPtr right, int rightEndpoint, string operation)
+            {
+                Check(operation, api.Compare(left, leftEndpoint, right, rightEndpoint, out var compared));
+                Trace(operation, "observed", new JsonObject { ["comparison"] = compared });
+                return compared;
+            }
+            try
+            {
+                var pathPrefix = path + ".format_enumeration";
+                var parentOrder = Compare(parent, 0, parent, 1, pathPrefix + ".CompareParentStartToEnd");
+                enumeration["parent_start_vs_end"] = parentOrder;
+                if (parentOrder > 0) throw new InvalidOperationException("COM parent text range has reversed endpoints");
+                Check(pathPrefix + ".Clone", api.Clone(parent, out cursor));
+                enumeration["cursor_pointer"] = AutomationIdentityNative.Pointer(cursor);
+                if (cursor == IntPtr.Zero) throw new InvalidOperationException("Format Clone returned no actual cursor");
+                Check(pathPrefix + ".CollapseEndToStart", api.Move(cursor, 1, cursor, 0));
+                while (true)
+                {
+                    var runPath = path + ".format_runs[" + ranges.Count + "]";
+                    var remaining = Compare(cursor, 0, parent, 1, runPath + ".CompareStartToParentEnd");
+                    enumeration["final_start_vs_parent_end"] = remaining;
+                    if (remaining == 0) { enumeration["complete"] = true; enumeration["status"] = "observed"; break; }
+                    if (remaining > 0) throw new InvalidOperationException("COM format cursor advanced beyond its parent range");
+                    if (ranges.Count >= 10000) throw new InvalidOperationException("COM format enumeration exceeded 10000 runs; coverage is incomplete");
+                    var previous = IntPtr.Zero;
+                    try
+                    {
+                        Check(runPath + ".ClonePrevious", api.Clone(cursor, out previous));
+                        if (previous == IntPtr.Zero) throw new InvalidOperationException("Previous format Clone returned no actual range");
+                        Check(runPath + ".MoveEndpointByUnit(End,Format,1)", api.MoveUnit(cursor, 1, 1 /* TextUnit_Format */, 1, out var moved));
+                        var step = new JsonObject { ["index"] = ranges.Count, ["units_moved"] = moved,
+                            ["cursor_pointer"] = AutomationIdentityNative.Pointer(cursor), ["previous_pointer"] = AutomationIdentityNative.Pointer(previous) };
+                        var beyond = Compare(cursor, 1, parent, 1, runPath + ".CompareEndToParentEndBeforeClamp");
+                        step["end_vs_parent_end_before_clamp"] = beyond;
+                        if (beyond > 0) Check(runPath + ".ClampEndToParentEnd", api.Move(cursor, 1, parent, 1));
+                        var startUnchanged = Compare(cursor, 0, previous, 0, runPath + ".CompareStartToPreviousStart");
+                        var endAdvanced = Compare(cursor, 1, previous, 1, runPath + ".CompareEndToPreviousEnd");
+                        var nondegenerate = Compare(cursor, 0, cursor, 1, runPath + ".CompareStartToEnd");
+                        var endInside = Compare(cursor, 1, parent, 1, runPath + ".CompareEndToParentEndAfterClamp");
+                        step["start_vs_previous_start"] = startUnchanged; step["end_vs_previous_end"] = endAdvanced;
+                        step["start_vs_end"] = nondegenerate; step["end_vs_parent_end_after_clamp"] = endInside;
+                        Trace(runPath + ".format_step", "observed", step);
+                        // Retain the actual bad step/range as well. It may not
+                        // establish complete coverage, but never becomes fake
+                        // geometry or a silently skipped interval.
+                        var item = Range(cursor, document, documentText, runPath);
+                        item["format_step"] = step; ranges.Add(item);
+                        if (moved <= 0 || startUnchanged != 0 || endAdvanced <= 0 || nondegenerate >= 0 || endInside > 0)
+                            throw new InvalidOperationException("COM format step did not produce an advancing nondegenerate range with unchanged start inside its parent");
+                        Check(runPath + ".MoveStartToEnd", api.Move(cursor, 0, cursor, 1));
+                    }
+                    finally { Release(previous, runPath + " previous range"); }
+                }
+            }
+            catch (Exception ex) { Fail(path + ".format_enumeration", ex); enumeration["error"] = ex.ToString(); }
+            finally
+            {
+                enumeration["observed_run_count"] = ranges.Count;
+                Release(cursor, path + " format cursor"); Trace(path + ".format_enumeration", enumeration["status"]!.ToString(), enumeration);
+            }
         }
 
         var pattern = IntPtr.Zero; var provider = IntPtr.Zero; var document = IntPtr.Zero; var visible = IntPtr.Zero;
@@ -307,6 +383,7 @@ internal static class InProcessTextRangeNative
                     if (range == IntPtr.Zero) throw new InvalidOperationException("QI(ITextRangeProvider) returned null");
                     var item = Range(range, document, documentText, "visible_ranges[" + (index - lower) + "]");
                     item["safearray_index"] = index; ranges.Add(item);
+                    CaptureFormats(range, document, documentText, "visible_ranges[" + (index - lower) + "]", item);
                 }
                 catch (Exception ex) { Fail("visible range " + index, ex); ranges.Add(new JsonObject { ["safearray_index"] = index, ["error"] = ex.ToString() }); }
                 finally { Release(range, "visible ITextRangeProvider"); Release(unknown, "copied visible SAFEARRAY IUnknown"); }

@@ -104,11 +104,25 @@ def windows_inset_shadows(raw):
         require(type(operation.get("output_fill_mode")) is int and operation["output_fill_mode"] in (0, 1)
                 and receipt.get("path_fill_rule") == ("EvenOdd" if operation.get("output_fill_mode") == 0 else "Nonzero"), "Actual native/XAML fill rule is not bound")
         bounds = owner.get("bounds") if isinstance(owner.get("bounds"), dict) else {}
+        path_bounds = path.get("bounds") if isinstance(path.get("bounds"), dict) else {}
+        local = owner.get("local_bounds") if isinstance(owner.get("local_bounds"), dict) else {}
+        path_local = path.get("local_bounds") if isinstance(path.get("local_bounds"), dict) else {}
         size = receipt.get("actual_size")
-        owner_extent = [bounds.get("width"), bounds.get("height")]
-        require(vector(size, 2) and min(size) > 0 and vector(owner_extent, 2) and size == owner_extent
+        owner_local = [local.get(k) for k in ("x", "y", "width", "height")]
+        path_local_box = [path_local.get(k) for k in ("x", "y", "width", "height")]
+        # These are all actual local layout dimensions. TransformBounds returns
+        # a different (window-space) quantity and can round its extents even for
+        # a translation. Compare those actual window boxes to each other below.
+        require(vector(size, 2) and min(size) > 0 and vector(owner_local, 4)
+                and owner_local[:2] == [0, 0] and size == owner_local[2:]
+                and vector(path_local_box, 4) and path_local_box == owner_local
                 and vector(receipt.get("path_size"), 2) and receipt["path_size"] == size
                 and receipt.get("path_stretch") == "None", "Inset dimensions are not the current actual owner/path dimensions")
+        window_box = [bounds.get(k) for k in ("x", "y", "width", "height")]
+        path_window_box = [path_bounds.get(k) for k in ("x", "y", "width", "height")]
+        require(vector(window_box, 4) and min(window_box[2:]) > 0
+                and vector(path_window_box, 4) and path_window_box == window_box,
+                "Actual inset owner/path window bounds disagree or are unmeasured")
         require(vector(receipt.get("actual_path_to_owner"), 6) and receipt["actual_path_to_owner"] == [1, 0, 0, 1, 0, 0],
                 "Actual inset geometry is not in its owner's coordinate space")
         owner_style = owner.get("style") if isinstance(owner.get("style"), dict) else {}
@@ -131,10 +145,15 @@ def windows_inset_shadows(raw):
         else:
             require(False, "Actual padding contour inputs are missing or invalid")
         transform = owner.get("transform") if isinstance(owner.get("transform"), dict) else {}
-        axes = [transform.get(k) for k in ("m11", "m12", "m21", "m22")]
-        unit_axes = vector(axes, 4) and axes == [1, 0, 0, 1]
-        require(unit_axes and owner.get("axis_aligned_transform") is True,
-                "Inset window-space style requires an observed unit-axis owner transform")
+        path_transform = path.get("transform") if isinstance(path.get("transform"), dict) else {}
+        transform_keys = ("m11", "m12", "m21", "m22", "offset_x", "offset_y")
+        owner_affine = [transform.get(k) for k in transform_keys]
+        path_affine = [path_transform.get(k) for k in transform_keys]
+        require(vector(owner_affine, 6) and owner_affine[:4] == [1, 0, 0, 1]
+                and vector(path_affine, 6) and path_affine == owner_affine
+                and owner_affine[4:] == window_box[:2]
+                and owner.get("axis_aligned_transform") is True and path.get("axis_aligned_transform") is True,
+                "Inset window-space style requires matching actual unit-axis owner/path transforms")
         color = receipt.get("path_fill_rgba8")
         opacity = receipt.get("path_fill_opacity")
         require(receipt.get("path_fill_type") == "SolidColorBrush" and vector(color, 4) and all(0 <= x <= 255 for x in color)
@@ -144,8 +163,16 @@ def windows_inset_shadows(raw):
         if vector(color, 4) and number(opacity):
             rgba = list(color); rgba[3] *= opacity
             path_style = path.get("style") if isinstance(path.get("style"), dict) else {}
-            require(vector(path_style.get("foreground"), 4) and path_style["foreground"] == rgba,
-                    "Actual Path foreground disagrees with its retained brush observation")
+            brushes = path_style.get("brush_evidence") if isinstance(path_style.get("brush_evidence"), dict) else {}
+            fill = brushes.get("background") if isinstance(brushes.get("background"), dict) else {}
+            # CaptureStyle(Shape) records Stroke as foreground and Fill as
+            # background. Only the latter measures this filled inset path.
+            require(vector(path_style.get("background"), 4) and path_style["background"] == rgba
+                    and fill.get("type") == "Microsoft.UI.Xaml.Media.SolidColorBrush"
+                    and number(fill.get("opacity")) and fill["opacity"] == opacity
+                    and vector(fill.get("solid_color_rgba8"), 4) and fill["solid_color_rgba8"] == color
+                    and vector(fill.get("solid_rgba"), 4) and fill["solid_rgba"] == rgba,
+                    "Actual Path Fill/background disagrees with its retained brush observation")
         require(all(number(node.get("opacity")) for node in (owner, path, canvas, layout))
                 and 0 <= owner["opacity"] <= 1 and path.get("opacity") == owner["opacity"]
                 and canvas.get("opacity") == owner["opacity"] and layout.get("opacity") == owner["opacity"],

@@ -29,6 +29,7 @@ public sealed partial class MainWindow
             // Keep the same mounted surface when the native selector changes.
             // Shadows paint outside its box without adding layout padding.
             var item = new SelectorBarItem { Text = title, Tag = raised, IsSelected = id == selected, MinWidth = 0, MinHeight = 0,
+                BorderThickness = new Thickness(0),
                 Padding = new Thickness(0), Margin = new Thickness(0, 0, 2, 0), CornerRadius = new CornerRadius(top ? 7 : 6),
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };

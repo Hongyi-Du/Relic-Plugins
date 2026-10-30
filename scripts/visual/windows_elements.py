@@ -29,7 +29,7 @@ from windows_inset_shadow import windows_inset_shadows
 from windows_textarea_placeholder import textarea_placeholder_styles, apply_textarea_placeholder_style
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
-from windows_selector_labels import selector_content_labels, selector_label_candidate
+from windows_selector_labels import selector_content_labels, selector_label_candidate, selector_paint_surfaces
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -2110,6 +2110,8 @@ def project(xaml_path, uia_path, png_path):
     raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
     selector_labels = selector_content_labels(source_raw)
     unmeasured.extend(selector_labels["unmeasured"])
+    selector_paint = selector_paint_surfaces(source_raw, selector_labels)
+    unmeasured.extend(selector_paint["unmeasured"])
     by_id = {n["id"]: n for n in raw}
     fenced_blocks = markdown_fenced_blocks(raw, by_id, unmeasured)
     state_dot_layers = state_dot_paint_layers(raw, by_id, unmeasured)
@@ -2237,6 +2239,17 @@ def project(xaml_path, uia_path, png_path):
         elif len(labels) == 1 and not compound and (control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
+    selector_surface_owners = {}
+    for owner_id, audit in selector_paint["owners"].items():
+        surface = by_id[audit["surface_id"]]
+        if (owner_id not in control_label or not visible(surface)
+                or surface["id"] in semantic or surface["id"] in owned):
+            unmeasured.append({"id": owner_id, "property": "selector.paint_surface",
+                               "reason": "Actual tab surface is not visible, independently semantic, already owned or lacks a simple label"})
+            continue
+        selector_surface_owners[surface["id"]] = owner_id
+        control_paint[owner_id].append(surface)
+        owned[surface["id"]] = (owner_id, "actual current SelectorBarItem decoration surface")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
     for node in raw:
         owner = ancestor(node, icons)
@@ -2348,6 +2361,9 @@ def project(xaml_path, uia_path, png_path):
             owner, why = owned[node["id"]]
             record = {"source": node["id"], "owner": owner, "reason": why}
             record["outline_evidence"] = outline_evidence
+            if node["id"] in selector_surface_owners:
+                record["ownership_evidence"] = copy.deepcopy(selector_paint["owners"][selector_surface_owners[node["id"]]])
+                record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in dialog_surface_owners:
                 record["ownership_evidence"] = copy.deepcopy(source_by_id[dialog_surface_owners[node["id"]]]["dialog_surface_evidence"])
                 record["paint_evidence"] = copy.deepcopy(node)
@@ -2466,6 +2482,11 @@ def project(xaml_path, uia_path, png_path):
                 for key in ("border_color", "border_width", "border_widths", "border_colors", "border_styles", "corner_radius", "corner_radii"):
                     style[key] = ps.get(key)
             break
+        selector_surface = selector_paint["owners"].get(node["id"])
+        if selector_surface is not None and selector_surface["surface_id"] in selector_surface_owners:
+            # This uses the proven native source, not the generic nearby-template
+            # paint heuristic. Unknown source values remain unknown on the tab.
+            style.update(copy.deepcopy(selector_surface["style"]))
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
         if dialog_surface is not None:
             state["hovered"] = dialog_surface.get("state", {}).get("hovered")
@@ -2740,6 +2761,7 @@ def project(xaml_path, uia_path, png_path):
                                 "native_label_fonts": submitted_label_fonts,
                                 "label_source": label["id"] if label else None,
                                 "selector_content_label": copy.deepcopy(selector_labels["audits"].get(node["id"])),
+                                "selector_paint_surface": copy.deepcopy(selector_paint["audits"].get(node["id"])),
                                 "textarea_placeholder_style": copy.deepcopy(placeholder_style),
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,

@@ -13,11 +13,16 @@ public sealed class InProcessTextRangeNativeTests
         public readonly List<(IntPtr source, Guid iid)> Queries = [];
         private readonly Dictionary<IntPtr, (int start, int end)> ranges = new() { [(IntPtr)8] = (0, 3), [(IntPtr)9] = (1, 3) };
         private readonly Dictionary<IntPtr, string> strings = [];
+        public readonly HashSet<IntPtr> FormatCursors = [];
+        public readonly List<(int endpoint, int unit, int count)> FormatMoves = [];
         private int nextRange = 100, nextString = 1000;
         public readonly double[] Values = [475.125, 127, 251.783203125, 0.8499908447265625];
         public bool PatternUnavailable, FailProviderQuery, WrongArrayType, FailRectangles, FailDestroy;
         public bool DirectSimpleAvailable, FailFragmentQuery, FailFragmentSimpleQuery;
         public bool NullCollapsedText, NullNoncollapsedPrefix, FailCollapsedText, FailCollapsedCompare, WrongStringLength;
+        public bool FailFormatMove, FailFormatRectangles, NullFormatClone, OneCharacterFormat, ChangeFormatStart;
+        public bool NoFormatAdvance, ReportAdvanceWithoutMoving;
+        public int VisibleEnd = 3;
         public int TextQueries, DoubleReads;
         public readonly List<IntPtr> LengthReads = [];
         private const string DocumentText = "A\uD800B";
@@ -42,8 +47,14 @@ public sealed class InProcessTextRangeNativeTests
         }
         public int Pattern(IntPtr simple, out IntPtr result) { result = PatternUnavailable ? IntPtr.Zero : (IntPtr)2; return 0; }
         public int Document(IntPtr provider, out IntPtr result) { result = (IntPtr)8; return 0; }
-        public int Visible(IntPtr provider, out IntPtr array) { array = (IntPtr)20; return 0; }
-        public int Clone(IntPtr range, out IntPtr result) { result = (IntPtr)nextRange++; ranges[result] = ranges[range]; return 0; }
+        public int Visible(IntPtr provider, out IntPtr array) { ranges[(IntPtr)9] = (1, VisibleEnd); array = (IntPtr)20; return 0; }
+        public int Clone(IntPtr range, out IntPtr result)
+        {
+            if (NullFormatClone && range == (IntPtr)9) { result = IntPtr.Zero; return 0; }
+            result = (IntPtr)nextRange++; ranges[result] = ranges[range];
+            if (range == (IntPtr)9) FormatCursors.Add(result);
+            return 0;
+        }
         public int Text(IntPtr range, out IntPtr bstr)
         {
             TextQueries++; var (s, e) = ranges[range];
@@ -53,11 +64,27 @@ public sealed class InProcessTextRangeNativeTests
             bstr = (IntPtr)nextString++; strings[bstr] = DocumentText.Substring(s, e - s); return 0;
         }
         public int Rectangles(IntPtr range, out IntPtr array)
-        { array = FailRectangles ? IntPtr.Zero : range == (IntPtr)8 ? (IntPtr)30 : (IntPtr)31; return FailRectangles ? unchecked((int)0x8000FFFF) : 0; }
+        {
+            var fail = FailRectangles || FailFormatRectangles && FormatCursors.Contains(range);
+            array = fail ? IntPtr.Zero : range == (IntPtr)8 ? (IntPtr)30 : (IntPtr)31;
+            return fail ? unchecked((int)0x8000FFFF) : 0;
+        }
         public int Move(IntPtr range, int endpoint, IntPtr target, int targetEndpoint)
         {
-            Assert.Equal(1, endpoint); var current = ranges[range]; var to = ranges[target];
-            ranges[range] = (current.start, targetEndpoint == 0 ? to.start : to.end); return 0;
+            Assert.InRange(endpoint, 0, 1); var current = ranges[range]; var to = ranges[target];
+            var position = targetEndpoint == 0 ? to.start : to.end;
+            ranges[range] = endpoint == 0 ? (position, current.end) : (current.start, position); return 0;
+        }
+        public int MoveUnit(IntPtr range, int endpoint, int unit, int count, out int moved)
+        {
+            FormatMoves.Add((endpoint, unit, count));
+            Assert.Equal((1, 1, 1), (endpoint, unit, count));
+            moved = NoFormatAdvance ? 0 : 1;
+            if (FailFormatMove) return unchecked((int)0x8000FFFF);
+            var current = ranges[range];
+            if (!NoFormatAdvance && !ReportAdvanceWithoutMoving)
+                ranges[range] = (current.start + (ChangeFormatStart ? 1 : 0), OneCharacterFormat ? current.end + 1 : 3);
+            return 0;
         }
         public int Compare(IntPtr range, int endpoint, IntPtr target, int targetEndpoint, out int comparison)
         {
@@ -92,7 +119,7 @@ public sealed class InProcessTextRangeNativeTests
         Assert.Equal(-2L, receipt["visible_ranges"]![0]!["safearray_index"]!.GetValue<long>());
         Assert.False(receipt["canonical_geometry_supplied"]!.GetValue<bool>());
         Assert.False(receipt["provider_errors_resolved"]!.GetValue<bool>());
-        Assert.Equal(new[] { (IntPtr)30, (IntPtr)31, (IntPtr)20 }, api.Destroyed);
+        Assert.Equal(new[] { (IntPtr)30, (IntPtr)31, (IntPtr)31, (IntPtr)20 }, api.Destroyed);
         // One copied IUnknown and its QI reference are released separately.
         Assert.Equal(2, api.Released.Count(value => value == (IntPtr)9));
         Assert.Contains((IntPtr)8, api.Released); Assert.Contains((IntPtr)4, api.Released); Assert.Contains((IntPtr)2, api.Released);
@@ -107,6 +134,97 @@ public sealed class InProcessTextRangeNativeTests
         Assert.Equal(3, range["end"]!["verified_prefix_utf16_length"]!.GetValue<int>());
         Assert.True(range["text_matches_document_snapshot_slice"]!.GetValue<bool>());
         Assert.Equal(new byte[] { 0, 0xD8, 0x42, 0 }, Convert.FromBase64String(range["text"]!["utf16_le_base64"]!.ToString()));
+    }
+
+    [Fact]
+    public void RealFormatEndpointOperationsRetainEverySubpixelRunAndSourceIdentity()
+    {
+        var api = new Api { OneCharacterFormat = true };
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, api);
+        Assert.Equal("observed", receipt["status"]!.ToString());
+        var parent = receipt["visible_ranges"]![0]!;
+        Assert.True(parent["format_enumeration"]!["complete"]!.GetValue<bool>());
+        var runs = parent["format_runs"]!.AsArray(); Assert.Equal(2, runs.Count);
+        for (var index = 0; index < runs.Count; index++)
+        {
+            var run = runs[index]!;
+            Assert.Equal(index + 1, run["start"]!["verified_prefix_utf16_length"]!.GetValue<int>());
+            Assert.Equal(index + 2, run["end"]!["verified_prefix_utf16_length"]!.GetValue<int>());
+            Assert.True(run["text_matches_document_snapshot_slice"]!.GetValue<bool>());
+            Assert.Equal(api.Values, run["bounding_rectangle_values"]!.AsArray().Select(v => v!.GetValue<double>()));
+            Assert.Equal(api.Values.Select(v => unchecked((ulong)BitConverter.DoubleToInt64Bits(v)).ToString("X16")),
+                run["bounding_rectangle_value_bits_hex"]!.AsArray().Select(v => v!.ToString()));
+            Assert.Equal(1, run["format_step"]!["units_moved"]!.GetValue<int>());
+            Assert.Equal(0, run["format_step"]!["start_vs_previous_start"]!.GetValue<int>());
+            Assert.False(run["canonical_geometry_supplied"]!.GetValue<bool>());
+        }
+        Assert.Equal(2, api.FormatMoves.Count);
+        Assert.All(api.FormatCursors, cursor => Assert.Equal(1, api.Released.Count(value => value == cursor)));
+    }
+
+    [Fact]
+    public void ActualFormatEndBeyondVisibleParentIsClampedUsingTheParentEndpoint()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { VisibleEnd = 2 });
+        var parent = receipt["visible_ranges"]![0]!;
+        var run = Assert.Single(parent["format_runs"]!.AsArray())!;
+        Assert.True(parent["format_enumeration"]!["complete"]!.GetValue<bool>());
+        Assert.True(run["format_step"]!["end_vs_parent_end_before_clamp"]!.GetValue<int>() > 0);
+        Assert.Equal(0, run["format_step"]!["end_vs_parent_end_after_clamp"]!.GetValue<int>());
+        Assert.Equal(2, run["end"]!["verified_prefix_utf16_length"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void InvalidFormatAdvanceRetainsActualBadRunAndCannotClaimCompleteCoverage(bool noMove, bool reportedOnly, bool changedStart)
+    {
+        var api = new Api { NoFormatAdvance = noMove, ReportAdvanceWithoutMoving = reportedOnly, ChangeFormatStart = changedStart };
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, api);
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        var parent = receipt["visible_ranges"]![0]!;
+        Assert.False(parent["format_enumeration"]!["complete"]!.GetValue<bool>());
+        Assert.Single(parent["format_runs"]!.AsArray()); Assert.Single(api.FormatMoves);
+        Assert.NotNull(parent["format_runs"]![0]!["format_step"]);
+        Assert.NotEmpty(receipt["errors"]!.AsArray());
+        Assert.All(api.FormatCursors, cursor => Assert.Contains(cursor, api.Released));
+    }
+
+    [Fact]
+    public void FailedFormatMoveRetainsItsHresultAndReleasesTheActualCursor()
+    {
+        var api = new Api { FailFormatMove = true }; var receipt = InProcessTextRangeNative.Read((IntPtr)1, api);
+        var parent = receipt["visible_ranges"]![0]!;
+        Assert.False(parent["format_enumeration"]!["complete"]!.GetValue<bool>());
+        Assert.Empty(parent["format_runs"]!.AsArray());
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        Assert.Contains(receipt["calls"]!.AsArray(), call => call?["api"]?.ToString().EndsWith(".MoveEndpointByUnit(End,Format,1)") == true
+            && call?["hresult"]?.GetValue<int>() == unchecked((int)0x8000FFFF));
+        Assert.All(api.FormatCursors, cursor => Assert.Contains(cursor, api.Released));
+    }
+
+    [Fact]
+    public void FailedFormatGeometryKeepsItsIndependentEndpointsAndOriginalError()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { FailFormatRectangles = true });
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        var run = Assert.Single(receipt["visible_ranges"]![0]!["format_runs"]!.AsArray())!;
+        Assert.Equal(1, run["start"]!["verified_prefix_utf16_length"]!.GetValue<int>());
+        Assert.Equal(3, run["end"]!["verified_prefix_utf16_length"]!.GetValue<int>());
+        Assert.Null(run["bounding_rectangle_values"]);
+        Assert.Contains(receipt["errors"]!.AsArray(), error => error?["api"]?.ToString() == "visible_ranges[0].format_runs[0]"
+            && error?["hresult"]?.GetValue<int>() == unchecked((int)0x8000FFFF));
+    }
+
+    [Fact]
+    public void NullFormatCursorCannotSupplyRunsOrCompleteCoverage()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { NullFormatClone = true });
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        var parent = receipt["visible_ranges"]![0]!;
+        Assert.Empty(parent["format_runs"]!.AsArray());
+        Assert.False(parent["format_enumeration"]!["complete"]!.GetValue<bool>());
     }
 
     [Fact]
