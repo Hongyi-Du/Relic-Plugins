@@ -44,8 +44,10 @@ PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image"
 
 def semantic_control_kind(node, scrollbar_thumbs=None):
     """Use captured production object identity, not a Thumb name or guessed role."""
+    region_evidence = node.get("region_container_evidence")
     if (node.get("type") == "ScrollViewer"
-            and node.get("region_container_evidence", {}).get("source") == "actual MainWindow.chatScroll object identity"):
+            and isinstance(region_evidence, dict)
+            and region_evidence.get("source") == "actual MainWindow.chatScroll object identity"):
         return "region"
     evidence = node.get("resize_handle_evidence")
     if (node.get("type") == "Thumb" and isinstance(evidence, dict)
@@ -195,6 +197,130 @@ def scrollbar_page_hit_regions(raw, bars, by_id):
         if current == owner and proof.get("path") == path and all(no_visible_paint(child) for child in region_nodes):
             result[node["id"]] = (owner, region_nodes)
     return result
+
+
+def scrollbar_paint_measurement(node, kind, layers, fragments, masks, template_verified):
+    """Project only simple actual template primitives; never infer a native curve.
+
+    The canonical box is the measured paint primitive's border box (or the
+    transparent usable track region), not its alpha/ink envelope. These are
+    separately named quantities in the receipt. CornerRadius on a WinUI Border
+    does not itself establish the corresponding CSS curve, so nonzero native
+    radii remain unresolved, even when its box/brush are completely measured.
+    """
+    receipt = {"hit_bounds": copy.deepcopy(node.get("bounds")),
+               "source": "Actual current ScrollBar/Thumb template render descendants",
+               "layers": [{"raw": copy.deepcopy(p), "visible_fragments": copy.deepcopy(fragments.get(p["id"])),
+                           "occlusion_masks": copy.deepcopy(masks.get(p["id"], []))} for p in layers],
+               "canonical_bounds": None, "canonical_visible_bounds": None, "canonical_style": None,
+               "bounds_quantity": None, "fill_envelope": None, "css_paint_equivalence": None,
+               "measurement_scope": "Native simple primitive properties and geometry; no reference values or pixel equivalence are asserted"}
+    issues = []
+
+    def fail(reason, prop="style.scrollbar_paint"):
+        issues.append({"id": node["id"], "property": prop, "reason": reason})
+
+    if not template_verified or not layers:
+        fail("Actual ScrollBar template ownership or its visible paint primitives are incomplete")
+        return receipt, issues
+    contributors, primitives = [], []
+    for layer in layers:
+        if layer.get("paint_kind") not in {"rectangle", "rounded-rectangle"} or layer.get("type") not in {"Grid", "Border", "ContentPresenter"}:
+            fail("Scrollbar paint contains an unsupported actual primitive: " + str(layer.get("type")))
+            continue
+        style = layer.get("style", {})
+        if (style.get("paint_diagnostics") or style.get("background_image") != "none"
+                or style.get("shadow") != [] or not finite(layer.get("opacity")) or not 0 <= layer["opacity"] <= 1):
+            fail("Scrollbar primitive has unknown brush, shadow or accumulated opacity")
+            continue
+        brush_proof = style.get("brush_evidence", {})
+        if not isinstance(brush_proof, dict):
+            fail("Scrollbar primitive has no actual brush evidence")
+            continue
+        solid = True
+        for prop, role in (("background", "background"), ("border_color", "border")):
+            color, proof = style.get(prop), brush_proof.get(role)
+            solid = solid and (isinstance(color, list) and len(color) == 4 and all(finite(c) and 0 <= c <= 255 for c in color)
+                              and isinstance(proof, dict) and proof.get("type") in {None, "Microsoft.UI.Xaml.Media.SolidColorBrush"}
+                              and proof.get("solid_rgba") == color)
+        widths, radii = style.get("border_widths"), style.get("corner_radii")
+        if (not solid or not isinstance(widths, list) or len(widths) != 4 or not all(finite(w) and w >= 0 for w in widths)
+                or not isinstance(radii, list) or len(radii) != 4 or not all(finite(r) and r >= 0 for r in radii)):
+            fail("Scrollbar primitive has no complete actual solid-brush, border or radius properties")
+            continue
+        primitives.append(layer)
+        if painted(style["background"]) or painted(style["border_color"]) and any(widths):
+            contributors.append(layer)
+    if issues:
+        return receipt, issues
+    if len(contributors) > 1:
+        fail("Multiple actual scrollbar paint primitives cannot be collapsed into one canonical background/border")
+        return receipt, issues
+    if contributors:
+        source = contributors[0]
+        quantity = "paint-primitive-border-box"
+    elif kind == "scrollbar":
+        # A fully transparent track is still an actual usable scroll region.
+        # Select its verified template root, not a bounding union or thumb ratio.
+        roots = node.get("scrollbar_evidence", {}).get("template_roots", [])
+        candidates = [p for p in primitives if p["id"] in roots and p.get("bounds") == node.get("bounds")]
+        if len(candidates) != 1:
+            fail("Transparent scrollbar has no unique actual template root at its usable region bounds")
+            return receipt, issues
+        source, quantity = candidates[0], "transparent-usable-track-region"
+    else:
+        fail("Thumb template has no measured nontransparent paint primitive")
+        return receipt, issues
+    style, bounds, transform = source["style"], source.get("bounds"), source.get("transform", {})
+    local = source.get("local_bounds")
+    receipt["paint_source"] = source["id"]
+    receipt["primitive_outer_bounds"] = copy.deepcopy(bounds)
+    receipt["native_corner_radii"] = copy.deepcopy(style["corner_radii"])
+    # Limit this branch to actual translation-only geometry. Transformed strokes,
+    # rounded clipping and partial occlusion need their own measured quantities.
+    if (not positive(bounds) or not positive(local) or not all(finite(transform.get(k)) for k in ("m11", "m12", "m21", "m22", "offset_x", "offset_y"))
+            or [transform[k] for k in ("m11", "m12", "m21", "m22")] != [1, 0, 0, 1]
+            or bounds != {"x": local["x"] + transform["offset_x"], "y": local["y"] + transform["offset_y"],
+                          "width": local["width"], "height": local["height"]}
+            or source.get("axis_aligned_transform") is not True or source.get("visible_bounds") != bounds
+            or source.get("clip") is not None or masks.get(source["id"])):
+        fail("Scrollbar paint has transformed, clipped or occluded geometry outside the measured simple-primitive branch")
+        return receipt, issues
+    widths = style["border_widths"]
+    layout_proof = source.get("scrollbar_layout_evidence")
+    rounding = layout_proof.get("use_layout_rounding") if isinstance(layout_proof, dict) else None
+    if rounding is not False and any(widths):
+        fail("Actual layout rounding is enabled or unmeasured; effective border geometry is not substituted with requested widths")
+        return receipt, issues
+    sizing = source.get("background_sizing") if source["type"] != "Grid" else "OuterBorderEdge"
+    if sizing not in {"OuterBorderEdge", "InnerBorderEdge"}:
+        fail("Actual scrollbar primitive BackgroundSizing is not measured")
+        return receipt, issues
+    fill = copy.deepcopy(bounds)
+    if sizing == "InnerBorderEdge":
+        top, right, bottom, left = widths
+        fill = {"x": bounds["x"] + left, "y": bounds["y"] + top,
+                "width": max(0, bounds["width"] - left - right), "height": max(0, bounds["height"] - top - bottom)}
+    receipt["fill_envelope"] = {"bounds": fill, "quantity": "Geometric background-fill envelope before rounded-corner clipping; not an observed alpha mask"}
+    receipt["canonical_bounds"] = copy.deepcopy(bounds)
+    receipt["canonical_visible_bounds"] = copy.deepcopy(source["visible_bounds"])
+    receipt["bounds_quantity"] = quantity
+    fields = ("background", "border_color", "border_width", "border_widths", "border_colors", "border_styles",
+              "corner_radius", "corner_radii", "opacity", "shadow", "background_image")
+    receipt["canonical_style"] = {key: copy.deepcopy(style.get(key)) for key in fields}
+    if any(style["corner_radii"]):
+        # Microsoft source distinguishes inner/outer radii and partitions
+        # overlaps per edge, unlike CSS's common scaling factor. That source
+        # explains why a property value is insufficient; it is not substituted
+        # for an actual live-render geometry receipt:
+        # https://github.com/microsoft/microsoft-ui-xaml/blob/0a03f68d586d1c100f753ca3221597c3ee550f4a/dxaml/xcp/core/core/elements/geometry.cpp
+        receipt["canonical_style"]["corner_radius"] = receipt["canonical_style"]["corner_radii"] = None
+        fail("Actual nonzero WinUI Border CornerRadius is retained; its live rendered curve and CSS radius equivalence are unmeasured", "style.corner_radius")
+    else:
+        receipt["css_paint_equivalence"] = "Simple native rectangle properties projected without native-radius conversion; equality remains for the matcher to test"
+    receipt["geometry_status"] = "measured-simple-primitive-border-box"
+    receipt["style_status"] = "partial-native-curve-unresolved" if issues else "measured-simple-rectangle-properties"
+    return receipt, issues
 
 
 def project_background_pattern(element, node):
@@ -1262,19 +1388,20 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
         scrollbar_range_evidence = None
         scrollbar_paint = None
+        scrollbar_bounds = scrollbar_visible_bounds = None
         if kind in {"scrollbar", "scrollbar-thumb"}:
             scroll_state, scrollbar_range_evidence = scrollbar_state(node, kind, scrollbars, scrollbar_thumbs,
                                                                     witness, paired_controls, unmeasured)
             state.update(scroll_state)
-            layer_nodes = [p for p in descendants(node) if visible(p) and ancestor(p, semantic) == node]
-            scrollbar_paint = {"hit_bounds": copy.deepcopy(node.get("bounds")),
-                               "source": "Actual current ScrollBar/Thumb template render descendants",
-                               "layers": [{"raw": copy.deepcopy(p), "visible_fragments": copy.deepcopy(fragments.get(p["id"])),
-                                           "occlusion_masks": copy.deepcopy(occlusion_masks.get(p["id"], []))}
-                                          for p in layer_nodes],
-                               "css_paint_equivalence": None}
-            unmeasured.append({"id": node["id"], "property": "style.scrollbar_paint",
-                               "reason": "Actual hit bounds and template paint layers are retained separately; their aggregate CSS painted extent has not been independently measured"})
+            layer_nodes = [p for p in descendants(node) if visible(p) and p["id"] not in semantic and ancestor(p, semantic) == node]
+            scrollbar_paint, paint_issues = scrollbar_paint_measurement(
+                node, kind, layer_nodes, fragments, occlusion_masks,
+                node["id"] in scrollbars if kind == "scrollbar" else node["id"] in scrollbar_thumbs)
+            unmeasured.extend(paint_issues)
+            if scrollbar_paint["canonical_style"] is not None:
+                style.update(scrollbar_paint["canonical_style"])
+                scrollbar_bounds = scrollbar_paint["canonical_bounds"]
+                scrollbar_visible_bounds = scrollbar_paint["canonical_visible_bounds"]
         actual_text_boxes = measured_text_boxes(layout.get("character_boxes")) if layout.get("character_boxes_coordinate_space") == "content-window" else []
         if not actual_text_boxes and witness:
             actual_text_boxes = [copy.deepcopy(b) for r in (witness.get("text_pattern") or {}).get("visible_ranges", [])
@@ -1373,7 +1500,7 @@ def project(xaml_path, uia_path, png_path):
                 style[prop] = None
             unmeasured.append({"id": node["id"], "property": "style.compound_paint",
                                "reason": "Actual indicator layers are retained; their aggregate CSS border/radius/inset-shadow equivalence has not been independently measured"})
-        bounds = node["bounds"]
+        bounds = scrollbar_bounds or node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
         for key in ("wrap", "truncation", "line_count"):
@@ -1388,7 +1515,7 @@ def project(xaml_path, uia_path, png_path):
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
-                   "bounds": bounds, "visible_bounds": node["visible_bounds"], "style": style, "state": state,
+                   "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count")}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
                                 "label_source": label["id"] if label else None,

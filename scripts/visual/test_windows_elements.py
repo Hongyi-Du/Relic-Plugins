@@ -274,6 +274,87 @@ class ProjectionTests(unittest.TestCase):
                             for row in result["coverage"]["unmeasured"]))
 
     @staticmethod
+    def complete_scrollbar_paint_fixture():
+        nodes, providers = ProjectionTests.scrollbar_fixture()
+        for node in (nodes[1], nodes[3]):
+            style = node["style"]
+            style["brush_evidence"] = {
+                "background": {"type": "Microsoft.UI.Xaml.Media.SolidColorBrush", "solid_rgba": deepcopy(style["background"])},
+                "border": {"type": "Microsoft.UI.Xaml.Media.SolidColorBrush", "solid_rgba": deepcopy(style["border_color"])}}
+            style["border_colors"] = [deepcopy(style["border_color"]) for _ in range(4)]
+            style["border_styles"] = ["solid" if width else "none" for width in style["border_widths"]]
+            node["local_bounds"] = box(0, 0, node["bounds"]["width"], node["bounds"]["height"])
+            node["scrollbar_layout_evidence"] = {"use_layout_rounding": False}
+        return nodes, providers
+
+    def test_measured_simple_thumb_projects_actual_paint_box_and_keeps_distinct_hit_box(self):
+        nodes, providers = self.complete_scrollbar_paint_fixture()
+        paint = nodes[3]
+        paint["bounds"] = paint["visible_bounds"] = box(403, 65, 4, 44)
+        paint["local_bounds"] = box(0, 0, 4, 44)
+        paint["transform"].update(offset_x=403, offset_y=65)
+        paint["style"].update(border_width=0, border_widths=[0] * 4, border_styles=["none"] * 4,
+                               corner_radius=0, corner_radii=[0] * 4)
+        result = self.capture(nodes, providers)
+        thumb = self.by_id(result)["scroll-thumb"]
+        receipt = thumb["evidence"]["scrollbar_paint"]
+        self.assertEqual(thumb["bounds"], box(403, 65, 4, 44))
+        self.assertEqual(receipt["hit_bounds"], box(400, 62, 10, 50))
+        self.assertEqual(receipt["bounds_quantity"], "paint-primitive-border-box")
+        self.assertEqual(thumb["style"]["background"], [143, 140, 134, 89.25])
+        self.assertEqual(thumb["style"]["corner_radius"], 0)
+        self.assertEqual(receipt["style_status"], "measured-simple-rectangle-properties")
+        self.assertFalse(any(row["property"] == "style.scrollbar_paint" for row in result["coverage"]["unmeasured"]))
+        track = self.by_id(result)["scrollbar"]
+        self.assertEqual(track["evidence"]["scrollbar_paint"]["bounds_quantity"], "transparent-usable-track-region")
+        self.assertEqual(track["bounds"], nodes[0]["bounds"])
+
+    def test_measured_inner_background_keeps_border_box_and_fill_envelope_as_different_quantities(self):
+        nodes, providers = self.complete_scrollbar_paint_fixture()
+        nodes[3]["style"].update(corner_radius=0, corner_radii=[0] * 4)
+        result = self.capture(nodes, providers)
+        thumb = self.by_id(result)["scroll-thumb"]
+        receipt = thumb["evidence"]["scrollbar_paint"]
+        self.assertEqual(thumb["bounds"], box(400, 62, 10, 50))
+        self.assertEqual(receipt["fill_envelope"]["bounds"], box(403, 65, 4, 44))
+        self.assertEqual(thumb["style"]["border_width"], 3)
+        self.assertEqual(thumb["style"]["border_widths"], [3] * 4)
+
+    def test_actual_rounded_thumb_keeps_box_and_brush_but_never_relabels_native_radius_as_css(self):
+        nodes, providers = self.complete_scrollbar_paint_fixture()
+        result = self.capture(nodes, providers)
+        thumb = self.by_id(result)["scroll-thumb"]
+        receipt = thumb["evidence"]["scrollbar_paint"]
+        self.assertEqual(receipt["native_corner_radii"], [8] * 4)
+        self.assertEqual(receipt["fill_envelope"]["bounds"], box(403, 65, 4, 44))
+        self.assertIsNone(thumb["style"]["corner_radius"])
+        self.assertIsNone(receipt["css_paint_equivalence"])
+        self.assertTrue(any(row.get("id") == "scroll-thumb" and row["property"] == "style.corner_radius"
+                            for row in result["coverage"]["unmeasured"]))
+        self.assertFalse(any(row.get("id") == "scrollbar" and row["property"] == "style.scrollbar_paint"
+                             for row in result["coverage"]["unmeasured"]))
+
+    def test_scrollbar_paint_unknowns_keep_failure_instead_of_using_hit_box_as_paint(self):
+        for problem in ("brush", "rounding", "transform", "local-box", "clip", "shadow", "partial-clip"):
+            with self.subTest(problem=problem):
+                nodes, providers = self.complete_scrollbar_paint_fixture()
+                paint = nodes[3]
+                if problem == "brush": paint["style"].pop("brush_evidence")
+                elif problem == "rounding": paint["scrollbar_layout_evidence"]["use_layout_rounding"] = True
+                elif problem == "transform": paint["transform"]["m12"] = .1
+                elif problem == "local-box": paint.pop("local_bounds")
+                elif problem == "clip": paint["clip"] = {"kind": "PathGeometry"}
+                elif problem == "shadow": paint["style"]["shadow"] = None
+                elif problem == "partial-clip": paint["visible_bounds"] = box(400, 70, 10, 42)
+                result = self.capture(nodes, providers)
+                receipt = self.by_id(result)["scroll-thumb"]["evidence"]["scrollbar_paint"]
+                self.assertIsNone(receipt["canonical_bounds"])
+                self.assertIsNone(receipt["css_paint_equivalence"])
+                self.assertEqual(receipt["hit_bounds"], nodes[2]["bounds"])
+                self.assertTrue(any(row.get("id") == "scroll-thumb" and row["property"] == "style.scrollbar_paint"
+                                    for row in result["coverage"]["unmeasured"]))
+
+    @staticmethod
     def state_dot_fixture():
         frame = xaml_node("avatar-frame", "Grid", bounds=box(41, 440, 28, 28))
         owner = xaml_node("vacant-dot", "NativeStateDotView", parent="avatar-frame", bounds=box(61, 460, 10, 10),
