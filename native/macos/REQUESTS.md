@@ -1,3 +1,23 @@
+## 2026-10-30: shared menu-identity contract regression from CI
+
+Native apps `41042511824`, shared contracts job `124018504589`, runs 568 Python
+checks and fails `test_recorded_full_identity_group_keeps_menu_region_and_actual_child`
+at `scripts/visual/test_windows_elements.py:344`: actual `menu["parent"]` is None,
+expected actual owner's parent `xaml-1`. This is outside macOS ownership; please
+repair the real projection/fixture relationship without relaxing the gate.
+The same shared failure occurs in the b63cd2f visual diagnostic contract job.
+
+The next native capture retains `.initial-layout.json` before invoking scene
+controls. In 72f5571 file-code, the first actual conversation scroll occurs after
+the document has already reflowed from 824 to 634 pixels; its queued initial
+bottom request therefore lands at 237 instead of completing at the original
+width before opening File. The capture now flushes normal layout/display and
+waits for three unchanged native scroll-geometry intervals before the action,
+retaining all actual frames, clip offsets, layout flags and timestamps. It never
+sets a desired offset. A timeout saves the observations and fails the case.
+The existing full matrix remains unchanged. New captures must determine whether
+this removes the startup/action race or exposes a production scrolling issue.
+
 ## 2026-10-30: native right-pane scroll origin has an actual AppKit caller
 
 The successful macOS capture in `41040938552` (72f5571, 19/19) retains

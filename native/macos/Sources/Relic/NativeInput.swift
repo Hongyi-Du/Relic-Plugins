@@ -234,14 +234,7 @@ struct MentionSuggestions: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(m.mentionItems.enumerated()), id: \.offset) { index, member in
-                        Button { m.mentionEditor?.chooseMention(index) } label: {
-                            HStack(spacing: 10) {
-                                Avatar(member: member["name"].text, size: 20)
-                                ReferenceLabel(member.display, size: 13)
-                                ReferenceLabel(member["name"].text, size: 11.96, color: RelicStyle.muted, monospaced: true)
-                                Spacer(minLength: 0)
-                            }.padding(.horizontal, 10).frame(height: 34.8)
-                        }.buttonStyle(MenuItemStyle(selected: index == m.mentionIndex)).accessibilityIdentifier("relic-menu-item/mention/" + member["name"].text)
+                        MentionChoice(member: member, index: index)
                     }
                 }.padding(7)
             }.frame(width: width, height: height)
@@ -253,6 +246,30 @@ struct MentionSuggestions: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .onAppear { m.mentionVisible = true }.onDisappear { m.mentionVisible = false }
             .onExitCommand { m.mentionEditor?.closeMentions() }
+    }
+}
+
+private struct MentionChoice: View {
+    @EnvironmentObject var m: Model
+    let member: Node
+    let index: Int
+    @State private var avatarImageVisible = false
+    private var identity: String { "relic-menu-item/mention/" + member["name"].text }
+    private var accessibleName: String {
+        [avatarImageVisible ? "" : String(m.name(member["name"].text).prefix(1)).uppercased(), member.display, member["name"].text]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    var body: some View {
+        Button { m.mentionEditor?.chooseMention(index) } label: {
+            HStack(spacing: 10) {
+                Avatar(member: member["name"].text, size: 20, imageVisibility: { avatarImageVisible = $0 })
+                ReferenceLabel(member.display, size: 13)
+                ReferenceLabel(member["name"].text, size: 11.96, color: RelicStyle.muted, monospaced: true)
+                Spacer(minLength: 0)
+            }.padding(.horizontal, 10).frame(height: 34.8)
+        }.buttonStyle(MenuItemStyle(selected: index == m.mentionIndex))
+            .accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
+            .environment(\.nativeElementParent, identity)
     }
 }
 

@@ -108,6 +108,15 @@ import RelicAX
                 window.setFrameOrigin(NSPoint(x: 20, y: 20)); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 try movePointer(to: NSPoint(x: 10, y: 10))
                 try await Task.sleep(for: .milliseconds(400))
+                // Finish the initial production layout and queued scroll before
+                // invoking the next scene action. Otherwise an initial bottom
+                // request can coalesce with opening the wider File pane, while
+                // the reference has already rendered its original conversation.
+                let initialLayout = try await settledScrollLayout(hosting)
+                try evidence(initialLayout, suffix: ".initial-layout.json", item: item, output: output)
+                guard initialLayout["settled"] as? Bool == true else {
+                    throw RelicError.message("Initial native scroll layout did not settle before the scene action")
+                }
                 if scene.hasPrefix("settings-") { model.settingsSection = String(scene.dropFirst(9)); model.sheet = .settings }
                 else if scene.hasPrefix("file-") { try await model.openFile(fixture["files"][String(scene.dropFirst(5))].text, line: scene == "file-code" ? 2 : 0) }
                 else if scene.hasPrefix("menu-") { model.appMenu = String(scene.dropFirst(5)) }
@@ -292,6 +301,44 @@ import RelicAX
             model.stop(); display?.restore(); exit(1)
         }
     }
+    private static func settledScrollLayout(_ root: NSView) async throws -> [String: Any] {
+        func snapshot() -> [[String: Any]] {
+            var rows: [[String: Any]] = []
+            func visit(_ view: NSView) {
+                if let scroll = view as? NSScrollView {
+                    rows.append(["identity": String(describing: ObjectIdentifier(scroll)),
+                        "frame": ElementCapture.box(scroll.frame), "clip": ElementCapture.box(scroll.contentView.bounds),
+                        "document": scroll.documentView.map { ElementCapture.box($0.frame) } as Any? ?? NSNull(),
+                        "needs_layout": scroll.needsLayout, "document_needs_layout": scroll.documentView?.needsLayout as Any? ?? NSNull()])
+                }
+                view.subviews.forEach(visit)
+            }
+            visit(root)
+            return rows
+        }
+        var observations: [[String: Any]] = [], previous: Data?, stable = 0
+        for _ in 0..<100 {
+            root.layoutSubtreeIfNeeded(); root.displayIfNeeded(); CATransaction.flush()
+            // Give callbacks scheduled by that actual layout their normal turn.
+            try await Task.sleep(for: .milliseconds(50))
+            let rows = snapshot()
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+            let ready = !rows.isEmpty && !root.needsLayout && rows.allSatisfy {
+                $0["needs_layout"] as? Bool == false && $0["document_needs_layout"] as? Bool == false
+            }
+            stable = ready && data == previous ? stable + 1 : 0
+            previous = data
+            observations.append(["uptime": ProcessInfo.processInfo.systemUptime, "root_needs_layout": root.needsLayout,
+                "scroll_views": rows, "stable_intervals": stable])
+            if stable >= 3 {
+                return ["provider": "actual native layout/display and queued-scroll readiness before scene action",
+                    "settled": true, "observations": observations]
+            }
+        }
+        return ["provider": "actual native layout/display and queued-scroll readiness before scene action",
+            "settled": false, "observations": observations]
+    }
+
     private static func verifyCompoundAccessibilityLabels() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
