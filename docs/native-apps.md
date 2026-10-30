@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (direct provider diagnostic): CI now independently
+queries the same retained peer's public COM TextPattern provider for actual
+WinRT ranges whose measured height is between 0 and 1. It records SAFEARRAY
+doubles, bit patterns, full RuntimeId, endpoints and lifetime receipts alongside
+the unchanged WinRT and external UIA evidence. Unavailable public interfaces
+remain unavailable. This diagnostic supplies no canonical geometry, changes no
+existing errors, and retains the complete selection/omission list. Seven pure
+mock tests run in CI; headless WinUI build passes. Actual three-way results are
+still pending, so the integer-conversion location is not claimed as known.
+
+Read the latest macOS request: its direct CGContext glyph change produced no
+ink and failed five of 212 tests at e2bc218. The later actual CTFontDrawGlyphs
+correction is merged; unchanged pixel equality and no-extra-layer tests must
+verify it. Older successful extraction cannot validate those missing glyphs.
+
 Changes for the clients (current mapped text and cell-frame verification):
 the shared NativePath reader now checks the actual original-to-paint UTF-16
 map, independent source/paint ICU iterators, complete DWrite shaping clusters,

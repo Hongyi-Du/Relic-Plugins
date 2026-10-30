@@ -620,8 +620,11 @@ public sealed partial class MainWindow
             // the earlier QI failures remain in the separate before/after probe.
             await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes, identityObserver);
             result["capture_evidence"]!["automation_identity_observer"] = identityObserver.DeepClone();
-            TextRangeProviderProbe.Capture(directory, caseId, renderIds,
+            var winrtTextRangeProbe = TextRangeProviderProbe.Capture(directory, caseId, renderIds,
                 frameCheckpoint: ObserveTextRangeFrameProvider);
+            result["capture_evidence"]!["inprocess_text_range_probe"] = await InProcessTextRangeProviderProbe.Capture(
+                directory, caseId, renderIds, renderNodes, winrtTextRangeProbe, identityObserver,
+                ObserveTextRangeFrameProvider);
             CheckpointTextRangeFrameCapture("after_text_range_provider_probe");
             if (capturedTextRangeFrameEvidence != null)
             {
