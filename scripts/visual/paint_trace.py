@@ -38,10 +38,14 @@ def trace_parameters():
             "streamFormat": "json", "streamCompression": "none"}
 
 
-def launch_browser(playwright):
+def launch_browser(playwright, channel="headless-shell"):
     # Playwright otherwise hides production scrollbars even in the reference.
-    return playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"],
-                                      ignore_default_args=["--hide-scrollbars"])
+    options = {"headless": True, "args": ["--disable-dev-shm-usage"], "ignore_default_args": ["--hide-scrollbars"]}
+    if channel == "chromium":
+        options["channel"] = "chromium"
+    elif channel != "headless-shell":
+        raise ValueError("Unsupported paint diagnostic channel: " + channel)
+    return playwright.chromium.launch(**options)
 
 
 def trace_diagnostics(trace, pictures):
@@ -308,12 +312,13 @@ def main(argv=None):
     parser.add_argument("--scene", action="append", help="Existing manifest scene; default group and file-code")
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=900)
+    parser.add_argument("--channel", choices=["headless-shell", "chromium"], default="headless-shell")
     args = parser.parse_args(argv)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
     cases = select_cases(manifest, args.scene or ["group", "file-code"], args.width, args.height)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    summary = {"kind": "CI paint-trace diagnostic", "source_manifest": str(args.manifest),
+    summary = {"kind": "CI paint-trace diagnostic", "source_manifest": str(args.manifest), "requested_browser_channel": args.channel,
         "lang": manifest["lang"], "theme": manifest["theme"], "cases": cases, "results": [],
         "canonical_measurements_changed": False, "measurement_status": "unresolved", "errors": []}
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -334,7 +339,7 @@ def main(argv=None):
             configure(manifest["fixture"], lang=manifest["lang"], theme=manifest["theme"])
             from playwright.sync_api import sync_playwright
             with sync_playwright() as pw:
-                browser = launch_browser(pw)
+                browser = launch_browser(pw, args.channel)
                 try:
                     context = browser.new_context(device_scale_factor=1, locale=manifest["lang"],
                         color_scheme=manifest["theme"], timezone_id="UTC")

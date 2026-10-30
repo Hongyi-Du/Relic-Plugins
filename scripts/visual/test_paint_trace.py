@@ -17,6 +17,15 @@ class PaintTraceTests(unittest.TestCase):
         playwright.chromium.launch.assert_called_once_with(headless=True,
             args=["--disable-dev-shm-usage"], ignore_default_args=["--hide-scrollbars"])
 
+    def test_full_chromium_diagnostic_is_explicit_and_keeps_headless_scrollbar_capture(self):
+        playwright = Mock()
+        paint_trace.launch_browser(playwright, "chromium")
+        playwright.chromium.launch.assert_called_once_with(headless=True, channel="chromium",
+            args=["--disable-dev-shm-usage"], ignore_default_args=["--hide-scrollbars"])
+        with self.assertRaises(ValueError):
+            paint_trace.launch_browser(playwright, "unrecognized")
+        self.assertEqual(playwright.chromium.launch.call_count, 1)
+
     def test_supported_trace_configuration_retains_all_paint_and_frame_sources(self):
         parameters = paint_trace.trace_parameters()
         self.assertNotIn("categories", parameters)

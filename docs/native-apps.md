@@ -1,5 +1,12 @@
 # Native Relic App contract
 
+Changes for the clients (paint diagnostic channel): the actual `3e5f1a9`
+trace still loses picture packets and exports no LayerTree events. CI now
+retains that diagnostic and additionally captures regular Chromium in new
+headless mode via `--channel chromium`, in separate artifacts. The canonical
+reference environment and matcher are unchanged; this is an environment
+diagnostic, not a replacement measurement. See `native-reference-evidence.md`.
+
 Changes for the clients (macOS stalled-process evidence): the shared capture
 now fulfills the request merged in `c568f13`: on the unchanged 90-second
 progress failure, CI macOS samples the actual owned native PID for three

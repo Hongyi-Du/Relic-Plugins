@@ -1,5 +1,26 @@
 # Reference text and scrollbar measurement audit
 
+## Actual 3e5f1a9 trace and separate full-Chromium diagnostic
+
+Run `40975804065` produced `paint-trace-windows-en-US-light` (artifact
+`12944077578`), downloaded to
+`S:\Codex\Outputs\Relic-native-visual\paint-trace-3e5f1a9-windows-en-light`.
+Removing broad trace categories did **not** repair the measurement: group and
+file-code retain 15 and 10 writer/sequence packet losses, respectively, and
+neither exports a LayerTree event. Both still have only 18 picture records.
+The original diagnostics and failures remain; no glyph, ellipsis or scrollbar
+measurement is promoted from them.
+
+The actual command line identifies Playwright's separate `chrome-headless-shell`
+executable. CI now also runs a separate, explicitly named `--channel chromium`
+paint diagnostic, using the regular Chromium build in its new headless mode.
+This is the [official Playwright channel selection](https://playwright.dev/python/docs/browsers#chromium-new-headless-mode).
+It remains headless, retains the same paint categories and strict loss checks,
+and writes a different artifact. The main reference capture and original shell
+diagnostic are unchanged. This tests whether the missing layer evidence depends
+on the shell; no improvement, cross-channel equivalence or usable final-frame
+attribution is claimed before CI records it.
+
 This checkpoint addresses the open macOS requests about CSS ellipsis geometry
 and UA scrollbar coverage. It does not establish element parity. Unknown
 measurements continue to fail coverage; no scene, element, tolerance or exception
