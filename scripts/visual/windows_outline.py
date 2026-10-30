@@ -11,6 +11,10 @@ RUN_SOURCE = "actual TextElement runtime type and owner ContentStart/ContentEnd 
 VECTOR_RUNTIME = "Relic.MainWindow+ReferenceVectorIcon"
 VECTOR_CONTRACT = "relic-reference-vector-usercontrol-child-only"
 VECTOR_SOURCE = "actual ReferenceVectorIcon Content/VectorCanvas/VectorPath object identities"
+LABEL_RUNTIME = "Relic.NativeLabel"
+LABEL_CONTRACT = "relic-native-label-panel-bound-image"
+LABEL_SOURCE = "actual sealed NativeLabel runtime and sole production Image object identity"
+LABEL_SURFACE_SOURCE = "actual NativeLabel production Image object identity and SurfaceImageSource COM binding"
 LOCAL_LAYOUT_SOURCE = "actual local layout Type.BaseType/IsSealed and exact audited source contract"
 # Audited exact production classes: five add Measure/Arrange only, while the
 # Grid adds only its real region peer. Their native Panel background/border and
@@ -97,7 +101,7 @@ def native_outline(node, by_id):
         return None, evidence, issues
     runtime = raw.get("runtime_type")
     local_contract = LOCAL_LAYOUT_CONTRACTS.get(runtime) if isinstance(runtime, str) else None
-    contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else local_contract[0] if local_contract
+    contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
     if (contract is None or raw.get("own_paint_contract") != contract
@@ -109,6 +113,45 @@ def native_outline(node, by_id):
                 or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
                 or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
             gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
+    if runtime == LABEL_RUNTIME:
+        label = raw.get("native_label_content")
+        valid_label = (isinstance(label, dict) and label.get("source") == LABEL_SOURCE
+                       and label.get("status") == "measured" and label.get("owner_id") == node.get("id")
+                       and label.get("base_type") == "Microsoft.UI.Xaml.Controls.Panel"
+                       and label.get("is_sealed") is True
+                       and label.get("audited_source") == "native/windows/Relic/NativeLabel.cs#NativeLabel"
+                       and type(label.get("visual_child_count")) is int and label["visual_child_count"] == 1
+                       and type(label.get("panel_child_count")) is int and label["panel_child_count"] == 1
+                       and label.get("production_image_is_current_only_child") is True)
+        image_id = label.get("image_id") if isinstance(label, dict) else None
+        image = by_id.get(image_id) if isinstance(image_id, str) else None
+        image_type = image.get("outline_owner_evidence") if isinstance(image, dict) else None
+        binding = label.get("production_image_binding") if isinstance(label, dict) else None
+        captured_binding = image.get("native_label_surface_evidence") if isinstance(image, dict) else None
+        valid_label = (valid_label and isinstance(image, dict) and image.get("type") == "Image"
+                       and isinstance(image_type, dict) and image_type.get("runtime_type") == "Microsoft.UI.Xaml.Controls.Image"
+                       and image.get("parent") == node["id"]
+                       and [child["id"] for child in by_id.values()
+                            if child.get("parent") == node["id"] and not child.get("text_run_source")] == [image_id]
+                       and isinstance(binding, dict) and isinstance(captured_binding, dict))
+        if valid_label:
+            # Two actual observations of the same production child must agree.
+            # Do not infer a surface from the label's name, text or geometry.
+            for actual_binding in (binding, captured_binding):
+                valid_label = (valid_label and actual_binding.get("source") == LABEL_SURFACE_SOURCE
+                               and actual_binding.get("owner_id") == node["id"]
+                               and actual_binding.get("same_image_object") is True
+                               and actual_binding.get("surface_binding_same_com_identity") is True
+                               and actual_binding.get("source_type") == "Microsoft.UI.Xaml.Media.Imaging.SurfaceImageSource"
+                               and all(type(actual_binding.get(key)) is int and actual_binding[key] > 0
+                                       for key in ("layout_revision", "surface_revision", "draw_ordinal")))
+            valid_label = (valid_label and all(binding.get(key) == captured_binding.get(key)
+                           for key in ("layout_revision", "surface_revision", "draw_ordinal")))
+        if not valid_label:
+            gap("Exact NativeLabel parent paint has no complete sealed runtime, sole production Image and current bound-surface identity proof")
+        else:
+            evidence["scope"] = ("This exact NativeLabel's native Panel paint only; its actual production Image "
+                                 "and glyph/surface/frame evidence retain independent obligations")
     if runtime == VECTOR_RUNTIME:
         vector = raw.get("vector_content")
         valid_vector = (isinstance(vector, dict) and vector.get("source") == VECTOR_SOURCE

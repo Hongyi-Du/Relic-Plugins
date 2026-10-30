@@ -14,7 +14,6 @@ public sealed partial class MainWindow
     private Image? toolbarLogo;
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
-    private HashSet<string>? knownCopies;
     private void DrawToolbar()
     {
         toolbar.PrimaryCommands.Clear();
@@ -46,7 +45,7 @@ public sealed partial class MainWindow
         appTitle.Text = org.Length == 0 ? T("common.app_name") : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
         var count = snap.Rows("decisions").Count;
         AddCommand(ToolbarIconButton("\uE7BA", T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0));
-        var unread = copies.Count(c => !c.Flag("read"));
+        var unread = copyInbox.Unread;
         AddCommand(ToolbarIconButton("\uE715", T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies, badge: unread));
         AddCommand(new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0), UseLayoutRounding = false });
         int i = 1;
@@ -312,11 +311,11 @@ public sealed partial class MainWindow
         };
         await Dialog(dialog, contentOwnsPadding: true); if (copiesBody == body) copiesBody = null;
     }
-    private void CopyNotifications()
+    private void CopyNotifications(JsonNode? fresh)
     {
-        var unread = copies.Where(c => !c.Flag("read")).Select(c => c.Text("id")).ToHashSet();
-        if (!active && preferences.Flag("notify") && knownCopies != null && unread.Except(knownCopies).Any()) Notify(T("cc.notify", ("n", unread.Count)));
-        knownCopies = unread;
+        if (!active && preferences.Flag("notify") && fresh != null)
+            Notify(T("cc.notify", ("org", fresh.Text("org_name")), ("id", fresh.Text("protocol_id")), ("title", fresh.Text("title"))),
+                "Relic · " + T("cc.title"));
     }
     private void DrawCopies()
     {
@@ -324,7 +323,7 @@ public sealed partial class MainWindow
         var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         var symbol = (ReferenceVectorIcon)ReferenceIcon("cc", 18); symbol.Foreground = Paint("5A5853", "B8B5AE"); heading.Children.Add(symbol);
         heading.Children.Add(OverviewText(T("cc.title"), 17, weight: 650));
-        var unread = copies.Count(c => !c.Flag("read")); if (unread > 0) heading.Children.Add(OverviewCount(unread));
+        var unread = copyInbox.Unread; if (unread > 0) heading.Children.Add(OverviewCount(unread));
         var close = IconButton("\uE711", "common.close", () => { visibleDialog?.Hide(); return Task.CompletedTask; }); close.Width = close.Height = 30;
         content.Children.Add(OverviewHeading(heading, close));
         var intro = OverviewText(T("cc.intro"), 13, lineHeight: 22.1); intro.Foreground = Paint("5A5853", "B8B5AE"); content.Children.Add(intro);

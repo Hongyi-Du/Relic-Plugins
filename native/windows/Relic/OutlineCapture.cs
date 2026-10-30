@@ -107,6 +107,30 @@ public sealed partial class MainWindow
                     children.Add(new JsonObject { ["id"] = childId, ["index"] = index, ["same_parent_object"] = sameParent });
                 }
                 receipt["children"] = new JsonObject { ["status"] = "measured", ["complete"] = complete, ["items"] = children };
+                if (actual == typeof(NativeLabel))
+                {
+                    var label = (NativeLabel)value;
+                    var image = count == 1 ? VisualTreeHelper.GetChild(label, 0) as Image : null;
+                    var binding = image == null ? null : label.CaptureProductionImageBinding(image);
+                    if (binding != null) binding["owner_id"] = ids[value];
+                    // NativeLabel is not layout-only: it draws into its real
+                    // child's SurfaceImageSource. This contract covers only
+                    // the parent's native Panel paint, never the child's glyph
+                    // paint, actual presentation, focus, or attached visuals.
+                    receipt["native_label_content"] = new JsonObject
+                    {
+                        ["source"] = "actual sealed NativeLabel runtime and sole production Image object identity",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
+                        ["audited_source"] = "native/windows/Relic/NativeLabel.cs#NativeLabel",
+                        ["visual_child_count"] = count, ["panel_child_count"] = label.Children.Count,
+                        ["image_id"] = image != null && ids.TryGetValue(image, out var imageId) ? imageId : null,
+                        ["production_image_is_current_only_child"] = image != null && image.GetType() == typeof(Image)
+                            && label.Children.Count == 1 && ReferenceEquals(label.Children[0], image)
+                            && label.OwnsProductionImage(image) && ReferenceEquals(VisualTreeHelper.GetParent(image), label),
+                        ["production_image_binding"] = binding
+                    };
+                }
                 if (value.GetType() == typeof(ReferenceVectorIcon))
                 {
                     var icon = (ReferenceVectorIcon)value;
@@ -170,6 +194,10 @@ public sealed partial class MainWindow
         // Focus, hand-in Composition and direct-child proofs still apply above.
         : actual == typeof(Viewbox) ? "native-viewbox-child-transform"
         : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only"
+        // Exact sealed app renderer: native Panel paint plus an independently
+        // owned Image surface. The live runtime/child/binding proof is required
+        // above; no arbitrary Panel subclass or unmeasured image inherits it.
+        : actual == typeof(NativeLabel) ? "relic-native-label-panel-bound-image"
         : LocalLayoutOutlineContract(actual)?.Contract;
 
     private static bool TemplateChildOnlyControl(Type actual) =>
