@@ -134,9 +134,10 @@ struct SurfacePaintProbe: NSViewRepresentable {
                 if view.insetRingWidth > 0 { shadows.append(["inset": true, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double(view.insetRingWidth), "color": ElementCapture.rgba(view.insetRingColor)]) }
                 if view.outerRingWidth > 0 { shadows.append(["inset": false, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double(view.outerRingWidth), "color": ElementCapture.rgba(view.outerRingColor)]) }
             }
-            var opacity = view.opacity
-            var ancestor: NSView? = view
-            while let current = ancestor { opacity *= Double(current.alphaValue); ancestor = current.superview }
+            // SwiftUI materializes its opacity on the representable's native
+            // ancestry. The environment value describes that SAME operation;
+            // multiplying it again reports .35 squared for a .35 surface.
+            let opacity = NativeVisibility.opacity(view)
             return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "region": view.region,
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(), "current": view.current as Any? ?? NSNull(),
@@ -145,7 +146,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
                               "border_styles": view.widths.map { $0 == 0 ? "none" : view.borderDash.isEmpty ? "solid" : "dashed" },
                               "border_colors": Array(repeating: border, count: 4), "corner_radii": view.cornerRadii.map { Double($0) },
                               "opacity": opacity, "background_image": "none", "shadow": shadows],
-                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
+                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
         }
     }
     final class SurfaceView: NSView {

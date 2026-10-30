@@ -25,9 +25,9 @@ struct ElementPaintProbe: NSViewRepresentable {
             func json(_ value: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]), encoding: .utf8)! }
             let glyph = #"{"tag":"svg","attributes":"# + json(["height": dimension, "viewBox": "0 0 24 24", "width": dimension]) + #","children":[{"tag":"path","attributes":"# + json(["d": source]) + #","children":[]}]}"#
             return ["id": "paint/" + view.identity, "owner": view.owner as Any? ?? NSNull(), "rect": ElementCapture.box(rect), "region": view.region,
-                    "screenRect": NSValue(rect: screen), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "foreground": foreground, "opacity": view.opacity * NativeVisibility.opacity(view),
+                    "screenRect": NSValue(rect: screen), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "foreground": foreground, "opacity": NativeVisibility.opacity(view),
                     "icon": ["source": "svg", "glyph": glyph],
-                    "evidence": ["source": "live-NSView-shape-probe", "renderer": "SwiftUI.Shape/CoreGraphics", "resource": view.name, "path": source, "viewBox": "0 0 24 24", "stroke_width": 1.7 * Double(view.size) / 24, "line_cap": "round", "line_join": "round"]]
+                    "evidence": ["source": "live-NSView-shape-probe", "renderer": "SwiftUI.Shape/CoreGraphics", "resource": view.name, "path": source, "viewBox": "0 0 24 24", "stroke_width": 1.7 * Double(view.size) / 24, "line_cap": "round", "line_join": "round", "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view)]]
         }
     }
     final class PaintView: NSView {
