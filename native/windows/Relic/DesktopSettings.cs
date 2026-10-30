@@ -201,7 +201,7 @@ public sealed partial class MainWindow
         var current = section;
         var body = new Grid { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = Paint("FFFFFF", "252523") };
         body.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = body };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = body };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("common.settings"));
         var navigation = new StackPanel { Spacing = 2, Padding = new Thickness(10, 14, 10, 14) };
         var navTitle = OverviewText(T("common.settings"), 16, weight: 650); navTitle.Margin = new Thickness(10, 4, 10, 12); navigation.Children.Add(navTitle);

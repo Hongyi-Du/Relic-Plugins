@@ -191,7 +191,7 @@ public sealed partial class MainWindow
         if (org.Length == 0) return;
         var box = new Grid { Width = Math.Min(1180, root.ActualWidth - 40), Height = Math.Max(0, root.ActualHeight - 56), Background = Paint("FFFFFF", "252523"), CornerRadius = new CornerRadius(16) };
         box.RowDefinitions.Add(new() { Height = GridLength.Auto }); box.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = box }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("details.dialog"));
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = box }; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("details.dialog"));
         var bar = new Grid { Padding = new Thickness(16, 12, 16, 12), ColumnSpacing = 12, BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1) };
         bar.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); bar.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var title = OverviewText(snap["org"].Text("name"), 15.5, weight: 650); title.VerticalAlignment = VerticalAlignment.Center; bar.Children.Add(title); box.Children.Add(bar);

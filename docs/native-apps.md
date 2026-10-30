@@ -1,5 +1,26 @@
 # Native Relic App contract
 
+Changes for the clients (actual UIA identity conflicts): the Windows projection
+now rejects heuristic candidates when a captured owner explicitly has no peer,
+or a complete RuntimeId belongs to a different owner/provider. Rejections are
+auditable receipts; original provider errors, missing required providers and
+unclaimed UIA nodes remain. The real 2e42376 modal fixture proves xaml-1197 owns
+uia-7; authored Grid xaml-1205 cannot borrow it because their bounds coincide.
+Four CI regressions preserve every original paint and host rectangle.
+
+Settings, Details and Copies now use a native ContentDialog subclass retaining
+its protected GetTemplateChild objects, current template revision and actual
+parent paths. This is new raw ownership evidence for separating the full-window
+host from the actual modal surface. Canonical dialog bounds and unknown shadow
+paint have not yet been changed; CI must confirm the real template identities.
+
+The independent paint entry initially returned GitHub HTTP 404 because the new
+workflow was not registered on main. The existing manual visual workflow now
+supports a separately named paint-only diagnostic call; full/smoke processing
+and the full acceptance gate are unchanged. Dispatch 41024085363 succeeded.
+Its new Windows LayerTree records exist, but later snapshot commands are not
+yet attributed to the original PNG and trace loss remains a failed diagnostic.
+
 Changes for the clients (capture scheduling request, 2475328): macOS full
 capture uses max-parallel 2. All four language/theme shards, three viewports,
 55 scenes and the 660-case gate are unchanged. A separate manual-only browser
