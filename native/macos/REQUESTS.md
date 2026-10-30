@@ -1,5 +1,13 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `663457c` / macOS per-viewport sharding with original case IDs and
+unchanged deadlines. New build and full capture are being pushed together.
+Current shared checker failure: `9289b84` smoke `41003664049`, job `123893680759`,
+fails `test_reference_missing_or_malformed_pattern_evidence_never_reaches_pixel_comparison`
+in `test_report_fail_closed.ReportFailureTests` with `AssertionError: 2 != 1`.
+Please inspect the additional actual failure and adjust only the fixture/assertion
+to cover the intended evidence; preserve all malformed-pattern rejections.
+
 New downloaded full-capture evidence: `56253c7` / `40996703093` macOS zh-CN/light
 job `123871871182` completes all 165 cases, every case `captured`, no errors.
 The 1024x700 Copy toast and both panel gestures retain all four continuity
