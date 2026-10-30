@@ -19,12 +19,14 @@ import re
 import shutil
 from typing import Any
 
+from element_anchors import anonymous_anchor_pairs
 from image_paint import ImagePaintError, validate_vector_paint
 from outline_paint import outline_measurement, compare_outlines
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import compare_font_weights, font_weight_issues
 from macos_icon_draw import icon_draw_issues
 from macos_list_marker import list_marker_issues
+from windows_list_marker import windows_list_marker_issues
 from macos_field_editor import field_editor_aliases
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
@@ -511,6 +513,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         if client == "macos":
             for issue in icon_draw_issues(element): error("Mac icon draw: " + issue, eid)
             for issue in list_marker_issues(element): error("Mac list marker: " + issue, eid)
+        elif client == "windows":
+            for issue in windows_list_marker_issues(element): error("Windows list marker: " + issue, eid)
         if not isinstance(element.get("evidence"), dict):
             error("Evidence must be an object", eid)
     retained_editor_context = None
@@ -623,6 +627,12 @@ def match_elements(reference: list[dict], native: list[dict]) -> tuple[list[tupl
         if len(moved_r[key]) == len(moved_n[key]) == 1:
             r, n = moved_r[key][0], moved_n[key][0]
             pairs.append((r, n)); refs.remove(r); natives.remove(n)
+    # Removing named anchors from the sequence used to let an unmatched
+    # divider shift every anonymous card by one. Preserve the already proven
+    # semantic-parent and reading-order boundaries before aligning leftovers.
+    # This only establishes correspondence; every ordinary comparison follows.
+    for r, n in anonymous_anchor_pairs(reference, native, pairs, refs, natives):
+        pairs.append((r, n)); refs.remove(r); natives.remove(n)
     for region in sorted({reference[r].get("region", "") for r in refs} | {native[n].get("region", "") for n in natives}):
         ri = ordered([r for r in refs if reference[r].get("region") == region], reference)
         ni = ordered([n for n in natives if native[n].get("region") == region], native)

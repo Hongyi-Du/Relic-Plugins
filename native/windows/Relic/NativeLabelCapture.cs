@@ -131,13 +131,14 @@ public sealed partial class MainWindow
             {
                 foreach (var label in labelsToDraw) label.RequestCaptureRedraw();
             });
-            capturedNativeLabels = NativeLabelsForCapture();
-            capturedNativeLabelBaseline = ObserveNativeLabelVersions(capturedNativeLabels);
-            capturedNativeLabelEvidence["baseline"] = capturedNativeLabelBaseline.DeepClone();
-            var draws = new JsonArray();
-            for (var i = 0; i < capturedNativeLabels.Length; i++)
-                draws.Add(new JsonObject { ["capture_label_index"] = i, ["production_receipt"] = capturedNativeLabels[i].CaptureProductionReceipt() });
-            capturedNativeLabelEvidence["production_draws"] = draws;
+            // A completed Rendered callback can still precede the Image's
+            // pending arrange. db91b1b retained seven real settings labels
+            // whose images changed from 0x0 to their actual dimensions while
+            // RequestCommitAsync yielded. Keep that preparation observation,
+            // and establish the immutable baseline only after the requested
+            // commit/flush have completed, before the first desktop readback.
+            var preparingLabels = NativeLabelsForCapture();
+            capturedNativeLabelEvidence["before_commit_preparation"] = ObserveNativeLabelVersions(preparingLabels);
             var commit = new JsonObject { ["source"] = "Window.Compositor.RequestCommitAsync", ["started_qpc"] = Stopwatch.GetTimestamp(),
                 ["completed_qpc"] = null, ["completed"] = false, ["quantity"] = "API action completion; not a presentation acknowledgement" };
             capturedNativeLabelEvidence["request_commit"] = commit;
@@ -148,6 +149,14 @@ public sealed partial class MainWindow
             capturedNativeLabelEvidence["dwm_flush"] = flush;
             var flushResult = NativeLabelDwmFlush(); flush["completed_qpc"] = Stopwatch.GetTimestamp(); flush["hresult"] = flushResult;
             NativeLabelInterop.Check(flushResult);
+            capturedNativeLabels = NativeLabelsForCapture();
+            capturedNativeLabelBaseline = ObserveNativeLabelVersions(capturedNativeLabels);
+            capturedNativeLabelEvidence["baseline"] = capturedNativeLabelBaseline.DeepClone();
+            capturedNativeLabelEvidence["baseline_established_qpc"] = Stopwatch.GetTimestamp();
+            var draws = new JsonArray();
+            for (var i = 0; i < capturedNativeLabels.Length; i++)
+                draws.Add(new JsonObject { ["capture_label_index"] = i, ["production_receipt"] = capturedNativeLabels[i].CaptureProductionReceipt() });
+            capturedNativeLabelEvidence["production_draws"] = draws;
             CheckpointNativeLabelCapture("after_render_and_commit_requests");
         }
         catch (Exception ex)

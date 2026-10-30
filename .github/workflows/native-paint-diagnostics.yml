@@ -89,7 +89,7 @@ jobs:
 
           spec = json.loads(Path("scripts/visual/scenes.json").read_text(encoding="utf-8"))
           language, theme = os.environ["DIAGNOSTIC_LANGUAGE"], os.environ["DIAGNOSTIC_THEME"]
-          scenes, sizes = ["group", "file-code"], [[1440, 900]]
+          scenes, sizes = ["group", "file-code", "file-markdown"], [[1440, 900]]
           if language not in spec["languages"] or theme not in spec["themes"]:
               raise ValueError("Unknown shared appearance setting")
           if any(scene not in spec["scenes"] for scene in scenes) or sizes[0] not in spec["sizes"]:
@@ -107,7 +107,7 @@ jobs:
           (directory / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
       - name: Collect original browser paint and post-navigation LayerTree evidence
         timeout-minutes: 5
-        run: python -X utf8 scripts/visual/paint_trace.py --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --width 1440 --height 900 --output visual/paint
+        run: python -X utf8 scripts/visual/paint_trace.py --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --scene file-markdown --width 1440 --height 900 --output visual/paint
       - name: Retain original diagnostic records even when collection fails
         if: always()
         uses: actions/upload-artifact@v4
@@ -135,8 +135,8 @@ jobs:
         run: python -m unittest discover -s scripts/visual/skp_probe -p test_contract.py -v
       - name: Build the actual captured browser's pinned Skia decoder
         run: python scripts/visual/skp_probe/build_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
-      - name: Inspect one original paint record without rendering or changing canonical evidence
-        run: python scripts/visual/skp_probe/run_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --picture pictures/picture-00483.skp --build artifacts/skp/build --output artifacts/skp/group
+      - name: Inspect every unique original paint record without rendering or changing canonical evidence
+        run: python scripts/visual/skp_probe/run_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --all-unique --build artifacts/skp/build --output artifacts/skp/group
       - name: Retain raw decoder results including failures
         if: always()
         uses: actions/upload-artifact@v4

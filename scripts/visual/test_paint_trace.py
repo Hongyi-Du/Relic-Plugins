@@ -136,6 +136,7 @@ class PaintTraceTests(unittest.TestCase):
     def test_scene_receipt_distinguishes_raw_collection_from_measured_parity(self):
         cases = [
             {"has_picture": True, "expected": "raw_records_collected"},
+            {"has_picture": True, "expected": "raw_records_collected", "scene": "file-markdown"},
             {"has_picture": False, "expected": "failed"},
             {"has_picture": True, "data_loss": True, "expected": "failed"},
             {"has_picture": True, "has_layers": False, "expected": "failed"},
@@ -151,7 +152,10 @@ class PaintTraceTests(unittest.TestCase):
                 browser.new_browser_cdp_session.return_value = trace_cdp
                 context.new_cdp_session.return_value = cdp
                 context.new_page.return_value = page
-                page.evaluate.side_effect = [None, {"quantity": "fixture DOM layout metrics"}]
+                scene = fixture.get("scene", "group")
+                page.evaluate.side_effect = ([None, {"path": "/fixture/notes.md", "list_item_count": 2},
+                    {"quantity": "fixture DOM layout metrics"}] if scene == "file-markdown" else
+                    [None, {"quantity": "fixture DOM layout metrics"}])
                 callbacks = {}
                 trace_cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
                 cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
@@ -165,10 +169,24 @@ class PaintTraceTests(unittest.TestCase):
                             "drawsContent": True, "paintCount": 2, "offsetX": 0, "offsetY": 0,
                             "width": 1440, "height": 900, "backendNodeId": 17}]})
                     if method == "DOM.getDocument":
+                        if scene == "file-markdown":
+                            return MarkerPaintTests.document()
                         return {"root": {"nodeId": 1, "backendNodeId": 2, "nodeType": 9}}
+                    if method == "Target.getTargetInfo":
+                        return {"targetInfo": {"targetId": "actual-page", "type": "page"}}
+                    if method == "Page.getFrameTree":
+                        return {"frameTree": {"frame": {"id": "actual-frame", "url": "http://fixture/"}}}
+                    if method == "DOM.querySelectorAll":
+                        return {"nodeIds": [4]}
+                    if method == "CSS.getComputedStyleForNode":
+                        return {"computedStyle": [{"name": "list-style-type", "value": "disc"}]}
+                    if method == "DOM.describeNode":
+                        return {"node": {"backendNodeId": parameters["backendNodeId"], "nodeType": 1}}
                     if method == "LayerTree.makeSnapshot":
                         return {"snapshotId": "fixture-snapshot"}
                     if method == "LayerTree.snapshotCommandLog":
+                        if scene == "file-markdown":
+                            return {"commandLog": MarkerPaintTests.commands()}
                         return {"commandLog": [{"method": "fixture-paint-record"}]}
                     return {}
                 cdp.send.side_effect = page_send
@@ -181,8 +199,8 @@ class PaintTraceTests(unittest.TestCase):
                         return {"data": json.dumps(trace), "eof": True}
                     return {}
                 trace_cdp.send.side_effect = send
-                manifest = {"fixture": {"clock": "2026-10-29T11:02:00Z", "port": 1}}
-                case = {"id": "fixture-group", "scene": "group", "width": 1440, "height": 900}
+                manifest = {"fixture": {"clock": "2026-10-29T11:02:00Z", "port": 1, "files": {"markdown": "/fixture/notes.md"}}}
+                case = {"id": "fixture-" + scene, "scene": scene, "width": 1440, "height": 900}
                 with patch.object(paint_trace, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
                         patch.object(paint_trace, "font_evidence", return_value={"errors": []}):
                     result = paint_trace.collect_scene(browser, context, manifest, case, Path(folder) / "scene", "fixture source")
@@ -225,6 +243,13 @@ class PaintTraceTests(unittest.TestCase):
                     self.assertTrue(any(row["source"] == "browser_command_line" for row in result["errors"]))
                 if fixture.get("writer_loss"):
                     self.assertTrue(any(row["source"] == "trace_processor_stats" for row in result["errors"]))
+                if scene == "file-markdown":
+                    candidate = json.loads((Path(folder) / "scene" / "marker-paint-candidates.json").read_text())
+                    self.assertEqual(len(candidate["candidates"]), 1)
+                    self.assertIsNone(candidate["command_to_marker_attribution"])
+                    self.assertIn(("DOM.getDocument", {"depth": -1, "pierce": True}), [call.args for call in cdp.send.call_args_list])
+                    page.locator.assert_called_with("#panel .file-md")
+                    self.assertEqual(json.loads((Path(folder) / "scene" / "scene-action.json").read_text())["status"], "actual_preview_observed")
 
 
 class LayerSnapshotTests(unittest.TestCase):
@@ -348,6 +373,176 @@ class LayerSnapshotTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(entry["status"], "not_requested_non_content_layer")
         self.assertEqual(entry["source_layer"]["paintCount"], 0)
+        read.assert_not_called()
+
+
+class MarkerPaintTests(unittest.TestCase):
+    """Synthetic CDP receipts: test bindings, not a measured browser fixture."""
+    @staticmethod
+    def document():
+        return {"root": {"nodeId": 1, "backendNodeId": 2, "nodeType": 9, "documentURL": "http://fixture/",
+            "children": [{"nodeId": 3, "backendNodeId": 71, "nodeType": 1, "nodeName": "UL", "children": [
+                {"nodeId": 4, "backendNodeId": 72, "nodeType": 1, "nodeName": "LI", "pseudoElements": [
+                    {"nodeId": 5, "backendNodeId": 73, "nodeType": 1, "nodeName": "::marker", "pseudoType": "marker",
+                     "children": [{"nodeId": 6, "backendNodeId": 74, "nodeType": 3, "nodeValue": "• "}]}]}]}]}}
+
+    @staticmethod
+    def source_reader(session, method, parameters):
+        if method == "Target.getTargetInfo":
+            return {"targetInfo": {"targetId": "actual-page", "type": "page", "url": "http://fixture/"}}
+        if method == "Page.getFrameTree":
+            return {"frameTree": {"frame": {"id": "actual-frame", "url": "http://fixture/"}}}
+        if method == "CSS.enable":
+            return {}
+        if method == "DOM.querySelectorAll":
+            return {"nodeIds": [4]}
+        if method == "CSS.getComputedStyleForNode":
+            return {"computedStyle": [{"name": "list-style-type", "value": "disc"}], "fixture_node_id": parameters["nodeId"]}
+        raise AssertionError("Unexpected source method " + method)
+
+    @staticmethod
+    def commands():
+        return [{"method": "save"}, {"method": "concat", "params": {"matrix": [1, 0, 0.5, 1, 12, 24]}},
+            {"method": "clipRect", "params": {"rect": {"left": 0, "top": 0, "right": 100, "bottom": 200}, "antiAlias": True}},
+            {"method": "drawOval", "params": {"oval": {"left": 1.25, "top": 3, "right": 5.75, "bottom": 7.5},
+                "paint": {"color": "#123456", "style": "fill", "antiAlias": True}}}, {"method": "restore"}]
+
+    def test_default_diagnostic_scenes_preserve_old_scenes_and_add_existing_markdown(self):
+        self.assertEqual(paint_trace.DEFAULT_SCENES, ["group", "file-code", "file-markdown"])
+        manifest = {"cases": [{"id": scene, "scene": scene, "width": 1440, "height": 900}
+                              for scene in ["group", "private", "file-code", "file-markdown"]]}
+        original = copy.deepcopy(manifest)
+        self.assertEqual([case["id"] for case in paint_trace.select_cases(manifest, paint_trace.DEFAULT_SCENES, 1440, 900)], paint_trace.DEFAULT_SCENES)
+        self.assertEqual(manifest, original)
+
+    def test_preview_receipt_retains_actual_path_and_does_not_claim_pointer_interaction(self):
+        page = Mock()
+        page.evaluate.return_value = {"path": "/actual/a.md", "path_text": "/actual/a.md", "list_item_count": 1,
+                                      "preview_bounds": {"x": 100, "y": 200, "width": 150, "height": 200}}
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.markdown_scene_receipt(page, {"files": {"markdown": "/actual/a.md"}}, Path(folder))
+            self.assertEqual(json.loads((Path(folder) / "scene-action.json").read_text()), result)
+        self.assertEqual(result["status"], "actual_preview_observed")
+        self.assertEqual(result["observation"], page.evaluate.return_value)
+        self.assertIn("production openFile", result["action"])
+        page.locator.return_value.wait_for.assert_called_once_with(state="visible")
+        page.locator.return_value.click.assert_not_called()
+
+    def test_wrong_preview_path_or_empty_preview_still_fails(self):
+        for observation in [{"path": "/other.md", "list_item_count": 1}, {"path": "/actual.md", "list_item_count": 0}, None]:
+            with self.subTest(observation=observation), tempfile.TemporaryDirectory() as folder:
+                page = Mock()
+                page.evaluate.return_value = observation
+                result = paint_trace.markdown_scene_receipt(page, {"files": {"markdown": "/actual.md"}}, Path(folder))
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["observation"], observation)
+            self.assertTrue(result["errors"])
+
+    def test_preview_wait_failure_is_durable(self):
+        page = Mock()
+        page.locator.return_value.wait_for.side_effect = TimeoutError("actual preview was not visible")
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.markdown_scene_receipt(page, {"files": {"markdown": "/actual.md"}}, Path(folder))
+            self.assertEqual(json.loads((Path(folder) / "scene-action.json").read_text()), result)
+        self.assertEqual(result["status"], "failed")
+        self.assertIsNone(result["observation"])
+        page.evaluate.assert_not_called()
+
+    def test_actual_page_node_css_requests_preserve_full_marker_and_dom_ancestry(self):
+        document = self.document()
+        original = copy.deepcopy(document)
+        read = Mock(side_effect=self.source_reader)
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.collect_marker_sources(Mock(), read, Path(folder), document)
+            self.assertEqual(json.loads((Path(folder) / "marker-sources.json").read_text()), result)
+        self.assertEqual(result["status"], "raw_sources_collected")
+        self.assertEqual(result["markers"][0]["owner"], original["root"]["children"][0]["children"][0])
+        self.assertEqual(result["markers"][0]["owner_ancestor_backend_node_ids"], [2, 71])
+        self.assertEqual(result["markers"][0]["pseudo"]["children"][0]["nodeValue"], "• ")
+        self.assertEqual([call.args[2] for call in read.call_args_list if call.args[1] == "CSS.getComputedStyleForNode"], [{"nodeId": 4}, {"nodeId": 5}])
+        self.assertTrue(all(row["completed_monotonic"] >= row["started_monotonic"] for row in result["requests"]))
+        self.assertIsNone(result["markers"][0]["paint_geometry"])
+        self.assertEqual(document, original)
+
+    def test_missing_marker_or_queried_owner_does_not_invent_source_identity(self):
+        for missing in ["pseudo", "owner"]:
+            document = self.document()
+            if missing == "pseudo":
+                document["root"]["children"][0]["children"][0]["pseudoElements"] = []
+            else:
+                document["root"]["children"][0]["children"] = []
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as folder:
+                result = paint_trace.collect_marker_sources(Mock(), self.source_reader, Path(folder), document)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["markers"], [])
+
+    def test_missing_target_still_retains_real_marker_sources_but_fails(self):
+        def read(session, method, parameters):
+            return None if method == "Target.getTargetInfo" else self.source_reader(session, method, parameters)
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.collect_marker_sources(Mock(), read, Path(folder), self.document())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(result["markers"]), 1)
+        self.assertIsNone(result["target"])
+
+    def test_oval_candidate_keeps_exact_command_and_complete_state_prefix_without_dom_assignment(self):
+        log = {"commandLog": self.commands()}
+        original = copy.deepcopy(log)
+        source = {"target": self.source_reader(None, "Target.getTargetInfo", {}), "markers": [
+            {"owner": {"backendNodeId": 72}, "pseudo": {"backendNodeId": 73}, "owner_ancestor_backend_node_ids": [2, 71]}]}
+        rows = paint_trace.oval_candidates(log, {"layerId": "layer-a", "backendNodeId": 71}, "snapshot-a", 2, "layer-a.json", source)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["command"], original["commandLog"][3])
+        self.assertEqual(rows[0]["source"], {"file": "layer-a.json", "json_pointer": "/requests/2/response/commandLog/3"})
+        self.assertEqual(rows[0]["complete_state_prefix"]["end_index_exclusive"], 3)
+        self.assertEqual(rows[0]["complete_state_prefix"]["start_index"], 0)
+        self.assertTrue(rows[0]["layer_to_dom_relations"][0]["layer_backend_is_owner_ancestor"])
+        self.assertIsNone(rows[0]["marker_backend_node_id"])
+        self.assertIsNone(rows[0]["final_scene_attribution"])
+        self.assertEqual(log, original)
+
+    def test_same_session_layer_backend_and_entire_command_log_are_retained(self):
+        source = {"target": self.source_reader(None, "Target.getTargetInfo", {}), "markers": [], "errors": []}
+        def read(session, method, parameters):
+            if method == "DOM.describeNode":
+                return {"node": {"backendNodeId": parameters["backendNodeId"], "nodeName": "UL"}}
+            if method == "LayerTree.snapshotCommandLog":
+                return {"commandLog": self.commands()}
+            return LayerSnapshotTests.reader(session, method, parameters)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            result = paint_trace.collect_layer_snapshots(Mock(), read, root, [LayerSnapshotTests.event()], 0, [], source)
+            entry = json.loads((root / result["layers"][0]["file"]).read_text())
+            candidates = json.loads((root / "marker-paint-candidates.json").read_text())
+        self.assertEqual(result["status"], "raw_records_collected")
+        self.assertEqual(entry["actual_layer_dom_node"]["node"]["backendNodeId"], 71)
+        self.assertEqual(entry["requests"][2]["response"]["commandLog"], self.commands())
+        self.assertEqual(candidates["candidates"][0]["source"]["json_pointer"], "/requests/2/response/commandLog/3")
+        self.assertEqual(entry["source_layer"]["transform"], LayerSnapshotTests.event()["params"]["layers"][0]["transform"])
+        self.assertFalse(candidates["canonical_measurements_changed"])
+
+    def test_wrong_layer_backend_or_no_oval_cannot_be_reported_as_collected_marker_paint(self):
+        for defect in ["backend", "oval"]:
+            def read(session, method, parameters):
+                if method == "DOM.describeNode":
+                    return {"node": {"backendNodeId": 999 if defect == "backend" else 71}}
+                if method == "LayerTree.snapshotCommandLog" and defect != "oval":
+                    return {"commandLog": self.commands()}
+                return LayerSnapshotTests.reader(session, method, parameters)
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as folder:
+                result = paint_trace.collect_layer_snapshots(Mock(), read, Path(folder), [LayerSnapshotTests.event()], 0, [], {"markers": [], "errors": []})
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(result["errors"])
+            self.assertEqual(len(result["oval_candidates"]), 1 if defect == "backend" else 0)
+
+    def test_missing_layer_tree_keeps_empty_candidate_receipt_and_failure(self):
+        read = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.collect_layer_snapshots(Mock(), read, Path(folder), [], 0, [], {"markers": [], "errors": []})
+            receipt = json.loads((Path(folder) / "marker-paint-candidates.json").read_text())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(receipt["candidates"], [])
+        self.assertTrue(receipt["errors"])
         read.assert_not_called()
 
 

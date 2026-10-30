@@ -1,5 +1,34 @@
 # Native Relic App contract
 
+Changes for the clients (actual db91b1b capture and correspondence): smoke run
+41070038057 writes its comparison artifacts but fails the strict gate; accepted
+scenes remain zero. Windows has seven capture failures (down from nineteen),
+and the actual settings PNG now contains its navigation labels. The retained
+frame journal shows those seven label Images arranging from 0x0 to their real
+sizes while RequestCommitAsync yields. Their initial state is now retained as
+preparation, with the immutable capture baseline established after commit/flush
+and before any desktop readback. Later membership/revision/geometry comparisons
+are unchanged. Actual whitespace glyph runs also returned Infinity/FLT_MAX ink
+bounds; those original values remain explicit failures, not zero rectangles.
+
+The macOS 15581b1 chart/recipient pairing request is addressed in the shared
+matcher: anonymous elements with equal kind, region, established surrounding
+anchors and known matched parent are paired before leftover sequence alignment.
+Neither geometry nor style influences that correspondence. Unequal anonymous
+groups remain ambiguous; missing checkboxes/dividers and extra native wrappers
+remain failures. The recorded fixture and six tests retain the original IDs,
+parents and reading order. The newly supplied macOS content_screen_frame is
+consumed by the already committed list-marker reader; no origin is inferred.
+
+Changes for the clients (bounded paint diagnostics): the existing archived
+743 SKP aliases are all retained and their 118 unique byte sequences are each
+decoded in CI, including empty/no-text results and failures. Original process,
+thread, flow and trace-loss receipts remain attached. None is promoted to DOM
+or final-frame evidence. A separate file-markdown LayerTree diagnostic records
+actual drawOval candidates and the complete original transform/clip command
+prefixes. Layer-to-DOM ancestry is recorded; oval-to-marker and final screenshot
+ownership remain unknown. The acceptance matrix and tolerances are unchanged.
+
 Changes for the clients (actual native list discs): Windows now paints unordered
 list markers with its retained XAML Ellipse, using actual primary-face metrics
 and the real RichTextBlock baseline. Its raw receipts retain owner/child/window

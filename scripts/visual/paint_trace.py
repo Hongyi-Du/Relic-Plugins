@@ -25,6 +25,7 @@ TRACE_CATEGORIES = [
     "disabled-by-default-cc.debug.picture",
     "disabled-by-default-cc.debug.display_items",
 ]
+DEFAULT_SCENES = ["group", "file-code", "file-markdown"]
 
 
 def trace_parameters():
@@ -212,7 +213,114 @@ def layer_boundary(events, first_event, name, output, boundaries):
     return boundary
 
 
-def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
+def collect_marker_sources(cdp, read, output, document):
+    """Record the real page-session target, marker nodes and CSS without drawing.
+
+    Backend ancestry can bind a layer to a DOM subtree. It cannot bind an
+    individual oval command to a marker, and no geometry-nearest match is made.
+    """
+    result = {"source": "Actual commands on the inspected page's CDP session", "status": "failed",
+              "requests": [], "markers": [], "errors": [], "target": None, "frame_tree": None,
+              "source_document_file": "layer-document.json", "command_to_marker_attribution": None}
+    def invoke(method, parameters=None):
+        request = {"method": method, "parameters": copy.deepcopy(parameters or {}),
+                   "started_monotonic": time.monotonic(), "status": "started", "response": None}
+        result["requests"].append(request)
+        write_json(output / "marker-sources.json", result)
+        response = read(cdp, method, parameters or {})
+        request.update(response=response, completed_monotonic=time.monotonic(),
+                       status="completed" if response is not None else "failed")
+        if response is None:
+            result["errors"].append({"source": method, "reason": "Actual page-session source request failed"})
+        write_json(output / "marker-sources.json", result)
+        return response
+    result["target"] = invoke("Target.getTargetInfo")
+    result["frame_tree"] = invoke("Page.getFrameTree")
+    root = document.get("root") if isinstance(document, dict) else None
+    nodes, ancestors = {}, {}
+    def visit(node, parent_backends):
+        if not isinstance(node, dict):
+            return
+        node_id, backend = node.get("nodeId"), node.get("backendNodeId")
+        if type(node_id) is int and node_id > 0:
+            nodes[node_id] = node
+            ancestors[node_id] = list(parent_backends)
+        lineage = parent_backends + [backend] if type(backend) is int else parent_backends
+        for child in node.get("children", []) + node.get("pseudoElements", []) + node.get("shadowRoots", []):
+            visit(child, lineage)
+    visit(root, [])
+    result["document"] = {key: root.get(key) for key in ("nodeId", "backendNodeId", "documentURL", "frameId")} if root else None
+    target_info = (result["target"] or {}).get("targetInfo", {})
+    frame = (result["frame_tree"] or {}).get("frameTree", {}).get("frame", {})
+    if not target_info.get("targetId") or target_info.get("type") != "page" or not frame.get("id"):
+        result["errors"].append({"source": "target-frame", "reason": "Actual page target or root frame identity is unavailable"})
+    if not root or type(root.get("nodeId")) is not int:
+        result["errors"].append({"source": "DOM", "reason": "No actual post-navigation DOM document"})
+    else:
+        invoke("CSS.enable")
+        selected = invoke("DOM.querySelectorAll", {"nodeId": root["nodeId"], "selector": "#panel .file-md li"})
+        for node_id in (selected or {}).get("nodeIds", []):
+            owner = nodes.get(node_id)
+            if not owner:
+                result["errors"].append({"source": "DOM", "reason": "Actual queried list item is absent from the retained DOM tree", "node_id": node_id})
+                continue
+            marker_count = 0
+            for pseudo in owner.get("pseudoElements", []):
+                if pseudo.get("pseudoType") != "marker":
+                    continue
+                marker_count += 1
+                entry = {"owner": copy.deepcopy(owner), "pseudo": copy.deepcopy(pseudo),
+                         "owner_ancestor_backend_node_ids": ancestors.get(node_id),
+                         "owner_computed_style": invoke("CSS.getComputedStyleForNode", {"nodeId": node_id}),
+                         "pseudo_computed_style": None, "paint_geometry": None, "command_attribution": None}
+                pseudo_id = pseudo.get("nodeId")
+                if type(pseudo_id) is int and pseudo_id > 0:
+                    entry["pseudo_computed_style"] = invoke("CSS.getComputedStyleForNode", {"nodeId": pseudo_id})
+                else:
+                    result["errors"].append({"source": "DOM", "reason": "Actual marker has no usable frontend node identity", "backend_node_id": pseudo.get("backendNodeId")})
+                if not all(type(node.get("backendNodeId")) is int and node["backendNodeId"] > 0 for node in (owner, pseudo)):
+                    result["errors"].append({"source": "DOM", "reason": "Actual list owner or marker backend identity is unavailable", "node_id": node_id})
+                result["markers"].append(entry)
+            if not marker_count:
+                result["errors"].append({"source": "DOM", "reason": "Actual queried list item has no exported marker pseudo-node", "node_id": node_id})
+        if not result["markers"]:
+            result["errors"].append({"source": "DOM", "reason": "No actual markdown list marker was found in the selected production preview"})
+    result["status"] = "failed" if result["errors"] else "raw_sources_collected"
+    write_json(output / "marker-sources.json", result)
+    return result
+
+
+def oval_candidates(commands, layer, snapshot_id, request_index, receipt_file, marker_sources):
+    """Index actual commands only; preserve the complete unfiltered state prefix."""
+    rows = commands.get("commandLog") if isinstance(commands, dict) else None
+    if not isinstance(rows, list):
+        return []
+    source = marker_sources or {}
+    target = (source.get("target") or {}).get("targetInfo")
+    relations = []
+    for marker in source.get("markers", []):
+        owner, pseudo = marker.get("owner", {}), marker.get("pseudo", {})
+        backend = layer.get("backendNodeId")
+        lineage = marker.get("owner_ancestor_backend_node_ids")
+        relations.append({"marker_backend_node_id": pseudo.get("backendNodeId"),
+            "owner_backend_node_id": owner.get("backendNodeId"),
+            "layer_backend_is_owner": type(backend) is int and backend == owner.get("backendNodeId"),
+            "layer_backend_is_owner_ancestor": backend in lineage if type(backend) is int and isinstance(lineage, list) else None,
+            "quantity": "Actual DOM ancestry only; this does not assign any oval to this marker"})
+    pointer = f"/requests/{request_index}/response/commandLog"
+    return [{"command_index": index, "command": copy.deepcopy(command),
+             "source": {"file": receipt_file, "json_pointer": pointer + "/" + str(index)},
+             "complete_state_prefix": {"file": receipt_file, "json_pointer": pointer,
+                                       "start_index": 0, "end_index_exclusive": index,
+                                       "quantity": "Every original preceding command, including save/restore, transforms, clips and annotations; no synthesized cumulative matrix"},
+             "page_target": copy.deepcopy(target), "layer_id": layer.get("layerId"),
+             "layer_backend_node_id": layer.get("backendNodeId"), "snapshot_id": snapshot_id,
+             "layer_to_dom_relations": copy.deepcopy(relations), "marker_backend_node_id": None,
+             "final_scene_attribution": None, "quantity": "Actual unassigned snapshot drawOval primitive; not a canonical marker or final PNG measurement"}
+            for index, command in enumerate(rows) if isinstance(command, dict) and command.get("method") == "drawOval"]
+
+
+def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries, marker_sources=None):
     """Ask only actual post-navigation layer IDs for their diagnostic pictures.
 
     makeSnapshot flushes document lifecycle in this Chromium implementation and
@@ -222,6 +330,7 @@ def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
     snapshots = output / "layer-snapshots"
     snapshots.mkdir()
     result = {"status": "failed", "layers": [], "errors": [],
+        "oval_candidates": [],
         "final_scene_attribution": None,
         "quantity": "Actual LayerTree snapshot command logs; not measured glyph/scrollbar geometry"}
     boundary = layer_boundary(events, first_event, "before_layer_snapshots", output, boundaries)
@@ -229,6 +338,13 @@ def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
     layers = tree.get("params", {}).get("layers") if tree is not None else None
     def persist():
         write_json(output / "layer-snapshots.json", result)
+        if marker_sources is not None:
+            write_json(output / "marker-paint-candidates.json", {"source": "Actual same-page LayerTree snapshotCommandLog drawOval records",
+                "candidates": result["oval_candidates"], "errors": result["errors"],
+                "marker_source_errors": marker_sources.get("errors"),
+                "marker_sources_file": "marker-sources.json", "layer_events_file": "layer-events.json",
+                "timing_file": "layer-boundaries.json", "command_to_marker_attribution": None, "final_scene_attribution": None,
+                "measurement_status": "unresolved", "canonical_measurements_changed": False})
     if not isinstance(layers, list) or not layers:
         result["errors"].append({"source": "LayerTree",
             "reason": "No actual post-navigation layer tree; no snapshot IDs can be requested"})
@@ -283,6 +399,14 @@ def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
         if not isinstance(layer_id, str) or not layer_id:
             persist_entry()
             continue
+        if marker_sources is not None:
+            entry["page_source"] = {"file": "marker-sources.json", "target": marker_sources.get("target"),
+                                    "document": marker_sources.get("document"), "frame_tree": marker_sources.get("frame_tree")}
+            backend = layer.get("backendNodeId")
+            entry["actual_layer_dom_node"] = invoke("DOM.describeNode", {"backendNodeId": backend, "depth": 0}) if type(backend) is int else None
+            actual = (entry["actual_layer_dom_node"] or {}).get("node", {})
+            if type(backend) is not int or actual.get("backendNodeId") != backend:
+                entry["errors"].append({"source": "DOM.describeNode", "reason": "Actual layer backend node was not resolved on the same page session"})
         layer_boundary(events, first_event, f"before_snapshot_{index}", output, boundaries)
         snapshot = invoke("LayerTree.makeSnapshot", {"layerId": layer_id})
         snapshot_id = snapshot.get("snapshotId") if isinstance(snapshot, dict) else None
@@ -295,6 +419,8 @@ def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
                 if not isinstance(commands, dict) or not isinstance(commands.get("commandLog"), list) or not commands["commandLog"]:
                     entry["errors"].append({"source": "LayerTree.snapshotCommandLog",
                         "reason": "No nonempty actual commandLog returned for this snapshot"})
+                entry["oval_candidates"] = oval_candidates(commands, layer, snapshot_id, len(entry["requests"]) - 1, item["file"], marker_sources)
+                result["oval_candidates"].extend(copy.deepcopy(entry["oval_candidates"]))
             finally:
                 if invoke("LayerTree.releaseSnapshot", {"snapshotId": snapshot_id}) is None:
                     entry["errors"].append({"source": "LayerTree.releaseSnapshot", "reason": "Snapshot release failed"})
@@ -305,10 +431,41 @@ def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
         for row in result["layers"] for error in row["errors"])
     if not any(row["status"] == "raw_records_collected" for row in result["layers"]):
         result["errors"].append({"source": "LayerTree", "reason": "No actual content-layer command log collected"})
+    if marker_sources is not None and not result["oval_candidates"]:
+        result["errors"].append({"source": "LayerTree.snapshotCommandLog", "reason": "No actual drawOval command collected; markdown marker paint remains unmeasured"})
     result["status"] = "failed" if result["errors"] else "raw_records_collected"
     layer_boundary(events, first_event, "after_layer_snapshots", output, boundaries)
     persist()
     return result
+
+
+def markdown_scene_receipt(page, fixture, output):
+    """Observe the production preview selected by the existing reference hook."""
+    receipt = {"action": "Existing __relicVisual hook calls actual production openFile(fixture.files.markdown)",
+               "requested_path": fixture["files"]["markdown"], "started_monotonic": time.monotonic(),
+               "status": "started", "observation": None, "errors": []}
+    write_json(output / "scene-action.json", receipt)
+    try:
+        page.locator("#panel .file-md").wait_for(state="visible")
+        receipt["observation"] = page.evaluate("""() => {
+            const preview = document.querySelector('#panel .file-md');
+            const path = document.querySelector('#panel .file-head .t span[title]');
+            const box = preview?.getBoundingClientRect();
+            return {document_url: location.href, observed_performance_now: performance.now(),
+                path: path?.getAttribute('title') ?? null, path_text: path?.textContent ?? null,
+                list_item_count: preview?.querySelectorAll('li').length ?? null,
+                preview_bounds: box ? {x:box.x,y:box.y,width:box.width,height:box.height} : null};
+        }""")
+        observed = receipt["observation"]
+        if not isinstance(observed, dict) or observed.get("path") != receipt["requested_path"]:
+            receipt["errors"].append("Actual production preview path does not match the requested fixture file")
+        if not isinstance(observed, dict) or type(observed.get("list_item_count")) is not int or observed["list_item_count"] < 1:
+            receipt["errors"].append("Actual production markdown preview has no list item")
+    except Exception as error:
+        receipt["errors"].append(str(error))
+    receipt.update(status="failed" if receipt["errors"] else "actual_preview_observed", completed_monotonic=time.monotonic())
+    write_json(output / "scene-action.json", receipt)
+    return receipt
 
 
 def collect_scene(browser, context, manifest, case, output, source):
@@ -373,6 +530,9 @@ def collect_scene(browser, context, manifest, case, output, source):
         if case["scene"] == "documents":
             page.locator(".details .left .chat-row").first.click()
             page.locator(".details .doc-body").wait_for(state="visible")
+        if case["scene"] == "file-markdown":
+            action = markdown_scene_receipt(page, manifest["fixture"], output)
+            report["errors"].extend({"source": "markdown_scene", "reason": error} for error in action["errors"])
         page.mouse.move(case["width"] + 20, case["height"] + 20)
         checkpoint("page/navigation-and-real-scene", "completed")
         marker("post_navigation_layer_enable")
@@ -380,11 +540,14 @@ def collect_scene(browser, context, manifest, case, output, source):
         # domain after navigation. Request the new document first, as DevTools
         # does; old-document layers cannot supply current DOM ownership.
         first_scene_layer_event = len(layer_events)
-        document = read(cdp, "DOM.getDocument", {"depth": 0, "pierce": True})
+        document = read(cdp, "DOM.getDocument", {"depth": -1 if case["scene"] == "file-markdown" else 0, "pierce": True})
         write_json(output / "layer-document.json", document)
         if not isinstance(document, dict) or not isinstance(document.get("root"), dict):
             report["errors"].append({"source": "DOM.getDocument",
                 "reason": "Actual post-navigation document identity unavailable; layer DOM ownership remains unproven"})
+        marker_sources = collect_marker_sources(cdp, read, output, document) if case["scene"] == "file-markdown" else None
+        if marker_sources is not None:
+            report["errors"].extend(marker_sources["errors"])
         read(cdp, "LayerTree.enable")
         page.wait_for_timeout(700)  # Existing settle interval also pumps actual layer events.
         marker("before_screenshot")
@@ -396,7 +559,7 @@ def collect_scene(browser, context, manifest, case, output, source):
         layer_boundary(layer_events, first_scene_layer_event, "after_screenshot", output, boundaries)
         marker("before_layer_snapshots")
         layer_snapshots = collect_layer_snapshots(cdp, read, output, layer_events,
-                                                   first_scene_layer_event, boundaries)
+                                                   first_scene_layer_event, boundaries, marker_sources)
         report["errors"].extend(layer_snapshots["errors"])
         report["layer_snapshot_status"] = layer_snapshots["status"]
         marker("after_layer_snapshots")
@@ -480,13 +643,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--scene", action="append", help="Existing manifest scene; default group and file-code")
+    parser.add_argument("--scene", action="append", help="Existing manifest scene; default group, file-code and file-markdown")
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument("--channel", choices=["headless-shell", "chromium"], default="headless-shell")
     args = parser.parse_args(argv)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
-    cases = select_cases(manifest, args.scene or ["group", "file-code"], args.width, args.height)
+    cases = select_cases(manifest, args.scene or DEFAULT_SCENES, args.width, args.height)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     summary = {"kind": "CI paint-trace diagnostic", "source_manifest": str(args.manifest), "requested_browser_channel": args.channel,

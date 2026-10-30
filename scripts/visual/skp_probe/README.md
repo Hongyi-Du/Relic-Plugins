@@ -1,4 +1,4 @@
-# One-record SKP font diagnostic (CI only)
+# Existing-capture SKP diagnostics (CI only)
 
 This is an independent diagnostic, not an element-parity provider. It does not
 write `elements.json`, resolve an existing measurement failure, draw a replacement
@@ -8,14 +8,15 @@ failures remain in copied receipts even when raw font parsing succeeds.
 
 ## Exact input and build
 
-The first supported input is the existing Windows full-Chromium artifact from
+The supported batch input is the existing Windows full-Chromium artifact from
 run `41024085363` / commit `81e93ac`:
 
 ```
 paint-diagnostic-windows-chromium-en-US-light/paint/en-US-light-1440x900-group/
   browser.json
   pictures.json
-  pictures/picture-00483.skp
+  trace.json
+  pictures/*.skp
 ```
 
 Its actual browser revision is
@@ -24,8 +25,53 @@ Its actual browser revision is
 binds Skia `95ee33d7ec7791ab9c071675710a14fe6408ae4f`. The selected original SKP
 has `965492` bytes and an actual trace pointer
 `/traceEvents/334/args/snapshot/skp64`; these are recorded observations, not a
-hardcoded replacement for each input's receipt. `run_ci.py` requires exact actual
-`pictures.json` byte-count/header binding and records a byte digest.
+hardcoded replacement for each input's receipt. Single-picture mode retains the
+original `pictures.json` byte-count/header binding. Batch mode additionally
+checks every original trace JSON pointer, original event metadata and exact
+base64 payload bytes against the SKP file before grouping identical bytes.
+
+## Bounded complete batch of the existing bytes
+
+The `--all-unique` mode is limited to the recorded `81e93ac` group inventory:
+
+| Quantity | Actual existing input |
+| --- | ---: |
+| Original picture aliases | 743 |
+| Total original bytes including duplicates | 34,782,963 |
+| Unique byte sequences | 118 |
+| Unique bytes | 17,368,520 |
+| Largest SKP | 965,492 bytes |
+| Original trace events | 3,055 |
+
+These are input bounds, not a scene-completeness claim. Batch mode refuses a
+different, incomplete or success-only subset. It decodes all 118 unique inputs
+once, preserving all 743 original aliases and their exact trace event indexes,
+PID/TID/category/timestamp fields. SHA-256 groups are also checked for exact byte
+equality. `inventory.json` retains the original process/thread metadata, all
+trace flow records and coincident flow-event indexes. Coincident trace fields
+do not establish a DOM node or final-frame association.
+
+Every unique input has its own `unique/<index>-<sha256>/` directory with retained
+`input.skp`, `decode.json`, stdout/stderr and any raw JSON/font/image output. Each
+alias resolves to that retained input through `unique_index` and `alias_indexes`.
+One decode failure or 120-second per-input timeout does not skip later inputs.
+The batch writes `batch.json` before work and after every attempt; an interrupted
+batch keeps pending items explicitly `not-attempted`. Completed batches return
+nonzero if any input failed. A successfully decoded image with no text blobs is
+kept as `decoded-no-text-blobs`, not dropped or presented as a font measurement.
+Original trace bytes, extraction/loss receipts, layer receipts and screenshot
+remain under `original/`; there is no new capture, canonical output or source
+repair. An existing output directory with prior results is refused.
+
+The original trace records Browser PID `948` with 725 aliases/109 unique inputs,
+and Renderer PID `1588` with 18 aliases/9 unique inputs. First successful decode
+`picture-00483.skp` is a Browser-process record, not a proved webpage text record.
+It has the same bytes as `picture-00415.skp` and `picture-00551.skp`. Its seven
+blobs and decoded Segoe UI face cannot supply a webpage canonical font weight.
+The trace itself reports 19 lost packets and 1249 skipped invalid-incremental-
+state packets; those original failures stay visible in the batch inventory.
+The separate document layer 8/backendNodeId 4 snapshot has 142 `drawTextBlob`
+commands, but no byte-level link from that snapshot to these extracted SKPs.
 
 The build uses that exact official Skia checkout, its own GN/bootstrap script and
 installed Windows runner VC/Ninja tools. No compiler is installed by this code.
@@ -48,8 +94,11 @@ then Ninja failed before compilation on an absent Expat source. The pinned
 `gn/skia.gni` defaults JPEG gainmaps on for development builds; `BUILD.gn` enables
 the XML target when either Expat or gainmaps is enabled. The diagnostic now also
 disables JPEG gainmaps, consistently with its existing PNG-only image support.
-No image or font decoding error is suppressed; actual compilation is still
-unverified until the next CI result.
+No image or font decoding error is suppressed. The later diagnostic run
+`41070217380` successfully built and decoded the one selected original SKP into
+seven raw blobs. That is one-picture parser evidence, not batch, document or
+element-parity success. The new complete batch remains unverified until CI runs
+`--all-unique`.
 
 ## Root workflow hookup
 
@@ -64,18 +113,21 @@ $case = "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group"
 python -m unittest discover -s scripts/visual/skp_probe -p test_contract.py
 python scripts/visual/skp_probe/build_ci.py --case $case --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-python scripts/visual/skp_probe/run_ci.py --case $case --picture pictures/picture-00483.skp --build artifacts/skp/build --output artifacts/skp/group
+python scripts/visual/skp_probe/run_ci.py --case $case --all-unique --build artifacts/skp/build --output artifacts/skp/group
 exit $LASTEXITCODE
 ```
 
 Upload `artifacts/skp/**` with `if: always()`, including failed output. Build and
 run both refuse non-CI execution. The build refuses an existing work directory;
-the decoder refuses a stale `raw.json`. The chosen diagnostic is one SKP, not a
-new capture matrix. Existing full/smoke parity jobs and their timeouts are unchanged.
+the decoder refuses stale output. The batch uses only this existing capture, not
+a new capture matrix. Existing full/smoke parity jobs and their timeouts are unchanged.
+The original one-picture mode remains available with
+`--picture pictures/picture-00483.skp` in place of `--all-unique`.
 
 Output contains `build.json`, `source-contract.json`, individual build logs,
 `diagnostic.json`, `raw.json`, actual font streams, encoded original image bytes,
-and original input receipts. `raw.json.status=decoded` only certifies this parser
+and original input receipts, plus batch `inventory.json` and `batch.json` when
+requested. `raw.json.status=decoded` only certifies this parser
 completed without its recorded decode/query errors. It is not evidence that the
 original trace was lossless or that every drawn glyph reached the screenshot.
 
@@ -121,8 +173,8 @@ discarded about the original live browser object.
 Still unmeasured: original DOM/text-span identity when absent, exact source/frame
 and final-PNG attribution, final visible glyph/ellipsis bounds, complex clip
 coverage, and resolved browser weight for any canonical text element. Actual
-Skia decoding must first run in CI; the existence of these source paths alone
-does not close those gaps.
+The complete batch must run in CI; neither the one-picture result nor these
+source paths close those gaps.
 
 ## Primary source basis
 

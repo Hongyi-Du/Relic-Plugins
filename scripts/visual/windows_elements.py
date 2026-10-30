@@ -24,6 +24,7 @@ from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
 from windows_avatar_parts import windows_avatar_parts
+from windows_list_marker import windows_list_markers
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
 
@@ -56,7 +57,7 @@ CONTROL_KINDS = {
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "NativeContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
-    "NativeRegionGrid": "region",
+    "NativeRegionGrid": "region", "NativeListMarker": "icon",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
 AVATAR_TYPES = {"PersonPicture"}
@@ -2050,6 +2051,11 @@ def project(xaml_path, uia_path, png_path):
                            "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
     avatar_parts = windows_avatar_parts(source_raw, uia)
     unmeasured.extend(avatar_parts["unmeasured"])
+    list_markers = windows_list_markers(source_raw)
+    for issue in list_markers["unmeasured"]:
+        marker = source_by_id.get(issue["id"], {})
+        if not marker.get("hidden_reason") and positive(marker.get("visible_bounds")):
+            unmeasured.append(issue)
     for issue in avatar_parts["unresolved"]:
         unmeasured.append({"id": issue["owner_id"], "property": "avatar.retained_parts",
                            "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
@@ -2141,6 +2147,10 @@ def project(xaml_path, uia_path, png_path):
     for node in raw:
         if node["id"] not in semantic or not visible(node):
             continue
+        if node["type"] == "NativeListMarker":
+            # Only its retained direct Ellipse contract below can own paint.
+            # Unexpected descendants remain independent visible elements.
+            continue
         if node["type"] == "NativeContentDialog":
             # Only the actual GetTemplateChild-bound surface is owned here.
             # Other template paint and authored Content stay independent; a
@@ -2226,6 +2236,19 @@ def project(xaml_path, uia_path, png_path):
         for part in parts["owned_ids"]:
             owned[part] = (owner, "actual retained production avatar decoration")
 
+    list_marker_owners = {}
+    list_marker_layers = {}
+    for owner, audit in list_markers["owners"].items():
+        ellipse_id = audit["ellipse_id"]
+        if (not visible(by_id[owner]) or not visible(by_id[ellipse_id])
+                or ellipse_id in owned and owned[ellipse_id][0] != owner):
+            unmeasured.append({"id": owner, "property": "native_list_marker",
+                               "reason": "Actual marker/disc is not visible or its retained Ellipse has conflicting ownership"})
+            continue
+        list_marker_owners[owner] = audit
+        list_marker_layers[ellipse_id] = owner
+        owned[ellipse_id] = (owner, "actual retained native list-disc Ellipse")
+
     host_ownership = host_container_ownership(uia, raw)
     projection.extend(host_ownership)
     used_uia = {record["source"] for record in host_ownership}
@@ -2281,6 +2304,10 @@ def project(xaml_path, uia_path, png_path):
                 record["ownership_evidence"] = copy.deepcopy(node["native_label_surface_evidence"])
             if node["id"] in dot_layer_owners:
                 record["ownership_evidence"] = copy.deepcopy(node["state_dot_layer_evidence"])
+                record["paint_evidence"] = copy.deepcopy(node)
+            if node["id"] in list_marker_layers:
+                marker_id = list_marker_layers[node["id"]]
+                record["ownership_evidence"] = copy.deepcopy(list_marker_owners[marker_id])
                 record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in scrollbar_page_hits:
                 owner, region_nodes = scrollbar_page_hits[node["id"]]
@@ -2594,6 +2621,12 @@ def project(xaml_path, uia_path, png_path):
                 style.update(copy.deepcopy(avatar_parts_evidence["border_style"]))
             if avatar_parts_evidence["outline_source"] is not None:
                 style["outline"] = copy.deepcopy(avatar_parts_evidence["outline"])
+        list_marker = list_marker_owners.get(node["id"])
+        if list_marker is not None:
+            # Observed shape properties remain a different quantity from an
+            # observed raster callback. Unknown outline/frame paint stays so.
+            style["foreground"] = copy.deepcopy(list_marker["foreground"]) if list_marker["style_valid"] else None
+            style["opacity"] = list_marker["opacity"] if list_marker["style_valid"] else None
         bounds = avatar_surface["bounds"] if avatar_surface is not None else scrollbar_bounds or paint_node["bounds"]
         if submitted_label_text is not None:
             bounds = submitted_label_text["bounds"]
@@ -2611,13 +2644,19 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "state.hovered", "reason": "Pointer hit-test evidence missing"})
         if kind == "icon" and not node.get("icon"):
             unmeasured.append({"id": node["id"], "property": "icon", "reason": "No actual glyph/vector measurement"})
+        icon = node.get("icon")
+        if list_marker is not None:
+            # The primitive type is real, but no framework paint callback has
+            # been observed. An unknown glyph/path deliberately still fails the
+            # common icon-identity gate, just like the reference list marker.
+            icon = {"source": "geometry", "primitive": "ellipse", "glyph": None, "path": None}
         region = node["region"]
         name_witness = witness or run_name_witness
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": submitted_label_text["visible_bounds"] if submitted_label_text is not None else avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
-                   "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
+                   "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": icon,
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
                                 "uia_group_region": copy.deepcopy(group_regions.get(node["id"])),
                                 "line_break_configuration": break_evidence,
@@ -2682,6 +2721,10 @@ def project(xaml_path, uia_path, png_path):
                                 "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),
                                 "occlusion_masks": occlusion_masks.get(paint_node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
+        if node["id"] in list_markers["audits"]:
+            element["evidence"]["native_list_marker"] = copy.deepcopy(list_markers["audits"][node["id"]])
+            if list_marker is not None:
+                element["evidence"]["paint_sources"].append(list_marker["ellipse_id"])
         if dialog_surface is not None:
             element["evidence"]["dialog_surface"] = {
                 "source": "Actual applied NativeContentDialog surface; native host semantics remain separate from its layout box",

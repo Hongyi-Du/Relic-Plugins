@@ -146,7 +146,7 @@ class DiagnosticComposeTests(unittest.TestCase):
             self.assertEqual(coverage["receipt_errors"][0]["errors"], errors)
             self.assertEqual(coverage["complete_actual_capture_comparisons"], 2)
 
-    def test_actual_full_and_smoke_targets_retain_all_672_and_21_scenes(self):
+    def test_actual_full_and_smoke_targets_retain_all_672_and_22_scenes(self):
         spec = json.loads((Path(compose.__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         matrix, diagnostic, targets = compose.comparison_targets(spec, {"full"})
         self.assertEqual((matrix, diagnostic), ("full", "full"))
@@ -155,7 +155,8 @@ class DiagnosticComposeTests(unittest.TestCase):
             for lang in spec["languages"] for theme in spec["themes"] for width, height in spec["sizes"] for scene in spec["scenes"]})
         matrix, diagnostic, targets = compose.comparison_targets(spec, {"smoke"})
         self.assertEqual((matrix, diagnostic), ("smoke", "smoke"))
-        self.assertEqual(len(targets), 21)
+        self.assertEqual(len(targets), 22)
+        self.assertIn("zh-CN-light-1440x900-file-markdown.png", targets)
         self.assertEqual(set(targets), {"zh-CN-light-1440x900-" + scene + ".png" for scene in SMOKE_SCENES})
         matrix, diagnostic, targets = compose.comparison_targets(spec, {"smoke"}, matrix_unknown=True)
         self.assertEqual((matrix, diagnostic, len(targets)), (None, "full", 672))
