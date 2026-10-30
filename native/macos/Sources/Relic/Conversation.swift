@@ -184,6 +184,9 @@ struct ChatView: View {
                         ReferenceLabel(m.t("chat.no_orgs_hint"), size: 14, color: RelicStyle.muted, lines: 0, alignment: .center).padding(.bottom, 14)
                     }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8)
                 }
+                // The empty reference composer retains its 6px top and 16px
+                // bottom spacing even before an organization is selected.
+                Color.clear.frame(height: 22).measuredRegion("composer")
             } else {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
@@ -633,7 +636,7 @@ struct ComposerQuote: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             IconButton(title: m.t("composer.cancel_quote"), icon: "x", size: 14, height: 22, width: 22) { m.quote = "" }
         }.padding(.leading, 13).padding(.trailing, 8).padding(.vertical, 6)
-            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "region"))
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "card"))
     }
 }
 

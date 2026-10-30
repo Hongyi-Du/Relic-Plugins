@@ -16,7 +16,7 @@ struct ActionMenu: View {
                 }
             }.padding(7)
         }.frame(width: max(250, contentWidth + 14))
-            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog))
+            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog, nativeFill: true))
             .onPreferenceChange(MenuIntrinsicWidth.self) { contentWidth = $0 }
             .onExitCommand { m.appMenu = nil }
     }
@@ -98,7 +98,7 @@ struct RecipientLayer: View {
                 RecipientPicker().padding(7)
                     .background(NativeScrollOwner(identifier: "relic-region/menu", title: ""))
             }.frame(width: width, height: height)
-                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog))
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog, nativeFill: true))
                 .measuredRegion("menu", createsAccessibilityContainer: false)
                 .offset(x: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).x,
                         y: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).y)

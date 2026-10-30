@@ -646,6 +646,7 @@ import CoreText
         try JSONSerialization.data(withJSONObject: normalized, options: [.sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
         audit["surface_probes"] = surfaces.map { surface in var value = surface; value.removeValue(forKey: "rectValue"); return value }
+        audit["native_fill_draws"] = NativeSurfaceFill.observations(in: window)
         audit["icon_probes"] = paint.map { sample in var value = sample; value.removeValue(forKey: "screenRect"); return value }
         audit["edge_probes"] = edgeSamples.map { sample in var value = sample; value.removeValue(forKey: "rectValue"); return value }
         try JSONSerialization.data(withJSONObject: audit, options: [.sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))
