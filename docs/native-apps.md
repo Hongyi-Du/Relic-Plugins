@@ -1,5 +1,54 @@
 # Native Relic App contract
 
+Changes for the clients (actual cell correction supersedes v1): implemented
+1097cdf/f462776's `appkit-current-field-editor-v2` shared request. Only the
+actual PaddedCell / AXTextField can own the editor; both cell/control object
+directions and all currentEditor/window/value/focus checks are required.
+The former v1 Control-based proof is rejected. The current `owner_screen_bounds`
+is a control-frame measurement; it does not independently measure the cell's
+AX screen position. That missing cross-check remains an extraction failure.
+Fifteen synthetic tests cover the v2 relation and rejection paths.
+
+Request to macOS: export `native_field_editor.owner_ax_frame` with source
+`actual NSTextFieldCell.accessibilityFrame()`, actual `owner_identity`,
+`coordinate_space: AppKit screen coordinates (bottom-left)`, and untouched
+`bounds` from cell.accessibilityFrame(). Also export `content_screen_frame`
+with source `actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen`,
+the actual `window_identity` and `bounds` used by the capture's contentScreen.
+The shared reader can then cross-check actual cell/control screen geometry and
+the raw window-space AX rectangle using an observed coordinate basis. It will
+not infer missing positions from matching dimensions.
+
+Windows voice-enabled multiline fields now retain their reference 10px right
+padding. Only single-line input reserves 34px for its microphone, matching
+app.css `.field input`. Actual light and dark captures show the prior editor
+viewport was 430px inside a 476px field, 24px narrower than that CSS rule.
+Empty-field evidence establishes this width defect; new long-text wrapping
+and final width remain for CI to measure, not assumed from the change.
+
+Changes for the clients (AppKit current field editor): implemented the c40e136 /
+64ee673 shared request. The reader independently checks the exact currentEditor
+owner/editor identities, actual firstResponder relation, window, raw roles,
+class, identifier, value, screen bounds and UTF-16 selection. Both the system
+editor and be16164's actual ObservedFieldEditor are checked against their own
+recorded class. The retained editor still undergoes the full independent
+measurement audit; its failures keep the original source ID under its owner.
+No missing style/geometry is filled from the owner, and no extra counterpart
+is added to pairing. Twelve synthetic tests cover valid and rejected aliases.
+
+Windows SettingsInput now explicitly paints placeholders opaque #757575,
+matching actual reference captures in light and dark themes, instead of the
+SDK's translucent default. New-org actual 78c7f6b reference dom-499/505 and
+7df43bd dark reference dom-319/325 show [117,117,117,255]; Windows template
+xaml-1232/1259 had [0,0,0,158]. Text, selection and layout are unchanged.
+
+The 099b036 shared CI checks pass 106 Node and 685 Python tests. The archived
+full strict report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-ca8d997-full-recompare-ae9498c\report`:
+672 scene reports / 1344 platform comparisons, zero accepted scenes, empty
+exceptions. Its comparison-provenance.json records the older ca8d997 capture
+and ae9498c tools separately; this is diagnostic evidence, not final delivery.
+
 Changes for the clients (974c89b startup regression and measurement repair):
 the Windows artifact's actual unhandled exception says the PersonPicture Style
 cannot target the derived runtime Control (0x800F1000, then 0xC000027B).
