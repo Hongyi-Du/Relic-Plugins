@@ -80,7 +80,16 @@ public sealed partial class MainWindow
             {
                 var tableLines = new List<string> { line }; while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s*\|.*\|\s*$")) tableLines.Add(lines[++i]);
                 bool Rule(string text) => Regex.IsMatch(text, @"^\s*\|?\s*:?-{2,}"); var hasHeading = tableLines.Count > 1 && Rule(tableLines[1]);
-                var rows = tableLines.Where(text => !Rule(text)).Select(text => text.Trim().Trim('|').Split('|')).ToArray(); var table = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+                // The reference table's vertical margins stay inside .table-wrap,
+                // whose overflow establishes a separate block formatting context.
+                // They must not collapse with the surrounding Markdown blocks.
+                const double tableBorder = 1;
+                // Collapsed borders are centered on the cell grid lines. Each
+                // cell contributes half a border at either edge; adjacent full
+                // borders overlap, while the outer half-borders stay in the table.
+                // Column width = text + 16px padding + 1px shared border.
+                var rows = tableLines.Where(text => !Rule(text)).Select(text => text.Trim().Trim('|').Split('|')).ToArray();
+                var table = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 6), Padding = new Thickness(tableBorder / 2), UseLayoutRounding = false };
                 for (var col = 0; col < rows.Select(row => row.Length).DefaultIfEmpty().Max(); col++) table.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
                 for (var row = 0; row < rows.Length; row++)
                 {
@@ -88,11 +97,12 @@ public sealed partial class MainWindow
                     for (var col = 0; col < rows[row].Length; col++)
                     {
                         var label = Inline(rows[row][col].Trim(), .93); label.FontWeight = row == 0 && hasHeading ? FontWeights.SemiBold : FontWeights.Normal;
-                        var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(col == 0 ? 1 : 0, row == 0 ? 1 : 0, 1, 1), BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 && hasHeading ? OverviewAlpha(Ink, .04) : new SolidColorBrush(Colors.Transparent) };
+                        var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(tableBorder), Margin = new Thickness(-tableBorder / 2), UseLayoutRounding = false,
+                            BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 && hasHeading ? OverviewAlpha(Ink, .04) : new SolidColorBrush(Colors.Transparent) };
                         Grid.SetRow(cell, row); Grid.SetColumn(cell, col); table.Children.Add(cell);
                     }
                 }
-                Add(new ScrollViewer { Content = table, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, 6, 6); continue;
+                Add(new ScrollViewer { Content = table, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, 0, 0); continue;
             }
             var heading = Regex.Match(line, @"^(#{1,6})\s+(.+)");
             if (heading.Success) { var title = Inline(heading.Groups[2].Value, documentStyle ? 1.02 : 1); title.FontWeight = FontWeights.Bold; Add(title, documentStyle ? 10 : 8, 4); continue; }

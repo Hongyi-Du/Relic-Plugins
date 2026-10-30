@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (Markdown tables): Windows keeps the table's 6px
+vertical margins inside its horizontal scroll wrapper, so surrounding block
+margins cannot absorb them. Actual cells now draw complete 1px borders centered
+on shared grid lines (half-border negative margin and outer half-border padding),
+preserving the measured content origins and total table size. This follows the
+reference's collapsed-border layout; the actual new pixels still need CI review.
+
+Latest comparable smoke report: 35ac04a / 41142421196 has 22 paired cases per
+platform, not a full acceptance matrix. Windows missing/extra/text/geometry/style/
+state are 93/259/632/1283/8560/708, with 76479 extraction errors. macOS counts
+are 46/610/0/550/6398/1327, with 26830 extraction errors. No scene passes and no
+exception is approved. Unmodified JSON/HTML/PNGs are downloaded under
+S:\Codex\Outputs\Relic-native-visual\parity-35ac04a\report-root.
+19c2c0f's Windows and shared checks pass; its macOS test exposes metadata before
+avatar in the complete production message row. The macOS owner has recorded
+the failure; partial isolated passing tests do not replace that regression.
+
 Changes for the clients (conversation action chips): Windows now applies the
 actual .chip-btn.on violet background, 45% violet border and foreground to
 plain-language/digest actions, including hover. Its two nonselectable labels
