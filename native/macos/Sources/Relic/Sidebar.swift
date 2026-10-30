@@ -15,6 +15,7 @@ struct Sidebar: View {
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted, owner: "relic-card/sidebar-search")
                     TextField(m.t("page.search"), text: $m.search).textFieldStyle(.plain).focused($focused)
+                        .accessibilityLabel(m.preferences["voice"].text == "off" ? "" : m.t("common.voice_input"))
                     VoiceButton(text: $m.search, size: 32).labelStyle(.iconOnly)
                 }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/sidebar-search"))
                     .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")

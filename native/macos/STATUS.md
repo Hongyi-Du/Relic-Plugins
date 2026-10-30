@@ -10,6 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+完整捕获恢复：[41011131381 / 2cb073c](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41011131381)
+四个 macOS 语言／主题产物均已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`。
+每份完成记录都是 165/165、`errors: []`，共 660 个 PNG 和 660 个元素文件。
+三个窗口尺寸的进程全部完成；英文浅色任务后续的浏览器绘制诊断失败，
+原生捕获及上传已成功。共享比较报告仍在生成，不能据此计为逐元素通过。
+
 最新诊断 [41009151448 / bbe04a3](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41009151448)
 完成全部 19 个 macOS case；成员卡重命名、Copy 均有实际动作和结果回执。
 群聊输入框测得 758×26，与参考相同。截图、HTML、热图和 JSON 已下载到

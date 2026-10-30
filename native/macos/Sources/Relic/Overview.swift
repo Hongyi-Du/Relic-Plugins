@@ -19,8 +19,8 @@ struct Overview: View {
                                     .modifier(RecordedSurface(background: m.overviewMode == value ? RelicStyle.card : .clear, radius: 6, kind: "tab", owner: "relic-tab/overview-" + value, shadows: m.overviewMode == value ? SurfaceShadow.small : [], selected: m.overviewMode == value))
                             }.buttonStyle(.plain).accessibilityAddTraits(m.overviewMode == value ? [.isSelected] : []).accessibilityIdentifier("relic-tab/overview-" + value).accessibilityLabel(m.t(key))
                         }
-                    }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
-                        .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
+                    }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/overview-modes"))
+                        .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/overview-modes").accessibilityLabel(m.t("org.view_mode"))
                 }
                 ReferenceLabel(org["name"].text, size: 16, weight: 700, lineHeight: 21.6, lines: 0)
                 ReferenceLabel(org["purpose"].text.isEmpty ? m.t("org.no_purpose") : org["purpose"].text, size: 12.5, color: RelicStyle.secondary, lineHeight: 20, lines: purposeOpen ? 0 : 3)
