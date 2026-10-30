@@ -14,10 +14,13 @@ struct OverviewBlock<Content: View>: View {
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
     var centerRows = false
+    var rowAlignment: HorizontalAlignment = .leading
     private func positions(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], sizes: [CGSize], size: CGSize) {
         var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, maxX: CGFloat = 0
         var sizes: [CGSize] = [], rowStart = 0
+        var rows: [(Range<Int>, CGFloat)] = []
         func finishRow() {
+            if rowStart < points.count { rows.append((rowStart..<points.count, points.last!.x + sizes.last!.width)) }
             if centerRows { for index in rowStart..<points.count { points[index].y += (line - sizes[index].height) / 2 } }
             rowStart = points.count
         }
@@ -29,6 +32,9 @@ struct FlowLayout: Layout {
             x += size.width + spacing; line = max(line, size.height)
         }
         finishRow()
+        if rowAlignment == .trailing {
+            for (range, rowWidth) in rows { for index in range { points[index].x += maxX - rowWidth } }
+        }
         return (points, sizes, CGSize(width: maxX, height: y + line))
     }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

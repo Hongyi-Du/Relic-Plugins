@@ -258,6 +258,7 @@ import CoreText
             node["native_ax_label"] = label
             node["native_name_source"] = label.isEmpty && role == "AXStaticText" ? "AXValue of static text" : "AXLabel"
             if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
+            if let popup = object as? ReferencePopUpButton { node["native_dropdown_arrow"] = popup.arrowDraw as Any? ?? NSNull() }
             if let text = object as? NSTextView {
                 node["native_text_layout_system"] = text.textLayoutManager == nil ? "TextKit1" : "TextKit2"
                 if text.textLayoutManager == nil, let drawing = text.layoutManager as? NativeGlyphLayoutManager {

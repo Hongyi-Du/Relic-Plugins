@@ -20,6 +20,36 @@ the scroll moves, and avatar hover is verified using its actual painted label,
 surface and pointer rather than requiring an invisible wrapper AX node.
 No scene, tolerance or exception changes are requested.
 
+Dropdown arrow coverage: the actual c4b113d reference PNG shows one downward
+chevron, while AppKit's default popup draws two directions. macOS now keeps the
+real NSPopUpButton/menu and paints a single 8x4px, 2px butt-cap/miter-join arrow,
+in the actual field foreground. Raw AX nodes retain `native_dropdown_arrow`
+with the production draw's local vertices, stroke, color and completion. The
+canonical icon remains unknown until independently matched. Please measure the
+reference's UA select arrow and include it in the control paint/element contract;
+do not declare it absent because it is not a DOM SVG. The inspected Chromium
+`NativeThemeBase::PaintMenuList` and `ThemePainterDefault::SetupMenuListArrow`
+describe this stroke/shape, and the downloaded reference's pixels agree, but
+the captured Chromium 156 build still needs its own per-case evidence.
+
+Test failures noted in the latest shared contract are addressed by macOS
+`8308590`, pending CI: static-text name extraction now tests the actual
+production ReferenceLabelView instead of an unattached NSTextField reporting
+AXUnknown; two run/font tests construct the production TextKit 1 stack explicitly
+while the separate TextKit 2 test still rejects renderer switching. The button
+opacity raster test now uses NSHostingView caching, because ImageRenderer paints
+unsupported-view substitutes for the AppKit probes behind a transparent button.
+Original value, font, line, appearance and pixel assertions are retained.
+
+The earlier browser-install substitutions near the end of this file are
+historical source/function parity notes, NOT approved Amendment 4 exceptions.
+The captured reference still visibly contains Install and native omits it.
+The browser tutorial's `/api/install-window` action was removed by the shared
+native architecture and returns 410; implementing a browser launcher would
+conflict with the person's native-only requirement. Keep this visible missing
+element/control difference in the strict report. It has not been approved as
+an exception and must not be silently filtered by the existing source allowlist.
+
 Follow-up shared checker failure after `442d1de`: run `40983885238`, job
 `123830414252`, fails `test_main_writes_failed_aggregate_then_exits_nonzero`
 at `scripts/visual/test_windows_capture_processes.py:170`. Its regex still

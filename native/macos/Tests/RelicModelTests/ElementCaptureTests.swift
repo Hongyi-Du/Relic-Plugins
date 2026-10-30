@@ -17,7 +17,7 @@ import ApplicationServices
         XCTAssertEqual(view.string, "Preserve the actual TextKit 2 renderer")
     }
     func testActualStaticTextValueSuppliesItsNameWithoutPromotingEditableValues() throws {
-        let label = NSTextField(labelWithString: "Native static label")
+        let label = ReferenceLabel("Native static label").makeLabelView()
         label.setAccessibilityLabel("")
         let raw = RelicAXRead(label)
         let role = try XCTUnwrap(raw["role"] as? String), value = try XCTUnwrap(raw["value"] as? String)
@@ -103,7 +103,8 @@ import ApplicationServices
         XCTAssertTrue((RelicAXChildren(root).first as AnyObject?) === child)
     }
     func testTextKitCaptureUsesActualRunFontsAndWrappedLineFragments() throws {
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 90, height: 300))
+        let view = ReferenceLabel("", lines: 0).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 90, height: 300)
         view.isEditable = false; view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.containerSize = NSSize(width: 90, height: 300)
@@ -122,7 +123,8 @@ import ApplicationServices
     }
 
     func testTextKitDynamicColorsResolveInTheActualViewAppearance() throws {
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 50))
+        let view = ReferenceLabel("", lines: 0).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 200, height: 50)
         view.textStorage?.setAttributedString(NSAttributedString(string: "Actual appearance", attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor(RelicStyle.ink)]))
         for (appearance, expected) in [(NSAppearance.Name.darkAqua, [236.0, 234, 229, 255]), (.aqua, [27.0, 27, 26, 255])] {
             view.appearance = NSAppearance(named: appearance)
