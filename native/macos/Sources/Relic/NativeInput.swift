@@ -317,7 +317,7 @@ struct VoiceButton: View {
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, color: voice.recording ? RelicStyle.red : nil, action: toggle)
+            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, radius: size / 2, color: voice.recording ? RelicStyle.red : nil, action: toggle)
                 .disabled(voice.starting).accessibilityLabel(m.t("common.voice_input"))
                 .help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         }

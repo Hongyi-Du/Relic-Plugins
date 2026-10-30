@@ -135,6 +135,7 @@ struct IconButton: View {
     var size: CGFloat = 18
     var height: CGFloat = 30
     var width: CGFloat = 30
+    var radius: CGFloat = 7
     var color: Color? = nil
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
@@ -143,7 +144,7 @@ struct IconButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : hovering || selected ? RelicStyle.ink : color ?? RelicStyle.secondary, owner: controlIdentity).frame(width: width, height: height) }
-            .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
+            .buttonStyle(QuietButtonStyle(selected: selected, radius: radius)).foregroundStyle(RelicStyle.secondary)
             .onHover { hovering = $0 }
             .help(title).accessibilityLabel(title).accessibilityIdentifier(controlIdentity)
             .overlay(alignment: .topTrailing) { if badge > 0 { NativeCountBadge(text: String(badge), toolbar: true).allowsHitTesting(false) } }

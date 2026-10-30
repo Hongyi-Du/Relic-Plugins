@@ -9,6 +9,7 @@ struct Avatar: View {
     var secretaryStyle = false
     var showState = false
     var stateBorder: Color = RelicStyle.background
+    var borderWidth: CGFloat = 0
     var imageVisibility: ((Bool) -> Void)? = nil
     @State private var image: NSImage?
     @State private var identity = "relic-avatar/" + UUID().uuidString
@@ -25,8 +26,9 @@ struct Avatar: View {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
             else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
             else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius))
-            .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark), radius: radius, kind: "avatar", owner: identity))
+        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: max(0, radius - borderWidth))).padding(borderWidth)
+            .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark),
+                border: borderWidth > 0 ? RelicStyle.background : .clear, borderWidth: borderWidth, radius: radius, kind: "avatar", owner: identity))
             .overlay(alignment: .bottomTrailing) {
                 if showState && !["", "idle"].contains(state) { StateDot(state: state, border: stateBorder).offset(x: 2, y: 2) }
             }
@@ -350,13 +352,13 @@ struct MessageView: View {
                         Button { m.run { try await m.openThread(item["id"].text) } } label: {
                             HStack(spacing: 6) {
                                 HStack(spacing: -4) { Rows(Array(item["thread"]["people"].rows.prefix(3))) { person in
-                                    Avatar(member: person.text, size: 20, imageVisibility: { visible in
+                                    Avatar(member: person.text, size: 20, borderWidth: 2, imageVisibility: { visible in
                                         if visible { threadAvatarImages.insert(person.text) } else { threadAvatarImages.remove(person.text) }
-                                    }).padding(2).background(RelicStyle.background, in: RoundedRectangle(cornerRadius: 8))
-                                } }
+                                    })
+                                } }.padding(.trailing, -4)
                                 ReferenceLabel(m.t("thread.replies", ["n": item["thread"]["count"].text]), size: 12.5, weight: 600, color: RelicStyle.accent, lines: 0, owner: threadIdentity, controlLabel: true)
                                 ReferenceLabel(m.t("thread.last_reply", ["when": m.shortWhen(item["thread"]["last_at"])]), size: 12.5, color: RelicStyle.muted, lines: 0, owner: threadIdentity)
-                            }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
+                            }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3).environment(\.nativeElementParent, threadIdentity)
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity).accessibilityLabel(threadAccessibilityName)
                     }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
