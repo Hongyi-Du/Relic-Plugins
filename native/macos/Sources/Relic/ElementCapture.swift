@@ -380,9 +380,6 @@ import CoreText
                     abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
             }
             let style = surface["style"] as! [String: Any]
-            if let outline = style["native_outline"], !(outline is NSNull) {
-                surfaceGaps.append("Actual separate native outline retained in surface style; common outline comparison is not implemented: " + String(describing: surface["bounds"]!))
-            }
             if candidates.count == 1, let index = candidates.first {
                 var existing = elements[index]["style"] as! [String: Any]
                 existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing
@@ -484,7 +481,7 @@ import CoreText
             let sourceStyle = node["style"] as! [String: Any], sourceState = node["state"] as! [String: Any]
             let text = node["text"] as! String
             let styleKeys = ["font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color", "background": "backgroundColor", "border_color": "borderColor", "border_width": "borderWidth", "corner_radius": "borderRadius",
-                             "border_widths": "border_widths", "border_styles": "border_styles", "border_colors": "border_colors", "corner_radii": "corner_radii", "opacity": "opacity", "background_image": "background_image", "shadow": "shadow"]
+                             "border_widths": "border_widths", "border_styles": "border_styles", "border_colors": "border_colors", "corner_radii": "corner_radii", "opacity": "opacity", "background_image": "background_image", "shadow": "shadow", "outline": "outline"]
             var actualStyle: [String: Any] = [:]
             for (key, original) in styleKeys {
                 let value = sourceStyle[original] ?? NSNull()
@@ -520,6 +517,7 @@ import CoreText
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
             evidence["raw_node_id"] = id
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
+            evidence["outline"] = (node["surface_evidence"] as? [String: Any])?["outline"] ?? NSNull()
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
