@@ -4,6 +4,33 @@ import SwiftUI
 @testable import Relic
 
 @MainActor final class OutlineDrawTests: XCTestCase {
+    func testLayerBackedLabelUsesItsSingleNativeTextKitDrawingPath() throws {
+        _ = NSApplication.shared
+        let view = ReferenceLabel("Relic → 组织", size: 14, lines: 0).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
+        view.wantsLayer = true
+        let manager = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
+        manager.recordDraws = true
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
+        view.layoutSubtreeIfNeeded(); view.display(); CATransaction.flush()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let range = NSRange(location: 0, length: (view.string as NSString).length)
+        XCTAssertEqual(manager.fontEvidence(for: range, in: view)["status"] as? String, "measured-current-draw")
+        XCTAssertTrue(view.subviews.isEmpty)
+        let children = view.layer?.sublayers ?? []
+        XCTAssertTrue(children.isEmpty, "A label must not retain another AppKit content paint layer: \(children.map { String(describing: type(of: $0)) })")
+        var painted = false
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide where (CaptureRaster.sRGBPixel(bitmap, x: x, y: y)?[3] ?? 0) > 0 {
+                painted = true; break
+            }
+            if painted { break }
+        }
+        XCTAssertTrue(painted, "Removing an extra draw path must retain the actual glyph pixels")
+    }
+
     func testTextOutlineContractRequiresItsActualCurrentNativeDrawAndRejectsAdditionalPaint() throws {
         _ = NSApplication.shared
         let view = ReferenceLabel("Measured passage", size: 13).makeLabelView()
