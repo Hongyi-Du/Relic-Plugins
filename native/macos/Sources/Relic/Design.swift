@@ -117,8 +117,9 @@ struct QuietButtonStyle: ButtonStyle {
     var expanded: Bool? = nil
     var selectionColor: Color? = nil
     var unread: Bool? = nil
+    var selectionShadows: [SurfaceShadow] = []
     func makeBody(configuration: Configuration) -> some View {
-        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable, radius: radius, expanded: expanded, selectionColor: selectionColor, unread: unread)
+        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable, radius: radius, expanded: expanded, selectionColor: selectionColor, unread: unread, selectionShadows: selectionShadows)
     }
     private struct QuietBody: View {
         let configuration: Configuration
@@ -128,11 +129,12 @@ struct QuietButtonStyle: ButtonStyle {
         let expanded: Bool?
         let selectionColor: Color?
         let unread: Bool?
+        let selectionShadows: [SurfaceShadow]
         @State private var hovering = false
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label.contentShape(RoundedRectangle(cornerRadius: radius))
-                .modifier(RecordedSurface(background: selected ? selectionColor ?? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: radius, hovered: hovering, selected: selectionApplicable ? selected : nil, expanded: expanded, unread: unread))
+                .modifier(RecordedSurface(background: selected ? selectionColor ?? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: radius, hovered: hovering, shadows: selected ? selectionShadows : [], selected: selectionApplicable ? selected : nil, expanded: expanded, unread: unread))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }

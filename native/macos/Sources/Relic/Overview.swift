@@ -328,18 +328,20 @@ struct ProtocolCard: View {
                     if p["inherit"].flag { ReferenceLabel(m.t("org.protocol_inherits"), size: 13, color: RelicStyle.muted, lines: 0) }
                 }
                 if !p["trigger"].text.isEmpty { field("details.label_applies", p["trigger"].text) }
-                if !p["guidance"].text.isEmpty { SelectableText(value: AttributedString(p["guidance"].text), pointSize: 13, lineHeight: 20.8) }
+                if !p["guidance"].text.isEmpty { SelectableText(value: AttributedString(p["guidance"].text), pointSize: 13, lineHeight: 20.8, uniformSource: true) }
                 if !p["summary_for_person"].text.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
-                        ReferenceLabel(m.t("details.label_summary"), size: 13, color: RelicStyle.muted)
-                        RichText(p["summary_for_person"].text, pointSize: 13)
-                    }
+                        ReferenceLabel(m.t("details.label_summary"), size: 13.5, color: RelicStyle.muted, lineHeight: 22.95, lines: 0)
+                        RichText(p["summary_for_person"].text, document: true)
+                    }.padding(.horizontal, 13).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "card"))
                 }
                 if !p["rules"].rows.isEmpty {
                     let metadata = p["rules"].rows.map { rule in rule["effect"].text == "check" ? rule.object.filter { !["code", "examples", "code_sha256"].contains($0.key) } : rule.object }
-                    SelectableText(value: AttributedString(p["rules_display"].text.isEmpty ? pretty(Node(metadata)) : p["rules_display"].text), pointSize: 12.5, lineHeight: 20.625, monospaced: true)
+                    SelectableText(value: AttributedString(p["rules_display"].text.isEmpty ? pretty(Node(metadata)) : p["rules_display"].text), pointSize: 12.5, lineHeight: 20.625, monospaced: true, uniformSource: true)
                         .padding(15).frame(maxWidth: .infinity, alignment: .leading)
                         .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "code"))
+                        .padding(.vertical, 12.5)
                 }
                 RulesView(rules: p["rules"].rows)
                 if source == "protocols" {
@@ -351,7 +353,12 @@ struct ProtocolCard: View {
             .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, borderWidth: 1, radius: 12, kind: "card"))
             .recordedOpacity(source == "replaced_protocols" ? 0.6 : 1)
     }
-    private func field(_ key: String, _ value: String) -> some View { Text(m.t(key)).foregroundStyle(RelicStyle.muted) + Text(value) }
+    private func field(_ key: String, _ value: String) -> some View {
+        FlowLayout(spacing: 0, centerRows: true) {
+            ReferenceLabel(m.t(key), size: 13, color: RelicStyle.muted, lineHeight: 20.8).fixedSize()
+            ReferenceLabel(value, size: 13, lineHeight: 20.8, lines: 0)
+        }
+    }
 }
 
 struct RulesView: View {
