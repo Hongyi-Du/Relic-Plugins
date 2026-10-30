@@ -17,10 +17,11 @@ struct ReferenceLabel: NSViewRepresentable {
     var struck = false
     var accessibleName: String? = nil
     var controlLabel = false
+    var textGlyphIcon = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -28,6 +29,7 @@ struct ReferenceLabel: NSViewRepresentable {
         self.struck = struck
         self.accessibleName = accessibleName
         self.controlLabel = controlLabel
+        self.textGlyphIcon = textGlyphIcon
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = makeLabelView()
@@ -53,6 +55,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.textStorage?.setAttributedString(attributedText)
         view.hasExplicitAccessibilityName = accessibleName != nil
+        view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
         return view
     }
@@ -79,6 +82,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.productionRegion = region
         if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
         view.hasExplicitAccessibilityName = accessibleName != nil
+        view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
@@ -103,6 +107,7 @@ final class ReferenceLabelView: NSTextView {
     var productionParent: String?
     var productionRegion = "window"
     var hasExplicitAccessibilityName = false
+    var textGlyphIcon = false
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
 }
