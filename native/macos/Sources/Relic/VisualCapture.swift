@@ -271,6 +271,13 @@ import RelicAX
                 try phases.record("before-final-display")
                 hosting.displayIfNeeded(); CATransaction.flush()
                 try phases.record("after-final-display")
+                try phases.record("before-caret-transition-readiness")
+                let caretReadiness = try await NativeCaretReadiness.settle(in: hosting)
+                try evidence(caretReadiness, suffix: ".caret-readiness.json", item: item, output: output)
+                guard caretReadiness["settled"] as? Bool == true else {
+                    throw RelicError.message("Native insertion indicator retained a finite transition before capture")
+                }
+                try phases.record("after-caret-transition-readiness")
                 let geometry = GeometryCaptureSession(path: output.appendingPathComponent(item["id"].text + ".native-geometry.json"))
                 try geometry.observe("before-screenshot", window: window)
                 try resizeCapture?.observe("before-screenshot")
