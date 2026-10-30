@@ -99,7 +99,7 @@ extension NativeTextStyle {
     }
 }
 
-final class QuoteTextView: NSTextView {
+final class QuoteTextView: ReadOnlyTextView {
     var sourceStorage: NSTextStorage?
     var measuredOpacity: Double = 1
     var productionRegion = "window"

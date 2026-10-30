@@ -98,7 +98,7 @@ struct ReferenceLabel: NSViewRepresentable {
     }
 }
 
-final class ReferenceLabelView: NSTextView {
+final class ReferenceLabelView: ReadOnlyTextView {
     var sourceStorage: NSTextStorage?
     let pathLineBreaks = PathLineBreaks()
     var measuredOpacity: Double = 1

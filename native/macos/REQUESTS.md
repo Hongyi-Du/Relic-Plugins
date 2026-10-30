@@ -1,3 +1,22 @@
+## 2026-10-30: native right-pane scroll origin has an actual AppKit caller
+
+The successful macOS capture in `41040938552` (72f5571, 19/19) retains
+`zh-CN-light-1440x900-group.native-scroll.json`. Its right pane changes from
+clip origin y=0 to y=7 during actual NSTextView frame assignment:
+`setFrameSize:` -> `_setFrameSize:forceScroll:` ->
+`_centeredScrollRectToVisible:forceCenter:` -> `scrollRectToVisible:` ->
+`NSClipView scrollToPoint:`. The first responder is CanvasFocusView, not the
+read-only passage. Insets are zero. This is an unwanted dormant-selection
+reveal during layout, not a seven-pixel padding requirement.
+
+Both production read-only text subclasses now suppress automatic reveal only
+while assigning their frame. Explicit scrolling and selection outside frame
+assignment keep the normal NSTextView behavior. A native regression resizes
+both selectable passages and static labels at several existing scroll offsets,
+preserves selection, and verifies explicit scrolling still works. New CI must
+verify the implementation and capture the right pane again; no measured offset
+is overwritten and no tolerance is changed.
+
 ## 2026-10-30: text vertical extent now comes from actual font draw metrics
 
 Follow-up `63aecc0`: `72f5571` release compiled, but its new test failed in the
