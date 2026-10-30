@@ -1,6 +1,10 @@
 // Injected into the reference's closure by Playwright only. Calls the existing
 // production views and controls; does not replace their markup or styles.
 const visualCcLoads = [];
+Object.defineProperty(window, '__relicVisualSettingsState', {get: () => ({
+  source: 'actual production closure settingsPane.current; read-only snapshot',
+  current: settingsPane?.current ?? null
+})});
 const readVisualCc = () => JSON.parse(JSON.stringify({asked: ccAsked, cc: S.cc, copies_connected: !!(ccBox && ccBox.isConnected)}));
 Object.defineProperty(window, '__relicVisualCcState', {get: () => ({
   source: 'actual production closure S.cc and ccAsked; detached read-only snapshot',
@@ -41,6 +45,7 @@ window.__relicVisual = async (scene, fixture) => {
   await visualLoadCc('before-scene-controls');
   save('relic.plain.' + S.orgId, false);
   toggleSide(true); togglePanel(S.panelOpen);
+  if (scene === 'settings-navigation-hover') { openSettings('appearance'); return; }
   if (scene.startsWith('settings-')) { openSettings(scene.slice(9)); return; }
   if (scene.startsWith('menu-')) { const k = scene.slice(5); openAppMenu(k, document.querySelector('[data-menu="' + k + '"]') || document.querySelector('.ab-menu')); return; }
   if (scene.startsWith('file-')) { await openFile(fixture.files[scene.slice(5)], scene === 'file-code' ? 2 : undefined); return; }

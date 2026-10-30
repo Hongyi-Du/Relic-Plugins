@@ -236,6 +236,20 @@ public sealed partial class MainWindow
         // reading and keyboard order, while remaining above its scroll surface.
         Canvas.SetZIndex(close, 1); pane.Children.Add(Scroll(content));
         var tabs = new Dictionary<string, (SelectorBarItem Item, TextBlock Label, ReferenceVectorIcon Icon)>();
+        var hoveredNavigationItems = new HashSet<SelectorBarItem>();
+        void PaintNavigation()
+        {
+            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink;
+            foreach (var tab in tabs.Values)
+            {
+                var selected = tab.Item.IsSelected; var hovered = hoveredNavigationItems.Contains(tab.Item);
+                // Like .settings nav button.on, selection takes precedence over hover.
+                tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : hovered ? Paint("EFEEEA", "262624") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                tab.Label.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+                tab.Label.Foreground = tab.Icon.Foreground = selected || hovered ? Ink : Paint("5A5853", "B8B5AE");
+            }
+        }
+        body.ActualThemeChanged += (_, _) => PaintNavigation();
         var navigationBar = new SelectorBar
         {
             Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -258,13 +272,10 @@ public sealed partial class MainWindow
         async Task Draw(string key)
         {
             current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); body.Background = dialog.Background = Paint("FFFFFF", "252523");
-            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink; close.Foreground = Paint("5A5853", "B8B5AE");
+            close.Foreground = Paint("5A5853", "B8B5AE");
             if (tabs.TryGetValue(key, out var selectedTab)) navigationBar.SelectedItem = selectedTab.Item;
-            foreach (var (id, tab) in tabs)
-            {
-                var selected = id == key; tab.Item.IsSelected = selected; tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                tab.Label.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal; tab.Label.Foreground = tab.Icon.Foreground = selected ? Ink : Paint("5A5853", "B8B5AE");
-            }
+            foreach (var (id, tab) in tabs) tab.Item.IsSelected = id == key;
+            PaintNavigation();
             switch (key)
             {
                 case "profile":
@@ -328,6 +339,9 @@ public sealed partial class MainWindow
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "settings-nav-" + key);
+            tab.PointerEntered += (_, _) => { hoveredNavigationItems.Add(tab); PaintNavigation(); };
+            tab.PointerExited += (_, _) => { hoveredNavigationItems.Remove(tab); PaintNavigation(); };
             navigationBar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
         }
         // One real selection model owns all navigation rows. Seven independent

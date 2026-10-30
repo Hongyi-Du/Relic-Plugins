@@ -71,7 +71,7 @@ public sealed partial class MainWindow
                     Task? dialog = null;
                     Microsoft.UI.Xaml.Controls.Primitives.Popup? suggestionPopup = null;
                     Expander? liveTool = null;
-                    if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene[9..]);
+                    if (scene.StartsWith("settings-")) dialog = SettingsScreen(scene == "settings-navigation-hover" ? "appearance" : scene[9..]);
                     else if (scene.StartsWith("file-")) await OpenFile(fixture["files"].Text(scene[5..]), scene == "file-code" ? 2 : 0);
                     else if (scene.StartsWith("menu-"))
                     {
@@ -117,6 +117,7 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene == "settings-navigation-hover") await BeginSettingsNavigationCapture();
                     if (scene is "panel-resize-hover" or "panel-resized")
                     {
                         await CapturePanelResizeScene(scene);
@@ -187,12 +188,17 @@ public sealed partial class MainWindow
                             throw new InvalidOperationException("Native composer document did not initialize: " + (input.InitializationFailure ?? "not ready"));
                     root.UpdateLayout();
                     if (scene == "member-card-model")
-                        PathLineBreakProbe.Capture(root, CaptureCardControl("member-card-cwd") as TextBlock,
-                            shot.Text("id"), manifest.Text("output"));
+                    {
+                        var cwd = CaptureCardControl("member-card-cwd");
+                        if (cwd is NativePathText nativePath)
+                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".path-layout.json"),
+                                nativePath.CaptureProductionPathReceipt().ToJsonString());
+                        else PathLineBreakProbe.Capture(root, cwd as TextBlock, shot.Text("id"), manifest.Text("output"));
+                    }
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);
-                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized" or "panel-resize-hover" or "panel-resized")) await CaptureMoveScreenPointer(1900, 1040);
+                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized" or "panel-resize-hover" or "panel-resized" or "settings-navigation-hover")) await CaptureMoveScreenPointer(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene.StartsWith("member-card") || scene is "mention" or "recipients") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
@@ -205,9 +211,11 @@ public sealed partial class MainWindow
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
                     RecordPanelResizePhase("after_native_label_capture");
                     CapturePanelResizeCheckpoint("before_screenshot");
+                    CheckpointSettingsNavigationCapture("before_screenshot");
                     BeginTextRangeFrameCapture(shot.Text("id"));
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     CapturePanelResizeCheckpoint("after_screenshot");
+                    CheckpointSettingsNavigationCapture("after_screenshot");
                     CaptureTextareaCheckpoint("after_screenshot");
                     if (capturedMessageEvidence != null) capturedMessageEvidence["after_screenshot"] = CaptureMessageSceneState();
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
@@ -217,6 +225,7 @@ public sealed partial class MainWindow
                     CapturePanelResizeCheckpoint("before_element_extraction");
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     CapturePanelResizeCheckpoint("after_element_extraction");
+                    CheckpointSettingsNavigationCapture("after_element_extraction");
                     CheckpointNativeLabelCapture("after_element_extraction");
                     CaptureTextareaCheckpoint("after_extraction");
                     if (capturedMessageEvidence != null)
@@ -230,6 +239,7 @@ public sealed partial class MainWindow
                 }
                 catch (Exception ex)
                 {
+                    if (settingsHoverEvidence != null) ((JsonArray)settingsHoverEvidence["errors"]!).Add(ex.ToString());
                     if (capturedTextareaEvidence != null) ((JsonArray)capturedTextareaEvidence["errors"]!).Add(ex.ToString());
                     if (capturedPanelResizeEvidence != null) ((JsonArray)capturedPanelResizeEvidence["errors"]!).Add(ex.ToString());
                     failures.Add(shot.Text("id") + ": " + ex);
@@ -246,6 +256,12 @@ public sealed partial class MainWindow
                 }
                 finally
                 {
+                    try
+                    {
+                        if (settingsHoverEvidence != null)
+                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), settingsHoverEvidence.ToJsonString());
+                    }
+                    finally { EndSettingsNavigationCapture(); }
                     EndTextRangeFrameCapture();
                     if (capturedTextRangeFrameEvidence != null)
                         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".text-range-frame-final.json"), capturedTextRangeFrameEvidence.ToJsonString());

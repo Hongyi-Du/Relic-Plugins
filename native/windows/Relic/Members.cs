@@ -162,7 +162,8 @@ public sealed partial class MainWindow
             else if (c.Text("session").Length > 0) { var session = InlineMono(c.Text("session")[..Math.Min(18, c.Text("session").Length)] + (c.Text("session").Length > 18 ? "…" : "")); ToolTipService.SetToolTip(session, c.Text("session")); Row("common.session", session); }
             if (c.Text("cwd").Length > 0)
             {
-                var cwd = InlineMono(OverviewClip(c.Text("cwd"), 64));
+                var cwd = new NativePathText(OverviewClip(c.Text("cwd"), 64), words.Language, T("common.copy"), T("appmenu.select_all"))
+                { Foreground = Ink };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(cwd, "member-card-cwd");
                 Row("card.folder", cwd);
             }

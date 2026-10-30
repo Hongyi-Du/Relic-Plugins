@@ -37,15 +37,15 @@ class MacOSCaptureShardTests(unittest.TestCase):
         (path.parent / "process-exit.json").write_text('{"pid":1234,"returncode":0,"forced_kill":false}', encoding="utf-8")
         return result
 
-    def test_full_165_cases_use_three_fresh_55_case_processes_and_original_order(self):
+    def test_full_168_cases_use_three_fresh_56_case_processes_and_original_order(self):
         scenes = json.loads((capture.HERE / "scenes.json").read_text(encoding="utf-8"))["scenes"]
-        self.assertEqual(len(scenes), 55)
+        self.assertEqual(len(scenes), 56)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); manifest = self.manifest(root, scenes); original = copy.deepcopy(manifest)
             calls = []
             def run(path, per_shard, exe):
                 calls.append(path)
-                self.assertEqual(len(per_shard["cases"]), 55)
+                self.assertEqual(len(per_shard["cases"]), 56)
                 self.assertEqual(per_shard["fixture"], original["fixture"])
                 self.assertEqual(per_shard["output"], original["output"])
                 self.assertEqual(json.loads(path.read_text()), per_shard)
@@ -54,9 +54,9 @@ class MacOSCaptureShardTests(unittest.TestCase):
             with patch.object(capture, "native_process", side_effect=run):
                 result = capture.native(root / "manifest.json", manifest, Path("Relic"))
             self.assertEqual([path.parent.name for path in calls], ["1440x900", "1280x800", "1024x700"])
-            self.assertEqual(result["expected_count"], 165)
-            self.assertEqual(result["attempted_count"], 165)
-            self.assertEqual(result["count"], 165)
+            self.assertEqual(result["expected_count"], 168)
+            self.assertEqual(result["attempted_count"], 168)
+            self.assertEqual(result["count"], 168)
             self.assertEqual(result["errors"], [])
             self.assertEqual([case["case_id"] for case in result["cases"]], [case["id"] for case in original["cases"]])
             self.assertEqual(json.loads((root / "complete.json").read_text()), result)

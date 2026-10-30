@@ -23,7 +23,7 @@ class CaptureViewportShardTests(unittest.TestCase):
             raise AssertionError("Windows workflow must expose its full and smoke job matrices")
         cls.full_jobs, cls.smoke_jobs = (json.loads(value) for value in expression.groups())
 
-    def test_twelve_actual_workflow_shards_exactly_reproduce_original_660_cases(self):
+    def test_twelve_actual_workflow_shards_exactly_reproduce_all_672_cases(self):
         # This is the original unsplit Cartesian product, independent of the
         # new helpers and of the workflow's explicit shard list.
         original = [{"id": f"{lang}-{theme}-{width}x{height}-{scene}", "scene": scene,
@@ -31,14 +31,14 @@ class CaptureViewportShardTests(unittest.TestCase):
                      "file": f"{lang}-{theme}-{width}x{height}-{scene}.png"}
                     for lang in self.spec["languages"] for theme in self.spec["themes"]
                     for width, height in self.spec["sizes"] for scene in self.spec["scenes"]]
-        self.assertEqual(len(original), 660)
+        self.assertEqual(len(original), 672)
         self.assertEqual(len(self.full_jobs), 12)
         merged = []
         for job in self.full_jobs:
             with self.subTest(job=job):
                 sizes = capture.capture_sizes(self.spec, "full", job["viewport"])
                 cases = capture.capture_cases(self.spec["scenes"], sizes, job["lang"], job["theme"])
-                self.assertEqual(len(cases), 55)
+                self.assertEqual(len(cases), 56)
                 self.assertEqual([case["scene"] for case in cases], self.spec["scenes"])
                 merged.extend(cases)
         self.assertEqual(merged, original)
@@ -104,11 +104,11 @@ class CaptureViewportShardTests(unittest.TestCase):
                 self.assertEqual(path, output / "data/zh-CN/light/1280x800/manifest.json")
                 self.assertEqual(manifest["viewport_filter"], "1280x800")
                 self.assertEqual(manifest["output"], str(output))
-                self.assertEqual(len(manifest["cases"]), 55)
+                self.assertEqual(len(manifest["cases"]), 56)
                 self.assertEqual({(case["width"], case["height"]) for case in manifest["cases"]}, {(1280, 800)})
                 self.assertEqual(reference_output, reference)
                 reference.mkdir(parents=True)
-                return {"errors": [], "components": [{"client": "windows", "count": 55}, {"client": "reference", "count": 55}]}
+                return {"errors": [], "components": [{"client": "windows", "count": 56}, {"client": "reference", "count": 56}]}
 
             with patch("sys.argv", argv), patch.object(capture.subprocess, "Popen", return_value=server) as launch, \
                     patch.object(capture, "wait_file", return_value=fixture), patch.object(capture, "configure"), \
@@ -119,8 +119,8 @@ class CaptureViewportShardTests(unittest.TestCase):
             for root in (output, reference):
                 receipt = json.loads((root / "capture-complete-zh-CN-light-1280x800.json").read_text(encoding="utf-8"))
                 self.assertEqual(receipt["viewport_filter"], "1280x800")
-                self.assertEqual(receipt["count"], 55)
-                self.assertEqual(receipt["expected_count"], 55)
+                self.assertEqual(receipt["count"], 56)
+                self.assertEqual(receipt["expected_count"], 56)
                 self.assertEqual(receipt["errors"], [])
                 self.assertFalse((root / "capture-complete-zh-CN-light.json").exists())
             server.terminate.assert_called_once()

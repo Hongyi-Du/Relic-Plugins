@@ -1,5 +1,49 @@
 # Native Relic App contract
 
+Changes for the clients (production cwd text layout): Windows member-card cwd
+now uses a selectable native path control. System ICU provides line/grapheme/word
+boundaries; actual DWrite clusters and the available allocation select lines,
+without source edits, hidden characters or fixture line breaks. Its actual
+NativeLabel draws supply hit testing and selection rectangles; mouse/keyboard
+selection, localized Copy/Select All and a real TextPattern retain the full source.
+A measured failure falls back to the original selectable TextBlock and remains
+a failed receipt. Raw `native_path_evidence` / `native_path_line_evidence` bind
+actual object references, renderIds and source spans; `.path-layout.json` keeps
+the separate production layout inputs. Canonical ownership is not guessed from
+matching text. Seven pure policy tests await CI, as do actual line wrapping,
+baseline, selection and UIA behavior. The complete WinUI project builds with
+zero warnings/errors after the new raw binding and hover capture integration.
+
+The composer now paints the reference's 0/1/2/.06 shadow through the existing
+NativeShadowPanel around its real border box, keeping outer margin/MaxWidth on
+the wrapper and retaining the same editor/actions. New screenshots must verify
+geometry and pixels; existing compositor receipts do not assert raster equality.
+
+Read the macOS conversation-keyboard request: its actual focusable scroll view
+and key handling are integrated without projecting a fictitious focus state.
+The additional actual icon-own-outline and recursive layer receipts retain
+their separate unknown presentation/child drawing duties.
+
+Changes for the clients (new required settings navigation hover scene): the
+matrix now has 56 scenes / 672 cases per platform, retaining all previous 55
+scenes and adding `settings-navigation-hover` in all sizes, languages and themes.
+Open Settings on `appearance`, then physically hover the unselected `notify`
+navigation item without clicking; keep Appearance selected and retain that
+actual pointer state through PNG and extraction. Reference uses the production
+`.settings nav button[data-k="notify"]`; Windows uses the actual
+`settings-nav-notify` SelectorBarItem. The macOS owner must implement the same
+scene and retain actual hover/selection/geometry receipts. The new row remains
+required, with no exclusion while either client is incomplete. Windows now
+implements the previously missing hover colors with selection taking priority.
+
+Changes for the clients (macOS actual icon draw request): the shared validator
+now binds the new live-CoreGraphics-icon-draw receipt to its actual current
+view/window, source path, geometry, color and stroke inputs. Synthetic tests
+cover stale and conflicting identities; they are not captured product evidence.
+The false presentation-identity field and existing unknown outline/visibility
+obligations are preserved. The Mac test-assumption correction and real border
+padding change have been merged, with new CI verification still required.
+
 Changes for the clients (actual e469311 Windows capture): group xaml-12 Back and
 its xaml-15 arrow are now enabled, with actual foreground [90,88,83,255], matching
 the reference request after the startup-history fix. The actual state-dot owner

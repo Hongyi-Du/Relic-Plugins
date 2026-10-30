@@ -293,6 +293,56 @@ public sealed partial class MainWindow
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
         CaptureNativeDialogSurfaces(renderIds, renderNodes);
         BindTextRangeFrameOwners(renderIds);
+        // Second pass: bind retained production line objects only after every
+        // actual popup/visual child has its independent traversal id.
+        foreach (var (value, record) in renderNodes)
+        {
+            if (value is not NativePathText pathOwner) continue;
+            try
+            {
+                var pathReceipt = pathOwner.CaptureProductionPathReceipt(); pathReceipt["owner_id"] = renderIds[pathOwner];
+                var bindings = new JsonArray(); var complete = pathReceipt["status"]?.GetValue<string>() == "laid-out";
+                foreach (var line in pathOwner.PaintedLines)
+                {
+                    var binding = pathOwner.CaptureProductionLineBinding(line.Label);
+                    var found = renderIds.TryGetValue(line.Label, out var lineId) && renderNodes.ContainsKey(line.Label);
+                    binding["owner_id"] = renderIds[pathOwner]; binding["line_id"] = lineId;
+                    binding["line_in_actual_visual_walk"] = found;
+                    var ancestors = new JsonArray(); var reachedOwner = false; var edgesMatch = true;
+                    var seen = new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance);
+                    for (DependencyObject? current = line.Label; current != null && seen.Add(current); current = VisualTreeHelper.GetParent(current))
+                    {
+                        var actualParent = VisualTreeHelper.GetParent(current);
+                        var childFound = renderIds.TryGetValue(current, out var childId);
+                        var parentFound = actualParent != null && renderIds.TryGetValue(actualParent, out _);
+                        var parentId = parentFound ? renderIds[actualParent!] : null;
+                        if (ReferenceEquals(current, pathOwner)) { reachedOwner = true; break; }
+                        var capturedMatches = childFound && parentFound && renderNodes[current]["parent"]?.GetValue<string>() == parentId;
+                        edgesMatch &= capturedMatches;
+                        ancestors.Add(new JsonObject { ["child_id"] = childId, ["parent_id"] = parentId,
+                            ["actual_parent_in_visual_walk"] = parentFound, ["captured_parent_matches"] = capturedMatches });
+                    }
+                    binding["actual_ancestor_edges"] = ancestors;
+                    binding["reaches_same_owner_object"] = reachedOwner;
+                    binding["all_captured_edges_match"] = edgesMatch;
+                    complete &= found && reachedOwner && edgesMatch && pathOwner.OwnsProductionLine(line.Label)
+                        && binding["source_slice_matches"]?.GetValue<bool>() == true
+                        && binding["same_current_body_parent"]?.GetValue<bool>() == true
+                        && binding["same_content_body"]?.GetValue<bool>() == true;
+                    if (found) renderNodes[line.Label]["native_path_line_evidence"] = binding.DeepClone();
+                    bindings.Add(binding);
+                }
+                pathReceipt["actual_line_bindings"] = bindings; pathReceipt["actual_visual_bindings_complete"] = complete;
+                record["native_path_evidence"] = pathReceipt;
+                if (!complete && record["hidden_reason"] == null)
+                    errors.Add(renderIds[pathOwner] + ": actual production path layout or retained visual line binding is incomplete");
+            }
+            catch (Exception error)
+            {
+                record["native_path_binding_error"] = error.ToString();
+                if (record["hidden_reason"] == null) errors.Add(renderIds[pathOwner] + ": path object/source binding: " + error.Message);
+            }
+        }
         foreach (var (value, record) in renderNodes)
         {
             if (value is not MessageHeaderRow header) continue;
