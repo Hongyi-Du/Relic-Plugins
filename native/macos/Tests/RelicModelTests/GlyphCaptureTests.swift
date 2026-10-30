@@ -4,17 +4,29 @@ import AppKit
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
     func testDirectLabelPrimitivePreservesTextKitsActualGlyphBitmap() throws {
-        for (index, text) in ["Relic → 组织", "A long label that must end in an ellipsis", "Done 任务", "🙂 Relic"].enumerated() {
+        let fixtures: [(text: String, size: CGFloat, weight: Int, lines: Int, lineHeight: CGFloat?, monospaced: Bool)] = [
+            ("Relic → 组织", 14, 400, 1, nil, false),
+            ("A long label that must end in an ellipsis", 14, 400, 1, nil, false),
+            ("Done 任务", 14, 400, 1, nil, false),
+            ("🙂 Relic", 14, 400, 1, nil, false),
+            ("秘书处负责人 · Review", 12.5, 650, 1, 20, false),
+            ("First line, mixed 组织。\n第二行继续，包含标点和自动换行。", 13.5, 400, 0, 22.95, false),
+            ("review('macOS')\nprint('验证')", 11.25, 400, 0, 19.375, true),
+            ("Decisions and protocols", 15.5, 600, 1, 24.8, false),
+        ]
+        for (index, fixture) in fixtures.enumerated() {
+            let text = fixture.text
             var images: [Data] = []
             var callbackImages: [Data?] = []
             var receipts: [[String: Any]] = []
             for direct in [false, true] {
-                let view = ReferenceLabel(text, size: 14, lines: 1, struck: text.hasPrefix("Done")).makeLabelView()
+                let view = ReferenceLabel(text, size: fixture.size, weight: fixture.weight, lineHeight: fixture.lineHeight,
+                    lines: fixture.lines, monospaced: fixture.monospaced, struck: text.hasPrefix("Done")).makeLabelView()
                 let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
                 layout.drawsGlyphsIntoCurrentContext = direct
                 layout.recordDraws = true
                 layout.captureCallbackBitmap = true
-                view.frame = NSRect(x: 0, y: 0, width: 120, height: 30)
+                view.frame = NSRect(x: 0, y: 0, width: 120, height: fixture.lines == 0 ? 120 : 30)
                 view.textContainer?.containerSize = view.bounds.size
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
                 view.cacheDisplay(in: view.bounds, to: bitmap)
