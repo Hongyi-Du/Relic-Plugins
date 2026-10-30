@@ -7,5 +7,7 @@ FOUNDATION_EXPORT NSDictionary<NSString *, id> *RelicAXRead(id object);
 /// Read only role; safe to use while a native control is enumerating children.
 FOUNDATION_EXPORT NSString * _Nullable RelicAXRole(id object);
 FOUNDATION_EXPORT NSArray *RelicAXChildren(id object);
+FOUNDATION_EXPORT id _Nullable RelicAXHitTest(id object, NSPoint screenPoint);
+FOUNDATION_EXPORT id _Nullable RelicAXParent(id object);
 FOUNDATION_EXPORT NSAttributedString * _Nullable RelicAXText(id object, NSRange range);
 NS_ASSUME_NONNULL_END

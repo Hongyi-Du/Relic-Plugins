@@ -1,3 +1,17 @@
+## 2026-10-30: actual pointer-hit observation, without inferred hover
+
+The strict smoke report still contains many hovered=null failures when the real
+pointer is inside the window. A new passive `native_pointer_hit` observation is
+exported identically in raw AX and `elements.capture_evidence`. It reads the
+frontmost actual NSWindow at the current screen point, calls its public
+accessibilityHitTest, and walks actual accessibilityParent getters. Receipts
+retain object identities, roles, labels, identifiers, window/root closure and
+cycle status. A native overlapping-button test requires the covered button to
+be absent from the hit chain and the exposed button to become the hit after
+removal. This does not yet promote AX hit ancestry to CSS-equivalent hover or
+replace existing onHover readings; live SwiftUI identity binding remains to be
+verified from CI. No bounds-only hover or default false is synthesized.
+
 ## 2026-10-30: actual line clipping and disclosure evidence
 
 Run 41084613768 (`7046f32`) completes all 22 macOS smoke captures. The real

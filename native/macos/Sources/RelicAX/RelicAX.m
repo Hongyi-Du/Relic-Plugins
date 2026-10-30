@@ -31,6 +31,18 @@ NSArray *RelicAXChildren(id object) {
         return [children isKindOfClass:NSArray.class] ? children : @[];
     } @catch (NSException *exception) { return @[]; }
 }
+id RelicAXHitTest(id object, NSPoint screenPoint) {
+    @try {
+        SEL selector = @selector(accessibilityHitTest:);
+        if ([object respondsToSelector:selector])
+            return ((id (*)(id, SEL, NSPoint))objc_msgSend)(object, selector, screenPoint);
+        return nil;
+    } @catch (NSException *exception) { return nil; }
+}
+id RelicAXParent(id object) {
+    @try { return Attribute(object, @"accessibilityParent", NSAccessibilityParentAttribute); }
+    @catch (NSException *exception) { return nil; }
+}
 NSAttributedString *RelicAXText(id object, NSRange range) {
     @try {
         SEL sel = NSSelectorFromString(@"accessibilityAttributedStringForRange:");
