@@ -1,5 +1,30 @@
 # Element parity contract (Amendment 4)
 
+The current matrix has 55 states (660 cases per platform); the diagnostic smoke
+has 19. It retains all prior states and adds `panel-resize-hover` and
+`panel-resized`. Both begin with the actual group overview pane, opening it through
+the real toolbar control if needed. The former hovers the actual panel handle;
+the latter presses it, moves left by 64 logical pixels in eight steps and releases.
+The real pane must grow by 64px and move left by 64px without changing top/height.
+The pointer stays at its action endpoint through PNG and element extraction.
+Actual geometry, controls, pointer/drag events and visible popup state must remain
+stable; no width assignment substitutes for the drag. The same inputs apply at
+all three sizes, in both languages and both themes.
+
+Scrollbar parts use `kind: scrollbar` for the actual track/control and
+`kind: scrollbar-thumb` for its independently drawn drag part. They remain
+interactive, requiring actual enabled state. Both also require
+`state.orientation: horizontal|vertical` and `state.scroll_position` in [0,1],
+calculated from the actual provider value/min/max (zero for an actual zero range).
+Preserve the original range and viewport measurements as evidence; never derive
+thumb paint geometry from that ratio. Orientation and position compare exactly.
+Keep actual control/hit rectangles and actual painted rectangles separately;
+an AX hit region wider than the drawn gutter is not its painted width. Unknown
+track/thumb paint stays a coverage failure. A painted or labelled child is not
+discarded as a wrapper. Template page-action hit areas without independent paint
+or labels may belong to the actual scrollbar owner, with complete object ancestry,
+action and hit-area evidence retained in the raw tree and projection record.
+
 This is a required machine gate, independent of route/vocabulary coverage and
 screenshot completeness. The earlier visual differences are failures to fix,
 not accepted platform substitutions. No exception has been approved.

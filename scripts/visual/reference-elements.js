@@ -437,6 +437,22 @@
     }
     return { fonts: Array.from(combined.values()).sort((a, b) => a.family_name.localeCompare(b.family_name) || a.postscript_name.localeCompare(b.postscript_name)), evidence };
   };
+  const panelResizeEvidence = el => {
+    if (!el.matches('#panel > .pane-resize')) return null;
+    const s = styleOf(el), listeners = meta.panel_listeners ?? null, backend = snapshotBackend.get(el);
+    const measured = Number.isInteger(backend) && listeners?.source === 'CDP.DOMDebugger.getEventListeners' &&
+      listeners.owner?.backendNodeId === backend && listeners.owner?.nodeType === 1 &&
+      Array.isArray(listeners.listeners) && Array.isArray(listeners.errors) && listeners.errors.length === 0;
+    return { source: 'actual DOM pane-resize element + CDP installed event-listener receipt',
+      title: el.getAttribute('title'), has_pointer_handler: measured ? listeners.listeners.some(item => item.type === 'pointerdown' && item.backendNodeId === backend) : null,
+      listener_evidence: listeners, owner_backend_node_id: backend ?? null, listener_owner_matches: measured,
+      pointer_handler_property_type: typeof el.onpointerdown,
+      bounds: rect(el.getBoundingClientRect()), cursor: s.cursor,
+      pointer_state: { hovered: el.matches(':hover'), active: el.matches(':active'),
+        body_resizing: document.body.classList.contains('resizing') },
+      bounds_quantity: 'actual DOM handle border box, independent of the capture action coordinates',
+      paint_source: 'computed CSS of this actual DOM element; canonical style records the resolved paint' };
+  };
   const supplementalRegionEvidence = (el, s, ax = accessibilityOf(el)) => {
     // A generic layout wrapper is not a region just because it has a box.
     // These additions require independent DOM and actual CDP AX witnesses.
@@ -465,6 +481,7 @@
   const kindOf = (el, s, supplementalRegion = supplementalRegionEvidence(el, s)) => {
     const tag = el.localName, role = el.getAttribute('role');
     if (el === document.body || el.matches('#appbar,.side,.chat,#composer,#panel,.scrim,.settings,.dialog,.details,.menu')) return 'region';
+    if (panelResizeEvidence(el)) return 'resize-handle';
     if (el.matches('.oc-node')) return 'chart-node';
     if (el.matches('.oc-lines .edge,.oc-lines .link')) return 'chart-edge';
     if (el.matches('.avatar,.org-badge')) return 'avatar';
@@ -686,7 +703,7 @@
     const role = el.getAttribute('role'), checkable = el.matches('input[type=checkbox],input[type=radio],[role=switch],[role=checkbox],[role=radio]');
     const expandable = el.localName === 'summary' || el.hasAttribute('aria-expanded') || el.matches('.org-row,.frow.dir');
     const selectable = el.matches('.tabs>button,.seg>button,.settings nav>button,.org-row,.chat-row,.item-row,.session-row,.who-pick .who,[role=tab],[aria-selected]');
-    const interactive = el.matches('button,input,textarea,select,summary,a[href],[tabindex],[role=button],[role=tab],[role=menuitem]');
+    const interactive = el.matches('button,input,textarea,select,summary,a[href],[tabindex],[role=button],[role=tab],[role=menuitem]') || panelResizeEvidence(el) !== null;
     return { enabled: interactive ? !el.matches(':disabled,[aria-disabled=true]') : null,
       selected: selectable ? el.getAttribute('aria-selected') === 'true' || el.classList.contains('on') : null,
       checked: checkable ? !!el.checked || el.getAttribute('aria-checked') === 'true' : null,
@@ -725,6 +742,7 @@
     }
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
     const accessibility = accessibilityOf(options.textNode || el, options.axBackend);
+    const panelResize = kind === 'resize-handle' ? panelResizeEvidence(el) : null;
     const actualFonts = platformFonts(el, text, id, options);
     paintStyle.rendered_fonts = actualFonts.fonts;
     const measured = (options.ownedTextNodes || (options.textNode ? [options.textNode] : [])).map(textMeasurement);
@@ -734,7 +752,7 @@
       unmeasured.push({ element: id, property: 'text.ellipsis_glyph_geometry', evidence: measurement,
         reason: 'DOMRange and DOMSnapshot expose layout text advances; AX names identify text fragments but do not locate the generated ellipsis. Actual text geometry is null. The clipped range envelope is diagnostic evidence only, never substituted for painted glyph bounds.' });
     const item = { id, parent, region, order: regionOrders.get(region) || 0, kind, text,
-      name: accessibility.name, bounds: geometry.bounds, visible_bounds: geometry.visible_bounds, style: paintStyle,
+      name: accessibility.name || panelResize?.title || accessibility.name, bounds: geometry.bounds, visible_bounds: geometry.visible_bounds, style: paintStyle,
       state: stateOf(el), layout: { wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
         truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : geometry.line_count },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
@@ -743,6 +761,7 @@
         clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
         font_request: text ? fontRequestEvidence(s) : null,
+        panel_resize: panelResize, name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
           source: 'getComputedStyle request + CSS.getPlatformFontsForNode resolved identity',
@@ -1021,6 +1040,16 @@
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue,
         details_visibility: detailsVisibilityEvidence(el, true), owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
+    const panelResize = panelResizeEvidence(el);
+    if (panelResize) {
+      raw.panel_resize = panelResize;
+      if (bounds && fragments.length && panelResize.has_pointer_handler !== true) {
+        unmeasured.push({ element: id, property: 'resize_handle.interaction', evidence: panelResize,
+          reason: 'The actual panel handle is retained, but no successful installed pointerdown listener receipt is bound to its actual DOM backend identity.' });
+        extraction_errors.push({ type: 'panel_resize_interaction_unavailable', node: id,
+          reason: 'A class, cursor or onpointerdown IDL property cannot substitute for actual addEventListener registration evidence.' });
+      }
+    }
     if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = raw.details_visibility?.hidden ? 'closed-details-content' : !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
     recordSelectArrowCoverage(raw, selectArrowEvidence(el));
     const resizeHandle = resizeHandleEvidence(el);

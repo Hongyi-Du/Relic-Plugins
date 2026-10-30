@@ -31,8 +31,8 @@ class SelectArrowCaptureTests(unittest.TestCase):
             self.assertEqual(metadata["scene_id"], "actual-group")
             page.screenshot.assert_called_once_with(path=Path(folder) / "actual-group.png", caret="initial", animations="disabled")
             self.assertEqual([call.args[0] for call in cdp.send.call_args_list],
-                             ["DOMSnapshot.captureSnapshot", "Accessibility.getFullAXTree"],
-                             "Arrow metadata reuses the existing real pierced receipt; no DOM mutation or clone query is introduced")
+                             ["DOMSnapshot.captureSnapshot", "Accessibility.getFullAXTree", "Runtime.evaluate"],
+                             "Arrow metadata reuses the existing pierced receipt; the independent panel-listener query only reads the real DOM")
             saved = json.loads((Path(folder) / "actual-group.input-text.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["raw_document"], pierced)
             cdp.detach.assert_called_once_with(); page.close.assert_called_once_with()

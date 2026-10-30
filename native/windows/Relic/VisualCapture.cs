@@ -78,7 +78,7 @@ public sealed partial class MainWindow
                     }
                     else switch (scene)
                     {
-                        case "group": case "message-hover": case "message-copy-toast": break;
+                        case "group": case "message-hover": case "message-copy-toast": case "panel-resize-hover": case "panel-resized": break;
                         case "private": await Select(fixture.Text("org"), fixture.Text("member")); break;
                         case "live-busy": case "live-tool-output": case "live-typing":
                             await Select(prepared.Text("org"), prepared.Text("member"));
@@ -115,6 +115,11 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    if (scene is "panel-resize-hover" or "panel-resized")
+                    {
+                        await CapturePanelResizeScene(scene);
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedPanelResizeEvidence!.ToJsonString());
+                    }
                     if (scene == "new-org-textarea-resized")
                     {
                         await CaptureTextareaScene();
@@ -182,7 +187,7 @@ public sealed partial class MainWindow
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);
-                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized")) await CaptureMoveScreenPointer(1900, 1040);
+                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized" or "panel-resize-hover" or "panel-resized")) await CaptureMoveScreenPointer(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene.StartsWith("member-card") || scene is "mention" or "recipients") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
@@ -192,14 +197,18 @@ public sealed partial class MainWindow
                     if (capturedMessageEvidence != null) capturedMessageEvidence["before_screenshot"] = CaptureMessageSceneState();
                     CaptureTextareaCheckpoint("before_screenshot");
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
+                    CapturePanelResizeCheckpoint("before_screenshot");
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    CapturePanelResizeCheckpoint("after_screenshot");
                     CaptureTextareaCheckpoint("after_screenshot");
                     if (capturedMessageEvidence != null) capturedMessageEvidence["after_screenshot"] = CaptureMessageSceneState();
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
                     if (capturedTextareaEvidence != null)
                         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedTextareaEvidence.ToJsonString());
                     CheckpointNativeLabelCapture("before_element_extraction");
+                    CapturePanelResizeCheckpoint("before_element_extraction");
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    CapturePanelResizeCheckpoint("after_element_extraction");
                     CheckpointNativeLabelCapture("after_element_extraction");
                     CaptureTextareaCheckpoint("after_extraction");
                     if (capturedMessageEvidence != null)
@@ -214,6 +223,7 @@ public sealed partial class MainWindow
                 catch (Exception ex)
                 {
                     if (capturedTextareaEvidence != null) ((JsonArray)capturedTextareaEvidence["errors"]!).Add(ex.ToString());
+                    if (capturedPanelResizeEvidence != null) ((JsonArray)capturedPanelResizeEvidence["errors"]!).Add(ex.ToString());
                     failures.Add(shot.Text("id") + ": " + ex);
                     // Keep the actual failed state for inspection. This separate
                     // file is never the canonical scene or a successful receipt.
@@ -244,6 +254,12 @@ public sealed partial class MainWindow
                             await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedTextareaEvidence.ToJsonString());
                     }
                     finally { EndTextareaCapture(); }
+                    try
+                    {
+                        if (capturedPanelResizeEvidence != null)
+                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedPanelResizeEvidence.ToJsonString());
+                    }
+                    finally { EndPanelResizeCapture(); }
                 }
             }
         }

@@ -88,7 +88,7 @@ public sealed partial class MainWindow
         {
             Grid.SetColumn(panelResize, overlay ? 0 : 2); Grid.SetColumnSpan(panelResize, overlay ? 3 : 1);
             panelResize.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-            panelResize.Margin = overlay ? new Thickness(0, 0, actualPaneWidth - 3, 0) : new Thickness(0);
+            panelResize.Margin = overlay ? new Thickness(0, 0, actualPaneWidth - 5, 0) : new Thickness(0);
             Canvas.SetZIndex(panelResize, 26); panelResize.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         foreach (var child in columns.Children.OfType<FrameworkElement>())

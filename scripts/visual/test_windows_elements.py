@@ -90,6 +90,169 @@ class ProjectionTests(unittest.TestCase):
         return {element["id"]: element for element in result["elements"]}
 
     @staticmethod
+    def scrollbar_fixture():
+        bar = xaml_node("scrollbar", "ScrollBar", bounds=box(400, 30, 10, 200),
+                        interaction_evidence={"is_control": True, "is_tab_stop": False, "is_hit_test_visible": True})
+        root = xaml_node("scroll-template", "Grid", parent="scrollbar", bounds=bar["bounds"])
+        thumb = xaml_node("scroll-thumb", "Thumb", parent="scroll-template", bounds=box(400, 62, 10, 50),
+                          interaction_evidence={"is_control": True, "is_tab_stop": False, "is_hit_test_visible": True})
+        paint = xaml_node("thumb-paint", "Border", parent="scroll-thumb", bounds=thumb["bounds"])
+        unrelated = xaml_node("panel-drag", "Thumb", bounds=box(270, 40, 5, 500), name="VerticalThumb",
+                              automation_id="VerticalThumb")
+        nodes = measured([bar, root, thumb, paint, unrelated])
+        for node in nodes[1:4]: node["render_sibling_order"] = 0
+        nodes[0]["paint_kind"] = nodes[2]["paint_kind"] = "template"
+        nodes[3]["background_sizing"] = "InnerBorderEdge"
+        nodes[3]["style"].update(background=[143, 140, 134, 89.25], border_width=3,
+                                  border_widths=[3, 3, 3, 3], corner_radius=8, corner_radii=[8, 8, 8, 8])
+        edges = [{"id": eid, "parent_id": parent, "child_index": 0,
+                  "same_parent_object": True, "captured_parent_matches": True}
+                 for eid, parent in (("scroll-template", "scrollbar"), ("scroll-thumb", "scroll-template"),
+                                     ("thumb-paint", "scroll-thumb"))]
+        nodes[0]["scrollbar_evidence"] = {
+            "source": "actual ScrollBar runtime properties and current visual subtree", "complete": True,
+            "template_present": True, "orientation": "vertical",
+            "range": {"minimum": 0, "maximum": 100, "value": 25, "viewport_size": 80,
+                      "small_change": 0.1, "large_change": 1},
+            "template_roots": ["scroll-template"], "visual_subtree": edges,
+            "thumb_ids": ["scroll-thumb"], "paint_ids": ["scroll-template", "thumb-paint"]}
+        nodes[2]["scrollbar_thumb_evidence"] = {
+            "source": "actual Thumb visual ancestry to ScrollBar and current template subtree identities",
+            "complete": True, "owner_id": "scrollbar", "path": deepcopy(edges[:2]), "dragging": False}
+        providers = [uia_node("uia-bar", "ScrollBar", bounds=bar["bounds"],
+                              range_value={"minimum": 0, "maximum": 100, "value": 25},
+                              supported_patterns=["RangeValuePatternIdentifiers.Pattern"]),
+                     uia_node("uia-thumb", "Thumb", parent="uia-bar", bounds=thumb["bounds"]),
+                     uia_node("uia-panel", "Thumb", name="VerticalThumb", bounds=unrelated["bounds"])]
+        return nodes, providers
+
+    def test_scrollbar_uses_actual_template_thumb_and_keeps_hit_box_separate_from_paint(self):
+        nodes, providers = self.scrollbar_fixture()
+        original = deepcopy(nodes)
+        result = self.capture(nodes, providers)
+        elements = self.by_id(result)
+        self.assertEqual(elements["scrollbar"]["kind"], "scrollbar")
+        thumb = elements["scroll-thumb"]
+        self.assertEqual(thumb["kind"], "scrollbar-thumb")
+        self.assertEqual(thumb["state"]["orientation"], "vertical")
+        self.assertEqual(thumb["state"]["scroll_position"], .25)
+        self.assertEqual(thumb["evidence"]["uia_id"], "uia-thumb")
+        self.assertEqual(thumb["bounds"], box(400, 62, 10, 50))
+        self.assertEqual(thumb["evidence"]["scrollbar_paint"]["hit_bounds"], thumb["bounds"])
+        self.assertEqual(thumb["evidence"]["scrollbar_paint"]["layers"][0]["raw"], nodes[3])
+        self.assertIsNone(thumb["evidence"]["scrollbar_paint"]["css_paint_equivalence"])
+        self.assertTrue(any(row["property"] == "style.scrollbar_paint" for row in result["coverage"]["unmeasured"]))
+        self.assertNotIn("panel-drag", elements)
+        self.assertTrue(any(row.get("id") == "uia-panel" and row["property"] == "render correspondence"
+                            for row in result["coverage"]["unmeasured"]))
+        self.assertEqual(nodes, original)
+
+    def test_scrollbar_thumb_requires_current_reciprocal_object_tree_not_name(self):
+        for problem in ("source", "complete", "roots", "parent", "index", "identity", "path", "owner", "thumb-list", "extra-child"):
+            with self.subTest(problem=problem):
+                nodes, providers = self.scrollbar_fixture()
+                evidence = nodes[0]["scrollbar_evidence"]
+                if problem == "source": evidence["source"] = "expected VerticalThumb template"
+                elif problem == "complete": evidence["complete"] = False
+                elif problem == "roots": evidence["template_roots"] = []
+                elif problem == "parent": nodes[2]["parent"] = "scrollbar"
+                elif problem == "index": evidence["visual_subtree"][1]["child_index"] = 1
+                elif problem == "identity": evidence["visual_subtree"][1]["same_parent_object"] = False
+                elif problem == "path": nodes[2]["scrollbar_thumb_evidence"]["path"] = []
+                elif problem == "owner": nodes[2]["scrollbar_thumb_evidence"]["owner_id"] = "panel-drag"
+                elif problem == "thumb-list": evidence["thumb_ids"] = []
+                elif problem == "extra-child": nodes.append(measured([xaml_node("new-child", "Grid", parent="scroll-template")])[0])
+                nodes[2]["name"] = nodes[2]["automation_id"] = "VerticalThumb"
+                result = self.capture(nodes, providers)
+                self.assertFalse(any(element["kind"] == "scrollbar-thumb" for element in result["elements"]))
+                self.assertTrue(any(row["property"].startswith("scrollbar.") for row in result["coverage"]["unmeasured"]))
+
+    def test_scrollbar_missing_or_conflicting_range_is_unknown_and_never_changes_geometry(self):
+        for problem in ("absent", "mismatch", "invalid", "orientation"):
+            with self.subTest(problem=problem):
+                nodes, providers = self.scrollbar_fixture()
+                if problem == "absent": providers[0].pop("range_value")
+                elif problem == "mismatch": providers[0]["range_value"]["value"] = 30
+                elif problem == "invalid":
+                    providers[0]["range_value"]["value"] = nodes[0]["scrollbar_evidence"]["range"]["value"] = 101
+                else: nodes[0]["scrollbar_evidence"]["orientation"] = None
+                result = self.capture(nodes, providers)
+                thumb = self.by_id(result)["scroll-thumb"]
+                self.assertIsNone(thumb["state"]["orientation" if problem == "orientation" else "scroll_position"])
+                self.assertEqual(thumb["bounds"], nodes[2]["bounds"])
+                self.assertEqual(thumb["evidence"]["scrollbar_range"]["uia_range"], providers[0].get("range_value"))
+
+    def test_scrollbar_zero_length_actual_range_is_zero_not_missing(self):
+        nodes, providers = self.scrollbar_fixture()
+        nodes[0]["scrollbar_evidence"]["range"].update(minimum=8, maximum=8, value=8)
+        providers[0]["range_value"].update(minimum=8, maximum=8, value=8)
+        result = self.capture(nodes, providers)
+        self.assertEqual(self.by_id(result)["scroll-thumb"]["state"]["scroll_position"], 0)
+
+    def test_scrollbar_thumb_provider_must_belong_to_corresponding_scrollbar(self):
+        nodes, providers = self.scrollbar_fixture()
+        providers[1]["parent"] = "uia-panel"
+        result = self.capture(nodes, providers)
+        self.assertIsNone(self.by_id(result)["scroll-thumb"]["evidence"]["uia_id"])
+        self.assertTrue(any(row.get("id") == "scroll-thumb" and row["property"] == "UIA correspondence"
+                            for row in result["coverage"]["unmeasured"]))
+
+    def test_panel_resize_requires_actual_field_object_identity(self):
+        nodes, providers = self.scrollbar_fixture()
+        nodes[4]["resize_handle_evidence"] = {"source": "actual MainWindow.panelResize object identity",
+                                               "owner_type": "MainWindow", "handle_type": "Thumb", "dragging": True}
+        result = self.capture(nodes, providers, xaml_changes={"capture_evidence": {"panel_resize_action": {"dragging": True}}})
+        self.assertEqual(self.by_id(result)["panel-drag"]["kind"], "resize-handle")
+        self.assertEqual(result["capture_evidence"]["panel_resize_action"], {"dragging": True})
+
+    def test_scrollbar_internal_page_region_requires_nonpainted_current_template_and_keeps_uia(self):
+        for alteration in (None, "paint", "label", "tab-stop", "ownership", "unknown-paint"):
+            with self.subTest(alteration=alteration):
+                nodes, providers = self.scrollbar_fixture()
+                region = xaml_node("page-region", "RepeatButton", parent="scroll-template", bounds=box(400, 112, 10, 118),
+                                   interaction_evidence={"is_control": True, "is_tab_stop": False, "is_hit_test_visible": True})
+                background = xaml_node("page-background", "Border", parent="page-region", bounds=region["bounds"])
+                page_nodes = measured([region, background]); page_nodes[0]["paint_kind"] = "template"
+                page_nodes[0]["render_sibling_order"] = 1; page_nodes[1]["render_sibling_order"] = 0
+                edges = [{"id": "page-region", "parent_id": "scroll-template", "child_index": 1,
+                          "same_parent_object": True, "captured_parent_matches": True},
+                         {"id": "page-background", "parent_id": "page-region", "child_index": 0,
+                          "same_parent_object": True, "captured_parent_matches": True}]
+                evidence = nodes[0]["scrollbar_evidence"]
+                evidence["visual_subtree"].extend(deepcopy(edges))
+                evidence["paint_ids"].append("page-background")
+                page_nodes[0]["scrollbar_page_hit_evidence"] = {
+                    "source": "Actual RepeatButton object in current ScrollBar template subtree",
+                    "owner_id": "scrollbar", "path": [deepcopy(evidence["visual_subtree"][0]), deepcopy(edges[0])],
+                    "is_pressed": False, "delay": 250, "interval": 50}
+                if alteration == "paint": page_nodes[1]["style"]["background"] = [1, 2, 3, 255]
+                elif alteration == "label": page_nodes[0]["text"] = "Visible action"
+                elif alteration == "tab-stop": page_nodes[0]["interaction_evidence"]["is_tab_stop"] = True
+                elif alteration == "ownership": page_nodes[0]["scrollbar_page_hit_evidence"]["path"] = []
+                elif alteration == "unknown-paint": page_nodes[1]["style"]["background"] = None
+                nodes.extend(page_nodes)
+                providers.append(uia_node("uia-page", "Button", parent="uia-bar", class_name="RepeatButton",
+                                          bounds=region["bounds"], supported_patterns=["InvokePatternIdentifiers.Pattern"]))
+                result = self.capture(nodes, providers)
+                if alteration is None:
+                    self.assertNotIn("page-region", self.by_id(result))
+                    record = next(row for row in result["projection"] if row.get("source") == "page-region")
+                    self.assertEqual(record["owner"], "scrollbar")
+                    self.assertEqual(record["actual_input_region"], page_nodes[0])
+                    self.assertEqual(record["uia_input_region"], providers[-1])
+                    self.assertEqual(record["template_layers"], [page_nodes[1]])
+                else:
+                    self.assertEqual(self.by_id(result)["page-region"]["kind"], "button")
+
+    def test_scrollbar_thumb_missing_actual_bounds_never_borrows_provider_box(self):
+        nodes, providers = self.scrollbar_fixture()
+        nodes[2]["bounds"] = nodes[2]["visible_bounds"] = None
+        result = self.capture(nodes, providers)
+        self.assertNotIn("scroll-thumb", self.by_id(result))
+        self.assertTrue(any(row.get("id") == "scroll-thumb" and row["property"] == "bounds"
+                            for row in result["coverage"]["unmeasured"]))
+
+    @staticmethod
     def state_dot_fixture():
         frame = xaml_node("avatar-frame", "Grid", bounds=box(41, 440, 28, 28))
         owner = xaml_node("vacant-dot", "NativeStateDotView", parent="avatar-frame", bounds=box(61, 460, 10, 10),

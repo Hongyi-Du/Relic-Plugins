@@ -29,6 +29,7 @@ public sealed partial class MainWindow
         var inlineOwners = new List<(FrameworkElement Owner, JsonObject Node, bool Visible)>();
         var fencedCodeOwners = new List<(Border Owner, MarkdownSemantic.FencedCode Content, JsonObject Node, bool Visible)>();
         var stateDotOwners = new List<(NativeStateDotView Owner, JsonObject Node, bool Visible)>();
+        var scrollbarOwners = new List<(ScrollBar Owner, JsonObject Node, bool Visible)>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -144,6 +145,7 @@ public sealed partial class MainWindow
                     if (element is Border markdownContainer && MarkdownSemantic.TryGetFencedCode(markdownContainer, out var fencedCode) && fencedCode != null)
                         fencedCodeOwners.Add((markdownContainer, fencedCode, node, hidden == null));
                     if (element is NativeStateDotView stateDot) stateDotOwners.Add((stateDot, node, hidden == null));
+                    if (element is ScrollBar scrollbar) scrollbarOwners.Add((scrollbar, node, hidden == null));
                     if (element is NativeTextarea textarea)
                     {
                         node["textarea_resize_evidence"] = new JsonObject
@@ -172,6 +174,13 @@ public sealed partial class MainWindow
                             };
                         else errors.Add(id + ": production textarea resize handle has no independently observed owner in this tree");
                     }
+                    if (element is Thumb panelHandle && ReferenceEquals(panelHandle, panelResize))
+                        node["resize_handle_evidence"] = new JsonObject
+                        {
+                            ["source"] = "actual MainWindow.panelResize object identity",
+                            ["owner_type"] = nameof(MainWindow), ["handle_type"] = panelHandle.GetType().Name,
+                            ["dragging"] = panelHandle.IsDragging
+                        };
                     if (element is NativeShadowPanel nativeShadows)
                     {
                         var actual = new JsonArray();
@@ -261,6 +270,83 @@ public sealed partial class MainWindow
         {
             paintLayer++;
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
+        }
+        foreach (var (owner, ownerNode, visible) in scrollbarOwners)
+        {
+            var ownerId = renderIds[owner]; var edges = new JsonArray(); var roots = new JsonArray();
+            var thumbs = new JsonArray(); var paints = new JsonArray(); var complete = owner.Template != null;
+            var actualThumbs = new List<(Thumb Thumb, JsonArray Path)>();
+            void ReadScrollbarChildren(DependencyObject parent, JsonArray path)
+            {
+                var count = VisualTreeHelper.GetChildrenCount(parent);
+                for (var index = 0; index < count; index++)
+                {
+                    var child = VisualTreeHelper.GetChild(parent, index);
+                    var parentFound = renderIds.TryGetValue(parent, out var parentId);
+                    var childFound = renderIds.TryGetValue(child, out var childId);
+                    var sameParent = ReferenceEquals(VisualTreeHelper.GetParent(child), parent);
+                    var capturedParentMatches = childFound && renderNodes[child]["parent"]?.GetValue<string>() == parentId;
+                    complete &= parentFound && childFound && sameParent && capturedParentMatches;
+                    var edge = new JsonObject { ["id"] = childId, ["parent_id"] = parentId,
+                        ["child_index"] = index, ["same_parent_object"] = sameParent,
+                        ["captured_parent_matches"] = capturedParentMatches };
+                    edges.Add(edge); if (ReferenceEquals(parent, owner)) roots.Add(childId);
+                    var nextPath = (JsonArray)path.DeepClone(); nextPath.Add(edge.DeepClone());
+                    if (childFound && child is FrameworkElement layoutElement)
+                        renderNodes[child]["scrollbar_layout_evidence"] = new JsonObject
+                        {
+                            ["source"] = "Actual current ScrollBar template FrameworkElement properties",
+                            ["horizontal_alignment"] = layoutElement.HorizontalAlignment.ToString(),
+                            ["vertical_alignment"] = layoutElement.VerticalAlignment.ToString(),
+                            ["width"] = double.IsFinite(layoutElement.Width) ? layoutElement.Width : null,
+                            ["height"] = double.IsFinite(layoutElement.Height) ? layoutElement.Height : null,
+                            ["width_is_auto"] = double.IsNaN(layoutElement.Width), ["height_is_auto"] = double.IsNaN(layoutElement.Height),
+                            ["min_width"] = double.IsFinite(layoutElement.MinWidth) ? layoutElement.MinWidth : null,
+                            ["min_height"] = double.IsFinite(layoutElement.MinHeight) ? layoutElement.MinHeight : null,
+                            ["max_width"] = double.IsFinite(layoutElement.MaxWidth) ? layoutElement.MaxWidth : null,
+                            ["max_height"] = double.IsFinite(layoutElement.MaxHeight) ? layoutElement.MaxHeight : null,
+                            ["max_width_unbounded"] = double.IsPositiveInfinity(layoutElement.MaxWidth),
+                            ["max_height_unbounded"] = double.IsPositiveInfinity(layoutElement.MaxHeight)
+                        };
+                    if (childFound && child is RepeatButton pageButton)
+                        renderNodes[child]["scrollbar_page_hit_evidence"] = new JsonObject
+                        {
+                            ["source"] = "Actual RepeatButton object in current ScrollBar template subtree",
+                            ["owner_id"] = ownerId, ["path"] = nextPath.DeepClone(),
+                            ["is_pressed"] = pageButton.IsPressed, ["delay"] = pageButton.Delay,
+                            ["interval"] = pageButton.Interval,
+                            ["quantity"] = "Actual input region and repeat timing; no visible paint or action direction is inferred"
+                        };
+                    if (child is Thumb thumb) { thumbs.Add(childId); actualThumbs.Add((thumb, nextPath)); }
+                    if (childFound && renderNodes[child]["paint_kind"]?.GetValue<string>() is { } paintKind
+                        && paintKind is not "none" and not "template") paints.Add(childId);
+                    // An independently nested ScrollBar owns its own template tree.
+                    if (child is not ScrollBar) ReadScrollbarChildren(child, nextPath);
+                }
+            }
+            ReadScrollbarChildren(owner, new JsonArray());
+            double? FiniteScroll(double value) => double.IsFinite(value) ? value : null;
+            var range = new JsonObject { ["minimum"] = FiniteScroll(owner.Minimum), ["maximum"] = FiniteScroll(owner.Maximum),
+                ["value"] = FiniteScroll(owner.Value), ["small_change"] = FiniteScroll(owner.SmallChange),
+                ["large_change"] = FiniteScroll(owner.LargeChange), ["viewport_size"] = FiniteScroll(owner.ViewportSize) };
+            ownerNode["scrollbar_evidence"] = new JsonObject
+            {
+                ["source"] = "actual ScrollBar runtime properties and current visual subtree",
+                ["complete"] = complete, ["template_present"] = owner.Template != null,
+                ["orientation"] = owner.Orientation.ToString().ToLowerInvariant(), ["range"] = range,
+                ["template_roots"] = roots, ["visual_subtree"] = edges, ["thumb_ids"] = thumbs, ["paint_ids"] = paints,
+                ["quantity"] = "Actual control hit bounds and retained template paint layers; range does not determine paint geometry"
+            };
+            foreach (var (thumb, path) in actualThumbs)
+                if (renderNodes.TryGetValue(thumb, out var thumbNode))
+                    thumbNode["scrollbar_thumb_evidence"] = new JsonObject
+                    {
+                        ["source"] = "actual Thumb visual ancestry to ScrollBar and current template subtree identities",
+                        ["complete"] = complete, ["owner_id"] = ownerId, ["path"] = path,
+                        ["dragging"] = thumb.IsDragging,
+                        ["quantity"] = "Actual Thumb hit bounds; descendant paint is measured independently"
+                    };
+            if (visible && !complete) errors.Add(ownerId + ": ScrollBar template objects changed or are absent from the captured render tree");
         }
         foreach (var (owner, ownerNode, visible) in stateDotOwners)
         {
@@ -370,6 +456,7 @@ public sealed partial class MainWindow
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
             ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone(),
                 ["textarea_resize_action"] = capturedTextareaEvidence?.DeepClone(),
+                ["panel_resize_action"] = capturedPanelResizeEvidence?.DeepClone(),
                 ["native_label_frame"] = capturedNativeLabelEvidence?.DeepClone(), ["pointer_input"] = capturePointerReceipts.DeepClone() },
             ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
             ["popup_roots"] = popups.Length,

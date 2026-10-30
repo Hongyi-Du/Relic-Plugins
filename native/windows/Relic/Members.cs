@@ -78,7 +78,7 @@ public sealed partial class MainWindow
                 var title = new ActionRow { Spacing = 6 }; var display = OverviewText(c.Text("display").Length > 0 ? c.Text("display") : name, 17, weight: 650, lineHeight: 22.1); display.Margin = new Thickness(0, .95, 0, .95); title.Children.Add(display);
                 void AddTag(OverviewBadgeView tag) { tag.Margin = new Thickness(0, 3, 0, 3); title.Children.Add(tag); }
                 if (c.Flag("leader")) AddTag(SidebarTag(T("common.leader"), false)); if (c.Flag("secretary")) AddTag(SidebarTag(T("common.secretary"), true)); if (c["ex_officio"] != null) AddTag(Tag(T("card.ex_officio_tag")));
-                var editName = IconButton("\uE70F", "card.new_name", () => { editingName = true; Fill(); return Task.CompletedTask; }, T("card.rename_hint")); editName.Content = ReferenceIcon("edit", 14); editName.Width = editName.Height = 24; editName.Padding = new Thickness(5); title.Children.Add(editName); identity.Children.Add(title);
+                var editName = IconButton("\uE70F", "card.new_name", () => { editingName = true; Fill(); return Task.CompletedTask; }, T("card.rename_hint")); editName.Content = ReferenceIcon("edit", 14); editName.Width = editName.Height = 24; editName.MinWidth = editName.MinHeight = 0; editName.Padding = new Thickness(5); title.Children.Add(editName); identity.Children.Add(title);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(editName, "member-card-rename");
             }
             var identityLabel = Mono(name + (c.Flag("display_custom") ? "" : " · " + T("card.auto_named")), 12); identityLabel.Foreground = Muted; identity.Children.Add(identityLabel); box.Children.Add(heading);
@@ -119,12 +119,18 @@ public sealed partial class MainWindow
                 var modelFields = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
                 ComboBox Select(string selected, string defaultText, IEnumerable<string> values)
                 {
-                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
+                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
+                    // The stock DropDownGlyph has its own ThemeResource minimum;
+                    // lowering the outer control's MinHeight alone leaves 32px.
+                    choice.Resources["ComboBoxMinHeight"] = 28d;
                     choice.Items.Add(new ComboBoxItem { Content = defaultText, Tag = "" }); foreach (var value in values) choice.Items.Add(new ComboBoxItem { Content = value, Tag = value }); SetChoice(choice, selected); modelFields.Children.Add(choice); return choice;
                 }
                 var model = Select(c.Text("model"), T("common.default_model"), c.Rows("models").Select(x => x.Text())); var effort = Select(c.Text("effort"), T("common.default_effort"), c.Rows("efforts").Select(x => x.Text()));
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(model, "member-card-model-input");
-                modelFields.Children.Add(OverviewText(c.Text("model_note"), 11.5, true)); modelFields.Children.Add(OverviewAction(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); editingModel = false; await Reload(); }, true)); modelCell.Children.Add(modelFields);
+                modelFields.Children.Add(OverviewText(c.Text("model_note"), 11.5, true));
+                var saveModel = OverviewAction(T("card.save_model"), async () => { var result = await api.Post(Client.Org(id, "/model"), new { member = name, model = Value(model), effort = Value(effort) }); Note(result.Text("applied") == "now" ? T("card.model_switched") : T("card.model_next_turn")); editingModel = false; await Reload(); }, true);
+                saveModel.HorizontalAlignment = HorizontalAlignment.Stretch; saveModel.HorizontalContentAlignment = HorizontalAlignment.Center;
+                modelFields.Children.Add(saveModel); modelCell.Children.Add(modelFields);
             }
             Row("common.model", modelCell);
             var status = new ActionRow { Spacing = 3 }; var stateLabel = MemberState(c.Text("state")); status.Children.Add(OverviewChip(stateLabel, c.Text("state") switch { "running" or "working" => "ok", "waiting" => "warn", "error" => "bad", _ => "" }));
@@ -179,6 +185,22 @@ public sealed partial class MainWindow
         var bounds = origin.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, origin.ActualWidth, origin.ActualHeight));
         var left = Math.Min(Math.Max(12, bounds.Right + 8), root.ActualWidth - 356);
         var top = Math.Min(Math.Max(12, bounds.Top - 12), root.ActualHeight - 520);
+        Microsoft.UI.Xaml.Controls.Primitives.Popup? cardPopup = null;
+        FrameworkElement? popupChild = null; var placementQueued = false;
+        void PlaceCard()
+        {
+            if (cardPopup?.IsOpen != true || popupChild == null || !ReferenceEquals(transientFlyout, flyout)) return;
+            var position = popupChild.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, 0));
+            cardPopup.HorizontalOffset += left - position.X; cardPopup.VerticalOffset += top - position.Y;
+        }
+        void CardSizeChanged(object sender, SizeChangedEventArgs args)
+        {
+            // Flyout recalculates its default anchor when model editing changes
+            // the content size. Restore this card's opening anchor after that
+            // real layout pass, without running a continuous layout correction.
+            if (placementQueued || cardPopup?.IsOpen != true) return;
+            placementQueued = DispatcherQueue.TryEnqueue(() => { placementQueued = false; PlaceCard(); });
+        }
         flyout.Opened += (_, _) =>
         {
             bool Contains(DependencyObject parent)
@@ -191,10 +213,16 @@ public sealed partial class MainWindow
             foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
             {
                 if (popup.Child is not FrameworkElement child || !Contains(child)) continue;
-                var position = child.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, 0));
-                popup.HorizontalOffset += left - position.X; popup.VerticalOffset += top - position.Y;
+                cardPopup = popup; popupChild = child;
+                popupChild.SizeChanged += CardSizeChanged; box.SizeChanged += CardSizeChanged;
+                PlaceCard();
                 break;
             }
+        };
+        flyout.Closed += (_, _) =>
+        {
+            if (popupChild != null) popupChild.SizeChanged -= CardSizeChanged;
+            box.SizeChanged -= CardSizeChanged; cardPopup = null; popupChild = null;
         };
         flyout.ShowAt(origin, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { ShowMode = Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowMode.Transient });
     }

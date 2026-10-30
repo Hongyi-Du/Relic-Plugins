@@ -23,7 +23,7 @@ CONTROL_KINDS = {
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
-    "ContentDialog": "card", "MenuFlyoutSeparator": "divider",
+    "ContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
@@ -34,19 +34,163 @@ UIA_KINDS = {"Button": {"button", "icon-button", "chart-node"}, "Text": {"text"}
              "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
              "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
              "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
-             "Custom": {"region", "card"}, "Window": {"region"}, "Document": {"code"}, "Thumb": {"resize-handle"}}
-INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row", "resize-handle"}
+             "Custom": {"region", "card"}, "Window": {"region"}, "Document": {"code"},
+             "ScrollBar": {"scrollbar"}, "Thumb": {"resize-handle", "scrollbar-thumb"}}
+INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row", "resize-handle", "scrollbar", "scrollbar-thumb"}
 ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
 PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
 
 
-def semantic_control_kind(node):
+def semantic_control_kind(node, scrollbar_thumbs=None):
     """Use captured production object identity, not a Thumb name or guessed role."""
     evidence = node.get("resize_handle_evidence")
     if (node.get("type") == "Thumb" and isinstance(evidence, dict)
-            and evidence.get("source") == "actual NativeTextarea.ResizeGrip.Handle object identity"):
+            and evidence.get("source") in {"actual NativeTextarea.ResizeGrip.Handle object identity",
+                                           "actual MainWindow.panelResize object identity"}):
         return "resize-handle"
+    if node.get("type") == "Thumb" and node.get("id") in (scrollbar_thumbs or {}):
+        return "scrollbar-thumb"
     return CONTROL_KINDS.get(node.get("type"))
+
+
+SCROLLBAR_SOURCE = "actual ScrollBar runtime properties and current visual subtree"
+SCROLLBAR_THUMB_SOURCE = "actual Thumb visual ancestry to ScrollBar and current template subtree identities"
+
+
+def scrollbar_templates(raw, by_id, unmeasured):
+    """Verify current object ancestry before assigning a Thumb's semantic owner."""
+    bars, thumbs = {}, {}
+    for node in raw:
+        evidence = node.get("scrollbar_evidence")
+        if node.get("type") != "ScrollBar":
+            continue
+        valid = (isinstance(evidence, dict) and evidence.get("source") == SCROLLBAR_SOURCE
+                 and evidence.get("complete") is True and evidence.get("template_present") is True)
+        edges = evidence.get("visual_subtree") if isinstance(evidence, dict) else None
+        valid = valid and isinstance(edges, list) and bool(edges)
+        observed, children = {node["id"]}, defaultdict(list)
+        if valid:
+            for edge in edges:
+                child = by_id.get(edge.get("id")) if isinstance(edge, dict) else None
+                parent = edge.get("parent_id") if isinstance(edge, dict) else None
+                index = edge.get("child_index") if isinstance(edge, dict) else None
+                if (not child or child["id"] in observed or parent not in observed
+                        or child.get("parent") != parent or type(index) is not int or index < 0
+                        or child.get("render_sibling_order") != index
+                        or edge.get("same_parent_object") is not True or edge.get("captured_parent_matches") is not True):
+                    valid = False
+                    break
+                observed.add(child["id"])
+                children[parent].append(child["id"])
+                if index != len(children[parent]) - 1:
+                    valid = False
+                    break
+            roots = children.get(node["id"], [])
+            actual_thumbs = [edge["id"] for edge in edges if by_id[edge["id"]]["type"] == "Thumb"] if valid else []
+            valid = (valid and evidence.get("template_roots") == roots and bool(roots)
+                     and evidence.get("thumb_ids") == actual_thumbs
+                     and all([child["id"] for child in sorted((child for child in raw if child.get("parent") == parent),
+                                                             key=lambda child: child.get("render_sibling_order", -1))] == ids
+                             for parent, ids in children.items()))
+        if not valid:
+            if not node.get("hidden_reason"):
+                unmeasured.append({"id": node["id"], "property": "scrollbar.template_ownership",
+                                   "reason": "Current ScrollBar template object identities and render-tree ancestry are incomplete"})
+            continue
+        bars[node["id"]] = evidence
+        edge_by_id = {edge["id"]: edge for edge in edges}
+        for thumb_id in evidence["thumb_ids"]:
+            thumb = by_id[thumb_id]
+            proof = thumb.get("scrollbar_thumb_evidence")
+            path, current = [], thumb_id
+            while current != node["id"]:
+                edge = edge_by_id[current]
+                path.insert(0, edge)
+                current = edge["parent_id"]
+            if (isinstance(proof, dict) and proof.get("source") == SCROLLBAR_THUMB_SOURCE
+                    and proof.get("complete") is True and proof.get("owner_id") == node["id"]
+                    and proof.get("path") == path and not thumb.get("resize_handle_evidence")):
+                thumbs[thumb_id] = node["id"]
+            elif not thumb.get("hidden_reason"):
+                unmeasured.append({"id": thumb_id, "property": "scrollbar.thumb_ownership",
+                                   "reason": "Thumb has no reciprocal current ScrollBar template ancestry; no role is inferred from its name"})
+    return bars, thumbs
+
+
+def scrollbar_state(node, kind, bars, thumbs, witness, paired, unmeasured):
+    owner_id = thumbs.get(node["id"]) if kind == "scrollbar-thumb" else node["id"]
+    evidence = bars.get(owner_id, {})
+    orientation = evidence.get("orientation")
+    if orientation not in {"horizontal", "vertical"}:
+        orientation = None
+        unmeasured.append({"id": node["id"], "property": "state.orientation", "reason": "No measured ScrollBar Orientation"})
+    provider = paired.get(owner_id) if kind == "scrollbar-thumb" else witness
+    actual = provider.get("range_value") if provider else None
+    native_range = evidence.get("range")
+    valid = isinstance(actual, dict) and isinstance(native_range, dict)
+    valid = valid and all(finite(actual.get(key)) and actual[key] == native_range.get(key)
+                          for key in ("minimum", "maximum", "value"))
+    valid = valid and actual["minimum"] <= actual["value"] <= actual["maximum"]
+    normalized = None
+    if valid:
+        span = actual["maximum"] - actual["minimum"]
+        if finite(span):
+            normalized = (actual["value"] - actual["minimum"]) / span if span else 0
+    if normalized is None:
+        unmeasured.append({"id": node["id"], "property": "state.scroll_position",
+                           "reason": "Independent UIA range and actual ScrollBar range are absent, invalid or disagree; no position is inferred"})
+    return {"orientation": orientation, "scroll_position": normalized}, {
+        "owner_id": owner_id, "xaml": copy.deepcopy(evidence),
+        "uia_id": provider.get("id") if provider else None, "uia_range": copy.deepcopy(actual),
+        "quantity": "Normalized actual range value, never a source for paint geometry"}
+
+
+def scrollbar_page_hit_regions(raw, bars, by_id):
+    """Nonpainted template RepeatButtons are input regions of the scrollbar."""
+    children = defaultdict(list)
+    for node in raw:
+        children[node.get("parent")].append(node)
+
+    def subtree(node):
+        yield node
+        for child in children[node["id"]]:
+            yield from subtree(child)
+
+    def no_visible_paint(node):
+        if node.get("hidden_reason"):
+            return True
+        if node.get("text") != "" or node.get("icon") or node.get("type") in ICON_TYPES | {"Image", "PersonPicture"}:
+            return False
+        if node.get("paint_kind") == "template":
+            return bool(children[node["id"]])
+        if node.get("paint_kind") not in {"rectangle", "rounded-rectangle"}:
+            return False
+        style = node.get("style", {})
+        bg, border = style.get("background"), style.get("border_color")
+        return (isinstance(bg, list) and len(bg) == 4 and all(finite(c) for c in bg) and bg[3] == 0
+                and finite(style.get("border_width"))
+                and (style["border_width"] == 0 or isinstance(border, list) and len(border) == 4
+                     and all(finite(c) for c in border) and border[3] == 0)
+                and style.get("shadow") == [] and style.get("background_image") == "none")
+
+    result = {}
+    for node in raw:
+        proof = node.get("scrollbar_page_hit_evidence")
+        if (node.get("type") != "RepeatButton" or not isinstance(proof, dict)
+                or proof.get("source") != "Actual RepeatButton object in current ScrollBar template subtree"
+                or proof.get("owner_id") not in bars or node.get("interaction_evidence", {}).get("is_tab_stop") is not False):
+            continue
+        owner = proof["owner_id"]
+        edges = {edge["id"]: edge for edge in bars[owner]["visual_subtree"]}
+        path, current = [], node["id"]
+        while current in edges:
+            edge = edges[current]
+            path.insert(0, edge)
+            current = edge["parent_id"]
+        region_nodes = list(subtree(node))
+        if current == owner and proof.get("path") == path and all(no_visible_paint(child) for child in region_nodes):
+            result[node["id"]] = (owner, region_nodes)
+    return result
 
 
 def project_background_pattern(element, node):
@@ -780,7 +924,7 @@ def host_container_ownership(uia, raw):
             for node in (primary, bridge, sites[0])]
 
 
-def transparent_uia_ownership(uia_nodes, raw):
+def transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs=None):
     """Reconcile a provider which stays onscreen for an actually transparent control.
 
     IsOffscreen does not measure opacity. This owns only the individual raw
@@ -797,9 +941,9 @@ def transparent_uia_ownership(uia_nodes, raw):
         if not isinstance(name, str) or not name or not native_class:
             continue
         candidates = [node for node in raw
-                      if semantic_control_kind(node)
+                      if semantic_control_kind(node, scrollbar_thumbs)
                       and node["type"] == native_class
-                      and uia_kind_matches(provider, semantic_control_kind(node))
+                      and uia_kind_matches(provider, semantic_control_kind(node, scrollbar_thumbs))
                       and node.get("accessible_name") == name
                       and positive(node.get("bounds"))
                       and node["bounds"] == provider.get("bounds")]
@@ -847,6 +991,10 @@ def project(xaml_path, uia_path, png_path):
     by_id = {n["id"]: n for n in raw}
     fenced_blocks = markdown_fenced_blocks(raw, by_id, unmeasured)
     state_dot_layers = state_dot_paint_layers(raw, by_id, unmeasured)
+    scrollbars, scrollbar_thumbs = scrollbar_templates(raw, by_id, unmeasured)
+    scrollbar_page_hits = scrollbar_page_hit_regions(raw, scrollbars, by_id)
+    def control_kind(node):
+        return semantic_control_kind(node, scrollbar_thumbs)
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
     children = defaultdict(list)
@@ -855,7 +1003,7 @@ def project(xaml_path, uia_path, png_path):
     projection = []
     elements = []
     owned = {}
-    semantic = {n["id"] for n in raw if semantic_control_kind(n) or n["type"] in PAINT_CONTROL_KINDS}
+    semantic = {n["id"] for n in raw if control_kind(n) or n["type"] in PAINT_CONTROL_KINDS}
     def ancestor(node, choices):
         parent = by_id.get(node.get("parent"))
         while parent:
@@ -928,7 +1076,7 @@ def project(xaml_path, uia_path, png_path):
                                           and child["style"]["border_width"] > 0)
                                      for child in descendants(node))
         compound = distinct_semantics or distinct_content_paint and node["type"] != "PersonPicture"
-        if len(labels) == 1 and not compound and (semantic_control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
+        if len(labels) == 1 and not compound and (control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -942,12 +1090,14 @@ def project(xaml_path, uia_path, png_path):
     dot_layer_owners = {layer["id"]: owner for owner, layers in state_dot_layers.items() for layer in layers}
     for layer, owner in dot_layer_owners.items():
         owned[layer] = (owner, "actual compound state-dot paint layer")
+    for region_id, (owner, _) in scrollbar_page_hits.items():
+        owned[region_id] = (owner, "actual nonpainted non-tab-stop ScrollBar template input region")
 
     host_ownership = host_container_ownership(uia, raw)
     projection.extend(host_ownership)
     used_uia = {record["source"] for record in host_ownership}
     uia_nodes = [n for n in uia.get("raw_nodes", []) if positive(n.get("bounds")) and not n.get("state", {}).get("offscreen")]
-    transparent_ownership = transparent_uia_ownership(uia_nodes, raw)
+    transparent_ownership = transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs)
     projection.extend(transparent_ownership)
     used_uia.update(record["source"] for record in transparent_ownership)
     for node in uia.get("raw_nodes", []):
@@ -960,11 +1110,22 @@ def project(xaml_path, uia_path, png_path):
         if node in uia_nodes and not node.get("control_type"):
             unmeasured.append({"id": node["id"], "property": "UIA control_type", "reason": "Visible provider node did not report its control type"})
     order = defaultdict(int)
+    paired_controls = {}
+    uia_by_id = {n["id"]: n for n in uia.get("raw_nodes", [])}
+    def uia_scrollbar_owner(provider):
+        current = uia_by_id.get(provider.get("parent"))
+        seen = set()
+        while current and current["id"] not in seen:
+            seen.add(current["id"])
+            if current.get("control_type", "").removeprefix("ControlType.") == "ScrollBar":
+                return current["id"]
+            current = uia_by_id.get(current.get("parent"))
+        return None
     for node in raw:
-        if semantic_control_kind(node) == "resize-handle" and not node.get("hidden_reason"):
+        if control_kind(node) in {"resize-handle", "scrollbar", "scrollbar-thumb"} and not node.get("hidden_reason"):
             measured_box = node.get("bounds")
             if not isinstance(measured_box, dict) or not all(finite(measured_box.get(k)) for k in ("x", "y", "width", "height")):
-                unmeasured.append({"id": node["id"], "property": "bounds", "reason": "Production resize handle has no finite measured XAML bounds; no box is synthesized"})
+                unmeasured.append({"id": node["id"], "property": "bounds", "reason": "Production control has no finite measured XAML bounds; no box is synthesized"})
         if not visible(node):
             reason = node.get("hidden_reason") or ("fully occluded by measured opaque paint" if positive(node.get("visible_bounds")) and not fragments.get(node["id"]) else "not a visible rendered box")
             projection.append({"source": node["id"], "reason": reason, "occlusion_masks": occlusion_masks.get(node["id"], [])})
@@ -977,11 +1138,27 @@ def project(xaml_path, uia_path, png_path):
             if node["id"] in dot_layer_owners:
                 record["ownership_evidence"] = copy.deepcopy(node["state_dot_layer_evidence"])
                 record["paint_evidence"] = copy.deepcopy(node)
+            if node["id"] in scrollbar_page_hits:
+                owner, region_nodes = scrollbar_page_hits[node["id"]]
+                owner_provider = paired_controls.get(owner)
+                providers = [n for n in uia_nodes if n["id"] not in used_uia and n.get("class_name") == "RepeatButton"
+                             and uia_kind_matches(n, "button") and owner_provider
+                             and uia_scrollbar_owner(n) == owner_provider["id"]
+                             and distance(n["bounds"], node["bounds"]) <= 8]
+                record["ownership_evidence"] = copy.deepcopy(node["scrollbar_page_hit_evidence"])
+                record["actual_input_region"] = copy.deepcopy(node)
+                record["template_layers"] = copy.deepcopy(region_nodes[1:])
+                if len(providers) == 1:
+                    used_uia.add(providers[0]["id"])
+                    record["uia_input_region"] = copy.deepcopy(providers[0])
+                else:
+                    unmeasured.append({"id": node["id"], "property": "UIA correspondence",
+                                       "reason": "ScrollBar internal input region has no unique independent RepeatButton provider"})
             projection.append(record)
             continue
         typ = node["type"]
         style = copy.deepcopy(node.get("style", {}))
-        kind = semantic_control_kind(node) or PAINT_CONTROL_KINDS.get(typ)
+        kind = control_kind(node) or PAINT_CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
             if typ == "WorkspaceCodeView":
@@ -1054,11 +1231,15 @@ def project(xaml_path, uia_path, png_path):
             break
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
         matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind) and distance(n["bounds"], node["bounds"]) <= 8]
+        if kind == "scrollbar-thumb":
+            owner_provider = paired_controls.get(scrollbar_thumbs[node["id"]])
+            matching = [n for n in matching if owner_provider and uia_scrollbar_owner(n) == owner_provider["id"]]
         matching.sort(key=lambda n: (n.get("name", "") not in (text, node.get("accessible_name", "")), distance(n["bounds"], node["bounds"])))
         witness = matching[0] if matching else None
         interactive, interaction_reason = interaction_applicability(node, kind, witness)
         if witness:
             used_uia.add(witness["id"])
+            paired_controls[node["id"]] = witness
             for key in STATE_KEYS:
                 if key in {"enabled", "focused"} and interactive is not True:
                     continue
@@ -1073,8 +1254,23 @@ def project(xaml_path, uia_path, png_path):
             state["enabled"] = state["focused"] = None
         elif interactive is None:
             unmeasured.append({"id": node["id"], "property": "state.interaction_applicability", "reason": interaction_reason})
-        if semantic_control_kind(node) and not witness:
+        if control_kind(node) and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
+        scrollbar_range_evidence = None
+        scrollbar_paint = None
+        if kind in {"scrollbar", "scrollbar-thumb"}:
+            scroll_state, scrollbar_range_evidence = scrollbar_state(node, kind, scrollbars, scrollbar_thumbs,
+                                                                    witness, paired_controls, unmeasured)
+            state.update(scroll_state)
+            layer_nodes = [p for p in descendants(node) if visible(p) and ancestor(p, semantic) == node]
+            scrollbar_paint = {"hit_bounds": copy.deepcopy(node.get("bounds")),
+                               "source": "Actual current ScrollBar/Thumb template render descendants",
+                               "layers": [{"raw": copy.deepcopy(p), "visible_fragments": copy.deepcopy(fragments.get(p["id"])),
+                                           "occlusion_masks": copy.deepcopy(occlusion_masks.get(p["id"], []))}
+                                          for p in layer_nodes],
+                               "css_paint_equivalence": None}
+            unmeasured.append({"id": node["id"], "property": "style.scrollbar_paint",
+                               "reason": "Actual hit bounds and template paint layers are retained separately; their aggregate CSS painted extent has not been independently measured"})
         actual_text_boxes = measured_text_boxes(layout.get("character_boxes")) if layout.get("character_boxes_coordinate_space") == "content-window" else []
         if not actual_text_boxes and witness:
             actual_text_boxes = [copy.deepcopy(b) for r in (witness.get("text_pattern") or {}).get("visible_ranges", [])
@@ -1212,6 +1408,10 @@ def project(xaml_path, uia_path, png_path):
                                                              "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
                                 "resize_handle_evidence": copy.deepcopy(node.get("resize_handle_evidence")),
+                                "scrollbar_evidence": copy.deepcopy(node.get("scrollbar_evidence")),
+                                "scrollbar_thumb_evidence": copy.deepcopy(node.get("scrollbar_thumb_evidence")),
+                                "scrollbar_page_hit_evidence": copy.deepcopy(node.get("scrollbar_page_hit_evidence")),
+                                "scrollbar_range": scrollbar_range_evidence, "scrollbar_paint": scrollbar_paint,
                                 "native_label_evidence": copy.deepcopy(text_source.get("native_label_evidence")),
                                 "actual_trimming": copy.deepcopy(layout.get("actual_trimming")),
                                 "inline_sequence_evidence": copy.deepcopy(node.get("inline_sequence_evidence")),
@@ -1243,7 +1443,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         covered = next((r for r in raw if positive(r.get("bounds")) and positive(r.get("visible_bounds"))
                         and not r.get("hidden_reason") and not fragments.get(r["id"])
-                        and uia_kind_matches(n, semantic_control_kind(r) or ("text" if r["type"] in TEXT_TYPES else ""))
+                        and uia_kind_matches(n, control_kind(r) or ("text" if r["type"] in TEXT_TYPES else ""))
                         and distance(b, r["bounds"]) <= 8), None)
         if covered:
             projection.append({"source": n["id"], "owner": covered["id"], "reason": "UIA box corresponds to measured fully occluded render node",

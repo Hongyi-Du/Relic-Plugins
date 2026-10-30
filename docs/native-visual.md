@@ -1,7 +1,7 @@
 # Native visual acceptance
 
 Amendment 4 supersedes the earlier screenshot-only acceptance. The required
-gate is now [element-by-element parity](native-elements.md): all 504 cases,
+gate is now [element-by-element parity](native-elements.md): all 660 cases per platform,
 independent DOM/UIA/AX/render measurements, exact visible counterparts, fixed
 tolerances, no unapproved exceptions. Screenshots being complete or appearing
 close is not a pass. The sections below retain harness/history information;
@@ -26,7 +26,7 @@ therefore consume the same effective value. This is a response projection fix,
 not a change to enforcement or a screenshot-only workaround. PR #4 remains draft
 for final visual review; no local app or test execution is authorized.
 
-`scripts/visual/scenes.json` is the shared capture matrix: 42 screens and dialog
+`scripts/visual/scenes.json` is the shared capture matrix: 55 screens and interaction
 states, both languages, both themes, 1440x900 / 1280x800 / 1024x700. The full run
 produces 504 comparisons. `smoke` is an iteration aid, never the final gate.
 
