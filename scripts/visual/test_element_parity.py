@@ -649,6 +649,8 @@ class MatrixReportTests(unittest.TestCase):
             result = run(root / "source", output, spec=spec)
             self.assertFalse(result["passed"])
             self.assertEqual(result["summary"]["macos"]["scenes_checked"], 0)
+            self.assertEqual(result["summary"]["macos"]["scenes_with_both_artifact_sets"], 0)
+            self.assertEqual(result["summary"]["macos"]["scenes_with_pairs"], 0)
             self.assertGreater(result["summary"]["macos"]["counts"]["extraction_errors"], 0)
             self.assertTrue((output / "parity-report.json").exists())
             self.assertTrue((output / "en-US-dark-20x20-group-windows.html").exists())
@@ -670,6 +672,8 @@ class MatrixReportTests(unittest.TestCase):
             result = run(source, root / "complete", spec=spec)
             self.assertTrue(result["passed"])
             self.assertEqual(result["summary"]["windows"]["matched_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_both_artifact_sets"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_pairs"], 1)
             self.assertEqual(result["scenes"][0]["platforms"]["windows"]["pixel_difference"]["changed_pixels"], 0)
             self.assertTrue((root / "complete" / "images" / "windows" / f"{scene}.png").exists())
             expanded = deepcopy(spec); expanded["scenes"].append("private")
@@ -677,6 +681,33 @@ class MatrixReportTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertEqual(result["summary"]["windows"]["scenes_expected"], 2)
             self.assertEqual(result["summary"]["windows"]["scenes_passed"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_both_artifact_sets"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_pairs"], 1)
+
+    def test_existing_artifacts_and_pairs_do_not_claim_measured_or_passing_scenes(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                item = element(client); item["bounds"] = {"x": 1, "y": 1, "width": 10, "height": 10}
+                data = capture(client, [item], scene, viewport)
+                if client in ("windows", "macos"):
+                    data["errors"] = ["Synthetic fixture: an actual required measurement is unavailable"]
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            result = run(source, root / "report", spec=spec)
+            self.assertFalse(result["passed"])
+            for platform in ("windows", "macos"):
+                summary = result["summary"][platform]
+                self.assertEqual(summary["scenes_with_both_artifact_sets"], 1)
+                self.assertEqual(summary["scenes_with_pairs"], 1)
+                self.assertEqual(summary["scenes_checked"], 0)
+                self.assertEqual(summary["scenes_passed"], 0)
+                self.assertEqual(summary["matched_elements"], 0)
+                self.assertGreater(summary["counts"]["extraction_errors"], 0)
 
     def test_raw_tree_sidecars_are_copied_next_to_element_json(self):
         from PIL import Image

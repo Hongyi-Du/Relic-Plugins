@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (report count definitions): the report now separately
+counts cases with both JSON/PNG artifact sets and cases with at least one paired
+element. Neither count implies readable, complete or matching measurements.
+scenes_checked still requires no extraction errors; scenes_passed keeps every
+existing strict requirement. Definitions and per-case file-presence receipts
+make a 22-case diagnostic run distinguishable from the required 672-case matrix.
+Missing captures and failed extraction fixtures exercise these distinctions.
+
 Changes for the clients (profile spoken name): Windows now composes the profile
 button name from its actual initials/name/subtitle children. page.me remains the
 tooltip, while side.profile remains the visible subtitle. This repairs the real

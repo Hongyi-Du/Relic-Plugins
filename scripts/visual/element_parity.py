@@ -1115,6 +1115,12 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
         "reference_elements / native_elements": "Compatibility aliases for valid_reference_elements / valid_native_elements.",
         "matched_elements": "Paired elements with no mismatch or applicable extraction error."
     }
+    report["scene_count_definitions"] = {
+        "scenes_with_both_artifact_sets": "Expected cases with both element JSON files and both PNG files present on disk; readability, measurement completeness and parity are not implied.",
+        "scenes_with_pairs": "Expected cases in which the matcher paired at least one element; individual differences and extraction failures still apply.",
+        "scenes_checked": "Expected cases without extraction errors on either side; this is not the number of attempted captures or generated HTML pages.",
+        "scenes_passed": "Expected cases passing every strict comparison and extraction requirement."
+    }
     for client, capture_root in roots.items():
         present = {p.name.removesuffix(".elements.json") for p in capture_root.glob("*.elements.json")}
         present |= {p.stem for p in capture_root.glob("*.png")}
@@ -1122,6 +1128,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             report["unexpected_captures"].append({"client": client, "scene_id": unexpected})
     for platform in PLATFORMS:
         report["summary"][platform] = {"scenes_expected": len(cases), "scenes_checked": 0, "scenes_passed": 0,
+            "scenes_with_both_artifact_sets": 0, "scenes_with_pairs": 0,
             "reference_elements": 0, "native_elements": 0, "paired_elements": 0, "matched_elements": 0,
             "raw_reference_elements": 0, "valid_reference_elements": 0, "invalid_reference_elements": 0,
             "raw_native_elements": 0, "valid_native_elements": 0, "invalid_native_elements": 0,
@@ -1181,6 +1188,15 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
                     pair["status"] = "mismatch"
                     pair["categories"].append("extraction_errors")
             result["matched_elements"] = sum(pair["status"] == "match" for pair in result["pairs"])
+            result["artifact_presence"] = {
+                client: {suffix: (roots[client] / f"{scene}.{suffix}").is_file()
+                         for suffix in ("elements.json", "png")}
+                for client in (reference_client, platform)
+            }
+            if all(present for client in result["artifact_presence"].values() for present in client.values()):
+                report["summary"][platform]["scenes_with_both_artifact_sets"] += 1
+            if result["paired_elements"]:
+                report["summary"][platform]["scenes_with_pairs"] += 1
             if not result["extraction_errors"]: report["summary"][platform]["scenes_checked"] += 1
             result["counts"] = {category: len(result[category]) for category in CATEGORIES}
             result["passed"] = not any(result["counts"].values())
