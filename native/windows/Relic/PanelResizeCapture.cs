@@ -34,6 +34,7 @@ public sealed partial class MainWindow
             ["scene"] = scene, ["source"] = "Production MainWindow.panelResize Thumb; real SendInput and routed pointer/drag observations",
             ["errors"] = new JsonArray(), ["pointer_events"] = new JsonArray(),
             ["drag_events"] = new JsonArray(), ["tooltip_events"] = new JsonArray(), ["checkpoints"] = new JsonArray(),
+            ["phases"] = new JsonArray(),
             ["qpc_frequency"] = Stopwatch.Frequency,
             ["desired_capture_state"] = "idle-hover-with-owned-production-tooltip-open",
             ["observed_capture_state"] = "unresolved",
@@ -145,24 +146,42 @@ public sealed partial class MainWindow
         {
             ("pointer-entered", UIElement.PointerEnteredEvent), ("pointer-exited", UIElement.PointerExitedEvent),
             ("pointer-pressed", UIElement.PointerPressedEvent), ("pointer-moved", UIElement.PointerMovedEvent),
-            ("pointer-released", UIElement.PointerReleasedEvent), ("pointer-canceled", UIElement.PointerCanceledEvent)
+            ("pointer-released", UIElement.PointerReleasedEvent), ("pointer-canceled", UIElement.PointerCanceledEvent),
+            ("pointer-capture-lost", UIElement.PointerCaptureLostEvent)
         })
         {
             PointerEventHandler observer = (_, args) =>
             {
+                var observedQpc = Stopwatch.GetTimestamp();
                 if (kind == "pointer-entered") capturedPanelResizePointerOver = true;
                 if (kind is "pointer-exited" or "pointer-canceled") capturedPanelResizePointerOver = false;
                 var point = args.GetCurrentPoint(root);
                 ((JsonArray)capturedPanelResizeEvidence!["pointer_events"]!).Add(new JsonObject
                 {
                     ["kind"] = kind, ["source"] = "actual PointerRoutedEventArgs on production panel Thumb",
+                    ["qpc"] = observedQpc, ["is_generated"] = args.IsGenerated,
                     ["timestamp"] = JsonValue.Create(point.Timestamp), ["pointer_id"] = args.Pointer.PointerId,
                     ["device"] = args.Pointer.PointerDeviceType.ToString(), ["x"] = point.Position.X, ["y"] = point.Position.Y,
+                    ["position_source"] = "actual PointerRoutedEventArgs.GetCurrentPoint(root).Position; root-relative DIPs",
                     ["left_button_pressed"] = point.Properties.IsLeftButtonPressed, ["original_source_type"] = args.OriginalSource?.GetType().FullName
                 });
             };
             handle.AddHandler(routedEvent, observer, true); panelResizePointerObservers.Add((routedEvent, observer));
         }
+    }
+
+    private void RecordPanelResizePhase(string stage)
+    {
+        if (!VisualCaptureEnabled || capturedPanelResizeEvidence == null) return;
+        // Diagnostic only. A generated event is still counted by the unchanged
+        // continuity gate; this does not establish or reset any baseline.
+        ((JsonArray)capturedPanelResizeEvidence["phases"]!).Add(new JsonObject
+        {
+            ["stage"] = stage, ["qpc"] = Stopwatch.GetTimestamp(),
+            ["pointer_event_count"] = ((JsonArray)capturedPanelResizeEvidence["pointer_events"]!).Count,
+            ["drag_event_count"] = ((JsonArray)capturedPanelResizeEvidence["drag_events"]!).Count,
+            ["tooltip_event_count"] = ((JsonArray)capturedPanelResizeEvidence["tooltip_events"]!).Count
+        });
     }
 
     private void ObservePanelResizeToolTipEvents(Thumb handle, ToolTip tooltip)

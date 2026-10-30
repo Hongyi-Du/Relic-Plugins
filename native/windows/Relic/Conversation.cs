@@ -306,10 +306,26 @@ public sealed partial class MainWindow
         foreach (var item in items)
         {
             var date = DateTimeOffset.TryParse(item.Text("at"), out var parsed) ? parsed.LocalDateTime.Date.ToString("yyyy-MM-dd") : "";
-            if (date != day && date.Length > 0) { var label = OverviewText(When(item.Text("at")), 11.5, true); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); day = date; previous = null; }
+            string? separatorText = null;
+            if (date != day && date.Length > 0) { separatorText = When(item.Text("at")); day = date; previous = null; }
             else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
-            { var label = OverviewText(parsed.ToLocalTime().ToString("HH:mm"), 11.5, true); label.TextAlignment = TextAlignment.Center; label.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(label); previous = null; }
+            { separatorText = parsed.ToLocalTime().ToString("HH:mm"); previous = null; }
+            TextBlock? separator = null;
+            if (separatorText != null)
+            {
+                separator = OverviewText(separatorText, 11.5, true); separator.TextAlignment = TextAlignment.Center;
+                separator.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(separator);
+            }
             var rendered = Message(item!, false, Transcript.SameMessageGroup(previous, item!));
+            if (separator != null && rendered is FrameworkElement next)
+            {
+                // Adjacent block margins collapse in .stream-inner, whereas a
+                // StackPanel adds them. Retain only the separator's remainder;
+                // this also preserves the larger 8px gap in compact density.
+                var margin = separator.Margin;
+                separator.Margin = new Thickness(margin.Left, margin.Top, margin.Right,
+                    Math.Max(0, margin.Bottom - Math.Max(0, next.Margin.Top)));
+            }
             try { stream.Children.Add(rendered); }
             catch (System.Runtime.InteropServices.COMException ex)
             {

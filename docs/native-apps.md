@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (actual private-chat spacing): a37467a keeps the date
+line at y190 with 18.4px height, but starts its first message at y230.4 instead
+of reference y222.390625. The adjacent day bottom (8px) and message top (14px)
+margins collapse in the reference's block flow; StackPanel added them. Windows
+now retains only the date margin remainder based on the next real element's
+top margin, including compact/continuous-action variants. No fixed position
+offset or reference-coordinate adjustment is used.
+
+The a37467a panel hover fails with one extra same-position PointerMoved while
+its entire checkpoint state stays equal; the resized case never observes an
+open tooltip within the existing deadline. New raw pointer records include
+actual IsGenerated, handler QPC and PointerCaptureLost, with NativeLabel phase
+boundaries. No event is ignored and neither failure threshold is relaxed.
+e5f092b CI passes 101 Node/519 Python checks and the Windows native build;
+macOS remains queued at this observation. The whole parity gate remains failed.
+
 Changes for the clients (actual UIA identity conflicts): the Windows projection
 now rejects heuristic candidates when a captured owner explicitly has no peer,
 or a complete RuntimeId belongs to a different owner/provider. Rejections are
