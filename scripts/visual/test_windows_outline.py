@@ -7,7 +7,8 @@ import unittest
 from windows_outline import (CONTRACTS, LOCAL_LAYOUT_CONTRACTS, LOCAL_LAYOUT_SOURCE,
                              RUN_SOURCE, SOURCE, VECTOR_CONTRACT, VECTOR_RUNTIME,
                              VECTOR_SOURCE, TEMPLATE_CONTROL_TYPES, LABEL_RUNTIME,
-                             LABEL_CONTRACT, LABEL_SOURCE, LABEL_SURFACE_SOURCE, native_outline)
+                             LABEL_CONTRACT, LABEL_SOURCE, LABEL_SURFACE_SOURCE,
+                             PERSON_RUNTIME, PERSON_CONTRACT, PERSON_SOURCE, PERSON_SDK_SOURCE, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
@@ -85,6 +86,22 @@ def native_label():
                               "production_image_binding": deepcopy(binding)})
     raw["children"]["items"] = [{"id": "surface", "index": 0, "same_parent_object": True}]
     return node, image
+
+
+def person_picture():
+    """Synthetic new SDK contract; not a replacement for the recorded null."""
+    node = primitive("avatar", "PersonPicture")
+    child = primitive("template-child", "ContentPresenter", "avatar")
+    node["render_type_evidence"] = {"source": "Actual runtime XAML base types",
+                                    "is_control": True, "control_template_present": True}
+    node["outline_owner_evidence"].update(runtime_type=PERSON_RUNTIME, own_paint_contract=PERSON_CONTRACT,
+        person_picture_template={"source": PERSON_SOURCE, "status": "measured", "owner_id": "avatar",
+                                 "base_type": "Microsoft.UI.Xaml.Controls.Control", "is_sealed": False,
+                                 "template_present": True, "template_type": "Microsoft.UI.Xaml.Controls.ControlTemplate",
+                                 "visual_child_count": 1, "audited_sdk_source": PERSON_SDK_SOURCE})
+    node["outline_owner_evidence"]["children"]["items"] = [
+        {"id": "template-child", "index": 0, "same_parent_object": True}]
+    return node, child
 
 
 class WindowsOutlineTests(unittest.TestCase):
@@ -450,6 +467,100 @@ class WindowsOutlineTests(unittest.TestCase):
         self.assertTrue(image["native_label_surface_evidence"]["surface_binding_same_com_identity"])
         self.assertUnknown(node, [other for other in nodes if other is not node])
         self.assertEqual(native_outline(image, by_id)[0], "none")
+        self.assertEqual(nodes, before)
+
+    def test_exact_person_picture_parent_contract_does_not_clear_nonzero_template_brushes(self):
+        node, child = person_picture()
+        node["style"] = {"background": [255, 255, 255, 18], "border_color": [0, 0, 0, 25]}
+        before = deepcopy([node, child])
+        value, proof, gaps = self.result(node, [child])
+        self.assertEqual(value, "none")
+        self.assertTrue(proof["absence_proven"])
+        self.assertIn("Control container only", proof["scope"])
+        self.assertEqual(gaps, [])
+        self.assertEqual([node, child], before)
+        self.assertEqual(proof["raw"], before[0]["outline_owner_evidence"])
+
+    def test_person_picture_requires_exact_unsealed_runtime_and_actual_template_receipts(self):
+        keys = tuple(person_picture()[0]["outline_owner_evidence"]["person_picture_template"])
+        for key in keys:
+            with self.subTest(missing=key):
+                node, child = person_picture()
+                node["outline_owner_evidence"]["person_picture_template"].pop(key)
+                self.assertUnknown(node, [child])
+        for changed in ({"base_type": "Relic.OtherControl"}, {"is_sealed": True}, {"is_sealed": 0},
+                        {"owner_id": "other"}, {"template_present": False},
+                        {"template_type": "Microsoft.UI.Xaml.DataTemplate"}, {"visual_child_count": True},
+                        {"audited_sdk_source": "another SDK revision"}):
+            with self.subTest(changed=changed):
+                node, child = person_picture()
+                node["outline_owner_evidence"]["person_picture_template"].update(changed)
+                self.assertUnknown(node, [child])
+        for changed in ({"runtime_type": "Relic.CustomPersonPicture"}, {"runtime_type": "Microsoft.UI.Xaml.Controls.Control"},
+                        {"own_paint_contract": None}, {"own_paint_contract": "native-core-control-template-children-only"}):
+            node, child = person_picture()
+            node["outline_owner_evidence"].update(changed)
+            self.assertUnknown(node, [child])
+        for key in ("source", "is_control", "control_template_present"):
+            node, child = person_picture()
+            node["render_type_evidence"].pop(key)
+            self.assertUnknown(node, [child])
+        node, child = person_picture()
+        node["render_type_evidence"]["control_template_present"] = False
+        self.assertUnknown(node, [child])
+
+    def test_person_picture_requires_current_nonempty_complete_children_without_name_or_geometry_matching(self):
+        node, child = person_picture()
+        self.assertUnknown(node)
+        node["outline_owner_evidence"]["children"]["items"] = []
+        node["outline_owner_evidence"]["person_picture_template"]["visual_child_count"] = 0
+        self.assertUnknown(node)  # Complete but empty is outside this contract.
+        node, child = person_picture()
+        child["parent"] = None
+        self.assertUnknown(node, [child])
+        node, child = person_picture()
+        node["outline_owner_evidence"]["children"]["items"][0]["same_parent_object"] = False
+        self.assertUnknown(node, [child])
+        node, child = person_picture()
+        extra = primitive("extra", "Ellipse", "avatar")
+        extra["render_sibling_order"] = 1
+        self.assertUnknown(node, [child, extra])
+
+    def test_person_picture_retains_all_focus_composition_shadow_and_child_checks(self):
+        for section, updates in (
+            ("focus", {"state": "Keyboard"}),
+            ("focus", {"owner_ancestry_complete": False}),
+            ("composition", {"child_visual_present": True, "child_visual_type": "ActualAttachedVisual"}),
+            ("composition", {"shadow_present": True, "shadow_type": "Microsoft.UI.Xaml.Media.ThemeShadow"}),
+            ("children", {"complete": False}),
+        ):
+            with self.subTest(section=section, changed=updates):
+                node, child = person_picture()
+                node["outline_owner_evidence"][section].update(updates)
+                self.assertUnknown(node, [child])
+
+    def test_person_picture_parent_does_not_cover_child_image_or_ellipse_failures(self):
+        for typ in ("Image", "Ellipse"):
+            node, _ = person_picture()
+            child = primitive("template-child", typ, "avatar")
+            child["outline_owner_evidence"]["composition"].update(
+                shadow_present=True, shadow_type="Microsoft.UI.Xaml.Media.ThemeShadow")
+            self.assertEqual(self.result(node, [child])[0], "none")
+            self.assertUnknown(child, [node])
+
+    def test_recorded_a374_person_picture_keeps_historical_null_and_actual_child_paint(self):
+        path = Path(__file__).parent / "fixtures" / "person_picture_outline_recorded_a37467a.json"
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["provenance"]["commit"], "a37467a")
+        nodes = fixture["raw_nodes"]
+        by_id = {node["id"]: node for node in nodes}
+        node, child = by_id["xaml-205"], by_id["xaml-206"]
+        before = deepcopy(nodes)
+        self.assertIsNone(node["outline_owner_evidence"]["own_paint_contract"])
+        self.assertTrue(node["render_type_evidence"]["control_template_present"])
+        self.assertEqual(node["style"]["background"], [255, 255, 255, 18])
+        self.assertUnknown(node, [other for other in nodes if other is not node])
+        self.assertEqual(native_outline(child, by_id)[0], "none")
         self.assertEqual(nodes, before)
 
     def test_real_text_run_does_not_copy_its_owners_outline_proof(self):

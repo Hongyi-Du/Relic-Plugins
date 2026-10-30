@@ -15,6 +15,10 @@ LABEL_RUNTIME = "Relic.NativeLabel"
 LABEL_CONTRACT = "relic-native-label-panel-bound-image"
 LABEL_SOURCE = "actual sealed NativeLabel runtime and sole production Image object identity"
 LABEL_SURFACE_SOURCE = "actual NativeLabel production Image object identity and SurfaceImageSource COM binding"
+PERSON_RUNTIME = "Microsoft.UI.Xaml.Controls.PersonPicture"
+PERSON_CONTRACT = "native-personpicture-control-template-children-only"
+PERSON_SOURCE = "actual exact PersonPicture runtime, Control.Template and current visual children"
+PERSON_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
 LOCAL_LAYOUT_SOURCE = "actual local layout Type.BaseType/IsSealed and exact audited source contract"
 # Audited exact production classes: five add Measure/Arrange only, while the
 # Grid adds only its real region peer. Their native Panel background/border and
@@ -101,7 +105,8 @@ def native_outline(node, by_id):
         return None, evidence, issues
     runtime = raw.get("runtime_type")
     local_contract = LOCAL_LAYOUT_CONTRACTS.get(runtime) if isinstance(runtime, str) else None
-    contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME else local_contract[0] if local_contract
+    contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME
+                else PERSON_CONTRACT if runtime == PERSON_RUNTIME else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
     if (contract is None or raw.get("own_paint_contract") != contract
@@ -113,6 +118,30 @@ def native_outline(node, by_id):
                 or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
                 or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
             gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
+    if runtime == PERSON_RUNTIME:
+        # Fixed SDK's unsealed PersonPicture updates its real template's
+        # TextBlock/Ellipse/brushes/VisualState, not a second parent renderer.
+        # https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.idl
+        # https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1498
+        picture = raw.get("person_picture_template")
+        render_type = node.get("render_type_evidence")
+        actual_children = [child for child in by_id.values()
+                           if child.get("parent") == node["id"] and not child.get("text_run_source")]
+        valid_picture = (isinstance(picture, dict) and picture.get("source") == PERSON_SOURCE
+                         and picture.get("status") == "measured" and picture.get("owner_id") == node["id"]
+                         and picture.get("base_type") == "Microsoft.UI.Xaml.Controls.Control"
+                         and picture.get("is_sealed") is False and picture.get("audited_sdk_source") == PERSON_SDK_SOURCE
+                         and picture.get("template_present") is True
+                         and picture.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
+                         and type(picture.get("visual_child_count")) is int
+                         and picture["visual_child_count"] == len(actual_children) > 0
+                         and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+                         and render_type.get("is_control") is True and render_type.get("control_template_present") is True)
+        if not valid_picture:
+            gap("Exact PersonPicture has no complete actual runtime, present ControlTemplate and nonempty current-child receipt")
+        else:
+            evidence["scope"] = ("Exact SDK PersonPicture Control container only; current template descendants "
+                                 "and their paint/focus/Composition retain independent obligations")
     if runtime == LABEL_RUNTIME:
         label = raw.get("native_label_content")
         valid_label = (isinstance(label, dict) and label.get("source") == LABEL_SOURCE

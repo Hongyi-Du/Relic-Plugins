@@ -27,7 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, string> drafts = new();
     private readonly Grid root = new();
     private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();
-    private readonly Border composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
+    private readonly NativeRegionGrid composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
     private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
     private readonly ComposerInput editor = new();
     private readonly TextBox search = new();
@@ -111,7 +111,7 @@ public sealed partial class MainWindow : Window
         sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); sendButton.Width = sendButton.Height = 32; sendButton.CornerRadius = new CornerRadius(16); sendButton.HorizontalContentAlignment = HorizontalAlignment.Center; sendButton.VerticalContentAlignment = VerticalAlignment.Center; sendButton.Padding = new Thickness(0); composeActions.Children.Add(sendButton);
         compose.Children.Add(TwoColumns(recipientButton, composeActions));
         composerSurface.Child = compose; composerSurface.Padding = new Thickness(14, 10, 10, 8); composerSurface.Margin = new Thickness(20, 0, 20, 0); composerSurface.CornerRadius = new CornerRadius(18); composerSurface.BorderThickness = new Thickness(1); composerSurface.MaxWidth = 880;
-        composerRegion.Child = composerSurface; Grid.SetRow(composerRegion, 3); chat.Children.Add(composerRegion);
+        composerRegion.Children.Add(composerSurface); Grid.SetRow(composerRegion, 3); chat.Children.Add(composerRegion);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);

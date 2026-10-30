@@ -107,6 +107,28 @@ public sealed partial class MainWindow
                     children.Add(new JsonObject { ["id"] = childId, ["index"] = index, ["same_parent_object"] = sameParent });
                 }
                 receipt["children"] = new JsonObject { ["status"] = "measured", ["complete"] = complete, ["items"] = children };
+                if (actual == typeof(PersonPicture))
+                {
+                    var picture = (PersonPicture)value;
+                    var template = picture.Template;
+                    // Fixed SDK: PersonPicture is an UNSEALED Control. Its
+                    // exact implementation updates template children/brushes
+                    // and VisualState; it has no separate content renderer.
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.idl
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp
+                    // HWWalk's Control container has no own drawing case;
+                    // focus and independently rendered children are separate:
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1498
+                    receipt["person_picture_template"] = new JsonObject
+                    {
+                        ["source"] = "actual exact PersonPicture runtime, Control.Template and current visual children",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
+                        ["template_present"] = template != null, ["template_type"] = template?.GetType().FullName,
+                        ["visual_child_count"] = count,
+                        ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
+                    };
+                }
                 if (actual == typeof(NativeLabel))
                 {
                     var label = (NativeLabel)value;
@@ -194,6 +216,9 @@ public sealed partial class MainWindow
         // Focus, hand-in Composition and direct-child proofs still apply above.
         : actual == typeof(Viewbox) ? "native-viewbox-child-transform"
         : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only"
+        // This unsealed SDK class is accepted only by exact runtime equality,
+        // with its actual present template and complete nonempty child set.
+        : actual == typeof(PersonPicture) ? "native-personpicture-control-template-children-only"
         // Exact sealed app renderer: native Panel paint plus an independently
         // owned Image surface. The live runtime/child/binding proof is required
         // above; no arbitrary Panel subclass or unmeasured image inherits it.

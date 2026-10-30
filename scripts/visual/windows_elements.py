@@ -7,6 +7,7 @@ import copy
 import json
 import math
 import re
+import struct
 from collections import defaultdict
 from pathlib import Path
 
@@ -1226,13 +1227,107 @@ def transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs=None):
 DIALOG_SURFACE_SOURCE = "Actual NativeContentDialog protected GetTemplateChild objects from its applied native ControlTemplate"
 
 
+def ellipse_circle_geometry(node, stroke_width):
+    """Derive only the simple circular primitive from bound, actual SDK inputs.
+
+    WinUI 1.6.9 GetOutlineRect deflates by half the centered stroke;
+    CEllipse::UpdateRenderGeometry halves that box for the centerline radii.
+    This is a native geometry parameter, not a sampled raster/visible-ink bound.
+    Caller must first establish the actual solid, undashed, translation-only
+    stroke. Unsupported geometry remains unknown instead of copying layout/2.
+    """
+    geometry = node.get("shape_geometry_evidence")
+    if not isinstance(geometry, dict):
+        return None, "Actual Shape.Stretch and Ellipse geometry input receipt is missing"
+    if (geometry.get("source") != "actual Ellipse layout and Shape inputs"
+            or geometry.get("owner_id") != node.get("id")
+            or geometry.get("runtime_type") != "Microsoft.UI.Xaml.Shapes.Ellipse"
+            or type(geometry.get("stretch_value")) is not int
+            or (geometry.get("stretch"), geometry.get("stretch_value")) not in (("Fill", 1), ("Uniform", 2))
+            or geometry.get("stroke_is_null") is not False
+            or not finite(geometry.get("stroke_thickness"))
+            or geometry.get("stroke_thickness") != stroke_width):
+        return None, "Ellipse geometry inputs lack a same-owner exact primitive, supported Stretch enum or matching present Stroke"
+    owner = node.get("outline_owner_evidence") or {}
+    composition = owner.get("composition") or {}
+    children = owner.get("children") or {}
+    if (owner.get("source") != "winui-own-outline-v1" or owner.get("owner_id") != node.get("id")
+            or owner.get("runtime_type") != "Microsoft.UI.Xaml.Shapes.Ellipse"
+            or owner.get("own_paint_contract") != "native-shape-fill-and-stroke" or owner.get("status") != "measured"
+            or composition.get("status") != "measured" or composition.get("child_visual_present") is not False
+            or composition.get("shadow_present") is not False
+            or children.get("status") != "measured" or children.get("complete") is not True or children.get("items") != []):
+        return None, "Ellipse geometry owner is unbound or has unresolved/additional composition or child paint"
+    diameter, height = geometry.get("actual_width"), geometry.get("actual_height")
+    if (not finite(diameter) or not finite(height) or diameter != height
+            or diameter <= 0 or not finite(stroke_width) or not 0 < stroke_width < diameter / 2):
+        return None, "Ellipse circle requires a positive square and nondegenerate centered stroke/inner radius"
+
+    # Core geometry uses XFLOAT. Preserve its arithmetic, and do not silently
+    # treat an unrepresentable recorded Double as the actual native float input.
+    def f32(value):
+        return struct.unpack("<f", struct.pack("<f", value))[0]
+
+    try:
+        if f32(diameter) != diameter or f32(stroke_width) != stroke_width:
+            return None, "Actual geometry inputs are not exactly representable by this SDK's XFLOAT geometry"
+        inset = f32(stroke_width * 0.5)
+        centerline_diameter = f32(diameter - stroke_width)
+        centerline_radius = f32(centerline_diameter * 0.5)
+        outer_radius = f32(centerline_radius + inset)
+        inner_radius = f32(centerline_radius - inset)
+    except (OverflowError, struct.error):
+        return None, "Ellipse geometry inputs exceed the SDK XFLOAT range"
+    if (not all(finite(v) and v > 0 for v in (inset, centerline_radius, inner_radius, outer_radius))
+            or outer_radius * 2 != diameter):
+        return None, "Rounded or degenerate native outline arithmetic does not establish this exact circular outer box"
+
+    matrix = node.get("transform") or {}
+    stroke = node.get("stroke_evidence") or {}
+    x, y = matrix.get("offset_x"), matrix.get("offset_y")
+    if not finite(x) or not finite(y):
+        return None, "Ellipse window origin is unmeasured"
+    expected_box = {"x": x, "y": y, "width": diameter, "height": diameter}
+    if (node.get("bounds") != expected_box or node.get("visible_bounds") != expected_box
+            or node.get("local_bounds") != {"x": 0, "y": 0, "width": diameter, "height": diameter}
+            or node.get("axis_aligned_transform") is not True
+            or "clip" not in node or node["clip"] is not None
+            or "hidden_reason" not in node or node["hidden_reason"] is not None
+            or stroke.get("source_extent") != {"x": diameter, "y": diameter}
+            or stroke.get("origin") != {"x": x, "y": y}
+            or stroke.get("axis_endpoint_x") != {"x": x + diameter, "y": y}
+            or stroke.get("axis_endpoint_y") != {"x": x, "y": y + diameter}):
+        return None, "Ellipse local/window extents, full visibility or actual transform-axis endpoints are not consistent"
+    ancestor_clip = node.get("ancestor_clip")
+    if (not isinstance(ancestor_clip, dict)
+            or not all(finite(ancestor_clip.get(k)) for k in ("x", "y", "width", "height"))
+            or ancestor_clip["x"] > x or ancestor_clip["y"] > y
+            or ancestor_clip["x"] + ancestor_clip["width"] < x + diameter
+            or ancestor_clip["y"] + ancestor_clip["height"] < y + diameter):
+        return None, "Ellipse ancestor clip is missing or does not contain the full actual circular border box"
+    return {
+        "source": "Actual Ellipse inputs interpreted by fixed WinUI 1.6.9 primitive geometry",
+        "sdk_source_commit": "da699b040bddc2a6adf660512a7c6db8a96bfbe3",
+        "sdk_source": [
+            "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/core/elements/shape.cpp#L841",
+            "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/core/elements/ellipse.cpp#L101"],
+        "arithmetic": "XFLOAT outline inset = stroke/2; centerline diameter = actual diameter-stroke; centerline radius = centerline diameter/2; outer radius = centerline radius+inset",
+        "coordinate_space": "window", "center": {"x": x + outer_radius, "y": y + outer_radius},
+        "centerline_bounds": {"x": x + inset, "y": y + inset,
+                              "width": centerline_diameter, "height": centerline_diameter},
+        "centerline_radius": centerline_radius, "outer_radius": outer_radius, "inner_radius": inner_radius,
+        "outer_bounds": expected_box,
+        "scope": "Native primitive circular outer border radius only; not sampled ink, antialiasing, same-frame or screenshot equivalence",
+    }, None
+
+
 def project_ellipse_border(element, node, unmeasured):
     """Classify a measured Ellipse boundary stroke without inventing its contour.
 
     Shape.Stroke is captured as foreground, whereas a closed state-dot boundary
     uses the border paint fields. This is not a rule for Paths, Lines or glyphs.
-    Actual Shape.Stretch/outline geometry is not in the current receipt, so the
-    native default CornerRadius(0) cannot become a measured CSS corner radius.
+    Native default CornerRadius(0) is not a measured radius. Only a complete
+    actual Ellipse geometry receipt can establish the supported circular case.
     """
     if node.get("type") != "Ellipse":
         return
@@ -1246,13 +1341,16 @@ def project_ellipse_border(element, node, unmeasured):
     proof = {"source": "Actual Ellipse Shape.Stroke brush and measured stroke-axis receipt",
              "runtime_type": (node.get("outline_owner_evidence") or {}).get("runtime_type"),
              "raw_style": copy.deepcopy(raw_style), "stroke_evidence": copy.deepcopy(stroke),
+             "shape_geometry_evidence": copy.deepcopy(node.get("shape_geometry_evidence")),
+             "local_bounds": copy.deepcopy(node.get("local_bounds")),
+             "visible_bounds": copy.deepcopy(node.get("visible_bounds")),
+             "clip": copy.deepcopy(node.get("clip")), "ancestor_clip": copy.deepcopy(node.get("ancestor_clip")),
              "transform": copy.deepcopy(node.get("transform")),
              "bounds": copy.deepcopy(node.get("bounds")), "stroke_fields_measured": False,
              "contour_measured": False,
              "contour_reason": "Actual Shape.Stretch and current rendered Ellipse contour are not captured; layout extents do not establish a CSS radius"}
     element["evidence"]["ellipse_border"] = proof
     style["corner_radius"] = style["corner_radii"] = None
-    unmeasured.append({"id": node["id"], "property": "style.corner_radius", "reason": proof["contour_reason"]})
     color, width = raw_style.get("foreground"), raw_style.get("stroke_width")
     pattern = stroke.get("raw_pattern") if isinstance(stroke, dict) else None
     matrix = node.get("transform")
@@ -1278,6 +1376,7 @@ def project_ellipse_border(element, node, unmeasured):
             style[field] = None
         unmeasured.append({"id": node["id"], "property": "style.ellipse_border",
                            "reason": "Ellipse boundary lacks a bound solid undashed stroke with a measured translation-only width; no CSS border is inferred"})
+        unmeasured.append({"id": node["id"], "property": "style.corner_radius", "reason": proof["contour_reason"]})
         return
     style.update(border_color=copy.deepcopy(color), border_width=width, border_widths=[width] * 4,
                  border_colors=[copy.deepcopy(color) for _ in range(4)],
@@ -1285,6 +1384,18 @@ def project_ellipse_border(element, node, unmeasured):
     proof["stroke_fields_measured"] = True
     proof["projected_fields"] = list(fields)
     proof["quantity"] = "Closed Ellipse boundary stroke color/thickness only; no outline placement, radius or raster equivalence asserted"
+    contour, reason = ellipse_circle_geometry(node, width)
+    proof["geometry_derivation"] = contour
+    if contour is None:
+        proof["contour_reason"] = reason
+        unmeasured.append({"id": node["id"], "property": "style.corner_radius", "reason": reason})
+        return
+    style["corner_radius"] = contour["outer_radius"]
+    style["corner_radii"] = [contour["outer_radius"]] * 4
+    proof["contour_measured"] = True
+    proof["contour_reason"] = None
+    proof["projected_fields"].extend(("corner_radius", "corner_radii"))
+    proof["quantity"] = "Actual native centered boundary stroke and circular outer border radius; no raster/frame equivalence asserted"
 
 
 def measured_dialog_surfaces(raw, by_id, unmeasured):
@@ -1436,6 +1547,24 @@ def project(xaml_path, uia_path, png_path):
     identity_bindings = bind_automation_identities(source_raw, uia)
     owner_by_provider = {pair["uia_id"]: pair["xaml_id"] for pair in identity_bindings["pairs"]}
     provider_by_owner = {pair["xaml_id"]: pair["uia_id"] for pair in identity_bindings["pairs"]}
+    provider_records = defaultdict(list)
+    owner_records = defaultdict(list)
+    for provider in uia.get("raw_nodes", []):
+        provider_records[provider.get("id")].append(provider)
+    for owner in source_raw:
+        owner_records[owner.get("id")].append(owner)
+    group_regions = {}
+    for pair in identity_bindings["pairs"]:
+        owners = owner_records[pair["xaml_id"]]
+        providers = provider_records[pair["uia_id"]]
+        # A Panel can own an actual accessibility Group without painting a
+        # background. The complete, independently observed RuntimeId supplies
+        # this role; neither its accessible name nor a nearby box supplies it.
+        if (len(owners) == 1 and len(providers) == 1
+                and measured_runtime_type(owners[0], "is_panel") is True
+                and semantic_control_kind(owners[0]) is None
+                and providers[0].get("control_type") == "ControlType.Group"):
+            group_regions[pair["xaml_id"]] = copy.deepcopy(pair)
     rejected_identity_pairs = {}
 
     def identity_allows(node, provider):
@@ -1458,7 +1587,7 @@ def project(xaml_path, uia_path, png_path):
     scrollbars, scrollbar_thumbs = scrollbar_templates(raw, by_id, unmeasured)
     scrollbar_page_hits = scrollbar_page_hit_regions(raw, scrollbars, by_id)
     def control_kind(node):
-        return semantic_control_kind(node, scrollbar_thumbs)
+        return semantic_control_kind(node, scrollbar_thumbs) or ("region" if node["id"] in group_regions else None)
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
     children = defaultdict(list)
@@ -1739,8 +1868,14 @@ def project(xaml_path, uia_path, png_path):
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
         if dialog_surface is not None:
             state["hovered"] = dialog_surface.get("state", {}).get("hovered")
-        matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind)
-                    and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
+        if node["id"] in group_regions:
+            # Keep the measured identity even if independent bounds/names
+            # differ. Those values remain actual evidence, not pairing keys.
+            provider_id = group_regions[node["id"]]["uia_id"]
+            matching = [n for n in uia_nodes if n["id"] == provider_id and n["id"] not in used_uia]
+        else:
+            matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind)
+                        and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
         if kind == "scrollbar-thumb":
             owner_provider = paired_controls.get(scrollbar_thumbs[node["id"]])
             matching = [n for n in matching if owner_provider and uia_scrollbar_owner(n) == owner_provider["id"]]
@@ -1932,6 +2067,7 @@ def project(xaml_path, uia_path, png_path):
                    "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
+                                "uia_group_region": copy.deepcopy(group_regions.get(node["id"])),
                                 "line_break_configuration": break_evidence,
                                 "outline": outline_evidence,
                                 "native_label_geometry": submitted_label_geometry,

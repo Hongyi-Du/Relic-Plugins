@@ -1,5 +1,51 @@
 # Native Relic App contract
 
+Changes for the clients (actual ca8d997 results and the next measured batch):
+native run 41038729531 passes both Windows and macOS build/test jobs; macOS runs
+178 tests without the former scroller recursion crash. Package validation
+41038729516 also passes. The separate static vocabulary job still fails on four
+macOS-only settings keys absent from the Windows client; no inert key references
+or new exceptions have been added. These results do not establish element parity.
+
+Actual ca8d997 Windows smoke captures now retain all three selected settings
+segment shadows: xaml-1317/1377/1406 each has one actual DropShadow layer and the
+same retained child visual after its real unload/recheck sequence. This verifies
+the production reattachment fix for this captured size/language/theme only, not
+CSS blur raster equivalence. Its smoke capture still fails four scenes: file-code
+and live-tool-output retain unresolved UIA rectangles; panel-resize-hover and
+panel-resized retain actual pointer/ToolTip changes during capture. Raw evidence
+is downloaded under `S:\Codex\Outputs\Relic-native-visual\parity-ca8d997\windows`.
+The reference artifact alongside it contains all 19 `.cc.json` receipts: each
+has four checkpoints and zero readiness errors, with actual response ordinals
+and values bound to the production closure. Copies uses response 4 after its
+real reload. This verifies the requested readiness path in this diagnostic run.
+
+Read native-macos REQUESTS through efa7553: its new typographic-extent note
+documents actual showCGGlyphs ascent/descent/baselines and retained insertion
+geometry; it requests no additional shared route or checker relaxation. The
+different quantities remain explicit in raw evidence and require CI validation.
+
+The next Windows batch gives the existing composer container a real Group peer
+through NativeRegionGrid without an extra visual wrapper or changed layout.
+Exact SDK PersonPicture containers now report their actual template/child
+ownership, with independent child paint obligations preserved. Ellipse outer
+radius projection requires actual same-owner circle dimensions, Stroke, Stretch,
+rigid transform and unclipped bounds; the recorded 10px/2px circle yields radius
+5px through the fixed SDK's centerline geometry. Missing or contradictory
+measurements still fail. The main WinUI project builds headlessly with zero
+warnings/errors; these new regression cases and captures remain CI work.
+The menu region now survives projection only when its actual Panel has a unique,
+complete runtime-ID binding to a real UIA Group. The recorded xaml-28/uia-9
+fixture retains actual name, bounds and child order; missing/duplicate/foreign
+identity or failed observer lifetime cannot promote a layout wrapper. This
+repairs missing extraction of an existing region, without adding a visual one.
+
+Subsequent macOS 72f5571 CI 41040938366 fails its new glyph-extent test: no actual
+draw receipts were observed, followed by an unchecked empty-array index. The
+log is saved at `S:\Codex\Temp\relic-native\macos-72f5571.log`; Windows and shared
+contracts pass in that run. This newer branch state remains unverified and
+must be fixed by the macOS owner before acceptance.
+
 Changes for the clients (macOS measured recursion fix): native-macos 1ecee11
 uses the newly retained actual crash stack to fix accessibility registration
 reentry in its scroller provider; the previous role-only hypothesis was

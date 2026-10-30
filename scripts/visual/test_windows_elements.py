@@ -88,6 +88,139 @@ class ProjectionTests(unittest.TestCase):
     def recorded_ellipse_border():
         return json.loads((Path(__file__).parent / "fixtures" / "ellipse_border_recorded_0545cf0.json").read_text(encoding="utf-8"))
 
+    @staticmethod
+    def recorded_ellipse_circle():
+        return json.loads((Path(__file__).parent / "fixtures" / "ellipse_circle_recorded_75fddb6.json").read_text(encoding="utf-8"))
+
+    def test_recorded_ellipse_circle_uses_actual_stretch_and_centered_stroke_geometry(self):
+        fixture = self.recorded_ellipse_circle()
+        self.assertNotIn("reference", fixture)
+        node = fixture["native"]
+        original = deepcopy(node)
+        viewport = {"width": 1440, "height": 900, "scale": 1}
+        result = self.capture([node], [], xaml_changes={"viewport": viewport},
+                              uia_changes={"viewport": viewport}, image_size=(1440, 900))
+        element = self.by_id(result)[node["id"]]
+        self.assertEqual(element["kind"], "state-dot")
+        proof = element["evidence"]["ellipse_border"]
+        self.assertTrue(proof["stroke_fields_measured"])
+        self.assertTrue(proof["contour_measured"])
+        self.assertEqual(proof["shape_geometry_evidence"], node["shape_geometry_evidence"])
+        self.assertEqual(proof["geometry_derivation"]["centerline_radius"],
+                         (node["shape_geometry_evidence"]["actual_width"] - node["stroke_evidence"]["raw_width"]) / 2)
+        expected_outer = proof["geometry_derivation"]["centerline_radius"] + node["stroke_evidence"]["raw_width"] / 2
+        self.assertEqual(element["style"]["corner_radius"], expected_outer)
+        self.assertEqual(element["style"]["corner_radii"], [expected_outer] * 4)
+        self.assertEqual(proof["geometry_derivation"]["outer_bounds"], node["bounds"])
+        self.assertFalse(any(issue["id"] == node["id"] and issue["property"] == "style.corner_radius"
+                             for issue in result["coverage"]["unmeasured"]))
+        self.assertTrue(result["extraction_errors"], "Other missing scene/UIA measurements are not resolved by a circle radius")
+        self.assertEqual(node, original)
+
+    def test_circle_radius_changes_with_actual_inputs_in_both_supported_stretch_modes(self):
+        # Synthetic variations of the recorded inputs exercise SDK geometry,
+        # rather than hardcoding the fixture's ten-pixel state-dot diameter.
+        for stretch, enum_value in (("Fill", 1), ("Uniform", 2)):
+            for diameter, thickness in ((8, 1), (12, 2), (16.5, 1.25), (40, 6)):
+                with self.subTest(stretch=stretch, diameter=diameter, thickness=thickness):
+                    node = self.recorded_ellipse_circle()["native"]
+                    x, y = node["bounds"]["x"], node["bounds"]["y"]
+                    node["shape_geometry_evidence"].update(actual_width=diameter, actual_height=diameter,
+                                                           stroke_thickness=thickness, stretch=stretch, stretch_value=enum_value)
+                    for key in ("bounds", "visible_bounds", "local_bounds"):
+                        node[key].update(width=diameter, height=diameter)
+                    node["transformed_corners"] = [{"x": x, "y": y}, {"x": x + diameter, "y": y},
+                                                    {"x": x + diameter, "y": y + diameter}, {"x": x, "y": y + diameter}]
+                    node["stroke_evidence"].update(raw_width=thickness, source_extent={"x": diameter, "y": diameter},
+                                                  axis_endpoint_x={"x": x + diameter, "y": y},
+                                                  axis_endpoint_y={"x": x, "y": y + diameter})
+                    node["style"]["stroke_width"] = thickness
+                    element = {"style": deepcopy(node["style"]), "evidence": {}}
+                    issues = []
+                    project_ellipse_border(element, node, issues)
+                    self.assertEqual(issues, [])
+                    self.assertEqual(element["style"]["corner_radius"], diameter / 2)
+                    contour = element["evidence"]["ellipse_border"]["geometry_derivation"]
+                    self.assertEqual(contour["inner_radius"], diameter / 2 - thickness)
+                    self.assertEqual(contour["centerline_bounds"]["x"], x + thickness / 2)
+
+    def test_circle_missing_misbound_or_unsupported_actual_geometry_stays_unknown(self):
+        changes = ("missing", "source", "owner", "runtime", "stretch-missing", "stretch-enum", "stretch-bool",
+                   "stretch-none", "stretch-crop", "stroke-null", "thickness", "width-missing", "nonsquare",
+                   "zero", "infinite", "float-rounding", "owner-id", "owner-paint", "composition", "children",
+                   "local", "visible", "clip", "clip-missing", "hidden", "ancestor-missing", "ancestor-crop",
+                   "extent", "origin", "endpoint", "axis-aligned", "scaled", "skewed", "dashed")
+        for change in changes:
+            with self.subTest(change=change):
+                node = self.recorded_ellipse_circle()["native"]
+                geometry = node["shape_geometry_evidence"]
+                if change == "missing": node.pop("shape_geometry_evidence")
+                elif change == "source": geometry["source"] = "estimated layout bounds"
+                elif change == "owner": geometry["owner_id"] = "other-owner"
+                elif change == "runtime": geometry["runtime_type"] = "Fixture.EllipseSubclass"
+                elif change == "stretch-missing": geometry.pop("stretch")
+                elif change == "stretch-enum": geometry["stretch_value"] = 2
+                elif change == "stretch-bool": geometry["stretch_value"] = True
+                elif change == "stretch-none": geometry.update(stretch="None", stretch_value=0)
+                elif change == "stretch-crop": geometry.update(stretch="UniformToFill", stretch_value=3)
+                elif change == "stroke-null": geometry["stroke_is_null"] = True
+                elif change == "thickness": geometry["stroke_thickness"] = 3
+                elif change == "width-missing": geometry.pop("actual_width")
+                elif change == "nonsquare": geometry["actual_height"] = 12
+                elif change == "zero": geometry.update(actual_width=0, actual_height=0)
+                elif change == "infinite": geometry.update(actual_width=float("inf"), actual_height=float("inf"))
+                elif change == "float-rounding": geometry.update(actual_width=10.1, actual_height=10.1)
+                elif change == "owner-id": node["outline_owner_evidence"]["owner_id"] = "other-owner"
+                elif change == "owner-paint": node["outline_owner_evidence"]["own_paint_contract"] = "unmeasured"
+                elif change == "composition": node["outline_owner_evidence"]["composition"]["child_visual_present"] = True
+                elif change == "children": node["outline_owner_evidence"]["children"]["complete"] = False
+                elif change == "local": node["local_bounds"]["x"] = 1
+                elif change == "visible": node["visible_bounds"]["width"] = 9
+                elif change == "clip": node["clip"] = {"x": 1, "y": 0, "width": 9, "height": 10}
+                elif change == "clip-missing": node.pop("clip")
+                elif change == "hidden": node["hidden_reason"] = "collapsed"
+                elif change == "ancestor-missing": node.pop("ancestor_clip")
+                elif change == "ancestor-crop": node["ancestor_clip"]["height"] = 75
+                elif change == "extent": node["stroke_evidence"]["source_extent"]["x"] = 9
+                elif change == "origin": node["stroke_evidence"]["origin"]["x"] += 1
+                elif change == "endpoint": node["stroke_evidence"]["axis_endpoint_x"]["x"] += 1
+                elif change == "axis-aligned": node["axis_aligned_transform"] = False
+                elif change == "scaled": node["transform"]["m11"] = 2
+                elif change == "skewed": node["transform"]["m21"] = 0.1
+                elif change == "dashed": node["stroke_evidence"]["raw_pattern"]["dash_array"] = [1, 1]
+                element = {"style": deepcopy(node["style"]), "evidence": {}}
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertIsNone(element["style"]["corner_radius"])
+                self.assertIsNone(element["style"]["corner_radii"])
+                self.assertFalse(element["evidence"]["ellipse_border"]["contour_measured"])
+                self.assertTrue(any(issue["property"] == "style.corner_radius" for issue in issues))
+
+    def test_circle_degenerate_inner_contour_or_stroke_stays_unknown(self):
+        for thickness in (0, 5, 10, 12):
+            with self.subTest(thickness=thickness):
+                node = self.recorded_ellipse_circle()["native"]
+                node["shape_geometry_evidence"]["stroke_thickness"] = thickness
+                node["stroke_evidence"]["raw_width"] = thickness
+                node["style"]["stroke_width"] = thickness
+                element = {"style": deepcopy(node["style"]), "evidence": {}}
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertIsNone(element["style"]["corner_radius"])
+                self.assertTrue(any(issue["property"] == "style.corner_radius" for issue in issues))
+
+    def test_circle_radius_projection_preserves_other_coverage_errors_and_raw_inputs(self):
+        node = self.recorded_ellipse_circle()["native"]
+        original = deepcopy(node)
+        issues = [{"id": node["id"], "property": "frame", "reason": "independent unresolved frame evidence"}]
+        before = deepcopy(issues)
+        element = {"style": deepcopy(node["style"]), "evidence": {}}
+        project_ellipse_border(element, node, issues)
+        self.assertEqual(issues, before)
+        self.assertEqual(node, original)
+        self.assertEqual(element["evidence"]["ellipse_border"]["raw_style"], original["style"])
+        self.assertEqual(element["evidence"]["ellipse_border"]["shape_geometry_evidence"], original["shape_geometry_evidence"])
+
     def test_recorded_header_state_dot_maps_actual_stroke_without_claiming_unknown_radius(self):
         fixture = self.recorded_ellipse_border()
         node, reference = fixture["native"], fixture["reference"]
@@ -188,6 +321,91 @@ class ProjectionTests(unittest.TestCase):
     @staticmethod
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
+
+    @staticmethod
+    def recorded_menu_group():
+        return json.loads((Path(__file__).parent / "fixtures" / "menu_group_identity_recorded_75fddb6.json").read_text(encoding="utf-8"))
+
+    def project_recorded_menu_group(self, fixture):
+        xaml, uia = fixture["xaml"], fixture["uia"]
+        return self.capture(xaml["raw_nodes"], uia["raw_nodes"], xaml_changes=xaml,
+                            uia_changes=uia, image_size=(1440, 900))
+
+    def test_recorded_full_identity_group_keeps_menu_region_and_actual_child(self):
+        fixture = self.recorded_menu_group()
+        result = self.project_recorded_menu_group(fixture)
+        elements = self.by_id(result)
+        menu, child = elements["xaml-28"], elements["xaml-29"]
+        actual_owner = fixture["xaml"]["raw_nodes"][0]
+        actual_provider = fixture["uia"]["raw_nodes"][0]
+        self.assertEqual(menu["kind"], "region")
+        self.assertEqual(menu["name"], actual_provider["name"])
+        self.assertEqual(menu["bounds"], actual_owner["bounds"])
+        self.assertEqual(menu["parent"], actual_owner["parent"])
+        self.assertEqual(menu["region"], actual_owner["region"])
+        self.assertEqual(menu["evidence"]["uia_id"], "uia-9")
+        self.assertEqual(menu["evidence"]["uia_group_region"]["runtime_id"], [42, 131466, 4, 6])
+        self.assertEqual(child["parent"], menu["id"])
+        self.assertEqual(child["kind"], "button")
+        self.assertEqual(child["name"], fixture["uia"]["raw_nodes"][1]["name"])
+        self.assertLess(menu["order"], child["order"])
+        # The scoped fixture intentionally omits other paint/ancestor evidence.
+        # Proving this role cannot resolve those independent coverage failures.
+        self.assertTrue(result["coverage"]["unmeasured"])
+
+    def test_group_role_requires_unique_complete_actual_owner_identity(self):
+        cases = ("missing", "no-peer", "different-runtime-id", "duplicate-provider",
+                 "duplicate-owner", "different-role", "foreign-observer", "failed-release")
+        for case in cases:
+            with self.subTest(case=case):
+                fixture = self.recorded_menu_group()
+                owner = fixture["xaml"]["raw_nodes"][0]
+                provider = fixture["uia"]["raw_nodes"][0]
+                if case == "missing":
+                    owner.pop("automation_identity_evidence")
+                elif case == "no-peer":
+                    owner["automation_identity_evidence"].update(status="no-peer", peer_is_null=True)
+                elif case == "different-runtime-id":
+                    provider["runtime_id"] = "42.131466.4.999"
+                elif case == "duplicate-provider":
+                    duplicate = deepcopy(provider)
+                    duplicate["id"] = "synthetic-duplicate-provider"
+                    fixture["uia"]["raw_nodes"].append(duplicate)
+                elif case == "duplicate-owner":
+                    duplicate = deepcopy(owner)
+                    duplicate["id"] = "synthetic-duplicate-owner"
+                    duplicate["automation_identity_evidence"].update(
+                        owner_id=duplicate["id"], peer_owner_id=duplicate["id"])
+                    fixture["xaml"]["raw_nodes"].append(duplicate)
+                elif case == "different-role":
+                    provider["control_type"] = "ControlType.Pane"
+                elif case == "foreign-observer":
+                    fixture["uia"]["observer_hold"]["observer_pid"] += 1
+                elif case == "failed-release":
+                    fixture["uia"]["observer_hold"]["release"]["status"] = "failed"
+                result = self.project_recorded_menu_group(fixture)
+                self.assertNotIn("xaml-28", self.by_id(result))
+                self.assertTrue(any(record["source"] == "xaml-28"
+                                    and record["reason"].startswith("layout wrapper")
+                                    for record in result["projection"]))
+
+    def test_group_identity_not_name_or_geometry_selects_provider_and_keeps_errors(self):
+        fixture = self.recorded_menu_group()
+        provider = fixture["uia"]["raw_nodes"][0]
+        decoy = deepcopy(provider)
+        decoy.update(id="synthetic-geometry-decoy", runtime_id="42.131466.4.999")
+        fixture["uia"]["raw_nodes"].append(decoy)
+        # Synthetic variation of the recorded receipt: only the complete owner
+        # identity may choose a provider, even when another name/box is closer.
+        provider["name"] = "Synthetic actual-provider name"
+        provider["bounds"]["x"] += 20
+        fixture["uia"]["extraction_errors"].append("Synthetic independent provider failure")
+        result = self.project_recorded_menu_group(fixture)
+        menu = self.by_id(result)["xaml-28"]
+        self.assertEqual(menu["name"], provider["name"])
+        self.assertEqual(menu["bounds"], fixture["xaml"]["raw_nodes"][0]["bounds"])
+        self.assertEqual(menu["evidence"]["uia_id"], "uia-9")
+        self.assertIn("Synthetic independent provider failure", result["extraction_errors"])
 
     @staticmethod
     def recorded_dialog_identity():
