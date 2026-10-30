@@ -40,13 +40,20 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Cannot measure the settings hover pointer");
         var scale = root.XamlRoot.RasterizationScale;
         var point = new Windows.Foundation.Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
-        var hit = VisualTreeHelper.FindElementsInHostCoordinates(point, root, false).Any(value => ReferenceEquals(value, target));
+        // The settings item is in the ContentDialog's popup tree, not under
+        // the main window content Grid. Host coordinates stay window-relative;
+        // use the retained actual item as the subtree for this hit test.
+        var hitElements = VisualTreeHelper.FindElementsInHostCoordinates(point, target, false).ToArray();
+        var hit = hitElements.Any(value => ReferenceEquals(value, target));
         var bounds = target.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, target.ActualWidth, target.ActualHeight));
         var state = new JsonObject
         {
             ["automation_id"] = AutomationProperties.GetAutomationId(target), ["selected"] = target.IsSelected,
             ["appearance_selected"] = settingsHoverSelected!.IsSelected, ["is_loaded"] = target.IsLoaded,
             ["hover_observed"] = settingsHoverObserved, ["pointer_hit_test_contains_target"] = hit,
+            ["hit_test_subtree"] = "retained actual notification SelectorBarItem",
+            ["hit_test_objects"] = new JsonArray(hitElements.Select(value => (JsonNode)new JsonObject
+                { ["runtime_type"] = value.GetType().FullName, ["same_target_reference"] = ReferenceEquals(value, target) }).ToArray()),
             ["pointer_x"] = point.X, ["pointer_y"] = point.Y,
             ["bounds"] = new JsonObject { ["x"] = bounds.X, ["y"] = bounds.Y, ["width"] = bounds.Width, ["height"] = bounds.Height },
             ["background"] = (target.Background as SolidColorBrush)?.Color.ToString()

@@ -1,5 +1,42 @@
 # Native Relic App contract
 
+Changes for the clients (actual de8c4ff results and retained element ownership):
+the 20-case smoke captured 15 Windows cases and 20 macOS cases, but accepts
+zero scenes. Windows failed settings-navigation-hover, file-code,
+live-tool-output, panel-resize-hover and panel-resized. The former hit-test
+was incorrectly restricted to the main Grid while the actual item belongs to
+a ContentDialog popup; it now uses that retained item's subtree and records
+the actual hit objects. Pointer coordinates, hover checks and tolerances are
+unchanged. A new capture must verify the correction. Mac capture completion
+at this head did not establish the newly added hover scene's actual content.
+
+The actual Windows member-card path receipt has unchanged UTF-16 spans
+0..25 / 25..56 / 56..64, with three independently measured NativeLabel draws.
+Canonical projection now aggregates those internal drawing lines only after
+validating retained object identities, parent chains, current layout revision,
+ICU boundaries and complete source spans. The original raw lines, independent
+geometry/font receipts and existing unmeasured/extraction errors remain. The
+owner layout box never substitutes for glyph geometry. Eleven new pure tests
+include a retained actual de8c4ff fixture and await CI.
+
+The production Overview toggle now retains its actual track, shadow and thumb.
+Only a noninteractive thumb with a complete current part contract, actual
+parent chain and independently bound full RuntimeId may inherit its originating
+toggle's four measured state fields. Raw null part states remain in evidence;
+hover, other descendants, outline, paint and final-frame gaps are not filled.
+Six new pure tests and their recorded/synthetic-labelled fixtures await CI.
+The combined WinUI build passed with zero warnings/errors; no app or tests ran
+on the person's machine. The preceding shared CI passed 106 Node and 614 Python
+tests; those checks do not establish element parity.
+
+Read and integrated the macOS requests through 996116d: the explicit required
+settings navigation hover capture, corrected native icon test fixture, actual
+conversation keyboard enabled/focused receipts, collapsed date spacing, padded
+segment hit regions and production TextKit composer/placeholder glyph capture.
+Shared matrix coverage remains 56 scenes / 672 cases per platform, with no
+exceptions or tolerance change. Mac own-outline and final-PNG attribution gaps
+remain failures. New native-head compilation, tests and captures are required.
+
 Changes for the clients (production cwd text layout): Windows member-card cwd
 now uses a selectable native path control. System ICU provides line/grapheme/word
 boundaries; actual DWrite clusters and the available allocation select lines,

@@ -138,18 +138,11 @@ public sealed partial class MainWindow
 
     private FrameworkElement OverviewSwitch(string label, bool enabled, bool value, Func<bool, Task> action)
     {
-        var track = new Border { Width = 32, Height = 18, CornerRadius = new CornerRadius(9), Background = value ? Accent : Paint("DEDBD4", "3A3936") };
-        var thumb = new NativeShadowPanel(new Border { Background = Paint("FFFFFF"), CornerRadius = new CornerRadius(7) })
-            { Width = 14, Height = 14, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(value ? 16 : 2, 2, 0, 2) };
-        thumb.SetShadows([new NativeShadowLayer(0, 1, 2, Microsoft.UI.Colors.Black, .25f)]);
-        track.Child = thumb;
-        var check = new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton { IsChecked = value, IsEnabled = enabled, Content = track, Width = 32, Height = 18, MinWidth = 0, MinHeight = 0, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
-            Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ToggleButton'><ContentPresenter Content='{TemplateBinding Content}' Padding='0'/></ControlTemplate>") };
+        var check = new NativeOverviewToggle(enabled, value, () => Accent, () => Paint("DEDBD4", "3A3936"));
         AutomationProperties.SetName(check, label);
         async void Changed(object sender, RoutedEventArgs args)
         {
-            var on = check.IsChecked == true; track.Background = on ? Accent : Paint("DEDBD4", "3A3936"); thumb.Margin = new Thickness(on ? 16 : 2, 2, 0, 2); await Run(() => action(on));
+            await Run(() => action(check.IsChecked == true));
         }
         check.Checked += Changed; check.Unchecked += Changed;
         var text = OverviewText(label); text.Foreground = Paint("5A5853", "B8B5AE"); text.VerticalAlignment = VerticalAlignment.Center;
