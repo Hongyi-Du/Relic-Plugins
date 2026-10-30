@@ -1,5 +1,16 @@
 # Changelog / 更新记录
 
+## Unreleased / 未发布
+
+- Auto-wake carries the exact triggering message ids and a bounded message preview in the turn prompt, with
+  explicit inbox-by-id and task checks even when hooks have already marked the messages read.
+- Runner and App receipts quote only the member's new replies in the triggering threads, separately for each
+  sender. Unrelated session final text is never forwarded; a turn without a matching reply gets status only.
+  Message-id boundaries exclude earlier replies even when they have the same timestamp.
+
+自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
+没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
+
 ## v0.7.1-beta.1 — 2026-10-29
 
 Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.

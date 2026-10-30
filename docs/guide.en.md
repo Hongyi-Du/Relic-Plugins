@@ -126,6 +126,12 @@ Organizations and members are on the left, an organization below another listed 
 
 Configured seats with auto-wake enabled may start additional turns when new messages arrive. The current limits include a six-hop chain, a two-minute coding-seat gap and a thirty-wake-per-hour organization cap. Receipts do not recursively wake their senders. Turn auto-wake off with the Auto-wake switch in the Overview pane to stop this behavior. Unconfigured seats use explicit tools/hooks or `inbox` to receive messages. A session that sits in several organizations takes one turn at a time: a message to another of its seats waits until the current turn ends.
 
+The wake prompt names its triggering message ids and includes a bounded preview. Members reread them with
+`inbox message_id=<id>` and check `status`, even if hooks have marked the messages read. Reply with `message reply_to=<id>`
+to keep the result in its thread. An automatic receipt quotes only replies in the triggering threads written during
+that turn; without one it reports completion status only. Session final text may answer a later human request, so it
+is never forwarded as the wake result. Turn completion is not task completion.
+
 On Windows, an open Codex desktop chat is woken through the host tool pipe. On macOS, the host-provided private Unix socket must pass its capability handshake and host authorization; see the [macOS guide](macos.en.md). Possible deliveries remain uncertain rather than being sent twice. A GUI seat never silently falls back to a second CLI writer. CLI/App-managed members and explicit `inbox` remain available independently.
 
 ## 8. Chat seats and trajectory access

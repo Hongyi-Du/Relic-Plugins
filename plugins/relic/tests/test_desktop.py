@@ -359,7 +359,7 @@ class Route(unittest.TestCase):
         sent, clock, real = [], Clock(), desktop.run_turn
         follow = lambda app, t, p, **kw: real(app, t, p, sleep=clock.sleep, clock=clock, **kw)
 
-        def start(org_id, member, prompt, wake_from, wake_hop):
+        def start(org_id, member, prompt, wake_from, wake_hop, wake_message_ids):
             app = FakeApp([thread("idle")], send_error=desktop.Uncertain("timed out"))
             with mock.patch.object(runner, "find_codex", return_value="codex"), \
                     mock.patch.object(desktop, "run_turn", follow):

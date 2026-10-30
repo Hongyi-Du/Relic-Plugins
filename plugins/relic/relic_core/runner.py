@@ -216,7 +216,8 @@ def parse_env(text):
     return env
 
 
-def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake_from=None, wake_hop=0):
+def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake_from=None, wake_hop=0,
+               wake_message_ids=None):
     """Run one turn of a seat in the background: the introduction of a new session, text the person wrote, or an
     automatic wake-up for unread messages (wake_from names the senders, who get a receipt when the turn ends;
     wake_hop is the turn's depth in a chain of wake-ups, carried by the messages it sends)."""
@@ -239,13 +240,14 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
                 raise RuntimeError("%s is still working on a turn for another organization it sits in." % member)
         store.set_focus(seat["carrier"], org_id)  # the turn is this organization's work: its protocols bind it
     if config.get("surface") == "acp":
-        return app_turn(org_id, member, prompt, wake_from, wake_hop)
+        return app_turn(org_id, member, prompt, wake_from, wake_hop, wake_message_ids)
     fd, prompt_file = tempfile.mkstemp(prefix="relic-prompt-", suffix=".txt", dir=str(runs_dir()))
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(prompt)
     started = time.time()
     write_state(org_id, member, {"status": "running", "started": started, "prompt": prompt[:300],
                                  "new_session": new_session, "wake_from": list(wake_from or []),
+                                 "wake_message_ids": list(wake_message_ids or []),
                                  "wake_hop": int(wake_hop or 0)})
     python = Path(sys.executable)
     if WINDOWS and python.with_name("pythonw.exe").exists():
@@ -279,7 +281,7 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     return True
 
 
-def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
+def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0, wake_message_ids=None):
     """A seat the Relic App runs through ACP (config surface "acp"): the App hosts its session, so it takes the turn.
     Raises when the App is not open; the wake-up is then retried with back-off like any failed start."""
     import urllib.request
@@ -288,6 +290,7 @@ def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
         request = urllib.request.Request(
             "http://127.0.0.1:%d/api/org/%s/turn" % (int(info["port"]), org_id),
             data=json.dumps({"member": member, "prompt": prompt, "wake_from": list(wake_from or []),
+                             "wake_message_ids": list(wake_message_ids or []),
                              "wake_hop": int(wake_hop or 0)}).encode("utf-8"),
             headers={"Content-Type": "application/json", "X-Relic-Token": info["token"]}, method="POST")
         with urllib.request.urlopen(request, timeout=10) as reply:
