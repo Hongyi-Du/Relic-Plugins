@@ -62,7 +62,9 @@ struct ReferenceLabel: NSViewRepresentable {
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
         let font = monospaced ? (weight >= 600 ? RelicStyle.convertedFont(RelicStyle.monoFont(size), trait: .boldFontMask) : RelicStyle.monoFont(size)) : RelicStyle.nativeFont(size, weight: weight)
-        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0, .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: weight]
+        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0,
+            .baselineOffset: NativeLineMetrics.baselineOffset(font: font, lineHeight: paragraph.minimumLineHeight),
+            .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: weight]
         if struck { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
         return NSAttributedString(string: text, attributes: attributes)
     }
@@ -109,7 +111,7 @@ final class ReferenceLabelView: NSTextView {
 /// keeps slash-separated Latin text together, preferring ordinary word/hyphen
 /// breaks and breaking an overlong segment only when it cannot fit a whole line.
 /// Keep the source string unchanged; this participates in actual TextKit layout.
-final class PathLineBreaks: NativeLineMetrics {
+final class PathLineBreaks: NSObject, NSLayoutManagerDelegate {
     var enabled = false
     func layoutManager(_ layoutManager: NSLayoutManager, shouldBreakLineByWordBeforeCharacterAt charIndex: Int) -> Bool {
         guard enabled, let text = layoutManager.textStorage?.string as NSString?, charIndex > 0, charIndex < text.length else { return true }

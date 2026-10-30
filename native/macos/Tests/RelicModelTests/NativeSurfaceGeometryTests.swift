@@ -5,6 +5,16 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
+    func testMountedWindowBackgroundHasItsOwnNativeOwnerIdentity() throws {
+        let host = NSHostingView(rootView: Color.white.background(InitialWindowFocus()))
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 240, height: 140), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(window.contentView === host)
+        XCTAssertEqual(RelicAXRead(host)["identifier"] as? String, InitialWindowFocus.surfaceIdentity,
+            "The actual hosting root, not an equal-sized modal backdrop, owns the window background")
+    }
+
     func testSelectedSwatchKeepsItsPaintedButtonBoxSeparateFromSelectionRings() throws {
         let host = NSHostingView(rootView: SettingsSwatch(name: "clay", selected: true, action: {}).padding(8))
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 40, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)

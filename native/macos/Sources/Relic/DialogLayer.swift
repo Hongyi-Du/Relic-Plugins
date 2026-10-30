@@ -7,6 +7,7 @@ struct DialogLayer: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
     @State private var contentTitle = ""
+    @State private var scrimIdentity = "relic-scrim/" + UUID().uuidString
     private var layout: DialogGeometry { DialogGeometry(kind: sheet.rawValue, window: m.windowSize) }
     private var title: String {
         switch sheet {
@@ -20,7 +21,8 @@ struct DialogLayer: View {
     var body: some View {
         ZStack(alignment: sheet == .card ? .topLeading : .center) {
             Color.clear.contentShape(Rectangle())
-                .modifier(RecordedSurface(background: sheet == .card ? .clear : Color(red: 15/255, green: 14/255, blue: 12/255).opacity(0.32), kind: "region"))
+                .modifier(RecordedSurface(background: sheet == .card ? .clear : Color(red: 15/255, green: 14/255, blue: 12/255).opacity(0.32), kind: "region", owner: scrimIdentity))
+                .accessibilityElement(children: .contain).accessibilityIdentifier(scrimIdentity).accessibilityLabel("")
                 .onTapGesture { m.sheet = nil }
             panel
                 .offset(x: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).x : 0,
