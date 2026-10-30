@@ -32,6 +32,13 @@ import SwiftUI
         XCTAssertEqual(field.stringValue, "Current name")
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
+        let receipts = FieldEditorCapture.receipts(in: window)
+        XCTAssertEqual(receipts.count, 1)
+        let receipt = try XCTUnwrap(receipts.first)
+        XCTAssertEqual(receipt["owner_identity"] as? String, String(describing: ObjectIdentifier(field)))
+        XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
+        XCTAssertEqual(receipt["first_responder_is_editor"] as? Bool, true)
+        XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
     }
 
     func testCommitCancelAndLengthLimitUseNativeTextFieldDelegate() {

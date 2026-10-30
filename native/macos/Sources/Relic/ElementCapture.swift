@@ -476,6 +476,7 @@ import CoreText
         }
         // An AX-ignored avatar/badge can still own an actual native label.
         // Resolve only after its measured paint surface has been collected.
+        surfaceGaps.append(contentsOf: FieldEditorCapture.attach(to: &elements, receipts: FieldEditorCapture.receipts(in: window)))
         surfaceGaps.append(contentsOf: ElementOwnership.attachLabels(to: &elements))
         let paint = ElementPaintProbe.snapshots(in: contentScreen)
         for sample in paint {
