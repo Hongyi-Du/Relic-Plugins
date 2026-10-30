@@ -35,8 +35,8 @@ struct MemberCard: View {
             Button { m.run { try await pickAvatar(m, member: who); try await load() } } label: {
                 Avatar(member: who, size: 60, showState: true, stateBorder: RelicStyle.card).overlay {
                     if avatarHovered {
-                        ReferenceLabel(m.t("card.change_avatar"), size: 11, color: .white, lines: 0, alignment: .center).frame(width: 60, height: 60)
-                            .modifier(RecordedSurface(background: .black.opacity(0.45), radius: 14, kind: "card"))
+                        ReferenceLabel(m.t("card.change_avatar"), size: 11, color: .white, lines: 0, alignment: .center, owner: "relic-member-avatar-hover").frame(width: 60, height: 60)
+                            .modifier(RecordedSurface(background: .black.opacity(0.45), radius: 14, kind: "card", owner: "relic-member-avatar-hover", hovered: avatarHovered))
                             .accessibilityIdentifier("relic-member-avatar-hover")
                     }
                 }
