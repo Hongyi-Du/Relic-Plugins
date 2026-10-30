@@ -1,3 +1,13 @@
+## 2026-10-30: toolbar count belongs inside its real button
+
+`98841c1` fixes the file header but exposes six header order errors: native
+navigation reads each top-right count before its button/icon. IconButton's badge
+was an outside overlay, a sibling of the control. It is now an overlay inside
+the actual Button label and inherits that button's production parent identity.
+Its position, dimensions, accessible title and count are unchanged. Actual
+native hierarchy and same-scene pixel capture must verify the result; the
+extractor does not sort by reference labels or coordinates.
+
 ## 2026-10-30: pointer observation distinguishes the actual AppKit mouse receiver
 
 Actual `98841c1` message-hover shows the window AX getter stopping at a scroll
