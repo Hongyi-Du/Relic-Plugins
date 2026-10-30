@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (native-macos requests read through b63cd2f): corrected
+the earlier 72f5571 test diagnosis below. lastDraw was present; live CGFloat
+metrics failed the projection's Double cast, then the test indexed an empty
+projected array. The merged 63aecc0 reads NSNumber and preserves failing unwraps.
+The newer b63cd2f production change prevents read-only NSTextView frame changes
+from revealing a dormant selection and moving the right pane by 7px. It keeps
+explicit scrolling outside frame assignment; its new native regression and
+screenshots remain pending. Neither change requests a shared API or exception.
+The latest requested complete report still depends on the running full matrix;
+the older 41029422171 has no downloadable complete parity-report artifact.
+
 Changes for the clients (real control labels and Run.Text observation): the
 Windows hierarchy selectors now retain their actual adjacent label relationship;
 the add-member and OverviewLink compound buttons expose their existing visible
@@ -68,8 +79,9 @@ fixture retains actual name, bounds and child order; missing/duplicate/foreign
 identity or failed observer lifetime cannot promote a layout wrapper. This
 repairs missing extraction of an existing region, without adding a visual one.
 
-Subsequent macOS 72f5571 CI 41040938366 fails its new glyph-extent test: no actual
-draw receipts were observed, followed by an unchecked empty-array index. The
+Subsequent macOS 72f5571 CI 41040938366 fails its new glyph-extent projection test,
+followed by an unchecked empty-array index. The actual draw receipt was present;
+the CGFloat/Double projection diagnosis and follow-up are recorded above. The
 log is saved at `S:\Codex\Temp\relic-native\macos-72f5571.log`; Windows and shared
 contracts pass in that run. This newer branch state remains unverified and
 must be fixed by the macOS owner before acceptance.
