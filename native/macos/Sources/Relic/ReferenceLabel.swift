@@ -109,7 +109,7 @@ final class ReferenceLabelView: NSTextView {
 /// keeps slash-separated Latin text together, preferring ordinary word/hyphen
 /// breaks and breaking an overlong segment only when it cannot fit a whole line.
 /// Keep the source string unchanged; this participates in actual TextKit layout.
-final class PathLineBreaks: NSObject, NSLayoutManagerDelegate {
+final class PathLineBreaks: NativeLineMetrics {
     var enabled = false
     func layoutManager(_ layoutManager: NSLayoutManager, shouldBreakLineByWordBeforeCharacterAt charIndex: Int) -> Bool {
         guard enabled, let text = layoutManager.textStorage?.string as NSString?, charIndex > 0, charIndex < text.length else { return true }
