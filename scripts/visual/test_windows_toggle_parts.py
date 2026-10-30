@@ -39,6 +39,27 @@ def current_contract():
     return data, nodes, owner["native_toggle_parts"]
 
 
+def current_track_contract():
+    """Synthetic paint measurements extending the recorded state-only fixture."""
+    data, nodes, receipt = current_contract()
+    owner, track = nodes[data["owner_id"]], nodes[receipt["track_id"]]
+    bounds = {"x": 1117, "y": 289.79998779296875, "width": 32, "height": 18}
+    transform = {"m11": 1, "m12": 0, "m21": 0, "m22": 1,
+                 "offset_x": bounds["x"], "offset_y": bounds["y"]}
+    for node in (owner, track):
+        node.update(bounds=copy.deepcopy(bounds), visible_bounds=copy.deepcopy(bounds),
+                    transform=copy.deepcopy(transform), opacity=1)
+    owner["style"] = {"background": [255, 255, 255, 0], "background_image": "none",
+                      "border_widths": [0, 0, 0, 0], "corner_radius": 4}
+    track["style"] = {"background": [222, 219, 212, 255], "background_image": "none",
+                      "background_brush_type": "SolidColorBrush", "border_color": [0, 0, 0, 0],
+                      "border_width": 0, "border_widths": [0, 0, 0, 0],
+                      "border_colors": [[0, 0, 0, 0]] * 4, "border_styles": ["none"] * 4,
+                      "corner_radius": 9, "corner_radii": [9] * 4,
+                      "shadow": None, "brush_evidence": {"background": {"type": "synthetic-live-brush"}}}
+    return data, nodes, receipt
+
+
 class TogglePartStateTests(unittest.TestCase):
     def test_old_recorded_toggle_never_acquires_a_new_part_contract(self):
         data = recorded()
@@ -136,6 +157,70 @@ class TogglePartStateTests(unittest.TestCase):
         result = windows_toggle_parts(data["raw_nodes"], data["uia"])
         self.assertIn(data["thumb_id"], result["parts"])
         self.assertEqual([error], data["uia"]["extraction_errors"])
+
+    def test_actual_content_track_paint_belongs_to_toggle_but_thumb_is_independent(self):
+        data, nodes, receipt = current_track_contract()
+        before = copy.deepcopy(data)
+        result = windows_toggle_parts(data["raw_nodes"], data["uia"])
+        self.assertEqual([], result["track_unresolved"])
+        self.assertEqual({data["owner_id"]}, set(result["tracks"]))
+        track = result["tracks"][data["owner_id"]]
+        self.assertEqual(receipt["track_id"], track["track_id"])
+        self.assertEqual([222, 219, 212, 255], track["style"]["background"])
+        self.assertEqual(9, track["style"]["corner_radius"])
+        self.assertEqual(data["thumb_id"], track["thumb_id"])
+        self.assertEqual({data["thumb_id"]}, set(result["parts"]))
+        self.assertTrue(track["evidence"]["thumb_remains_independent"])
+        self.assertIsNone(track["evidence"]["raw_track"]["style"]["shadow"])
+        self.assertNotIn("shadow", track["style"])
+        self.assertIsNone(track["evidence"]["final_frame_contribution"])
+        self.assertEqual(before, data)
+
+    def test_state_only_fixture_does_not_acquire_invented_track_paint(self):
+        data, nodes, receipt = current_contract()
+        result = windows_toggle_parts(data["raw_nodes"], data["uia"])
+        self.assertEqual({}, result["tracks"])
+        self.assertTrue(result["track_unresolved"])
+        self.assertIn(data["thumb_id"], result["parts"])
+
+    def test_track_ownership_refuses_foreign_identity_or_modified_actual_content(self):
+        for change in ("foreign-peer", "failed-release", "extra-content", "shared-track", "independent-track"):
+            with self.subTest(change=change):
+                data, nodes, receipt = current_track_contract()
+                owner, track = nodes[data["owner_id"]], nodes[receipt["track_id"]]
+                if change == "foreign-peer": owner["automation_identity_evidence"]["same_owner_object"] = False
+                elif change == "failed-release": data["uia"]["observer_hold"]["release"]["status"] = "failed"
+                elif change == "extra-content": data["raw_nodes"].append({"id": "extra", "parent": track["id"], "type": "Border"})
+                elif change == "shared-track":
+                    other = copy.deepcopy(owner); other["id"] = "other-toggle"; data["raw_nodes"].append(other)
+                elif change == "independent-track": track["interaction_evidence"]["is_control"] = True
+                self.assertEqual({}, windows_toggle_parts(data["raw_nodes"], data["uia"])["tracks"])
+
+    def test_track_style_quantity_requires_actual_box_transform_and_clear_owner(self):
+        for change in ("missing-bounds", "shifted-track", "transformed-track", "opacity", "extra-owner-fill", "owner-border", "missing-style", "bool-width"):
+            with self.subTest(change=change):
+                data, nodes, receipt = current_track_contract()
+                owner, track = nodes[data["owner_id"]], nodes[receipt["track_id"]]
+                if change == "missing-bounds": track["bounds"] = None
+                elif change == "shifted-track": track["bounds"]["x"] += 1
+                elif change == "transformed-track": track["transform"]["m11"] = 2
+                elif change == "opacity": track["opacity"] = .5
+                elif change == "extra-owner-fill": owner["style"]["background"][3] = 255
+                elif change == "owner-border": owner["style"]["border_widths"][0] = 1
+                elif change == "missing-style": track["style"] = None
+                elif change == "bool-width": track["bounds"]["width"] = True
+                before = copy.deepcopy(data)
+                result = windows_toggle_parts(data["raw_nodes"], data["uia"])
+                self.assertEqual({}, result["tracks"])
+                self.assertTrue(result["track_unresolved"])
+                self.assertIn(data["thumb_id"], result["parts"])
+                self.assertEqual(before, data)
+
+    def test_missing_track_color_stays_unknown_instead_of_copying_owner_or_reference(self):
+        data, nodes, receipt = current_track_contract()
+        nodes[receipt["track_id"]]["style"]["background"] = None
+        result = windows_toggle_parts(data["raw_nodes"], data["uia"])
+        self.assertIsNone(result["tracks"][data["owner_id"]]["style"]["background"])
 
 
 if __name__ == "__main__":

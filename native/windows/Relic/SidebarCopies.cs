@@ -136,11 +136,14 @@ public sealed partial class MainWindow
             ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
             list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); }; return list;
         }
-        void Add(ListView list, UIElement content, Func<Task> action, bool selected, int indent = 0, bool chat = false)
+        void Add(ListView list, UIElement content, Func<Task> action, bool selected, int indent = 0, bool chat = false,
+            NativeSidebarOrganization? organization = null, OverviewBadgeView? unreadBadge = null)
         {
             var background = selected ? Paint("E7E5DF", "2F2E2B") : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            var row = new ListViewItem { Content = content, Tag = action, Template = template, Padding = new Thickness(8 + indent, 6, 8, 6), Margin = new Thickness(0, 0, 0, chat ? 1 : 0),
+            var row = new NativeSidebarRow { Content = content, Tag = action, Template = template, Padding = new Thickness(8 + indent, 6, 8, 6), Margin = new Thickness(0, 0, 0, chat ? 1 : 0),
                 MinHeight = chat ? 0 : 34, HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(8), Background = background, BorderThickness = new Thickness(0), UseLayoutRounding = false };
+            if (organization != null) row.BindOrganization(organization);
+            else if (chat) row.BindChat(unreadBadge, unread => T(unread ? "msg.unread" : "msg.read"));
             row.PointerEntered += (_, _) => row.Background = selected ? background : Paint("EFEEEA", "262624"); row.PointerExited += (_, _) => row.Background = background;
             BindSidebarRowName(row, content);
             list.Items.Add(row); if (selected) list.SelectedItem = row;
@@ -181,22 +184,27 @@ public sealed partial class MainWindow
             if (!secretary && who.Length > 0 && head == null) at = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Text("doing_at");
             if (at.Length > 0) { var clock = SidebarText(ShortWhen(at), 11, true); clock.IsTextSelectionEnabled = false; info.Children.Add(clock); }
             var selected = !secretarySetup && who == member; var unread = selected || secretarySetup ? 0 : Unread(key);
+            OverviewBadgeView? unreadBadge = null;
             if (unread > 0)
             {
-                var count = OverviewCount(unread); count.UseLayoutRounding = false; if (count.Content is TextBlock countText) { countText.UseLayoutRounding = false; if (unread > 99) countText.Text = "99+"; } count.HorizontalAlignment = HorizontalAlignment.Right; info.Children.Add(count);
+                var count = OverviewCount(unread); unreadBadge = count; count.UseLayoutRounding = false; if (count.Content is TextBlock countText) { countText.UseLayoutRounding = false; if (unread > 99) countText.Text = "99+"; } count.HorizontalAlignment = HorizontalAlignment.Right; info.Children.Add(count);
             }
-            Grid.SetColumn(info, 2); row.Children.Add(info); Add(list, row, secretarySetup ? SecretarySetup : () => Select(id, who), selected, chat: true);
+            Grid.SetColumn(info, 2); row.Children.Add(info); Add(list, row, secretarySetup ? SecretarySetup : () => Select(id, who), selected, chat: true, unreadBadge: unreadBadge);
         }
         void Node(JsonNode? item, int depth)
         {
             var id = item.Text("id"); if (!visited.Add(id)) return;
             var selected = id == org; var members = selected ? snap.Rows("members").Where(m => Match(m.Text("name")) || Match(m.Text("display")) || Match(m.Text("role"))).ToArray() : [];
-            var orgMatch = Match(item.Text("name")) || Match(item.Text("purpose")); var children = orgs.Where(o => o.Text("parent") == id).ToArray(); var foldable = selected || children.Length > 0; var collapsed = query.Length == 0 && folded.Contains(id);
+            var orgMatch = Match(item.Text("name")) || Match(item.Text("purpose")); var children = orgs.Where(o => o.Text("parent") == id).ToArray();
+            var organizationState = new NativeSidebarOrganization(
+                () => new NativeSidebarOrganizationState(id == org || orgs.Any(o => o.Text("parent") == id), folded.Contains(id), search.Text.Trim().Length > 0),
+                value => { if (value) folded.Add(id); else folded.Remove(id); SaveViewState(); DrawSidebar(); });
+            var foldable = organizationState.Current.CanExpand; var collapsed = organizationState.Current.HidesDescendants;
             if (query.Length == 0 || orgMatch || members.Length > 0)
             {
-                void Fold() { if (!folded.Add(id)) folded.Remove(id); SaveViewState(); DrawSidebar(); }
+                void Fold() => organizationState.TogglePersisted();
                 var row = new Grid { ColumnSpacing = 8, UseLayoutRounding = false }; row.ColumnDefinitions.Add(new() { Width = new GridLength(14) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-                var arrow = (ReferenceVectorIcon)ReferenceIcon("chev", 14); arrow.Foreground = Muted; if (foldable && !collapsed) { arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; }
+                var arrow = (ReferenceVectorIcon)ReferenceIcon("chev", 14); arrow.Foreground = Muted; if (organizationState.Current.Expanded) { arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; }
                 var arrowHit = new Border { Child = arrow, Padding = new Thickness(3), Margin = new Thickness(-3), CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Center, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
                 arrowHit.PointerPressed += (_, e) => { if (foldable && e.GetCurrentPoint(arrowHit).Properties.IsLeftButtonPressed) { e.Handled = true; Fold(); } }; row.Children.Add(arrowHit);
                 var badge = SidebarOrgFace(item!); badge.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(badge, 1); row.Children.Add(badge);
@@ -204,7 +212,7 @@ public sealed partial class MainWindow
                 if (!selected && item.Text("last_at").Length > 0) { var time = SidebarText(ShortWhen(item.Text("last_at")), 11.5, true); time.IsTextSelectionEnabled = false; time.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(time, 3); row.Children.Add(time); }
                 var context = new MenuFlyout(); var chart = new MenuFlyoutItem { Text = T("appmenu.org_chart") }; chart.Click += async (_, _) => await Run(() => ShowChart(id)); context.Items.Add(chart); row.ContextFlyout = context;
                 if (item.Text("status") is not ("" or "active")) row.Opacity = .55;
-                var organizationRows = Rows(); Add(organizationRows, row, () => { if (selected) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16); tree.Children.Add(organizationRows);
+                var organizationRows = Rows(); Add(organizationRows, row, () => { if (selected) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState); tree.Children.Add(organizationRows);
                 if (selected && !collapsed)
                 {
                     var kids = new StackPanel { UseLayoutRounding = false }; var chats = Rows(); kids.Children.Add(chats);

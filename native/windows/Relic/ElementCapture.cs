@@ -245,6 +245,15 @@ public sealed partial class MainWindow
                     {
                         ["current"] = new JsonObject { ["value"] = currentNode.IsCurrent, ["source"] = "ChartNodeButton.IsCurrent", ["meaning"] = "Actual current organization state used by the chart control" }
                     };
+                    if (element is NativeSidebarRow sidebarRow)
+                    {
+                        var sidebarState = sidebarRow.CaptureSidebarState();
+                        node["state"]!["expanded"] = sidebarState["expanded"]?.DeepClone();
+                        node["state"]!["unread"] = sidebarState["unread"]?.DeepClone();
+                        node["state_evidence"] = sidebarState;
+                        if (sidebarState["row_kind"]?.GetValue<string>() == "chat" && sidebarState["unread"] == null)
+                            errors.Add(id + ": the actual sidebar chat content or retained unread badge is no longer bound to this row; unread state is unknown");
+                    }
                     node["layout"] = CaptureTextLayout(element, id, errors, root, hidden == null);
                     if (element is FontIcon fontIcon) node["icon"] = new JsonObject { ["source"] = fontIcon.FontFamily.Source, ["glyph"] = fontIcon.Glyph };
                     else if (element is ReferenceVectorIcon vectorIcon)
@@ -297,6 +306,20 @@ public sealed partial class MainWindow
         CaptureNativeToggleParts(renderIds, renderNodes);
         CaptureNativeAvatarParts(renderIds, renderNodes);
         CaptureNativeInsetShadows(renderIds, renderNodes);
+        // Bind the retained badge by actual object identity only after its
+        // independent visual record exists. Role badges are not unread badges.
+        foreach (var (value, record) in renderNodes)
+            if (value is NativeSidebarRow sidebarRow && record["state_evidence"] is JsonObject sidebarEvidence)
+            {
+                sidebarEvidence["owner_id"] = renderIds[sidebarRow];
+                if (sidebarRow.BoundUnreadBadge is { } actualBadge && sidebarEvidence["chat_badge"] is JsonObject badgeEvidence)
+                {
+                    var found = renderIds.TryGetValue(actualBadge, out var badgeId) && renderNodes.ContainsKey(actualBadge);
+                    badgeEvidence["badge_id"] = badgeId;
+                    badgeEvidence["badge_in_actual_visual_walk"] = found;
+                    if (!found) errors.Add(renderIds[sidebarRow] + ": retained sidebar unread badge has no independent current visual record");
+                }
+            }
         foreach (var (value, markerId) in renderIds)
             if (value is NativeListMarker marker && renderNodes.TryGetValue(value, out var markerNode))
             {

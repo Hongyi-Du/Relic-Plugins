@@ -7,6 +7,7 @@ change raw states, or establish geometry/paint/frame coverage.
 """
 from collections import Counter
 from copy import deepcopy
+import math
 
 from windows_automation_identity import OWNER_SOURCE, bind_automation_identities, held_observer_binding
 
@@ -14,6 +15,65 @@ from windows_automation_identity import OWNER_SOURCE, bind_automation_identities
 SOURCE = "Actual NativeOverviewToggle retained production parts and live getters"
 CONTRACT = "NativeOverviewToggle decorative thumb; sealed production owner; no independent thumb input handler"
 FIELDS = ("enabled", "checked", "focused", "indeterminate")
+TRACK_STYLE_FIELDS = ("background", "background_image", "background_brush_type", "border_color", "border_width",
+                      "border_widths", "border_colors", "border_styles", "corner_radius", "corner_radii")
+
+
+def _finite(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _same_measured_fields(first, second, fields):
+    return (isinstance(first, dict) and isinstance(second, dict)
+            and all(_finite(first.get(key)) and _finite(second.get(key)) and first[key] == second[key]
+                    for key in fields))
+
+
+def _track_paint(owner, track, shadow, presenter_id, nodes, claims, audit):
+    """A proven Content track paints the toggle surface, never its thumb.
+
+    Object identity and the live production contract already establish the
+    owner. Equal measured boxes/CTMs additionally establish which style box
+    these properties describe; geometry is not used to discover an owner.
+    """
+    errors = []
+    if (claims[track["id"]] != 1
+            or [n["id"] for n in nodes if isinstance(n, dict) and n.get("parent") == presenter_id] != [track["id"]]
+            or [n["id"] for n in nodes if isinstance(n, dict) and n.get("parent") == track["id"]] != [shadow["id"]]):
+        errors.append("The actual retained track is shared or its single-content closure changed")
+    for key, fields in (("bounds", ("x", "y", "width", "height")),
+                        ("visible_bounds", ("x", "y", "width", "height")),
+                        ("transform", ("m11", "m12", "m21", "m22", "offset_x", "offset_y"))):
+        if not _same_measured_fields(owner.get(key), track.get(key), fields):
+            errors.append("Actual toggle and retained track do not have the same measured " + key)
+    bounds = track.get("bounds") if isinstance(track.get("bounds"), dict) else {}
+    if any(not _finite(bounds.get(key)) or bounds[key] <= 0 for key in ("width", "height")):
+        errors.append("Actual retained track has no positive measured extent")
+    if (not _finite(owner.get("opacity")) or not _finite(track.get("opacity"))
+            or not 0 <= owner["opacity"] <= 1 or owner["opacity"] != track["opacity"]):
+        errors.append("Actual retained track opacity is unknown or differs from its owner")
+    owner_style = owner.get("style") if isinstance(owner.get("style"), dict) else {}
+    background, borders = owner_style.get("background"), owner_style.get("border_widths")
+    if (not isinstance(background, list) or len(background) != 4 or not all(_finite(x) for x in background)
+            or background[3] != 0 or owner_style.get("background_image") != "none"
+            or not isinstance(borders, list) or len(borders) != 4
+            or any(not _finite(x) or x != 0 for x in borders)):
+        errors.append("The toggle has additional or unknown own background/border paint")
+    style = track.get("style")
+    if not isinstance(style, dict):
+        errors.append("Actual retained track style is missing")
+    if errors:
+        return None, errors
+    return {"owner_id": owner["id"], "track_id": track["id"], "thumb_id": audit["part_ids"]["thumb"],
+            "style": {key: deepcopy(style.get(key)) for key in TRACK_STYLE_FIELDS},
+            "brush_evidence": deepcopy(style.get("brush_evidence")),
+            "evidence": {"source": "Actual retained Content track paint of the independently bound native toggle",
+                         "contract": deepcopy(audit), "raw_owner_style": deepcopy(owner_style),
+                         "raw_track": deepcopy(track), "final_frame_contribution": None,
+                         "thumb_remains_independent": True}}, []
 
 
 def windows_toggle_parts(raw_nodes, uia):
@@ -22,8 +82,10 @@ def windows_toggle_parts(raw_nodes, uia):
     `parts[id].state` has only the four originating-control fields. The caller
     must retain the leaf's raw state and all existing errors and must not use
     this receipt to own/remove the thumb, its paint, or other descendants.
+    `tracks[owner_id]` additionally identifies only the proven actual Content
+    track surface; its descendants and all original paint evidence stay intact.
     """
-    result = {"source": SOURCE, "parts": {}, "unresolved": [],
+    result = {"source": SOURCE, "parts": {}, "unresolved": [], "tracks": {}, "track_unresolved": [],
               "quantity": "Originating toggle state of its actual decorative thumb",
               "does_not_resolve": "Final-frame paint, geometry, hover, other parts and Button text remain independent"}
     counts = Counter(n.get("id") for n in raw_nodes if isinstance(n, dict))
@@ -35,6 +97,8 @@ def windows_toggle_parts(raw_nodes, uia):
                   and (n.get("type") == "NativeOverviewToggle" or n.get("native_toggle_parts") is not None)]
     claims = Counter(n.get("native_toggle_parts", {}).get("thumb_id") for n in candidates
                      if isinstance(n.get("native_toggle_parts"), dict))
+    track_claims = Counter(n.get("native_toggle_parts", {}).get("track_id") for n in candidates
+                          if isinstance(n.get("native_toggle_parts"), dict))
     for owner in candidates:
         owner_id = owner.get("id")
         receipt = owner.get("native_toggle_parts")
@@ -155,4 +219,10 @@ def windows_toggle_parts(raw_nodes, uia):
                      state_source="Live NativeOverviewToggle getters corroborated by its uniquely bound UIA TogglePattern",
                      raw_part_state_preserved=True, final_frame_contribution=None)
         result["parts"][roles["thumb"]] = {"state": state, "evidence": audit}
+        paint, paint_errors = _track_paint(owner, track, shadow, presenter_id, raw_nodes, track_claims, audit)
+        if paint is not None:
+            result["tracks"][owner_id] = paint
+        for reason in paint_errors:
+            result["track_unresolved"].append({"owner_id": owner_id, "track_id": track["id"],
+                                               "reason": reason, "evidence": deepcopy(audit)})
     return result

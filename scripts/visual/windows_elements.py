@@ -56,7 +56,7 @@ CONTROL_KINDS = {
     "ToggleButton": "toggle", "NativeOverviewToggle": "toggle", "ComboBox": "dropdown", "SelectorBarItem": "tab",
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
-    "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
+    "ListViewItem": "list-row", "NativeSidebarRow": "list-row", "TreeViewItem": "list-row", "Expander": "card",
     "ContentDialog": "card", "NativeContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
     "NativeRegionGrid": "region", "NativeListMarker": "icon",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
@@ -2050,6 +2050,9 @@ def project(xaml_path, uia_path, png_path):
     for issue in toggle_parts["unresolved"]:
         unmeasured.append({"id": issue["owner_id"], "property": "state.originating_toggle",
                            "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
+    for issue in toggle_parts["track_unresolved"]:
+        unmeasured.append({"id": issue["owner_id"], "property": "toggle.track_paint",
+                           "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
     avatar_parts = windows_avatar_parts(source_raw, uia)
     unmeasured.extend(avatar_parts["unmeasured"])
     list_markers = windows_list_markers(source_raw)
@@ -2232,6 +2235,20 @@ def project(xaml_path, uia_path, png_path):
         owned[layer] = (owner, "actual compound state-dot paint layer")
     for region_id, (owner, _) in scrollbar_page_hits.items():
         owned[region_id] = (owner, "actual nonpainted non-tab-stop ScrollBar template input region")
+    toggle_track_owners = {}
+    toggle_track_layers = {}
+    for owner, paint in toggle_parts["tracks"].items():
+        track_id = paint["track_id"]
+        if (not visible(by_id[owner]) or not visible(by_id[track_id])
+                or track_id in owned and owned[track_id][0] != owner):
+            unmeasured.append({"id": owner, "property": "toggle.track_paint",
+                               "reason": "Actual toggle/track is not visible or has conflicting paint ownership"})
+            continue
+        toggle_track_owners[owner] = paint
+        toggle_track_layers[track_id] = owner
+        # Only the retained track becomes owner paint. In particular, the
+        # independently visible thumb and its actual shadow are not swallowed.
+        owned[track_id] = (owner, "actual retained production toggle track paint")
     avatar_owners = {}
     for owner, parts in avatar_parts["owners"].items():
         if not visible(by_id[owner]) or any(part in owned and owned[part][0] != owner for part in parts["owned_ids"]):
@@ -2330,6 +2347,9 @@ def project(xaml_path, uia_path, png_path):
                 record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in inset_layers:
                 record["ownership_evidence"] = copy.deepcopy(inset_owners[inset_layers[node["id"]]])
+                record["paint_evidence"] = copy.deepcopy(node)
+            if node["id"] in toggle_track_layers:
+                record["ownership_evidence"] = copy.deepcopy(toggle_track_owners[toggle_track_layers[node["id"]]]["evidence"])
                 record["paint_evidence"] = copy.deepcopy(node)
             if node["id"] in scrollbar_page_hits:
                 owner, region_nodes = scrollbar_page_hits[node["id"]]
@@ -2636,6 +2656,11 @@ def project(xaml_path, uia_path, png_path):
                          "border_styles", "corner_radius", "corner_radii", "shadow"):
                 style[prop] = copy.deepcopy(parameters[prop]) if parameters is not None else None
             unmeasured.extend(paint_issues)
+        toggle_track = toggle_track_owners.get(node["id"])
+        if toggle_track is not None:
+            # These are the bound track's measured background/border/radii.
+            # Owner state/box, thumb paint, outline and shadows stay separate.
+            style.update(copy.deepcopy(toggle_track["style"]))
         avatar_parts_evidence = avatar_owners.get(node["id"])
         avatar_surface = by_id[avatar_parts_evidence["bounds_source"]] if avatar_parts_evidence else None
         if avatar_parts_evidence is not None:
@@ -2755,6 +2780,9 @@ def project(xaml_path, uia_path, png_path):
             element["evidence"]["native_inset_shadow"] = copy.deepcopy(inset_shadows["audits"][node["id"]])
             if node["id"] in inset_owners:
                 element["evidence"]["paint_sources"].append(inset_owners[node["id"]]["path_id"])
+        if toggle_track is not None:
+            element["evidence"]["toggle_track"] = copy.deepcopy(toggle_track["evidence"])
+            element["evidence"]["paint_sources"].append(toggle_track["track_id"])
         if dialog_surface is not None:
             element["evidence"]["dialog_surface"] = {
                 "source": "Actual applied NativeContentDialog surface; native host semantics remain separate from its layout box",

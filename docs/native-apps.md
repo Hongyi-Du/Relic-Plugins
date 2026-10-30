@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (actual sidebar accessibility): NativeSidebarRow retains
+ListViewItem selection/name behavior and implements organization ExpandCollapse
+against the same live folded/search state as the arrow. Leaf rows report LeafNode
+and reject expansion actions. Chat ItemStatus and unread observations use the
+actual retained unread badge and its visible parent chain; detached content stays
+unknown. Seven pure action/state cases run in CI; current templates/peers await
+capture. Geometry, text and comparison thresholds are unchanged.
+
+Changes for the clients (actual toggle paint ownership): 3a924e7's two Overview
+toggle tracks were independently projected as cards, pairing a 32x18 track with
+the reference 14x14 thumb and leaving the real thumb extra. Existing retained
+parts/full RuntimeId evidence now additionally binds the track's paint to its
+toggle owner after exact current closure/geometry/transform checks. The thumb
+remains independent, and raw track paint/unknown measurements remain in evidence.
+Five negative/ownership regressions run in CI; no scene or tolerance is changed.
+
 Changes for the clients (measured outline coordinate correction): the reference
 chart's actual ancestor matrix(1,0,0,1,542,125) was incorrectly treated as changing
 outline lengths. The extractor now parses actual computed 2D matrices and accepts
