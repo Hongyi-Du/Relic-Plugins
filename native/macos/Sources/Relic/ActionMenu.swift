@@ -100,7 +100,8 @@ struct RecipientLayer: View {
                 .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
                 .background(GeometryReader { proxy in Color.clear.preference(key: RecipientHeight.self, value: proxy.size.height) })
                 .onPreferenceChange(RecipientHeight.self) { height = $0 }
-                .offset(x: min(m.recipientAnchor.minX, m.windowSize.width - 260), y: m.recipientAnchor.minY - 6 - height)
+                .offset(x: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).x,
+                        y: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).y)
                 .measuredRegion("menu")
         }.onExitCommand { m.recipientPicker = false }
     }
@@ -124,21 +125,43 @@ struct RecipientPicker: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row("all", title: m.t("composer.all_members"))
-            Rows(m.members) { row($0["name"].text, title: $0.display) }
+            RecipientRow(who: "all", title: m.t("composer.all_members"), select: select)
+            Rows(m.members) { RecipientRow(who: $0["name"].text, title: $0.display, select: select) }
         }
     }
-    private func row(_ who: String, title: String) -> some View {
+}
+
+private struct RecipientRow: View {
+    @EnvironmentObject var m: Model
+    let who: String, title: String
+    let select: (String) -> Void
+    @State private var avatarImageVisible = false
+    private var identity: String { "relic-menu-item/recipient/" + who }
+    private var name: String {
+        [who == "all" || avatarImageVisible ? "" : String(m.name(who).prefix(1)).uppercased(),
+         title, who == "all" || who == title ? "" : who].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    var body: some View {
         Button { select(who) } label: {
             HStack(spacing: 10) {
                 NativeCheck(checked: Binding(get: { m.recipients.contains(who) && (who == "all" || !m.recipients.contains("all")) }, set: { _ in select(who) })).frame(width: 20, height: 20).allowsHitTesting(false)
-                if who == "all" { ReferenceIcon(name: "hash", size: 17, color: RelicStyle.secondary).frame(width: 20, height: 20).modifier(RecordedSurface(background: RelicStyle.hover, radius: 6, kind: "avatar")) }
-                else { Avatar(member: who, size: 20) }
-                ReferenceLabel(title, size: 13)
-                if who != "all" && who != title { ReferenceLabel(who, size: 11.96, color: RelicStyle.muted, monospaced: true) }
+                if who == "all" { RecipientGroupAvatar() }
+                else { Avatar(member: who, size: 20, imageVisibility: { avatarImageVisible = $0 }) }
+                ReferenceLabel(title, size: 13).fixedSize(horizontal: true, vertical: false)
+                if who != "all" && who != title { ReferenceLabel(who, size: 11.96, color: RelicStyle.muted, monospaced: true).fixedSize(horizontal: true, vertical: false) }
                 Spacer(minLength: 0)
             }.padding(.horizontal, 10).frame(height: 34.8)
-        }.buttonStyle(MenuItemStyle()).accessibilityIdentifier("relic-menu-item/recipient/" + who)
+        }.buttonStyle(MenuItemStyle()).accessibilityIdentifier(identity).accessibilityLabel(name)
+            .environment(\.nativeElementParent, identity)
+    }
+}
+
+private struct RecipientGroupAvatar: View {
+    @State private var identity = "relic-avatar/" + UUID().uuidString
+    var body: some View {
+        ReferenceIcon(name: "hash", size: 17, color: RelicStyle.secondary, owner: identity).frame(width: 20, height: 20)
+            .modifier(RecordedSurface(background: RelicStyle.hover, radius: 6, kind: "avatar", owner: identity))
+            .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel("")
     }
 }
 

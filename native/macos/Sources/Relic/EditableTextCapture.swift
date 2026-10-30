@@ -20,10 +20,13 @@ import AppKit
         let textStyle = run["style"] as? [String: Any] ?? [:]
         for key in ["fontSize", "fontWeight", "fontFamily", "rendered_fonts", "color"] { style[key] = textStyle[key] ?? NSNull() }
         node["style"] = style; node["layout"] = run["layout"]
-        node["text_bounds"] = (run["lines"] as? [[String: Double]] ?? []).map { row in
+        let lines: [[String: Double]] = run["lines"] as? [[String: Double]] ?? []
+        var textBounds: [[String: Double]] = []
+        for row in lines {
             let local = ElementCapture.rect(row)
-            return ElementCapture.box(ElementCapture.topLeft(window.convertToScreen(view.convert(local, to: nil)), in: canvas))
+            textBounds.append(ElementCapture.box(ElementCapture.topLeft(window.convertToScreen(view.convert(local, to: nil)), in: canvas)))
         }
+        node["text_bounds"] = textBounds
         var projection = run
         projection.removeValue(forKey: "local_rect")
         projection["local_bounds"] = ElementCapture.box((run["local_rect"] as? NSValue)?.rectValue ?? .null)

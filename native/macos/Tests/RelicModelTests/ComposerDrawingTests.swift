@@ -53,6 +53,10 @@ import AppKit
         XCTAssertEqual((node["layout"] as? [String: Any])?["line_count"] as? Int, 1)
         let projection = try XCTUnwrap(node["projection"] as? [String: Any])
         XCTAssertEqual((projection["native_font_drawing"] as? [String: Any])?["status"] as? String, "measured-current-draw")
+        let lines = try XCTUnwrap(node["text_bounds"] as? [[String: Double]])
+        XCTAssertEqual(lines.count, 1, "Each actual native line retains its own rectangle")
+        XCTAssertTrue(lines.flatMap { $0.values }.allSatisfy(\.isFinite))
+        XCTAssertNil(node["native_measurement_errors"], "The mounted test input must have finite measured line geometry")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: node))
         if let failures = node["native_measurement_errors"] { print("Actual editable native measurement failures: \(failures)") }
     }
