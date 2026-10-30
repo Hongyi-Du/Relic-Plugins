@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (actual e469311 Windows capture): group xaml-12 Back and
+its xaml-15 arrow are now enabled, with actual foreground [90,88,83,255], matching
+the reference request after the startup-history fix. The actual state-dot owner
+now carries its new exact Grid/owned-layer contract. These observations do not
+make the diagnostic subset pass: 15/19 captures complete; file-code and live-tool
+output retain zero-area COM text-rectangle errors, and both resize scenes retain
+actual state/event changes. The downloaded raw files are under
+`S:\Codex\Outputs\Relic-native-visual\parity-e469311\windows`.
+
+The UIA executable now prints a bounded summary of its actual extraction errors
+to stderr while retaining every full error in its JSON and the same failing exit
+code. This fixes empty CI failure messages; it does not change extraction or
+acceptance. Its headless build passes with zero warnings/errors.
+
 Changes for the clients (strict state-dot annular paint): the Windows projector
 can now derive circular border/radius and zero-blur inset parameters from the
 actual two owned Ellipses, only when the new exact Grid own-paint contract and

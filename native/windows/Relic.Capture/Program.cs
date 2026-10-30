@@ -67,7 +67,14 @@ internal static class Program
         File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
         // complete parity report rather than silently dropping this scene.
-        var exitCode = result["extraction_errors"]!.AsArray().Count == 0 ? 0 : 1;
+        var extractionErrors = result["extraction_errors"]!.AsArray();
+        var exitCode = extractionErrors.Count == 0 ? 0 : 1;
+        if (exitCode != 0)
+        {
+            Console.Error.WriteLine($"UIA extraction recorded {extractionErrors.Count} error(s); full evidence: {outputPath}");
+            foreach (var error in extractionErrors.Take(8)) Console.Error.WriteLine(error?.ToJsonString());
+            if (extractionErrors.Count > 8) Console.Error.WriteLine("Additional errors are retained in the evidence file.");
+        }
         if (holdReadyPath == null) return exitCode;
 
         try
