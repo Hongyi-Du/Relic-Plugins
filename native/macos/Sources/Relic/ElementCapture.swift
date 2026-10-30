@@ -143,7 +143,8 @@ import CoreText
         return [0.1, 0.5, 0.9].flatMap { fy in [0.1, 0.5, 0.9].map { fx in
             let x = min(bitmap.pixelsWide - 1, max(0, Int(visible.minX + visible.width * fx)))
             let y = min(bitmap.pixelsHigh - 1, max(0, Int(visible.minY + visible.height * fy)))
-            return ["x": x, "y": y, "rgba": rgba(bitmap.colorAt(x: x, y: y))]
+            return ["x": x, "y": y, "rgba": CaptureRaster.sRGBPixel(bitmap, x: x, y: y) as Any? ?? NSNull(),
+                    "source": "raw native PNG samples in its measured sRGB color space", "color_space": bitmap.colorSpace.localizedName as Any? ?? NSNull()]
         } }
     }
     static func textRuns(_ view: NSTextView) -> [[String: Any]] {

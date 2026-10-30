@@ -26,7 +26,27 @@ import AppKit
          "cg_color_space": bitmap.cgImage?.colorSpace?.name as Any? ?? NSNull(),
          "pixel_width": bitmap.pixelsWide, "pixel_height": bitmap.pixelsHigh,
          "bits_per_sample": bitmap.bitsPerSample, "samples_per_pixel": bitmap.samplesPerPixel,
+         "bitmap_format": bitmap.bitmapFormat.rawValue, "has_alpha": bitmap.hasAlpha, "is_planar": bitmap.isPlanar,
          "bytes_per_row": bitmap.bytesPerRow,
          "configuration": "Empty compatible bitmap initialized as sRGB before actual native drawing"]
+    }
+    static func sRGBPixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> [Double]? {
+        // colorAt creates a calibrated NSColor even when the underlying bitmap
+        // carries sRGB; converting that color a second time changes the bytes
+        // (CI: raw 27 becomes 35.9). Read the tagged native pixel samples directly.
+        guard bitmap.colorSpace == .sRGB, bitmap.bitsPerSample == 8,
+              !bitmap.bitmapFormat.contains(.floatingPointSamples),
+              bitmap.samplesPerPixel == (bitmap.hasAlpha ? 4 : 3),
+              x >= 0, y >= 0, x < bitmap.pixelsWide, y < bitmap.pixelsHigh else { return nil }
+        var samples = [Int](repeating: 0, count: bitmap.samplesPerPixel)
+        bitmap.getPixel(&samples, atX: x, y: y)
+        let firstAlpha = bitmap.hasAlpha && bitmap.bitmapFormat.contains(.alphaFirst)
+        let alpha = bitmap.hasAlpha ? Double(samples[firstAlpha ? 0 : 3]) : 255
+        let firstColor = firstAlpha ? 1 : 0
+        let premultiplied = bitmap.hasAlpha && !bitmap.bitmapFormat.contains(.alphaNonpremultiplied)
+        let channels = samples[firstColor..<(firstColor + 3)].map { sample -> Double in
+            premultiplied && alpha > 0 ? Double(sample) * 255 / alpha : Double(sample)
+        }
+        return channels + [alpha]
     }
 }
