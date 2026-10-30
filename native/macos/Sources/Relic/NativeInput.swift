@@ -266,8 +266,8 @@ private struct MentionChoice: View {
         Button { m.mentionEditor?.chooseMention(index) } label: {
             HStack(spacing: 10) {
                 Avatar(member: member["name"].text, size: 20, imageVisibility: { avatarImageVisible = $0 })
-                ReferenceLabel(member.display, size: 13)
-                ReferenceLabel(member["name"].text, size: 11.96, color: RelicStyle.muted, monospaced: true)
+                ReferenceLabel(member.display, size: 13).fixedSize(horizontal: true, vertical: false)
+                ReferenceLabel(member["name"].text, size: 11.96, color: RelicStyle.muted, monospaced: true).fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
             }.padding(.horizontal, 10).frame(height: 34.8)
         }.buttonStyle(MenuItemStyle(selected: index == m.mentionIndex))
