@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (production navigation state): the actual db91b1b
+file-code capture showed the Files inspector beside a stale Overview toolbar
+selection. OpenFile, SetPane and panel/sidebar toggles now refresh the real
+toolbar when changing their corresponding state. Settings navigation and
+segmented choices now explicitly name their native SelectorBarItems: the
+custom content templates had produced empty actual accessible names.
+These changes await verification by the existing capture scenes in CI.
+
+The archived SKP batch run 41074230744 decoded all 118 unique inputs with zero
+decoder failures. Its 18 text-bearing inputs belong only to the Browser process;
+the Renderer process's nine unique inputs contain no exported text blobs or
+typefaces. The original trace loss and missing DOM/final-frame bindings remain.
+This diagnostic does not resolve any reference glyph or marker measurement.
+
 Changes for the clients (actual range and empty-outline observations): Windows
 now records the successful GetText BSTR pointer/length and verifies a collapsed
 prefix before interpreting a null BSTR as offset zero. The existing NativePathText

@@ -99,11 +99,11 @@ public sealed partial class MainWindow
             else if (Grid.GetColumn(child) == 2) child.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
         inspectorSurface.Visibility = panelOpen ? Visibility.Visible : Visibility.Collapsed;
     }
-    private Task ToggleSide() { sideOpen = !sideOpen; LayoutColumns(); SaveViewState(); return Task.CompletedTask; }
-    private Task TogglePanel() { panelOpen = !panelOpen; LayoutColumns(); SaveViewState(); return Task.CompletedTask; }
+    private Task ToggleSide() { sideOpen = !sideOpen; LayoutColumns(); DrawToolbar(); SaveViewState(); return Task.CompletedTask; }
+    private Task TogglePanel() { panelOpen = !panelOpen; LayoutColumns(); DrawToolbar(); SaveViewState(); return Task.CompletedTask; }
     private async Task SetPane(string value)
     {
-        pane = value; panelOpen = true; LayoutColumns(); DrawDetail(); SaveViewState();
+        pane = value; panelOpen = true; LayoutColumns(); DrawToolbar(); DrawDetail(); SaveViewState();
         if (pane == "workspace") await Workspace();
     }
     private void Resizers()
