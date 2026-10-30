@@ -1,3 +1,32 @@
+## 2026-10-30: 86357fe formal report and passed actual mouse-hit test
+
+Downloaded the unchanged joint report/HTML/heatmaps from 41098292475 into
+`S:\Codex\Outputs\Relic-native-visual\parity-86357fe\report`, plus its visual
+comparison artifact into `comparisons`. Both platforms have 22 paired cases;
+strictly checked/passed remain zero out of 672 expected per platform.
+macOS: 5523 valid native / 4913 paired elements; missing 46, extra 610, text 0,
+geometry 642, style 6749, state 1335, kind 0, region 0, order 685, layout 2451,
+icon 3, extraction 27468. The actual header badge fix removes its six group
+order errors; six outgoing-message errors remain in this pre-2012515 capture.
+Windows: 5124 valid native / 4868 paired; missing 94, extra 256, text 584,
+geometry 1313, style 14444, state 722, kind 15, region 20, order 441,
+layout 1646, icon 1, extraction 76650. No exceptions are accepted.
+
+Native apps 41097832962 / macOS 124209643628 builds and runs 236 tests with
+235 passing. Actual mouse-hit/front-control and covered-control tests now pass.
+The sole failure is the already-fixed shadow bitmap comparison, whose fix is
+in the subsequent production commit and still needs a new result. Some GitHub
+job-state endpoints still report old queued/in-progress values even after logs
+and uploaded report artifacts are available; the actual completed log provides
+this test result.
+
+For our final native search/rename cell classes only, capture now records actual
+NSTextFieldCell drawsBackground/isBordered/isBezeled switches with native owner
+identities. Disabled cell background/border paint supplies those properties;
+shadow, outline and corner properties remain unmeasured. No generic/private cell
+class is treated as known, and the field editor's background is checked. A
+negative test changes the real switches and checks that absence is not supplied.
+
 ## 2026-10-30: actual 86357fe focus/badge results and observable search input
 
 Smoke 41098292475 produced 22 macOS captures in `parity-86357fe/macos`.
