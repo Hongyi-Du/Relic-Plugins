@@ -132,7 +132,7 @@ public struct Words {
         var value = strings[key]
         if value.raw is [String: Any] { value = value[language == "en-US" && args["n"] == "1" ? "one" : "other"] }
         // Missing vocabulary is a CI failure; never leak an implementation key into UI.
-        var result = value.isNull ? "" : value.text
+        var result = value.isNull ? "" : ReferenceText.shortcutLabel(value.text)
         for (key, value) in args { result = result.replacingOccurrences(of: "{" + key + "}", with: value) }
         return result
     }

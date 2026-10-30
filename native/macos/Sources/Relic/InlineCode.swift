@@ -34,7 +34,7 @@ enum NativeInlineCode {
 
 // Padding participates in the actual TextKit line layout. The code background
 // uses those very same glyph positions; selection/copy preserves source text.
-final class InlineCodeLayoutManager: NSLayoutManager {
+final class InlineCodeLayoutManager: NativeGlyphLayoutManager {
     struct Fragment {
         let group: String
         let range: NSRange

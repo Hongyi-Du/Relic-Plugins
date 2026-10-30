@@ -25,7 +25,12 @@ struct ReferenceLabel: NSViewRepresentable {
         updateNSView(view, context: context); return view
     }
     func makeLabelView() -> ReferenceLabelView {
-        let view = ReferenceLabelView()
+        let storage = NSTextStorage(), layout = NativeGlyphLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
+        layout.recordDraws = VisualCapture.enabled
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
+        let view = ReferenceLabelView(frame: .zero, textContainer: container)
+        view.sourceStorage = storage
         view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
         // SwiftUI assigns the measured frame. TextKit must not resize it during
         // draw or AX inspection after that layout has been committed.
@@ -68,6 +73,7 @@ struct ReferenceLabel: NSViewRepresentable {
 }
 
 final class ReferenceLabelView: NSTextView {
+    var sourceStorage: NSTextStorage?
     var measuredOpacity: Double = 1
     var productionOwner: String?
     var productionRegion = "window"

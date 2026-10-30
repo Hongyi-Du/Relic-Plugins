@@ -2,6 +2,15 @@ import XCTest
 @testable import RelicCore
 
 final class ReferenceTextTests: XCTestCase {
+    func testTranslatedShortcutTitlesUseMacKeysWithoutChangingArguments() {
+        var words = Words()
+        words.load(Node(["lang": "en-US", "strings": ["back": "Back (Alt+←)", "redo": "Redo (Ctrl+Y)", "panel": "Panel (Ctrl+Alt+B)", "body": "Copy {body} (Ctrl+C)"]]))
+        XCTAssertEqual(words.t("back"), "Back (Option+←)")
+        XCTAssertEqual(words.t("redo"), "Redo (Cmd+Shift+Z)")
+        XCTAssertEqual(words.t("panel"), "Panel (Cmd+Option+B)")
+        XCTAssertEqual(words.t("body", ["body": "Ctrl+Y notes"]), "Copy Ctrl+Y notes (Cmd+C)")
+        XCTAssertEqual(words.t("missing"), "")
+    }
     func testNameInputLimitPreservesWhitespaceAndCompleteUnicodeScalars() {
         XCTAssertEqual(ReferenceText.inputPrefix("  名字  ", utf16Limit: 40), "  名字  ")
         XCTAssertEqual(ReferenceText.inputPrefix("abc😀def", utf16Limit: 4), "abc")

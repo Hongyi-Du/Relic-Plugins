@@ -1,6 +1,13 @@
 import Foundation
 
 public enum ReferenceText {
+    /// Match the reference's macOS key-label transform before interpolation.
+    /// User supplied message/path arguments must not be rewritten as shortcuts.
+    public static func shortcutLabel(_ value: String) -> String {
+        value.replacingOccurrences(of: "Ctrl+Y", with: "Cmd+Shift+Z")
+            .replacingOccurrences(of: "Ctrl+", with: "Cmd+")
+            .replacingOccurrences(of: "Alt+", with: "Option+")
+    }
     /// HTML input maxlength counts UTF-16 code units. Preserve complete scalar
     /// values when enforcing the same limit in a native Unicode text field.
     public static func inputPrefix(_ value: String, utf16Limit: Int) -> String {

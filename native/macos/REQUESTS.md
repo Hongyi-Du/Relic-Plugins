@@ -1,5 +1,32 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Follow-up shared checker failure after `442d1de`: run `40983885238`, job
+`123830414252`, fails `test_main_writes_failed_aggregate_then_exits_nonzero`
+at `scripts/visual/test_windows_capture_processes.py:170`. Its regex still
+expects `Windows capture failed`, while the new independent-component
+coordinator correctly raises `Capture has 1 component/case error(s); see ...`.
+Update the assertion to the current aggregate error and keep its original
+failed-receipt/nonzero-exit checks. This is a stale test contract, not a request
+to suppress capture errors. The previous 53-scene expectations are now resolved.
+
+The regular reference screenshot call at `capture.py:675` still omits `caret`,
+so Playwright's default hides a focused input's caret during the PNG, while
+native focused inputs retain the production caret. Please preserve actual
+caret paint/state and add its independent measurement to focused-input scenes;
+do not mark the unmeasured native/reference caret as absent. The new CDP Copy
+toast path avoids this mutation already. This remains a pending paint/state
+coverage difference, not an approved exception.
+
+macOS now retains `raw nodes[].native_glyph_drawing` from the production
+`NSLayoutManager.showCGGlyphs` callback for native labels and selectable Markdown.
+It records the actual substituted font, glyph IDs/positions, font glyph bounds,
+text/context matrices, clip and draw completion. These are raw independent draw
+receipts, not another attributed-string reshaping or reference-derived geometry.
+Canonical values are unchanged pending verified mapping to the captured bitmap
+and corresponding text runs. A CI bitmap test requires real painted pixels and
+no receipt from layout alone. This also supplies evidence for the unresolved
+conversation coordinate discrepancy and the requested/actual font distinction.
+
 Shared checker failure to fix on `native-apps`: full run `40982407855`, job
 `123825557731`, fails `test_all_52_cases_get_fresh_process_inputs_and_continue_after_menu_crash`
 in `scripts/visual/test_windows_capture_processes.py:54`. The 53-scene matrix
