@@ -1,5 +1,12 @@
 # Native Relic App contract
 
+Changes for the clients (merged macOS actual-font receipt): production
+showCGGlyphs callbacks are now bound to their same complete TextKit span,
+source/view/container/window and layout. Partial rich spans without callback
+source indices stay unknown; independently reshaped fonts remain diagnostic
+and do not satisfy the actual-font gate. The owner's reported full 56253c7
+artifacts also have zero accepted scenes; no exception was added.
+
 Changes for the clients (separate line-break quantities, implementation in progress):
 the shared layout contract will retain legacy `wrap` and separately require
 `normal_break_strategy` (`none`, `word`, `break-all`, `character`, `keep-all`) and
