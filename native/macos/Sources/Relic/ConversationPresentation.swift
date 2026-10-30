@@ -9,6 +9,33 @@ struct ConversationRow: Identifiable {
     let continued: Bool
 }
 
+/// Keep the author's avatar first in the native hierarchy, including outgoing
+/// messages. Like the reference grid, visual column placement is independent
+/// from that reading order; text keeps its ordinary left-to-right environment.
+struct MessageColumns: Layout {
+    var mine = false
+    private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews) -> (width: CGFloat, avatar: CGSize, body: CGSize, bodyWidth: CGFloat) {
+        let avatar = subviews[0].sizeThatFits(.unspecified)
+        let available = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
+        let bodyWidth = min(720, available.map { max(0, $0 - avatar.width - 10) } ?? subviews[1].sizeThatFits(.unspecified).width)
+        let body = subviews[1].sizeThatFits(ProposedViewSize(width: bodyWidth, height: nil))
+        return (available ?? avatar.width + 10 + bodyWidth, avatar, body, bodyWidth)
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let value = measurements(proposal, subviews)
+        return CGSize(width: value.width, height: max(value.avatar.height, value.body.height))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let value = measurements(ProposedViewSize(width: bounds.width, height: nil), subviews)
+        subviews[0].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width : bounds.minX, y: bounds.minY),
+            anchor: .topLeading, proposal: ProposedViewSize(value.avatar))
+        subviews[1].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width - 10 - value.bodyWidth : bounds.minX + value.avatar.width + 10, y: bounds.minY),
+            anchor: .topLeading, proposal: ProposedViewSize(width: value.bodyWidth, height: value.body.height))
+    }
+}
+
 enum ConversationSpacing {
     static func messageTop(kind: String, continued: Bool, compact: Bool) -> CGFloat {
         if kind == "notice" { return 8 }

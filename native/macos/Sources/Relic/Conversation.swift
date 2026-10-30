@@ -339,9 +339,10 @@ struct MessageView: View {
         else if item["type"].text == "acts" {
             ActivityGroup(item: item).padding(.leading, inThread ? 40 : 46).padding(.top, 4)
         } else {
-            HStack(alignment: .top, spacing: 0) {
-                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("") } }
-                else { Spacer(minLength: 0) }
+            MessageColumns(mine: mine) {
+                if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) }
+                else if mine { Avatar(member: "human", size: inThread ? 30 : 36) }
+                else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("") }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
                         ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
@@ -385,9 +386,6 @@ struct MessageView: View {
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity).accessibilityLabel(threadAccessibilityName)
                     }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
-                    .padding(mine ? .trailing : .leading, 10)
-                if mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Avatar(member: "human", size: inThread ? 30 : 36) } }
-                else { Spacer(minLength: 0) }
             }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {
                 if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
             }.background(MessageInteractionAnchor(messageID: item["id"].text))
