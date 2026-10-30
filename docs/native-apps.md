@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (digest fixture request): the reference digest scene
+now seeds its deterministic data, then invokes the existing production
+toggleDigest path, updating both renderHead and renderBanner. Previously its
+card was open while the header remained stale. A CI-only regression executes
+that actual production function and checks the open card/header and saved state
+together. Reference app.js/CSS and native selected colors are unchanged.
+
+Changes for the clients (actual Rectangle corners): capture extends the existing
+Shape input receipt to exact Rectangle, including the real Stretch and radii.
+The reader interprets only measured Fill, nondegenerate circular centered stroke
+and unit-translation inputs using the pinned WinUI primitive source. The four
+chart legend inputs RadiusX/Y=4 and stroke=1 imply a nominal outer radius 4.5,
+not the old default zero. Raw parameters stay intact; unsupported or historical
+inputs stay unknown, and no occlusion/dash/pixel obligation is promoted.
+
+CI progress: dfeab56's 920 element-contract tests pass. Recompare 41143059680
+preserves the archived 215a313 canonical element JSON, so its counts are unchanged;
+it does not rerun native projection or validate new production styles. The older
+bdce3ab full run 41141133100 was superseded/cancelled to release runner capacity;
+the latest full matrix retains all 672 cases per platform. New capture evidence
+is still required before any scene can be called accepted.
+
 Changes for the clients (font weight quantity): verified trimmed NativeLabel
 draws can now report the weights of their complete actually submitted glyph/font
 set, while original source_span_complete remains false. The additive coverage

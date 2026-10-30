@@ -883,16 +883,23 @@ public sealed partial class MainWindow
     }
     private static void CaptureStrokeEvidence(Shape shape, UIElement captureRoot, JsonObject node, string id, JsonArray errors)
     {
-        if (shape.GetType() == typeof(Ellipse))
+        if (shape.GetType() == typeof(Ellipse) || shape.GetType() == typeof(Rectangle))
+        {
             node["shape_geometry_evidence"] = new JsonObject
             {
-                ["source"] = "actual Ellipse layout and Shape inputs", ["owner_id"] = id,
+                ["source"] = "actual " + shape.GetType().Name + " layout and Shape inputs", ["owner_id"] = id,
                 ["runtime_type"] = shape.GetType().FullName,
                 ["stretch"] = shape.Stretch.ToString(), ["stretch_value"] = (int)shape.Stretch,
                 ["actual_width"] = shape.ActualWidth, ["actual_height"] = shape.ActualHeight,
                 ["stroke_is_null"] = shape.Stroke == null, ["stroke_thickness"] = shape.StrokeThickness,
                 ["scope"] = "Actual native geometry inputs only; no reference contour or screenshot-frame equivalence is supplied"
             };
+            if (shape is Rectangle rectangle)
+            {
+                node["shape_geometry_evidence"]!["radius_x"] = rectangle.RadiusX;
+                node["shape_geometry_evidence"]!["radius_y"] = rectangle.RadiusY;
+            }
+        }
         var rawDashes = shape.StrokeDashArray?.ToArray() ?? [];
         string Cap(PenLineCap cap) => cap == PenLineCap.Flat ? "butt" : cap.ToString().ToLowerInvariant();
         var startCap = Cap(shape.StrokeStartLineCap); var endCap = Cap(shape.StrokeEndLineCap); var dashCap = Cap(shape.StrokeDashCap);

@@ -30,6 +30,7 @@ from windows_textarea_placeholder import textarea_placeholder_styles, apply_text
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
 from windows_selector_labels import selector_content_labels, selector_label_candidate, selector_paint_surfaces
+from windows_rectangle_corners import project_rectangle_corners
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -2847,6 +2848,7 @@ def project(xaml_path, uia_path, png_path):
                 "smoke_layer_merged": False,
             }
         project_ellipse_border(element, node, unmeasured)
+        project_rectangle_corners(element, node, unmeasured)
         element["evidence"]["font_weight_quantities"] = project_font_weights(element)
         for issue in font_weight_issues(element):
             unmeasured.append({"id": node["id"], "property": "style." + issue["field"], "reason": issue["reason"]})

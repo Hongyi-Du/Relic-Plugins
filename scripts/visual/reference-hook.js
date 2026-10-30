@@ -84,7 +84,7 @@ window.__relicVisual = async (scene, fixture) => {
     case 'recipients': break; // The capture coordinator sends actual pointer input to the mounted recipient button.
     case 'quote': setQuote(dname(fixture.member), fixture.quote); break;
     case 'mention': { const ta = document.querySelector('#composer textarea'); ta.value = '@'; ta.focus(); ta.setSelectionRange(1, 1); ta.dispatchEvent(new Event('input', { bubbles: true })); break; }
-    case 'digest': S.digest = fixture.digest; S.digestOpen = true; renderBanner(); break;
+    case 'digest': S.digest = fixture.digest; S.digestOpen = false; toggleDigest(); break;
     case 'plain': save('relic.plain.' + S.orgId, true); S.plainMode = true; for (const item of S.chat.items) if (typeof item.id === 'number') S.plain[item.id] = fixture.plain; renderAll(true); break;
     case 'quick-start': S.orgId = null; S.orgs = []; S.snap = null; S.chat = null; renderAll(true); break;
     default: throw new Error('Unimplemented reference scene: ' + scene);
