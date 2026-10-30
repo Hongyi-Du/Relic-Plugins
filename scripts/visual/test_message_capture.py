@@ -233,6 +233,50 @@ class MessageCaptureTests(unittest.TestCase):
                 action.close()
             cdp.send.assert_not_called()
 
+    def test_unpaused_capture_preserves_initial_production_caret(self):
+        with tempfile.TemporaryDirectory() as folder:
+            page, cdp, browser, action = Mock(), Mock(), Mock(), Mock()
+            browser.version = "fixture-browser"
+            cdp.send.return_value = {"actual": "DOM or AX fixture"}
+            context = {"focused_editor_candidate": False, "painted_presence": None, "painted_bounds": None}
+            page.evaluate.side_effect = [{"navigator_platform": "fixture", "caret_context": context}, {"elements": []}]
+            action.evidence = {"source": "actual hover fixture", "errors": []}
+            case = {"id": "fixture-hover", "scene": "message-hover", "file": "fixture-hover.png"}
+            manifest = {"output": folder, "fixture": {}, "lang": "en-US", "theme": "light"}
+            with patch.object(capture, "MessageSceneCapture", return_value=action), \
+                    patch.object(capture, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
+                    patch.object(capture, "font_evidence", return_value={}):
+                capture.capture_reference_evidence(page, cdp, browser, manifest, case)
+            page.screenshot.assert_called_once_with(path=Path(folder) / "fixture-hover.png", caret="initial", animations="allow")
+            actual = json.loads((Path(folder) / "fixture-hover.elements.json").read_text())
+            self.assertEqual(actual["capture_evidence"]["caret"], context)
+            self.assertIsNone(actual["capture_evidence"]["caret"]["painted_presence"], "An ineligible active element does not become an invented caret visibility measurement")
+
+    def test_focused_editor_caret_gap_fails_without_turning_range_or_owner_geometry_into_paint(self):
+        owner = {"id": "actual-input", "kind": "input", "state": {"focused": True},
+                 "bounds": {"x": 482, "y": 330, "width": 476, "height": 32}}
+        elements = {"elements": [copy.deepcopy(owner)], "coverage": {"unmeasured": []}, "extraction_errors": []}
+        context = {"focused_editor_candidate": True, "document_has_focus": True,
+            "active_element": {"tag": "INPUT", "selection_start": 0, "selection_end": 0,
+                               "bounds": copy.deepcopy(owner["bounds"]), "computed_caret_color": "rgb(31, 31, 30)"},
+            "document_selection": {"ranges": [{"bounding_rect": {"x": 493, "y": 338, "width": 0, "height": 16}}]},
+            "painted_presence": None, "painted_bounds": None, "painted_color": None, "blink_phase": None}
+        capture.record_caret_coverage(elements, context)
+        self.assertEqual(elements["elements"], [owner])
+        self.assertIs(elements["capture_evidence"]["caret"], context)
+        self.assertEqual(elements["coverage"]["unmeasured"][0]["element"], "actual-input")
+        self.assertEqual(elements["coverage"]["unmeasured"][0]["property"], "caret.rendered_part")
+        self.assertEqual(elements["extraction_errors"][0]["type"], "ua_caret_measurement_unavailable")
+        for key in ("painted_presence", "painted_bounds", "painted_color", "blink_phase"):
+            self.assertIsNone(context[key])
+
+    def test_absent_caret_source_is_a_measurement_failure_not_assumed_hidden(self):
+        elements = {"elements": []}
+        capture.record_caret_coverage(elements, None)
+        self.assertEqual(len(elements["coverage"]["unmeasured"]), 1)
+        self.assertEqual(len(elements["extraction_errors"]), 1)
+        self.assertIsNone(elements["capture_evidence"]["caret"])
+
 
 if __name__ == "__main__":
     unittest.main()

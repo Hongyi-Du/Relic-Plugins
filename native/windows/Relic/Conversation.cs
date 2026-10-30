@@ -371,6 +371,9 @@ public sealed partial class MainWindow
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
             var receipt = Quiet(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 11);
             receipt.LineHeight = 17.6; receipt.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            // .msg.mine .body uses justify-items:end for each child, including
+            // this receipt independently of the wider thread button below it.
+            receipt.HorizontalAlignment = HorizontalAlignment.Right;
             if (others.Length > 1) { var readers = new MenuFlyout(); foreach (var name in others) readers.Items.Add(new MenuFlyoutItem { Text = Display(name) + " · " + T(item.Rows("read_by").Any(x => x.Text() == name) ? "msg.read" : "msg.unread") }); receipt.ContextFlyout = readers; }
             after.Children.Add(receipt);
         }

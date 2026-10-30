@@ -652,6 +652,49 @@ def capture_paused_message_png(page, cdp, path, width, height, action):
         raise RuntimeError("Actual CDP PNG dimensions differ from the requested viewport; original bytes are retained")
 
 
+CARET_CONTEXT = """() => {
+  const el=document.activeElement, selection=document.getSelection();
+  const box=r=>({x:r.x,y:r.y,width:r.width,height:r.height});
+  const ranges=[];
+  if(selection)for(let i=0;i<selection.rangeCount;i++){
+    const range=selection.getRangeAt(i);
+    ranges.push({collapsed:range.collapsed,start_offset:range.startOffset,end_offset:range.endOffset,
+      client_rects:Array.from(range.getClientRects(),box),bounding_rect:box(range.getBoundingClientRect()),
+      quantity:'actual document Range rectangles; not measured input caret paint'});
+  }
+  const s=el instanceof Element?getComputedStyle(el):null;
+  const textInput=el?.tagName==='INPUT'&&['text','search','url','tel','email','password','number'].includes(el.type);
+  return {source:'actual activeElement, document focus/selection and computed caret CSS',
+    phase:'source collection after PNG; not a synchronous PNG blink-phase measurement',
+    focused_editor_candidate:!!el&&(el.tagName==='TEXTAREA'||textInput||el.isContentEditable===true),
+    document_has_focus:document.hasFocus(),performance_now:performance.now(),
+    active_element:el?{tag:el.tagName,id:el.id,type:el.type??null,content_editable:el.isContentEditable===true,
+      value:el.value??null,placeholder:el.getAttribute('placeholder'),disabled:el.disabled??null,readonly:el.readOnly??null,
+      selection_start:el.selectionStart??null,selection_end:el.selectionEnd??null,selection_direction:el.selectionDirection??null,
+      bounds:box(el.getBoundingClientRect()),display:s?.display??null,visibility:s?.visibility??null,opacity:s?.opacity??null,
+      computed_caret_color:s?.getPropertyValue('caret-color')??null,
+      computed_caret_shape:s?.getPropertyValue('caret-shape')??null,
+      computed_caret_animation:s?.getPropertyValue('caret-animation')??null}:null,
+    document_selection:selection?{collapsed:selection.isCollapsed,range_count:selection.rangeCount,ranges}:null,
+    painted_presence:null,painted_bounds:null,painted_color:null,blink_phase:null,
+    measurement_limit:'Focus/selection, computed CSS and document ranges do not measure the UA caret painted bounds, pixels or blink phase.'};
+}"""
+
+
+def record_caret_coverage(elements, evidence):
+    """Retain actual caret context and fail unknown editor paint, without boxes."""
+    elements.setdefault("capture_evidence", {})["caret"] = evidence
+    if evidence is not None and evidence.get("focused_editor_candidate") is False:
+        return  # No focused text-editor candidate in this actual DOM context; no absence value is synthesized.
+    owners = [row["id"] for row in elements.get("elements", []) if row.get("kind") == "input" and row.get("state", {}).get("focused")]
+    owner = owners[0] if len(owners) == 1 else "browser-caret"
+    reason = ("The screenshot preserves the production caret. Its independently painted presence, bounds, color and blink phase are unmeasured; "
+              "focus, insertion offsets and document Range boxes cannot be substituted for actual caret pixels.")
+    elements.setdefault("coverage", {}).setdefault("unmeasured", []).append({"element": owner, "property": "caret.rendered_part",
+        "reason": reason, "evidence": "capture_evidence.caret"})
+    elements.setdefault("extraction_errors", []).append({"type": "ua_caret_measurement_unavailable", "node": owner, "reason": reason})
+
+
 def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None):
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
@@ -672,7 +715,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         if case["scene"] == "message-copy-toast":
             capture_paused_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
         else:
-            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled"))
+            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled"))
         for action in actions:
             action.checkpoint("after_screenshot")
         snapshot = source_step("source:DOMSnapshot", lambda: cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True}))
@@ -681,7 +724,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         ax_tree = source_step("source:Accessibility", lambda: cdp.send("Accessibility.getFullAXTree"))
         input_text = source_step("source:input_text", lambda: input_text_evidence(cdp))
         fonts = source_step("source:platform_fonts", lambda: font_evidence(cdp, snapshot, input_text))
-        environment = source_step("source:environment", lambda: page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})"))
+        environment = source_step("source:environment", lambda: page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true,caret_context:(" + CARET_CONTEXT + ")()})"))
         environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
                            browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
         (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
@@ -697,6 +740,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             elements.setdefault("capture_evidence", {})["message_action"] = message.evidence
         if resize is not None:
             elements.setdefault("capture_evidence", {})["textarea_resize_action"] = resize.evidence
+        record_caret_coverage(elements, environment.get("caret_context"))
         if member_card is not None:
             elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
         if datalist is not None:

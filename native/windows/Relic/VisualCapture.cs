@@ -35,6 +35,7 @@ public sealed partial class MainWindow
             var manifest = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(path))!; var fixture = manifest["fixture"]!;
             foreach (var shot in manifest.Rows("cases"))
             {
+                capturePointerReceipts = new JsonArray();
                 await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "current-case.txt"), shot.Text("id"));
                 try
                 {
@@ -60,7 +61,7 @@ public sealed partial class MainWindow
                     // Previous menu cases leave the desktop pointer over the
                     // toolbar. Move it off-window so hover tooltips cannot mask
                     // an unrelated screen in the next capture.
-                    SetCursorPos(1900, 1040);
+                    await CaptureMoveScreenPointer(1900, 1040);
                     sideWidth = 276; panelWidth = 340; fileWidth = 520; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     if (isLive) await Refresh();
@@ -73,7 +74,7 @@ public sealed partial class MainWindow
                     else if (scene.StartsWith("menu-"))
                     {
                         var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, scene[5..]);
-                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(nativeMenus[index].Anchor);
+                        root.UpdateLayout(); await Task.Delay(150); await CaptureClick(nativeMenus[index].Anchor);
                     }
                     else switch (scene)
                     {
@@ -130,7 +131,7 @@ public sealed partial class MainWindow
                         var controlId = scene == "member-card-avatar-hover" ? "member-card-avatar" : scene;
                         var control = CaptureCardControl(controlId) ?? throw new InvalidOperationException("Member card control missing: " + controlId);
                         var before = control.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, control.ActualWidth, control.ActualHeight));
-                        if (scene == "member-card-avatar-hover") CaptureHover(control); else CaptureClick(control);
+                        if (scene == "member-card-avatar-hover") await CaptureHover(control); else await CaptureClick(control);
                         await Task.Delay(150); root.UpdateLayout();
                         var resultId = scene switch { "member-card-rename" => "member-card-name-input", "member-card-model" => "member-card-model-input", _ => "member-card-avatar-cover" };
                         var result = CaptureCardControl(resultId) ?? throw new InvalidOperationException("Member card action did not reveal its real control: " + resultId);
@@ -150,7 +151,7 @@ public sealed partial class MainWindow
                         liveTool = matches[0];
                         var header = (FrameworkElement)liveTool.Header;
                         header.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
-                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(header);
+                        root.UpdateLayout(); await Task.Delay(150); await CaptureClick(header);
                         await Task.Delay(150); root.UpdateLayout();
                         if (!liveTool.IsExpanded) throw new InvalidOperationException("Real live tool disclosure did not open: " + title);
                         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"),
@@ -181,7 +182,7 @@ public sealed partial class MainWindow
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);
-                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized")) SetCursorPos(1900, 1040);
+                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast" or "new-org-textarea-resized")) await CaptureMoveScreenPointer(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene.StartsWith("member-card") || scene is "mention" or "recipients") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
@@ -190,13 +191,16 @@ public sealed partial class MainWindow
                     if (liveTool != null && (!liveTool.IsExpanded || !liveTool.IsLoaded)) throw new InvalidOperationException("Live tool disclosure closed or unloaded before screenshot");
                     if (capturedMessageEvidence != null) capturedMessageEvidence["before_screenshot"] = CaptureMessageSceneState();
                     CaptureTextareaCheckpoint("before_screenshot");
+                    await BeginNativeLabelCaptureAsync(shot.Text("id"));
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     CaptureTextareaCheckpoint("after_screenshot");
                     if (capturedMessageEvidence != null) capturedMessageEvidence["after_screenshot"] = CaptureMessageSceneState();
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
                     if (capturedTextareaEvidence != null)
                         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedTextareaEvidence.ToJsonString());
+                    CheckpointNativeLabelCapture("before_element_extraction");
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    CheckpointNativeLabelCapture("after_element_extraction");
                     CaptureTextareaCheckpoint("after_extraction");
                     if (capturedMessageEvidence != null)
                     {
@@ -210,9 +214,26 @@ public sealed partial class MainWindow
                 {
                     if (capturedTextareaEvidence != null) ((JsonArray)capturedTextareaEvidence["errors"]!).Add(ex.ToString());
                     failures.Add(shot.Text("id") + ": " + ex);
+                    // Keep the actual failed state for inspection. This separate
+                    // file is never the canonical scene or a successful receipt.
+                    try
+                    {
+                        var diagnosticDirectory = System.IO.Path.Combine(manifest.Text("output"), "diagnostics");
+                        System.IO.Directory.CreateDirectory(diagnosticDirectory);
+                        await CaptureClient(System.IO.Path.Combine(diagnosticDirectory, shot.Text("id") + ".failed.png"),
+                            int.Parse(shot.Text("width")), int.Parse(shot.Text("height")), observeNativeLabel: false);
+                    }
+                    catch (Exception captureError) { failures.Add(shot.Text("id") + ": failed-state PNG unavailable: " + captureError); }
                 }
                 finally
                 {
+                    await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".pointer-input.json"), capturePointerReceipts.ToJsonString());
+                    try
+                    {
+                        if (capturedNativeLabelEvidence != null)
+                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".native-label-frame.json"), capturedNativeLabelEvidence.ToJsonString());
+                    }
+                    finally { EndNativeLabelCapture(); }
                     var resumed = ResumeCapturedMessageToasts();
                     if (resumed.Count > 0) await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".toast-resume.json"), resumed.ToJsonString());
                     capturedMessageEvidence = null;
@@ -269,7 +290,7 @@ public sealed partial class MainWindow
     {
         if (!VisualCaptureEnabled || visibleDialog == null) throw new InvalidOperationException("Suggestion capture needs the real CI member dialog");
         var input = CaptureSuggestionInput(visibleDialog, automationId) ?? throw new InvalidOperationException("Suggestion input is missing: " + automationId);
-        SetCursorPos(1900, 1040);
+        await CaptureMoveScreenPointer(1900, 1040);
         var before = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).ToHashSet();
         if (!input.Focus(FocusState.Keyboard)) throw new InvalidOperationException("Suggestion input could not receive focus: " + automationId);
         root.UpdateLayout(); await Task.Delay(100);
@@ -282,7 +303,7 @@ public sealed partial class MainWindow
             ?? throw new InvalidOperationException("The real suggestion popup did not open: " + automationId);
     }
 
-    private async Task CaptureClient(string path, int width, int height)
+    private async Task CaptureClient(string path, int width, int height, bool observeNativeLabel = true)
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var dc = GetDC(0); var memory = CreateCompatibleDC(dc); var bitmap = CreateCompatibleBitmap(dc, width, height); var previous = SelectObject(memory, bitmap);
@@ -292,10 +313,12 @@ public sealed partial class MainWindow
             // actual CI desktop pixels within the client rectangle, including
             // those real overlays; PrintWindow alone silently omits them.
             var origin = new CapturePoint(); if (!ClientToScreen(handle, ref origin)) throw new InvalidOperationException("ClientToScreen failed");
+            if (observeNativeLabel) CheckpointNativeLabelCapture("before_desktop_readback");
             if (!BitBlt(memory, 0, 0, width, height, dc, origin.x, origin.y, 0x40CC0020)) throw new InvalidOperationException("Desktop window capture failed");
             var info = new BitmapInfo { size = 40, width = width, height = -height, planes = 1, bits = 32, imageSize = (uint)(width * height * 4) };
             var pixels = new byte[width * height * 4];
             if (GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0) == 0) throw new InvalidOperationException("GetDIBits failed");
+            if (observeNativeLabel) CheckpointNativeLabelCapture("after_desktop_readback");
             if (pixels.Where((_, i) => i % 4 != 3).Distinct().Take(12).Count() < 12) throw new InvalidOperationException("Window capture is blank");
             using var output = new InMemoryRandomAccessStream(); var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output);
             encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels); await encoder.FlushAsync();
@@ -303,13 +326,15 @@ public sealed partial class MainWindow
         }
         finally { SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(0, dc); }
     }
-    private void CaptureClick(FrameworkElement element)
+    private async Task CaptureClick(FrameworkElement element)
     {
         // Drive the production control through actual CI desktop input. Capture
         // never opens a substitute flyout or manufactures an automation peer.
         if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
-        CaptureHover(element);
-        mouse_event(0x0002, 0, 0, 0, 0); mouse_event(0x0004, 0, 0, 0, 0);
+        await CaptureHover(element);
+        CapturePointerButton(true);
+        try { await Task.Delay(40); }
+        finally { CapturePointerButton(false); }
     }
     private FrameworkElement? CaptureCardControl(string automationId)
     {
@@ -324,12 +349,11 @@ public sealed partial class MainWindow
             if (popup.IsOpen && popup.Child != null && Find(popup.Child) is { } found) return found;
         return null;
     }
-    private void CaptureHover(FrameworkElement element)
+    private async Task CaptureHover(FrameworkElement element)
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
         var point = element.TransformToVisual(root).TransformPoint(new(element.ActualWidth / 2, element.ActualHeight / 2));
-        var origin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin);
-        SetCursorPos(origin.x + (int)point.X, origin.y + (int)point.Y);
+        await CaptureMovePointer(point);
     }
     [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo { public uint size; public int width, height; public ushort planes, bits; public uint compression, imageSize; public int xppm, yppm; public uint used, important; }
     [DllImport("user32.dll")] private static extern nint GetDC(nint handle);
@@ -337,8 +361,6 @@ public sealed partial class MainWindow
     [StructLayout(LayoutKind.Sequential)] private struct CapturePoint { public int x, y; }
     [DllImport("user32.dll")] private static extern bool ClientToScreen(nint handle, ref CapturePoint point);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
-    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, nuint extra);
     [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, nuint extra);
     [DllImport("gdi32.dll")] private static extern bool BitBlt(nint target, int x, int y, int width, int height, nint source, int sourceX, int sourceY, uint operation);
     [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);

@@ -42,7 +42,7 @@ public sealed partial class MainWindow
     private Button OverviewLink(string text, Func<Task> action, string icon = "", bool iconFirst = false)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        var label = OverviewText(text, 12, true); label.TextWrapping = TextWrapping.NoWrap;
+        var label = OverviewText(text, 12, true); label.TextWrapping = TextWrapping.NoWrap; label.IsTextSelectionEnabled = false;
         if (icon.Length > 0 && iconFirst) row.Children.Add(ReferenceIcon(icon, icon == "plus" ? 13 : 12));
         row.Children.Add(label);
         if (icon.Length > 0 && !iconFirst) row.Children.Add(ReferenceIcon(icon, 12));
@@ -155,7 +155,7 @@ public sealed partial class MainWindow
 
     private Button OverviewAction(string label, Func<Task> action, bool primary = false)
     {
-        var button = Button("", action); var text = OverviewText(label, 12, weight: 600); text.TextWrapping = TextWrapping.NoWrap;
+        var button = Button("", action); var text = OverviewText(label, 12, weight: 600); text.TextWrapping = TextWrapping.NoWrap; text.IsTextSelectionEnabled = false;
         button.Content = text; button.Height = 26; button.MinHeight = 0; button.Padding = new Thickness(9, 0, 9, 0); button.CornerRadius = new CornerRadius(7);
         button.BorderBrush = primary ? Ink : Paint("DEDBD4", "3A3936"); button.Background = primary ? Ink : Paint("FFFFFF", "252523");
         text.Foreground = primary ? Paint("FFFFFF", "1F1F1E") : Ink; return button;

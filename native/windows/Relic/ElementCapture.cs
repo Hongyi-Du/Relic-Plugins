@@ -248,7 +248,8 @@ public sealed partial class MainWindow
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
             ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone(),
-                ["textarea_resize_action"] = capturedTextareaEvidence?.DeepClone() },
+                ["textarea_resize_action"] = capturedTextareaEvidence?.DeepClone(),
+                ["native_label_frame"] = capturedNativeLabelEvidence?.DeepClone(), ["pointer_input"] = capturePointerReceipts.DeepClone() },
             ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
             ["popup_roots"] = popups.Length,
             ["pointer"] = new JsonObject { ["x"] = cursor.x - clientOrigin.x, ["y"] = cursor.y - clientOrigin.y }

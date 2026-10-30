@@ -120,8 +120,43 @@ pause/resume, screenshot, source extraction and each state checkpoint. A
 stalled call therefore leaves its exact pending phase on disk. These receipts
 identify actual completed operations; they are not replacements for the
 pixel, visible-state or element checks, whose tolerances and failures remain
-unchanged. The CDP path still requires real CI verification; this correction
-does not itself establish capture success or parity.
+unchanged.
+
+## Observed 6dbdfd8 smoke result and caret preservation
+
+Windows job `123829541987` in smoke run `40983620508` completed the reference
+component's 17 cases, with 17 PNGs, 17 element files and no reference component
+errors. The actual Copy-toast receipt contains a 1440×900 CDP PNG, completed
+checkpoints, clock resume and a post-resume clipboard value equal to the API
+body. The resized textarea reference scene also completed. All 17 aggregate
+capture errors in this job belonged to the Windows native component, which
+reported zero completed cases. The run failed, and these reference execution
+results do not establish element parity or a successful native capture.
+[Actual CI job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40983620508/job/123829541987)
+
+All ordinary reference `page.screenshot` calls now explicitly use
+`caret="initial"`, preserving the production caret instead of Playwright's
+default temporary hiding. The Copy-toast CDP path already leaves caret/style
+untouched. Old captures made with the default caret hiding do not establish
+equivalent visible-state coverage. [Playwright screenshot caret option](https://playwright.dev/python/docs/api/class-page#page-screenshot-option-caret)
+
+The source collection's existing synchronous environment read also records
+the actual active element, document focus, input selection offsets, document
+Selection/Range rectangles and computed caret CSS. Its phase is explicitly
+**after the PNG**, not a simultaneous measurement of the screenshot's blink
+phase. These values are retained under `capture_evidence.caret`; they do not
+provide independently measured caret pixels. `painted_presence`,
+`painted_bounds`, `painted_color` and `blink_phase` remain null. No owner box,
+zero-width selection Range or computed color is promoted into a canonical
+painted caret.
+
+A focused text-editor candidate appends `caret.rendered_part` to coverage
+and `ua_caret_measurement_unavailable` to extraction errors; absent context
+also fails measurement. An actual non-editor active element is retained as
+such without fabricating a caret-presence value. No tolerance, scene or visible
+element is excluded to make this new coverage pass. Actual caret geometry,
+paint and blink timing still require an independent provider before they can
+be claimed consistent with either native client.
 
 ## Native requirements and validation boundary
 
