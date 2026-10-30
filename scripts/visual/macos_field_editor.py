@@ -15,6 +15,9 @@ CONTRACT = "appkit-current-field-editor-v2"
 PROVIDER = "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder"
 SOURCE = "live-AppKit-AX-selectors"
 STRUCTURE_SOURCE = "production parent environment and current NSView.subviews ancestry"
+CELL_FRAME_SOURCE = "actual NSTextFieldCell.accessibilityFrame()"
+CONTENT_FRAME_SOURCE = "actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen"
+SCREEN_SPACE = "AppKit screen coordinates (bottom-left)"
 INPUT_ROLES = {"AXTextField", "AXTextArea", "AXSearchField"}
 STYLE_KEYS = {
     "font_size": "fontSize", "font_weight": "fontWeight", "foreground": "color",
@@ -48,6 +51,62 @@ def _rect(value):
 def _evidence(element):
     value = element.get("evidence") if isinstance(element, dict) else None
     return value if isinstance(value, dict) else {}
+
+
+def _cell_screen_position(item, raw, receipt, binding_valid):
+    """Cross-check actual measured frames, without assigning canonical geometry.
+
+    ElementCapture.topLeft uses content.maxY - screen.maxY, not a display's
+    height and not the window frame. The producer's exact content conversion
+    source supplies that coordinate basis even on a display with a nonzero or
+    negative origin. Missing measurements are not reconstructed from raw.rect.
+    """
+    failures = []
+    cell = receipt.get("owner_ax_frame")
+    content = receipt.get("content_screen_frame")
+    control = receipt.get("owner_screen_bounds")
+    owner = receipt.get("owner_identity")
+    window = receipt.get("window_identity")
+    cell_valid = isinstance(cell, dict) and cell.get("source") == CELL_FRAME_SOURCE \
+        and _string(owner) and cell.get("owner_identity") == owner == raw.get("object_identity") \
+        and cell.get("coordinate_space") == SCREEN_SPACE and _rect(cell.get("bounds"))
+    content_valid = isinstance(content, dict) and content.get("source") == CONTENT_FRAME_SOURCE \
+        and _string(window) and content.get("window_identity") == window and _rect(content.get("bounds")) \
+        and ("coordinate_space" not in content or content["coordinate_space"] == SCREEN_SPACE)
+    if not binding_valid:
+        failures.append("actual unique cell/control/editor/window identity binding is not established")
+    if not cell_valid:
+        failures.append("actual cell accessibilityFrame source, owner, screen coordinate space or finite bounds is missing or conflicting")
+    if not content_valid:
+        failures.append("actual content-screen conversion source, window, coordinate space or finite bounds is missing or conflicting")
+    if not _rect(control):
+        failures.append("actual control screen frame is missing or malformed")
+    converted = None
+    if cell_valid and content_valid and _rect(control):
+        frame = cell["bounds"]
+        if any(frame[key] != control[key] for key in ("x", "y", "width", "height")):
+            failures.append("actual cell accessibilityFrame differs from the independently measured control screen frame")
+        origin = content["bounds"]
+        converted = {"x": frame["x"] - origin["x"],
+                     "y": (origin["y"] + origin["height"]) - (frame["y"] + frame["height"]),
+                     "width": frame["width"], "height": frame["height"]}
+        if not _rect(converted) or not _rect(raw.get("rect")) or any(
+                converted[key] != raw["rect"][key] for key in ("x", "y", "width", "height")):
+            failures.append("actual cell screen frame converted by actual content-screen frame differs from retained AX rect")
+        if not _rect(converted):
+            # Retain the original finite inputs above, but do not manufacture a
+            # nonfinite derived JSON measurement if floating-point addition overflows.
+            converted = None
+    if not _rect(item.get("bounds")) or item.get("bounds") != raw.get("rect"):
+        failures.append("canonical owner bounds do not preserve the independently retained AX rect")
+    return {
+        "source": "actual cell AX/control screen frames cross-checked with ElementCapture.topLeft",
+        "cell_ax_window_frame": {"source": "retained cell AX frame after capture topLeft conversion", "bounds": deepcopy(raw.get("rect"))},
+        "cell_ax_screen_frame": deepcopy(cell), "content_screen_frame": deepcopy(content),
+        "control_screen_frame": {"source": "actual control.convert(bounds,to:nil) then window.convertToScreen", "bounds": deepcopy(control)},
+        "converted_cell_frame": converted, "screen_position_relation_proven": not failures,
+        "failures": failures,
+    }
 
 
 def retained_editor_measurements(raw):
@@ -129,16 +188,6 @@ def field_editor_aliases(elements):
             continue
         require(receipt.get("contract") == CONTRACT and receipt.get("provider") == PROVIDER,
                 "Unknown or missing actual currentEditor/firstResponder contract")
-        if receipt.get("contract") == CONTRACT:
-            # The v2 producer exports the control's screen frame, not a second
-            # measured cell.accessibilityFrame call or the capture coordinate
-            # origin. Size agreement below is not a proof of screen position.
-            result["measurement_issues"].append({
-                "reason": "Cell screen-position cross-check is unmeasured: no independently checked actual cell accessibilityFrame and capture content-screen frame",
-                "quantities": {
-                    "cell_ax_window_frame": {"source": "retained cell AX frame after capture topLeft conversion", "bounds": deepcopy(raw.get("rect"))},
-                    "control_screen_frame": {"source": "actual control.convert(bounds,to:nil) then window.convertToScreen", "bounds": deepcopy(receipt.get("owner_screen_bounds"))},
-                    "screen_position_relation_proven": False}})
         owner_id, editor_id = raw.get("id"), editor.get("id")
         owner_object, editor_object = receipt.get("owner_identity"), receipt.get("editor_identity")
         control_object = receipt.get("control_identity")
@@ -223,4 +272,11 @@ def field_editor_aliases(elements):
         require("native_field_editor" not in editor and "owned_editor_evidence" not in editor,
                 "Nested field-editor alias is not covered by this single-input contract")
         result["binding_valid"] = not issues
+        if receipt.get("contract") == CONTRACT:
+            position = _cell_screen_position(item, raw, receipt, result["binding_valid"])
+            result["cell_screen_position"] = position
+            if not position["screen_position_relation_proven"]:
+                result["measurement_issues"].append({
+                    "reason": "Cell screen-position cross-check is unmeasured: " + "; ".join(position["failures"]),
+                    "quantities": position})
     return results

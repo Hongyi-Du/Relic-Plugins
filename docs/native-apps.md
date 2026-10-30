@@ -1,5 +1,32 @@
 # Native Relic App contract
 
+Changes for the clients (current mapped text and cell-frame verification):
+the shared NativePath reader now checks the actual original-to-paint UTF-16
+map, independent source/paint ICU iterators, complete DWrite shaping clusters,
+retained line object/parent identities and actual arranged geometry. Canonical
+text stays the complete original source. The reference's DOMSnapshot layout.text
+is TransformedText, not textBox-clipped visible glyph text; actual 7df43bd soft
+wrapping retains a source space outside the two textBoxes. Source, shaping input,
+drawn line inputs and still-unmeasured final visible text are separate evidence.
+No line concatenation or reference-based normalization supplies missing text.
+Thirteen pure/recorded-source tests cover the new contract in CI.
+
+The macOS requested cell AX frame and capture content-screen frame are now
+exported by its branch and independently verified in the shared reader. Actual
+source strings, cell/window identities, bottom-left basis and exact cell/control
+screen geometry are required; the actual topLeft conversion must agree with raw
+and canonical window rectangles. Only this dedicated former missing-position
+issue is resolved by complete evidence; editor paint and all other gaps remain.
+Nine additional tests cover missing, conflicting and foreign frames.
+
+Windows settings navigation retains actual same-color brushes, restores them
+at real Loaded/Opened transitions and binds tab/template foreground together.
+Unchanged hover notifications no longer redraw seven labels. Actual 099b036
+had seven null navigation foregrounds in Appearance, and seven geometry/draw
+changes during hover. These changes address observed state handling; the
+internal WinUI cause of the initial null value is not asserted. Headless build
+passes with zero warnings/errors; fresh capture still must verify the repair.
+
 Changes for the clients (selectable notice text and actual recipient input):
 Windows notices now reuse the native selectable text renderer with their own
 UI-font 12px/19.2px centered-line policy. The existing path mode keeps its

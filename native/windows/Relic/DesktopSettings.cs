@@ -243,18 +243,26 @@ public sealed partial class MainWindow
         Canvas.SetZIndex(close, 1); pane.Children.Add(Scroll(content));
         var tabs = new Dictionary<string, (SelectorBarItem Item, NativeSettingsNavigationLabel Label, ReferenceVectorIcon Icon)>();
         var hoveredNavigationItems = new HashSet<SelectorBarItem>();
+        static SolidColorBrush NavigationPaint(Brush? current, SolidColorBrush desired) =>
+            current is SolidColorBrush actual && actual.Color.Equals(desired.Color) && actual.Opacity == desired.Opacity ? actual : desired;
         void PaintNavigation()
         {
-            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink;
+            navigationSurface.Background = NavigationPaint(navigationSurface.Background, Paint("F8F7F5", "191918"));
+            navigationSurface.BorderBrush = NavigationPaint(navigationSurface.BorderBrush, Line);
+            navTitle.Foreground = NavigationPaint(navTitle.Foreground, Ink);
             foreach (var tab in tabs.Values)
             {
                 var selected = tab.Item.IsSelected; var hovered = hoveredNavigationItems.Contains(tab.Item);
                 // Like .settings nav button.on, selection takes precedence over hover.
-                tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : hovered ? Paint("EFEEEA", "262624") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                tab.Item.Background = NavigationPaint(tab.Item.Background,
+                    selected ? Paint("E7E5DF", "2F2E2B") : hovered ? Paint("EFEEEA", "262624") : new SolidColorBrush(Microsoft.UI.Colors.Transparent));
                 var foreground = selected || hovered ? Ink : Paint("5A5853", "B8B5AE");
-                tab.Label.ApplyState(selected, foreground); tab.Icon.Foreground = foreground;
+                tab.Item.Foreground = NavigationPaint(tab.Item.Foreground, foreground);
+                tab.Label.ApplyState(selected, foreground);
+                tab.Icon.Foreground = NavigationPaint(tab.Icon.Foreground, foreground);
             }
         }
+        body.Loaded += (_, _) => PaintNavigation();
         body.ActualThemeChanged += (_, _) => PaintNavigation();
         var navigationBar = new SelectorBar
         {
@@ -343,11 +351,11 @@ public sealed partial class MainWindow
         {
             var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = new NativeSettingsNavigationLabel(T(label), words.Language); labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
-                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
+                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "settings-nav-" + key);
-            tab.PointerEntered += (_, _) => { hoveredNavigationItems.Add(tab); PaintNavigation(); };
-            tab.PointerExited += (_, _) => { hoveredNavigationItems.Remove(tab); PaintNavigation(); };
+            tab.PointerEntered += (_, _) => { if (hoveredNavigationItems.Add(tab)) PaintNavigation(); };
+            tab.PointerExited += (_, _) => { if (hoveredNavigationItems.Remove(tab)) PaintNavigation(); };
             navigationBar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
         }
         // One real selection model owns all navigation rows. Seven independent
@@ -360,6 +368,7 @@ public sealed partial class MainWindow
         };
         dialog.Opened += (_, _) =>
         {
+            PaintNavigation();
             dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0);
             if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
             if (DialogPart<Border>(dialog, "BackgroundElement") is { } background) { background.Padding = new Thickness(0); background.CornerRadius = new CornerRadius(16); }

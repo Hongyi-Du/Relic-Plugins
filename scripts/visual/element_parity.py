@@ -290,13 +290,16 @@ def native_path_failure_owners(elements: list[dict]) -> dict[str, dict]:
                 or any(counts[source_id] for source_id in source_ids)):
             continue
         receipt = proof.get("source_receipt")
-        if (not isinstance(receipt, dict) or receipt != raw_owner.get("native_path_evidence")
-                or owner.get("text") != receipt.get("source_text")):
+        if not isinstance(receipt, dict) or receipt != raw_owner.get("native_path_evidence"):
             continue
         # Reuse the exact production-object/span validator; this is a pure
         # validation call, not a capture or a second text/geometry projection.
         from windows_elements import native_path_binding
+        from native_path_source import native_path_source_contract
         try:
+            source_contract, source_error = native_path_source_contract(receipt)
+            if source_error is not None or owner.get("text") != source_contract["source_text"]:
+                continue
             lines, reason = native_path_binding(raw_owner, {item["id"]: item for item in raw})
         except (KeyError, TypeError, ValueError, AttributeError):
             continue

@@ -24,6 +24,7 @@ from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
 from windows_avatar_parts import windows_avatar_parts
+from native_path_source import native_path_source_contract, native_path_iterator
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -1743,6 +1744,9 @@ def native_path_binding(owner, by_id):
     encoded = source.encode("utf-16-le", "surrogatepass")
     if type(receipt.get("source_utf16_length")) is not int or len(encoded) != 2 * receipt["source_utf16_length"]:
         return None, "Actual path UTF-16 length differs from its retained source"
+    source_contract, source_error = native_path_source_contract(receipt)
+    if source_error:
+        return None, source_error
     layout = receipt.get("layout")
     layouts = layout.get("lines") if isinstance(layout, dict) else None
     bindings = receipt.get("actual_line_bindings")
@@ -1765,7 +1769,8 @@ def native_path_binding(owner, by_id):
                 or type(binding.get("line_count")) is not int or binding["line_count"] != len(bindings)
                 or any(binding.get(key) is not True for key in
                        ("same_retained_label_reference", "same_current_body_parent", "same_content_body", "label_is_loaded",
-                        "line_in_actual_visual_walk", "reaches_same_owner_object", "all_captured_edges_match", "source_slice_matches"))):
+                        "line_in_actual_visual_walk", "reaches_same_owner_object", "all_captured_edges_match"))
+                or not source_contract["mapped"] and binding.get("source_slice_matches") is not True):
             return None, "A retained NativeLabel lacks exact current object/render-id binding"
         label_identity = int(binding["label_identity"]["iunknown_identity"], 16)
         if label_identity in seen_labels:
@@ -1785,6 +1790,16 @@ def native_path_binding(owner, by_id):
             current = edge["parent_id"]; ancestors.add(current)
         if current != owner["id"]:
             return None, "Actual line parent chain does not end at the same path owner"
+        if source_contract["mapped"]:
+            actual = source_contract["line_contracts"][index]
+            arrangement = receipt["arranged_lines"][index]
+            local = line.get("local_bounds")
+            if (line.get("text") != actual["paint_text"] or not positive(local)
+                    or local["width"] != arrangement["actual_label_width"]
+                    or local["height"] != arrangement["actual_label_height"]):
+                return None, "Actual retained line paint text or local measured size differs from the arranged object receipt"
+            result.append(line); seen.add(line_id)
+            continue
         first, last = binding.get("start_utf16"), binding.get("end_utf16")
         if (type(first) is not int or type(last) is not int or first != position or last <= first or last * 2 > len(encoded)
                 or type(line_layout.get("start_utf16")) is not int or line_layout["start_utf16"] != first
@@ -1801,7 +1816,7 @@ def native_path_binding(owner, by_id):
                        for a, b in (("actual_line_y", "label_y"), ("actual_line_height", "line_height")))):
             return None, "The bound production line source or layout differs between actual receipts"
         result.append(line); seen.add(line_id); position = last
-    if position * 2 != len(encoded):
+    if not source_contract["mapped"] and position * 2 != len(encoded):
         return None, "Bound production lines do not cover the complete path source"
     recorded = {node["id"] for node in by_id.values() if isinstance(node.get("native_path_line_evidence"), dict)
                 and node["native_path_line_evidence"].get("owner_id") == owner["id"]}
@@ -1833,6 +1848,9 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
             gap("owner_paint", "Owner also has independently projected paint/semantics; it cannot silently become only text"); continue
         measured = [own_elements[eid][0] for eid in line_ids]
         receipt = owner["native_path_evidence"]
+        source_contract, source_error = native_path_source_contract(receipt)
+        if source_error:
+            gap("source_mapping", source_error); continue
         # Actual values must agree. An unmeasured/different line cannot inherit
         # its sibling's glyph font, paint or geometry to manufacture coverage.
         style = {}
@@ -1899,45 +1917,25 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
         if not isinstance(name, str):
             name = ""; gap("name", "Actual path owner accessible name was not measured")
         actual_layout = receipt.get("layout", {})
-        icu = actual_layout.get("icu")
-        iterators = icu.get("iterators") if isinstance(icu, dict) else None
-        def complete_iterator(typ):
-            if not isinstance(iterators, list):
-                return False
-            matches = [row for row in iterators if isinstance(row, dict)
-                       and type(row.get("type")) is int and row["type"] == typ]
-            if len(matches) != 1:
-                return False
-            row = matches[0]
-            boundaries = row.get("boundaries_utf16")
-            encoded = receipt["source_text"].encode("utf-16-le", "surrogatepass")
-            return (type(row.get("open_status")) is int and row["open_status"] <= 0
-                    and isinstance(boundaries, list) and len(boundaries) >= 2
-                    and all(type(position) is int for position in boundaries)
-                    and boundaries[0] == 0 and boundaries[-1] == len(encoded) // 2
-                    and all(left < right for left, right in zip(boundaries, boundaries[1:]))
-                    and not any(0 < position < len(encoded) // 2
-                                and 0xD800 <= int.from_bytes(encoded[position * 2 - 2:position * 2], "little") <= 0xDBFF
-                                and 0xDC00 <= int.from_bytes(encoded[position * 2:position * 2 + 2], "little") <= 0xDFFF
-                                for position in boundaries))
-        policy = (isinstance(icu, dict) and icu.get("source") == "Actual system ICU ubrk iterators over the unchanged production source"
-                  and icu.get("source_text") == receipt["source_text"] and all(complete_iterator(typ) for typ in (0, 2)))
+        icu = actual_layout.get("paint_icu" if source_contract["mapped"] else "icu")
+        policy = all(native_path_iterator(icu, source_contract["paint_text"], typ) is not None for typ in (0, 2))
         measured_count = all(type(element.get("layout", {}).get("line_count")) is int and element["layout"]["line_count"] > 0 for element in measured)
         line_count = sum(element["layout"]["line_count"] for element in measured) if measured_count else None
         trims = [element.get("layout", {}).get("truncation") for element in measured]
         layout = {"wrap": None, "break_strategy_version": 1, "normal_break_strategy": "word" if policy else None,
-                  "emergency_break_strategy": "break-unbreakable" if policy else None,
+                  "emergency_break_strategy": ("none" if source_contract["normal_whitespace"] else "break-unbreakable") if policy else None,
                   "line_count": line_count if measured_count else None,
                   "truncation": trims[0] if trims[0] is not None and all(value == trims[0] for value in trims) else None}
         if not policy:
             gap("break_strategy", "Actual ICU source-bound line/character iterator receipts are incomplete")
+        gap("visible_text", "Complete production source and actual per-line drawing inputs are retained; final visible glyph text is not established by source-to-paint mapping")
         ancestor_ids = dict.fromkeys(part_id
             for binding in receipt["actual_line_bindings"]
             for edge in binding["actual_ancestor_edges"]
             for part_id in (edge["child_id"], edge["parent_id"])
             if part_id not in {owner["id"], *line_ids})
         element = {"id": owner["id"], "parent": owner.get("parent"), "region": owner["region"], "order": measured[0]["order"],
-                   "kind": "text", "text": receipt["source_text"], "name": name,
+                   "kind": "text", "text": source_contract["source_text"], "name": name,
                    "bounds": union_boxes(geometry) if geometry_complete else None,
                    "visible_bounds": union_boxes(visible_geometry) if geometry_complete else None,
                    "style": style, "state": state, "layout": layout, "icon": None,
@@ -1945,14 +1943,24 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
                                 "type": owner["type"], "uia_id": witness["id"] if witness else None,
                                 "uia_identity_binding": copy.deepcopy(pairs[0]) if witness else None,
                                 "native_path_projection": {"source_receipt": copy.deepcopy(receipt), "source_line_ids": line_ids,
+                                                           "validated_source_to_paint": copy.deepcopy(source_contract),
                                                            "independent_line_elements": copy.deepcopy(measured), "raw_owner": copy.deepcopy(owner),
                                                            "raw_lines": copy.deepcopy(lines),
                                                            "raw_ancestors": [copy.deepcopy(by_id[part_id]) for part_id in ancestor_ids],
                                                            "other_child_paint_merged": False},
                                 "text_bounds": geometry if geometry_complete else None, "text_coordinate_space": "content-window",
                                 "text_bounds_quantity": "Actual rendered-face font metrics around actual draw baselines plus actual glyph advances",
+                                "text_quantity": {"canonical": "Complete actual NativePathText.SourceText; not a measured visible glyph string",
+                                                  "source_text": source_contract["source_text"],
+                                                  "shaping_input": source_contract["paint_text"],
+                                                  "shaping_input_quantity": "Whole production unwrapped shaping input; may include undrawn line-edge whitespace",
+                                                  "line_inputs": [{"line_id": line["id"], "text": line["text"],
+                                                                   "source_binding": copy.deepcopy(line["native_path_line_evidence"])} for line in lines],
+                                                  "line_inputs_quantity": "Actual retained NativeLabel strings in source order; no inferred joining separator",
+                                                  "visible_text": None,
+                                                  "visible_text_reason": "Source ownership and current line inputs do not establish final screen visibility, clipping, occlusion or pixel contribution"},
                                 "owner_layout_bounds": copy.deepcopy(owner.get("bounds")),
-                                "line_break_configuration": {"applicable": True, "source": "Actual NativePathText ICU normal-boundary / safe-cluster emergency production policy",
+                                "line_break_configuration": {"applicable": True, "source": "Actual NativePathText retained ICU/source-to-paint production policy",
                                                              "owner": owner["id"], "raw": copy.deepcopy(actual_layout),
                                                              "errors": [] if policy else ["Actual iterator source binding is incomplete"]},
                                 "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,

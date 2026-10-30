@@ -6,7 +6,8 @@ from copy import deepcopy
 import unittest
 
 from element_parity import validate_capture
-from macos_field_editor import CONTRACT, PROVIDER, SOURCE, field_editor_aliases, retained_editor_measurements
+from macos_field_editor import (CELL_FRAME_SOURCE, CONTENT_FRAME_SOURCE, CONTRACT, PROVIDER, SCREEN_SPACE,
+                               SOURCE, field_editor_aliases, retained_editor_measurements)
 
 
 def synthetic_alias(editor_class="ObservedFieldEditor", value="人😀"):
@@ -54,7 +55,140 @@ def capture(item):
             "coverage": {"raw_nodes": 2, "emitted_elements": 1, "unmeasured": []}, "elements": [item]}
 
 
+def synthetic_measured_screen_alias():
+    """Synthetic d2fdff1 measurement shape, not a recorded AppKit observation."""
+    item = synthetic_alias()
+    raw = item["evidence"]
+    receipt = raw["native_field_editor"]
+    box = {"x": 40, "y": 50, "width": 195, "height": 32.5}
+    item["bounds"] = deepcopy(box)
+    item["visible_bounds"] = deepcopy(box)
+    raw["rect"] = deepcopy(box)
+    raw["visibleRect"] = deepcopy(box)
+    screen = {"x": 1040, "y": 2817.5, "width": 195, "height": 32.5}
+    receipt["owner_screen_bounds"] = deepcopy(screen)
+    receipt["owner_ax_frame"] = {
+        "source": CELL_FRAME_SOURCE, "owner_identity": raw["object_identity"],
+        "coordinate_space": SCREEN_SPACE, "bounds": deepcopy(screen)}
+    receipt["content_screen_frame"] = {
+        "source": CONTENT_FRAME_SOURCE, "window_identity": receipt["window_identity"],
+        "bounds": {"x": 1000, "y": 2000, "width": 1440, "height": 900}}
+    editor_screen = {"x": 1049, "y": 2824, "width": 151, "height": 20}
+    receipt["editor_screen_bounds"] = deepcopy(editor_screen)
+    raw["owned_editor_evidence"]["native_view_geometry"]["screen_bounds"] = deepcopy(editor_screen)
+    return item
+
+
 class MacFieldEditorTests(unittest.TestCase):
+    def test_complete_actual_cell_and_content_frames_prove_only_position(self):
+        item = synthetic_measured_screen_alias()
+        original = deepcopy(item)
+        result, = field_editor_aliases([item])
+        self.assertTrue(result["binding_valid"], result["issues"])
+        self.assertEqual(result["measurement_issues"], [])
+        proof = result["cell_screen_position"]
+        self.assertTrue(proof["screen_position_relation_proven"])
+        self.assertEqual(proof["converted_cell_frame"], item["evidence"]["rect"])
+        self.assertFalse(result["retained_measurements"]["state"]["focused"])
+        self.assertIsNone(result["retained_measurements"]["style"]["background"])
+        self.assertEqual(item, original)
+
+    def test_actual_negative_display_origin_uses_content_frame_not_display_size(self):
+        item = synthetic_measured_screen_alias()
+        receipt = item["evidence"]["native_field_editor"]
+        receipt["content_screen_frame"]["bounds"].update(x=-1440, y=-900)
+        receipt["owner_ax_frame"]["bounds"].update(x=-1400, y=-82.5)
+        receipt["owner_screen_bounds"].update(x=-1400, y=-82.5)
+        receipt["editor_screen_bounds"].update(x=-1391, y=-76)
+        item["evidence"]["owned_editor_evidence"]["native_view_geometry"]["screen_bounds"].update(x=-1391, y=-76)
+        result, = field_editor_aliases([item])
+        self.assertEqual(result["measurement_issues"], [])
+        self.assertEqual(result["cell_screen_position"]["converted_cell_frame"], item["bounds"])
+
+    def test_missing_or_foreign_measurement_frames_keep_the_position_failure(self):
+        mutations = [
+            ("owner_ax_frame", None, None), ("content_screen_frame", None, None),
+            ("owner_ax_frame", "source", "copied control position"),
+            ("owner_ax_frame", "owner_identity", "foreign-cell"),
+            ("owner_ax_frame", "coordinate_space", "window coordinates (top-left)"),
+            ("owner_ax_frame", "bounds", None),
+            ("content_screen_frame", "source", "NSScreen.frame"),
+            ("content_screen_frame", "window_identity", "foreign-window"),
+            ("content_screen_frame", "coordinate_space", "AX global top-left"),
+            ("content_screen_frame", "bounds", None),
+        ]
+        for frame, field, value in mutations:
+            with self.subTest(frame=frame, field=field):
+                item = synthetic_measured_screen_alias()
+                receipt = item["evidence"]["native_field_editor"]
+                if field is None:
+                    del receipt[frame]
+                else:
+                    receipt[frame][field] = value
+                original = deepcopy(item)
+                result, = field_editor_aliases([item])
+                self.assertFalse(result["cell_screen_position"]["screen_position_relation_proven"])
+                self.assertEqual(len(result["measurement_issues"]), 1)
+                self.assertEqual(item, original)
+
+    def test_each_cell_and_control_coordinate_is_independently_checked(self):
+        for frame in ("owner_ax_frame", "owner_screen_bounds"):
+            for coordinate in ("x", "y", "width", "height"):
+                with self.subTest(frame=frame, coordinate=coordinate):
+                    item = synthetic_measured_screen_alias()
+                    receipt = item["evidence"]["native_field_editor"]
+                    bounds = receipt[frame]["bounds"] if frame == "owner_ax_frame" else receipt[frame]
+                    bounds[coordinate] += 1
+                    self.assertTrue(field_editor_aliases([item])[0]["measurement_issues"])
+
+    def test_actual_content_origin_and_max_y_must_reproduce_raw_rect(self):
+        for coordinate in ("x", "y", "height"):
+            with self.subTest(coordinate=coordinate):
+                item = synthetic_measured_screen_alias()
+                item["evidence"]["native_field_editor"]["content_screen_frame"]["bounds"][coordinate] += 1
+                result, = field_editor_aliases([item])
+                self.assertTrue(result["measurement_issues"])
+                self.assertTrue(any("converted" in failure for failure in result["cell_screen_position"]["failures"]))
+
+    def test_raw_and_canonical_owner_boxes_cannot_be_filled_from_the_receipt(self):
+        for coordinate in ("x", "y", "width", "height"):
+            for field in ("raw", "canonical"):
+                with self.subTest(coordinate=coordinate, field=field):
+                    item = synthetic_measured_screen_alias()
+                    bounds = item["evidence"]["rect"] if field == "raw" else item["bounds"]
+                    bounds[coordinate] += 1
+                    original = deepcopy(item)
+                    self.assertTrue(field_editor_aliases([item])[0]["measurement_issues"])
+                    self.assertEqual(item, original)
+
+    def test_nonfinite_boolean_or_zero_frame_measurements_remain_unknown(self):
+        for frame in ("owner_ax_frame", "content_screen_frame"):
+            for coordinate, value in (("x", float("inf")), ("y", True), ("width", 0), ("height", -1)):
+                with self.subTest(frame=frame, coordinate=coordinate, value=value):
+                    item = synthetic_measured_screen_alias()
+                    item["evidence"]["native_field_editor"][frame]["bounds"][coordinate] = value
+                    self.assertTrue(field_editor_aliases([item])[0]["measurement_issues"])
+
+    def test_matching_frames_cannot_override_a_foreign_alias_binding(self):
+        item = synthetic_measured_screen_alias()
+        item["evidence"]["native_field_editor"]["control_cell_identity"] = "other-cell"
+        result, = field_editor_aliases([item])
+        self.assertFalse(result["binding_valid"])
+        self.assertFalse(result["cell_screen_position"]["screen_position_relation_proven"])
+
+    def test_reader_removes_only_the_measured_cell_position_error(self):
+        item = synthetic_measured_screen_alias()
+        data = capture(item)
+        original = deepcopy(data)
+        errors = validate_capture(data, "macos", data["scene_id"], data["viewport"])
+        self.assertFalse(any("Cell screen-position cross-check is unmeasured" in error["reason"] for error in errors))
+        owned = [error for error in errors if error.get("source_element") == "synthetic-editor"]
+        self.assertTrue(any("Missing measured paint: background" in error["reason"] for error in owned))
+        self.assertTrue(any("outline" in error["reason"].lower() for error in owned))
+        self.assertTrue(any("font families" in error["reason"] for error in owned))
+        self.assertEqual(data, original)
+        self.assertEqual(len(data["elements"]), 1)
+
     def test_exact_current_binding_does_not_substitute_ax_focus_or_paint(self):
         for native_class in ("ObservedFieldEditor", "_SystemTextFieldFieldEditor"):
             with self.subTest(native_class=native_class):
