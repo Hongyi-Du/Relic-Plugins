@@ -1,3 +1,31 @@
+## 2026-10-30: actual AppKit field-editor ownership and next shared assertion
+
+9a468f8 actual capture confirms the rename microphone has its own icon-button
+identity/name again; its input surface is 177x33 and still contains an extra
+active `_SystemTextFieldFieldEditor` input. The later native field is 195x32.4.
+c40e136 records `NSTextField.currentEditor()` for the mounted MemberRenameField
+control, then projects only that editor's duplicate input representation onto
+the actual owner when object identities, input roles, identifier, window,
+first responder and current values are unique and consistent. The raw AX tree,
+`native_field_editor` receipt and complete `owned_editor_evidence` remain.
+Actual visible descendants are retained/reparented; no geometry/style/value
+is copied from the editor onto the control. Missing/stale/ambiguous bindings
+keep both elements and append an extraction failure. Mounted receipt tests
+and nine negative binding mutations cover the rule; fresh CI remains pending.
+
+Please independently validate `native_field_editor.contract ==
+appkit-current-field-editor-v1`, native owner/editor/current-editor identities,
+matching window/value/focus, and the raw retained editor in the shared macOS
+reader when accepting this alias. It is a single visible native input with
+an AppKit implementation editor, not an accepted extra element or exception.
+
+New shared CI failure at 2ffd371 run 41057256619 job 124069844328:
+`WindowsOutlineTests.test_exact_person_picture_parent_contract_does_not_clear_nonzero_template_brushes`
+still requires text `Control container only`, whereas current evidence says
+`Exact SDK PersonPicture or sealed retained-paint subclass container only; ...`.
+Please update the stale wording assertion while preserving every nonzero-brush
+and independent descendant paint check.
+
 ## 2026-10-30: verified input measurements and current diagnostic report
 
 bcb9387 release compiled; 207/208 tests passed. The explicit per-line input
