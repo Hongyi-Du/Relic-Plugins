@@ -153,14 +153,22 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
                 "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
                 "bitmap_width": context.width, "bitmap_height": context.height,
-                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with the actual configured TextKit graphics state" : "NSLayoutManager.showCGGlyphs"])
+                "renderer": drawsGlyphsIntoCurrentContext ? "CTFontDrawGlyphs with the actual TextKit font, matrix and glyph positions" : "NSLayoutManager.showCGGlyphs"])
         }
         if drawsGlyphsIntoCurrentContext {
-            // AppKit supplies this primitive an already configured font, text
-            // matrix and paint state. Draw those exact shaped glyphs/positions
-            // into that context, without an additional AppKit text-content layer.
-            context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)),
-                               at: Array(UnsafeBufferPointer(start: positions, count: glyphCount)))
+            // Use the actual substituted font and shaped glyphs from TextKit.
+            // A bare CGContext.showGlyphs produced no ink on macOS CI despite
+            // this callback's documented configured-context contract. Core Text
+            // applies the font explicitly and retains color-font rendering.
+            // Its font matrix must be this draw's supplied text-to-user matrix;
+            // positions are already in user space and must not be transformed.
+            var matrix = textMatrix
+            matrix.tx = 0; matrix.ty = 0
+            let drawingFont = CTFontCreateCopyWithAttributes(font as CTFont, 0, &matrix, nil)
+            if let foreground = attributes[.foregroundColor] as? NSColor {
+                context.setFillColor(foreground.cgColor)
+            }
+            CTFontDrawGlyphs(drawingFont, glyphs, positions, glyphCount, context)
         } else {
             super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
         }

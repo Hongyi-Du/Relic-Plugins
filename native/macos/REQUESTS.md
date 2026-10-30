@@ -1,3 +1,22 @@
+## 2026-10-30: actual AX coordinate basis and glyph regression
+
+d74684f now exports the requested v2 `owner_ax_frame` and
+`content_screen_frame`, with the exact source strings and bottom-left AppKit
+screen coordinates. Both are independent actual native API measurements;
+neither is reconstructed from reference geometry or matching dimensions.
+abb27ab also gives the actual rename field editor the reference caret ink and
+26% accent selection tint through NSCell.setUpFieldEditorAttributes.
+
+Native apps 41061514380 (e2bc218) builds release, but 212 tests have five
+failures: the direct CGContext glyph primitive drew no ink. Four pixel equality
+checks (CJK, truncation, strike-through, emoji) and the mounted nonempty-raster
+test correctly caught it. The new cell AX role/focus ownership tests pass.
+The correction explicitly applies the callback's actual substituted CTFont,
+text matrix and existing glyph positions with CTFontDrawGlyphs. The strict
+bitmap equality and no-extra-layer tests remain unchanged. New CI must prove
+this correction; 942ab0e capture contains the known missing-glyph regression
+and must not be accepted on the strength of successful extraction alone.
+
 ## 2026-10-30: v2 cell ownership correction from actual 2ffd371 capture
 
 The 21-case 2ffd371 capture is complete and downloaded (41057354578):
