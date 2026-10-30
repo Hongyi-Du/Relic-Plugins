@@ -3,6 +3,36 @@ import AppKit
 @testable import Relic
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
+    func testActualAttributeDrawsBindRichSpansWithoutChangingTheRenderedBitmap() throws {
+        let source = NativeTextStyle.render(try AttributedString(markdown: "Before **bold 组织** after →"), size: 14)
+        let bold = (source.string as NSString).range(of: "bold 组织")
+        var bitmaps: [Data] = []
+        for mode in 0..<3 {
+            let manager = mode == 0 ? UnpartitionedGlyphManager() : NativeGlyphLayoutManager()
+            manager.recordDraws = mode == 1
+            let storage = NSTextStorage(attributedString: source)
+            let container = NSTextContainer(containerSize: NSSize(width: 300, height: 80))
+            container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container)
+            let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 80), textContainer: container)
+            view.textContainerInset = .zero; view.isEditable = false; view.drawsBackground = false
+            manager.ensureLayout(for: container)
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            bitmaps.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            if mode == 1 {
+                let actual = manager.fontEvidence(for: bold, in: view)
+                XCTAssertEqual(actual["status"] as? String, "measured-current-draw")
+                let fonts = try XCTUnwrap(actual["fonts"] as? [[String: Any]])
+                XCTAssertFalse(fonts.isEmpty)
+                XCTAssertTrue(fonts.allSatisfy { $0["postscript_name"] as? String == "PingFangSC-Semibold" })
+                XCTAssertEqual(actual["source_draw_spans"] as? [[String: Int]], [["location": bold.location, "length": bold.length]])
+                XCTAssertTrue(manager.fontEvidence(for: NSRange(location: bold.location + 1, length: 2), in: view)["fonts"] is NSNull,
+                              "An arbitrary substring still has no independent actual draw invocation")
+            }
+        }
+        XCTAssertEqual(bitmaps[0], bitmaps[1], "Partitioning actual TextKit paint must not alter the glyph pixels")
+        XCTAssertEqual(bitmaps[1], bitmaps[2], "Capture observation must use the same production drawing")
+    }
     func testOnlyTheCurrentActualDrawSuppliesACompleteLabelsFonts() throws {
         let view = ReferenceLabel("Relic → 组织", size: 14, lines: 0).makeLabelView()
         let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
@@ -80,4 +110,8 @@ import AppKit
         } }
         XCTAssertGreaterThan(darkPixels, 20, "The observed draw must paint text into the actual bitmap")
     }
+}
+
+private final class UnpartitionedGlyphManager: NativeGlyphLayoutManager {
+    override func glyphPaintRanges(_ requested: NSRange) -> [NSRange] { [requested] }
 }

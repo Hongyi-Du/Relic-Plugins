@@ -1,5 +1,20 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+`2cb073c` macOS Native apps job `123917017688` (run `41011131346`) passed
+release build and all **143 tests**. The unchanged six-point dialog shadow
+test now passes after the raster-outset fix. Actual `27e39b3` window PNGs
+also retain the shadow outside the card; artifacts are downloaded locally.
+
+New rich-text font evidence is being tested against actual native drawing:
+the production layout manager draws its already-shaped glyphs per attributed
+range, keeping overlapping glyph clusters indivisible. Each actual callback
+now retains the source range of that invocation. Font projection requires an
+exact cover by completed calls; arbitrary substrings remain unknown. No
+re-shaping or reference font data supplies actual fonts. The new bitmap test
+compares this production draw with an unsplit TextKit draw, and compares
+capture enabled/disabled. Final PNG attribution is still explicitly unproven.
+
+
 **bbe04a3 diagnostic results, 2026-10-30:** all 19 native cases captured,
 including the loaded member-card rename action and Copy continuity. The group
 composer's actual native AX bounds now equal the reference's 758x26 viewport.
