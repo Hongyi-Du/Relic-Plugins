@@ -1,5 +1,14 @@
 # macOS 原生 Relic App：逐元素验收
 
+最新构建验证：[41061514380](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41061514380)
+（e2bc218）release 成功，212 项测试中 207 项通过、5 项失败。失败均为新的直接字形绘制
+没有产生文字像素；中英文、截断、删除线、emoji 和实际窗口像素测试正确阻止了该回归。
+原生重命名单元格 AX 角色、编辑器归属与焦点测试通过。修复改用实际 TextKit 回调的
+替换字体、文字矩阵及原始字形位置调用 CTFontDrawGlyphs，保留全部严格像素测试，等待 CI。
+`d74684f` 已补齐共享方要求的实际单元格 AX 屏幕矩形及窗口坐标基准；
+`abb27ab` 调整实际编辑器光标颜色和选择底色。以上源代码变化均不算逐元素验收通过。
+`942ab0e` 的 21 场景采集虽完成，但包含上述文字消失回归，不可称为可用候选。
+
 最新可复核诊断报告：`2ffd371`，位于
 `S:\Codex\Outputs\Relic-native-visual\parity-2ffd371\report\`，
 [CI 41057354578](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41057354578)。
