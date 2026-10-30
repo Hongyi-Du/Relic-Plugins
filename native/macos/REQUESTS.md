@@ -1,5 +1,20 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `6183507` / independent outline and measured-icon pairing. macOS now
+draws its separate outline through the actual native surface view, retaining the
+submitted CGPath, width, phase, dash, color, context clip/transform and current
+view/window/configuration binding. It projects that actual stroke centerline to
+window coordinates under the shared outline schema. Missing current draws and
+unknown owner focus/template paint stay unknown; no blanket `none` is emitted.
+Final-PNG attribution and browser dash/contour equivalence remain unproved.
+New actual-raster phase/corner/clear-receipt tests await CI. The earlier generic
+"comparison unimplemented" error is replaced by current canonical unknown fields
+and specific draw binding errors, not an exception or suppressed mismatch.
+
+Current verified macOS build is `e680244`, run `41001469107`, job `123886607450`:
+133 tests pass, including actual logo paint. Mounted-Copy smoke `41001468895`
+was still pending at this update; the old 18/19 result is not its validation.
+
 Full-run timeout diagnosis: `56253c7` / `40996703093`, macOS en-US/dark job
 `123871871096`, starts 148 cases over 1192.319 seconds and writes 147 PNG/element
 pairs before the 1200-second total native wait cuts it off. CI's actual progress

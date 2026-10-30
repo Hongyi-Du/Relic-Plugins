@@ -55,7 +55,6 @@ struct RecordedSurface: ViewModifier {
             }
             .overlay { if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) } }
             .overlay { if insetRingWidth > 0 { shape.inset(by: borderWidth).strokeBorder(insetRingColor, lineWidth: insetRingWidth).allowsHitTesting(false) } }
-            .overlay { if let outline { shape.strokeBorder(outline.color, style: StrokeStyle(lineWidth: outline.width, dash: outline.dash)).allowsHitTesting(false) } }
             .background {
                 if outerRingWidth > 0 {
                     RoundedRectangle(cornerRadius: radius + outerRingWidth).strokeBorder(outerRingColor, lineWidth: outerRingWidth).padding(-outerRingWidth).allowsHitTesting(false)
@@ -67,7 +66,7 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline))
+            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
     }
 }
 
@@ -76,10 +75,11 @@ struct SurfaceRing {
     let color: Color
 }
 
-struct SurfaceOutline {
+struct SurfaceOutline: Equatable {
     let width: CGFloat
     let color: Color
     let dash: [CGFloat]
+    var phase: CGFloat = 0
 }
 
 struct SurfaceShadow {
@@ -143,7 +143,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.insetRingWidth = insetRingWidth; view.insetRingColor = NSColor(insetRingColor)
         view.outerRingWidth = outerRingWidth; view.outerRingColor = NSColor(outerRingColor)
         view.rings = rings
-        view.outline = outline
+        view.configureOutline(outline, corners: view.cornerRadii)
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
@@ -164,6 +164,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
                         "renderer": "Separate inward outline stroke; not a layout border"]
                 }
             }
+            let outlineDraw = view.outlineReceipt(in: content)
             // SwiftUI materializes its opacity on the representable's native
             // ancestry. The environment value describes that SAME operation;
             // multiplying it again reports .35 squared for a .35 surface.
@@ -175,8 +176,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
                               "border_widths": view.widths.map { Double($0) },
                               "border_styles": view.widths.map { $0 == 0 ? "none" : view.borderDash.isEmpty ? "solid" : "dashed" },
                               "border_colors": Array(repeating: border, count: 4), "corner_radii": view.cornerRadii.map { Double($0) },
-                              "opacity": opacity, "background_image": "none", "shadow": shadows, "native_outline": outline],
-                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
+                              "opacity": opacity, "background_image": "none", "shadow": shadows, "native_outline": outline, "outline": outlineDraw.paint],
+                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius", "outline": outlineDraw.evidence]]
         }
     }
     final class SurfaceView: NSView {
@@ -195,8 +196,50 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var region = "window"
         var insetRingWidth: CGFloat = 0, outerRingWidth: CGFloat = 0
         var rings: [SurfaceRing] = []
-        var outline: SurfaceOutline?
+        private(set) var outline: SurfaceOutline?
+        private var outlineCorners: [CGFloat] = [0,0,0,0]
+        private(set) var outlineRevision = 0
+        private var drawSequence = 0
+        private(set) var lastOutlineDraw: OutlineDrawReceipt?
+        var recordDraws = VisualCapture.enabled
         var insetRingColor = NSColor.clear, outerRingColor = NSColor.clear
+        override var isFlipped: Bool { true }
+        func configureOutline(_ value: SurfaceOutline?, corners: [CGFloat]) {
+            guard outline != value || outlineCorners != corners else { return }
+            outline = value; outlineCorners = corners; outlineRevision += 1; needsDisplay = true
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            guard let outline, let context = NSGraphicsContext.current?.cgContext,
+                  let color = NSColor(outline.color).usingColorSpace(.sRGB) else { return }
+            let corners = outlineCorners
+            let path = UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3],
+                bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
+                .inset(by: outline.width / 2).path(in: bounds).cgPath
+            context.saveGState()
+            context.setLineWidth(outline.width); context.setLineDash(phase: outline.phase, lengths: outline.dash)
+            context.setLineCap(.butt); context.setLineJoin(.miter); context.setStrokeColor(color.cgColor)
+            let transform = context.ctm, clip = context.boundingBoxOfClipPath
+            context.addPath(path); context.strokePath(); context.restoreGState()
+            if recordDraws {
+                drawSequence += 1
+                lastOutlineDraw = OutlineDrawReceipt(path: path, bounds: bounds, width: outline.width,
+                    dash: outline.dash, phase: outline.phase,
+                    color: [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent].map { Double($0 * 255) },
+                    contextTransform: transform, contextClip: clip, revision: outlineRevision, sequence: drawSequence,
+                    viewIdentity: String(describing: ObjectIdentifier(self)),
+                    windowIdentity: window.map { String(describing: ObjectIdentifier($0)) })
+            }
+        }
+        func outlineReceipt(in content: NSRect) -> (paint: Any, evidence: [String: Any]) {
+            guard outline != nil else {
+                return (NSNull(), ["source": "production surface outline renderer", "absence_proven": false,
+                    "errors": ["This surface has no separate outline; other owner focus/template paint is not yet covered"]])
+            }
+            guard let lastOutlineDraw else {
+                return (NSNull(), ["source": "production surface outline renderer", "errors": ["No completed outline draw"]])
+            }
+            return lastOutlineDraw.projected(view: self, content: content, currentRevision: outlineRevision)
+        }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
     }
