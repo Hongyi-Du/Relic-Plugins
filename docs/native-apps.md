@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (06b914e actual CI results): smoke run 41075263281
+contains 22 scene attempts and remains failed with zero accepted scenes.
+Windows has six capture failures: settings hover after extraction, three
+zero-height UIA text-range cases and two pane-resize state changes. The earlier
+settings NativeLabel preparation failure is gone. Both full reports and raw
+captures are retained under `S:\Codex\Outputs\Relic-native-visual\parity-06b914e\`.
+The obsolete 54d07fc full run 41070217895 was cancelled with its partial evidence
+retained to free runners for current commits; it is not a successful matrix.
+The 78a9673 Windows paint trace now observes all three real README list items
+after the fixture LF correction; trace loss and layer attribution still fail.
+
+The merged macOS request adds actual TextKit-to-CGImage backing-layer receipts
+and unchanged bitmap/layer assertions. These are still pending CI confirmation.
+Windows core tests passed 48 cases; the capture test project exposed a missing
+compile link to NativeGlyphBounds, now corrected. The thread-open action also
+refreshes toolbar selection, following the same fix as file/pane navigation.
+
 Changes for the clients (production navigation state): the actual db91b1b
 file-code capture showed the Files inspector beside a stale Overview toolbar
 selection. OpenFile, SetPane and panel/sidebar toggles now refresh the real
