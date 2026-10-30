@@ -1,3 +1,27 @@
+## 2026-10-30: actual 86357fe focus/badge results and observable search input
+
+Smoke 41098292475 produced 22 macOS captures in `parity-86357fe/macos`.
+The recipient button now owns actual focus; the expanded live-tool button owns
+focus; new-org's ordinary name input is focused. Actual group navigation now
+reads button / icon / count for both header notifications. These observations
+are from the captured tree, not a matcher reorder. The final joint report is
+still pending. This commit also contains the latest native-apps `215a313`.
+
+The search placeholder was visibly rendered but had no measured foreground,
+render-run font, text bounds or line configuration. Sidebar now uses an ordinary
+NSTextField/NSCell with an observed read-only TextKit placeholder child and an
+ObservedFieldEditor. The input retains editing, selection, IME and accessibility;
+the single child label binds to its actual `relic-input/sidebar-search` owner.
+No hidden replacement source or reference-derived font receipt is supplied.
+The actual input height follows the reference's 14px × 1.6 line box. New mounted
+CN/EN glyph/value/selection/focus tests and the same-scene capture must verify it.
+
+Opaque diagnostics: recipients has 25 candidates (16 behind the target, 9 with
+an unmeasured compositing filter); new-org has 16 (8 / 8). None is accepted as
+occluded. The pointer receiver in message-hover is an actual DocumentView whose
+AX hit remains a HostingScrollView; virtual child hover stays unknown. Raw
+measurements remain in the artifacts. No tolerance, exception or matrix change.
+
 ## 2026-10-30: 236-test results and the shadow composition regression
 
 Native apps 41097402930 / macOS 124209280678 (`663ced3`) builds and runs 236 tests.
