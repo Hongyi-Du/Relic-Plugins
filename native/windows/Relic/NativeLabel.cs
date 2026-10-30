@@ -238,6 +238,7 @@ public sealed class NativeLabel : Panel
         ["current_submission"] = new JsonObject { ["source"] = "Actual NativeLabel state at receipt capture",
             ["is_loaded"] = IsLoaded, ["queued"] = queued, ["rendering"] = rendering,
             ["surface_binding_same_com_identity"] = ProductionSurfaceBindingMatches() },
+        ["foreground_resolution"] = ObserveForegroundBinding(),
         ["last_failure"] = failure, ["draw"] = receipt?.DeepClone(),
         ["surface_readback"] = readback?.Snapshot(),
         ["presentation_frame"] = null,
@@ -277,6 +278,22 @@ public sealed class NativeLabel : Panel
             brushOpacityToken = foreground.RegisterPropertyChangedCallback(Brush.OpacityProperty, (_, _) => { InvalidateDraw(); QueueDraw(); });
         }
         InvalidateDraw(); QueueDraw();
+    }
+    private JsonObject ObserveForegroundBinding()
+    {
+        static JsonObject? BrushObservation(Brush? value) => value == null ? null : new JsonObject
+        {
+            ["type"] = value.GetType().FullName, ["opacity"] = value.Opacity,
+            ["rgba8"] = value is SolidColorBrush color ? new JsonArray(color.Color.R, color.Color.G, color.Color.B, color.Color.A) : null
+        };
+        var local = Foreground; var inherited = presenter?.Foreground; var effective = local ?? inherited;
+        return new JsonObject
+        {
+            ["source"] = "Actual NativeLabel Foreground, retained ContentPresenter and subscribed brush",
+            ["explicit"] = BrushObservation(local), ["presenter"] = BrushObservation(inherited),
+            ["subscribed"] = BrushObservation(foreground), ["same_effective_brush_reference"] = ReferenceEquals(effective, foreground),
+            ["presenter_loaded"] = presenter?.IsLoaded, ["label_loaded"] = IsLoaded
+        };
     }
     private void DetachSubscriptions()
     {
@@ -456,7 +473,11 @@ public sealed class NativeLabel : Panel
         var began = false; var clipped = false;
         try
         {
-            if (foreground == null) throw new NotSupportedException("NativeLabel requires an actual explicit or ContentPresenter SolidColorBrush foreground");
+            // A reparent/unload can retire subscriptions before a queued draw.
+            // Resolve the current production property again at paint time;
+            // never draw from a detached cached brush or invent a fallback.
+            if (!ReferenceEquals(foreground, (Foreground ?? presenter?.Foreground) as SolidColorBrush)) ObserveForeground();
+            if (foreground == null) throw new NotSupportedException("NativeLabel requires an actual explicit or ContentPresenter SolidColorBrush foreground; " + ObserveForegroundBinding().ToJsonString());
             scale = XamlRoot?.RasterizationScale ?? 1;
             EnsureLayout((float)arrangedWidth, (float)arrangedHeight);
             EnsureSurface(checked((int)Math.Ceiling(arrangedWidth * scale)), checked((int)Math.Ceiling(arrangedHeight * scale)));

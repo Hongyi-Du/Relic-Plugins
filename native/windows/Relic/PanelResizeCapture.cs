@@ -45,6 +45,30 @@ internal static class PanelResizeToolTipReadiness
     }
 }
 
+// Pure timing contract for the already existing 1000 ms post-gesture budget.
+// This does not predict whether ToolTipService armed/canceled a timer. It waits
+// through its measured initial mouse delay and an actual dispatcher turn, then
+// requires the current observed hover/tooltip state. Later event continuity is
+// still checked independently and every event remains in the original journal.
+internal static class PanelResizeSettling
+{
+    internal const double DeadlineMilliseconds = 1000;
+    internal static string Status(double elapsed, uint? systemMouseHoverMilliseconds,
+        bool dispatcherProcessed, bool idleHover, bool toolTipMeasured)
+    {
+        if (!systemMouseHoverMilliseconds.HasValue) return "unknown-system-hover-delay";
+        if (!double.IsFinite(elapsed) || elapsed < 0) return "invalid-elapsed-time";
+        if (elapsed > DeadlineMilliseconds) return "deadline-exceeded";
+        var required = systemMouseHoverMilliseconds.Value * 2d;
+        if (required > DeadlineMilliseconds) return "system-delay-exceeds-deadline";
+        if (elapsed < required) return "waiting-for-measured-delay";
+        if (!dispatcherProcessed) return "waiting-for-dispatcher";
+        if (!idleHover) return "waiting-for-idle-hover";
+        if (!toolTipMeasured) return "waiting-for-measured-tooltip-state";
+        return "ready";
+    }
+}
+
 #if WINDOWS
 public sealed partial class MainWindow
 {
@@ -347,19 +371,67 @@ public sealed partial class MainWindow
             capturedPanelResizeEvidence["hover_waits"] = waits = new JsonArray();
         waits.Add(wait);
         var timer = Stopwatch.StartNew();
+        uint? systemHoverMilliseconds = null;
+        var dispatcherProcessed = false;
+        if (requireMeasuredToolTip)
+        {
+            // Fixed Windows App SDK 1.6.9 GetInitialShowDelay(Mouse,false):
+            // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/dxaml/lib/ToolTipService_Partial.cpp#L1730
+            // Read the actual setting. Unlike the production SDK's fallback,
+            // capture cannot substitute a presumed 400 ms when SPI fails.
+            var succeeded = PanelResizeSystemParametersInfo(0x0066 /* SPI_GETMOUSEHOVERTIME */, 0, out var milliseconds, 0);
+            var win32Error = succeeded ? 0 : Marshal.GetLastWin32Error();
+            wait["post_gesture_settling"] = true;
+            wait["trigger"] = "Actual final pointer gesture followed by observed idle hover; no baseline has been established";
+            wait["system_hover_delay"] = new JsonObject { ["api"] = "SystemParametersInfoW(SPI_GETMOUSEHOVERTIME)",
+                ["succeeded"] = succeeded, ["win32_error"] = win32Error, ["observed_ms"] = succeeded ? milliseconds : null,
+                ["initial_mouse_delay_ms"] = succeeded ? milliseconds * 2d : null,
+                ["sdk_source"] = "WinUI 1.6.9 da699b0 ToolTipService::GetInitialShowDelay(Mouse,false)",
+                ["timer_armed_claimed"] = false, ["qpc"] = Stopwatch.GetTimestamp() };
+            if (succeeded) systemHoverMilliseconds = milliseconds;
+            wait["tooltip_policy"] = "Observe actual open or closed state; neither prescribe nor hide a popup";
+        }
         while (true)
         {
             root.UpdateLayout();
             var state = ObservePanelResizeState();
             var elapsed = timer.Elapsed.TotalMilliseconds;
-            observations.Add(new JsonObject { ["elapsed_ms"] = elapsed, ["qpc"] = Stopwatch.GetTimestamp(), ["state"] = state });
-            if (elapsed <= 1000 && IsObservedPanelResizeHover(state) && (!requireMeasuredToolTip || PanelResizeToolTipReadiness.Observe(state) != null))
+            var status = requireMeasuredToolTip
+                ? PanelResizeSettling.Status(elapsed, systemHoverMilliseconds, dispatcherProcessed,
+                    IsObservedPanelResizeHover(state), PanelResizeToolTipReadiness.Observe(state) != null)
+                : elapsed <= 1000 && IsObservedPanelResizeHover(state) ? "ready" : "waiting-for-idle-hover";
+            observations.Add(new JsonObject { ["elapsed_ms"] = elapsed, ["qpc"] = Stopwatch.GetTimestamp(), ["state"] = state,
+                ["readiness_status"] = status, ["pointer_event_count"] = ((JsonArray)capturedPanelResizeEvidence["pointer_events"]!).Count,
+                ["drag_event_count"] = ((JsonArray)capturedPanelResizeEvidence["drag_events"]!).Count,
+                ["tooltip_event_count"] = ((JsonArray)capturedPanelResizeEvidence["tooltip_events"]!).Count });
+            if (status == "ready")
             { wait["completed"] = true; return; }
+            if (status is "unknown-system-hover-delay" or "invalid-elapsed-time" or "system-delay-exceeds-deadline")
+                throw new InvalidOperationException("Actual panel resize settling cannot be established: " + status);
             if (elapsed >= 1000)
                 throw new InvalidOperationException("Actual panel resize hover/measured owned ToolTip state did not settle within its existing deadline: " + phase);
-            await Task.Delay(25);
+            if (status == "waiting-for-dispatcher")
+            {
+                var turn = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var dispatch = new JsonObject { ["queued_qpc"] = Stopwatch.GetTimestamp(), ["queued_elapsed_ms"] = timer.Elapsed.TotalMilliseconds,
+                    ["source"] = "Actual UI DispatcherQueue low-priority callback after measured initial mouse delay" };
+                wait["dispatcher_turn"] = dispatch;
+                if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                    { dispatch["executed_qpc"] = Stopwatch.GetTimestamp(); dispatch["executed_elapsed_ms"] = timer.Elapsed.TotalMilliseconds; turn.TrySetResult(true); }))
+                    throw new InvalidOperationException("Panel resize settling dispatcher callback could not be queued");
+                var remaining = Math.Max(0, 1000 - timer.Elapsed.TotalMilliseconds);
+                if (await Task.WhenAny(turn.Task, Task.Delay(TimeSpan.FromMilliseconds(remaining))) != turn.Task)
+                    throw new InvalidOperationException("Panel resize settling dispatcher exceeded the original 1000 ms deadline");
+                dispatcherProcessed = true;
+                continue;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(25, Math.Max(0, 1000 - timer.Elapsed.TotalMilliseconds))));
         }
     }
+
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PanelResizeSystemParametersInfo(uint action, uint parameter, out uint value, uint flags);
 
     private void RequirePanelResizeHover()
     {

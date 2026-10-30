@@ -17,6 +17,10 @@ on:
         description: Production appearance
         type: string
         default: light
+      archive_run_id:
+        description: Optional original browser diagnostic run to decode without new capture
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       language:
@@ -29,12 +33,18 @@ on:
         type: choice
         options: [light, dark]
         default: light
+      archive_run_id:
+        description: Optional original browser diagnostic run to decode without new capture
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   paint:
+    if: ${{ !inputs.archive_run_id }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -105,3 +115,32 @@ jobs:
           name: paint-diagnostic-${{ matrix.platform }}-${{ matrix.channel }}-${{ inputs.language }}-${{ inputs.theme }}
           path: visual
           if-no-files-found: error
+  archive-skp:
+    if: ${{ inputs.archive_run_id != '' }}
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download original Windows Chromium paint diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: paint-diagnostic-windows-chromium-en-US-light
+          run-id: ${{ inputs.archive_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/skp-input
+      - name: Test the isolated decoder input contracts without a browser
+        run: python -m unittest discover -s scripts/visual/skp_probe -p test_contract.py -v
+      - name: Build the actual captured browser's pinned Skia decoder
+        run: python scripts/visual/skp_probe/build_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
+      - name: Inspect one original paint record without rendering or changing canonical evidence
+        run: python scripts/visual/skp_probe/run_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --picture pictures/picture-00483.skp --build artifacts/skp/build --output artifacts/skp/group
+      - name: Retain raw decoder results including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archived-skp-diagnostic-windows
+          path: artifacts/skp
+          if-no-files-found: warn

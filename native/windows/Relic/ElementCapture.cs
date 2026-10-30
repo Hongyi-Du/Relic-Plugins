@@ -123,6 +123,7 @@ public sealed partial class MainWindow
                     }
                     node["transformed_corners"] = corners;
                     node["transformed_corners_order"] = "top-left,top-right,bottom-right,bottom-left";
+                    node["composition_clip_evidence"] = CaptureCompositionClip(element, node);
                     node["name"] = element.Name; node["accessible_name"] = AutomationProperties.GetName(element);
                     if (ReferenceEquals(element, chatScroll))
                         node["region_container_evidence"] = new JsonObject
@@ -581,7 +582,8 @@ public sealed partial class MainWindow
             ["pointer"] = new JsonObject { ["x"] = cursor.x - clientOrigin.x, ["y"] = cursor.y - clientOrigin.y }
         };
         CaptureFiniteMeasurements(result, errors);
-        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"), result.ToJsonString());
+        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(directory, caseId + ".xaml.json"),
+            NativeCaptureNumbers.Prepare(result, "Actual XAML extraction").ToJsonString());
         var manifestDirectory = System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!;
         // A request is immutable and belongs to one scene. Replacing the shared
         // previous request could race Python's open/read on Windows, whose file
@@ -637,7 +639,8 @@ public sealed partial class MainWindow
             // native probes before reading/projecting this file. Close this
             // write before acknowledging that those reads have completed.
             var finalXamlPath = System.IO.Path.Combine(directory, caseId + ".xaml.json");
-            await System.IO.File.WriteAllTextAsync(finalXamlPath + ".tmp", result.ToJsonString());
+            await System.IO.File.WriteAllTextAsync(finalXamlPath + ".tmp",
+                NativeCaptureNumbers.Prepare(result, "Actual XAML extraction after retained observer").ToJsonString());
             System.IO.File.Move(finalXamlPath + ".tmp", finalXamlPath, overwrite: true);
             probeStatus = "observed";
         }
