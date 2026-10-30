@@ -2101,7 +2101,7 @@
   }
   function hostKinds() { return hostSurfaces(PLATFORM).map(([harness, surface]) => [harness, surface,
     surface === 'gui' ? t('member.harness_gui', { harness: HARNESS_TITLE[harness] }) : t('member.harness_cli', { harness: HARNESS_TITLE[harness] })]); }
-  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', chatgpt: 'ChatGPT', 'claude-chat': 'Claude' };
+  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', chatgpt: 'ChatGPT', 'claude-chat': 'Claude', 'kimi-code': 'Kimi Code', 'deepseek-harness': 'DeepSeek Harness' };
   async function seatOptions() {
     if (!S.seatOptions) S.seatOptions = await get('/api/seat-options');
     return S.seatOptions;
@@ -2578,14 +2578,14 @@
       const row = (k, v) => append(kv, [h('dt', null, k), h('dd', null, v)]);
       row(t('common.status'), x.available ? h('span', { class: 'chip ok' }, t('settings.connected')) : h('span', { class: 'chip bad' }, x.problem || t('settings.not_connected')));
       row(t('settings.program'), h('div', { style: 'display:flex;gap:6px' }, path, h('button', { class: 'btn sm', type: 'button', onclick: () => setPrefs({ paths: Object.assign({}, PREFS.paths, { [x.id]: path.value.trim() }) }).then(() => { toast(t('settings.path_saved')); redraw(); }) }, t('common.save'))));
-      row(t('settings.adapter'), x.adapter_installed ? t('settings.adapter_version', { adapter: x.adapter, version: x.adapter_version }) : t('settings.adapter_missing', { adapter: x.adapter }));
-      row('Node.js', x.node || t('settings.not_found'));
+      row(t('settings.adapter'), x.adapter ? (x.adapter_installed ? t('settings.adapter_version', { adapter: x.adapter, version: x.adapter_version }) : t('settings.adapter_missing', { adapter: x.adapter })) : t('harness.native_acp'));
+      if (x.adapter) row('Node.js', x.node || t('settings.not_found'));
       row(t('settings.default_mode'), x.mode || (x.note ? t('settings.adapter_default_note', { note: x.note }) : t('settings.adapter_default')));
       if (x.models && x.models.length) row(t('settings.models'), x.models.join(t('settings.models_sep')));
-      const install = h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+      const install = x.adapter ? h('button', { class: 'btn sm', type: 'button', onclick: async () => {
         installLogs[x.id] = ['$ ' + x.install]; log.hidden = false; log.textContent = installLogs[x.id].join('\n');
         try { await post('/api/harnesses/' + x.id + '/install', {}); } catch (e) { toast(e.message); }
-      } }, x.adapter_installed ? t('settings.reinstall_adapter') : t('settings.install_adapter'));
+      } }, x.adapter_installed ? t('settings.reinstall_adapter') : t('settings.install_adapter')) : null;
       pane.append(h('div', { class: 'harness', 'data-id': x.id }, h('div', { class: 'h' }, h('b', null, x.title), h('span', { class: 'dim' }, x.vendor), h('div', { style: 'flex:1' }), install), kv, log));
     }
     pane.append(h('h4', { style: 'margin-top:12px;font-size:15px' }, t('settings.later')));

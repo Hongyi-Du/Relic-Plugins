@@ -47,6 +47,8 @@ capability checks and the distinction between pre-merge real-Mac observations an
 
 ## Relic App
 
+**Native ACP members:** Kimi Code and DeepSeek Harness can also run in the Relic App using their existing installations and logins. See the [connection guide](docs/native-harnesses.en.md).
+
 The **Relic App** is a desktop chat for Relic organizations and the bridge between their members, in English or Chinese (Settings → Language and names → Language):
 
 - members that run in the App are Claude Code or Codex sessions inside it; the App brings Relic into each of these sessions itself, so they need only Claude Code or Codex, installed and signed in;

@@ -15,6 +15,7 @@ Adding a harness is one entry in HARNESSES:
   title, vendor     shown in the App
   package | command how to start its ACP agent: an npm ACP adapter installed under ~/.relic/acp (package), or a
                     program that speaks ACP itself (command: a function finding it; args: its ACP arguments)
+  launch            optional function taking that program and returning (argv, extra env), for a native launcher
   program           a function finding the harness program on this computer (shown in settings)
   env               a function returning extra environment variables (raises RuntimeError naming what is missing)
   actor             the session's Relic actor from its ACP session id: "<harness id>:" + id for new harnesses
@@ -40,6 +41,8 @@ from pathlib import Path
 
 from relic_core import i18n, runner, platform_support
 from relic_core.store import data_home
+
+from . import native
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # the Relic plugin folder this App runs from
 # Never passed on to a session the App runs: they would make it look like the session that started the App (a Codex
@@ -91,14 +94,14 @@ def _locked_contents_valid(home):
         return False
 
 
-def chosen_path(harness):
+def chosen_path(harness, existing=True):
     """A program path the person set in the App's settings, if it still exists."""
     try:
         from . import prefs
         path = (prefs.load().get("paths") or {}).get(harness) or ""
     except Exception:
         path = ""
-    return path if path and Path(path).is_file() else ""
+    return path if path and (not existing or Path(path).is_file()) else ""
 
 
 def claude_program():
@@ -107,6 +110,14 @@ def claude_program():
 
 def codex_program():
     return chosen_path("codex") or runner.find_codex()
+
+
+def kimi_program():
+    return native.find_kimi(chosen_path("kimi-code", existing=False))
+
+
+def deepseek_program():
+    return native.find_deepseek(chosen_path("deepseek-harness", existing=False))
 
 
 def _claude_env():
@@ -225,6 +236,15 @@ HARNESSES = {
         "host_plugin": codex_relic_plugin, "default_mode": _codex_mode,
         "modes_note": "follows sandbox_mode in your Codex config",
     },
+    "kimi-code": {
+        "title": "Kimi Code", "vendor": "Moonshot AI", "command": kimi_program, "args": ["acp"],
+        "actor": lambda sid: "kimi-code:" + sid, "relic": "mcp", "default_mode": "",
+    },
+    "deepseek-harness": {
+        "title": "DeepSeek Harness", "vendor": "DeepSeek", "command": deepseek_program,
+        "launch": native.deepseek_launch,
+        "actor": lambda sid: "deepseek-harness:" + sid, "relic": "mcp", "default_mode": "",
+    },
 }
 
 
@@ -315,7 +335,6 @@ def default_mode(harness):
 LATER = [
     {"id": "codebuddy", "title": "CodeBuddy / WorkBuddy", "vendor": "Tencent", "launch": "npx @tencent-ai/codebuddy-code --acp"},
     {"id": "glm", "title": "GLM Agent", "vendor": "Zhipu AI", "launch": "npx glm-acp-agent"},
-    {"id": "kimi", "title": "Kimi CLI", "vendor": "Moonshot AI", "launch": "kimi acp"},
     {"id": "qwen-code", "title": "Qwen Code", "vendor": "Alibaba", "launch": "npx @qwen-code/qwen-code --acp"},
     {"id": "gemini", "title": "Gemini CLI", "vendor": "Google", "launch": "npx @google/gemini-cli --acp"},
     {"id": "opencode", "title": "OpenCode", "vendor": "anomalyco", "launch": "opencode acp"},
@@ -342,6 +361,7 @@ def launch(harness, extra_env=None):
     spec = HARNESSES.get(harness)
     if not spec:
         raise RuntimeError("Unknown harness %s." % harness)
+    native_env = {}
     if spec.get("package"):
         entry = _package_entry(spec["package"].rsplit("@", 1)[0])
         if not entry.is_file():
@@ -358,9 +378,13 @@ def launch(harness, extra_env=None):
         program = spec["command"]()
         if not program:
             raise RuntimeError("%s was not found on this computer. Install it first." % spec["title"])
-        argv = [program] + list(spec.get("args") or [])
+        if spec.get("launch"):
+            argv, native_env = spec["launch"](program)
+        else:
+            argv = [program] + list(spec.get("args") or [])
     env = {k: v for k, v in os.environ.items() if k not in INHERITED}
     env.update(spec["env"]() if spec.get("env") else {})
+    env.update(native_env)
     env.update(extra_env or {})
     return argv, platform_support.runtime_env(env, [node(), argv[0]])
 
@@ -394,6 +418,9 @@ def install_command(harness):
 
 def install(harness, log, processes=None):
     """Install a harness's ACP adapter with npm; `log` gets each output line. Returns npm's exit code."""
+    if not HARNESSES[harness].get("package"):
+        log(i18n.t("harness.native_acp"))
+        return 1
     with _INSTALL_LOCK:
         return _install(harness, log, processes)
 
@@ -444,14 +471,17 @@ def catalog():
     out = []
     runtime = platform_support.node_runtime(node())
     for key, spec in HARNESSES.items():
-        found = program(key)
+        found, adapter = "", False
         try:
+            found = program(key)
+            adapter = installed(key)
             if spec.get("env"):
                 spec["env"]()
+            if found and spec.get("launch"):
+                spec["launch"](found)
             problem = ""
         except RuntimeError as error:
             problem = str(error)
-        adapter = installed(key)
         if not problem and not adapter:
             problem = (i18n.t("harness.not_installed") if spec.get("package")
                        else i18n.t("harness.not_found", title=spec["title"]))
