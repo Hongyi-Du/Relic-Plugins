@@ -178,7 +178,7 @@ final class ReferenceLabelView: ReadOnlyTextView {
         context.translateBy(x: -bounds.minX, y: -bounds.minY)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-        draw(bounds)
+        effectiveAppearance.performAsCurrentDrawingAppearance { draw(bounds) }
         NSGraphicsContext.restoreGraphicsState()
         guard let image = context.makeImage() else { return }
         // Submit the actual native raster to this view's own backing layer.

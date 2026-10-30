@@ -1,3 +1,13 @@
+## 2026-10-30: own image rendering uses actual effective appearance
+
+CALayer.display does not provide NSView.draw's implicit appearance context.
+All three owned painters now explicitly use their mounted view's actual
+effectiveAppearance while executing the original native drawing. A new hosted
+bitmap test compares old/new label, icon and fill paint in both actual Aqua and
+Dark Aqua windows, and additionally requires light/dark images to differ.
+This prevents equal-but-wrong theme renders from satisfying the comparison.
+No theme-specific expected color or screenshot is copied into captured evidence.
+
 ## 2026-10-30: fill backing-image identity candidate, not an occlusion claim
 
 NativeSurfaceFill now also has an isolated owned-image candidate, default false.
