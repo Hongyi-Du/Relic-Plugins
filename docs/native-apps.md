@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (actual submitted text surface probe): Windows CI now
+reads the current NativeLabel SurfaceImageSource target after the original
+production glyph drawing, using the actual BeginDraw atlas offset and observed
+pixel format. It copies to a CPU-readable bitmap and exports premultiplied BGRA
+bytes, pitch, dimensions, target identity, draw revisions and per-API HRESULTs
+under `native-label-surfaces/`. Failures also retain sidecar evidence and fail the
+scene. Normal app sessions do not run this probe. The headless build passes, but
+actual atlas readback support awaits CI. Surface pixels alone do not prove final
+PNG contribution: `presentation_identity_proven` remains false, with no second
+layout/render or synthetic screenshot substituted.
+
+Changes for the clients (requests added in macOS b3d2385): the scrollbar track
+and thumb kinds and the omitted panel resize control are required coverage work.
+The shared owner is implementing their schema and real resize interaction states;
+no existing scenario is removed. macOS actual draw receipts remain distinct from
+its wider AX hit bounds. Its latest test fixture corrections and explicit
+unapproved Install discrepancy have been read; no exception is accepted.
+
 Changes for the clients (native select-arrow request): the macOS request added
 in `b666de1` now has a shared raw evidence contract. Each actual visible select
 retains its owner box, appearance/direction/zoom/borders, live state, AX record,

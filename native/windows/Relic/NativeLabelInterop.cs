@@ -12,6 +12,7 @@ internal static class NativeLabelInterop
 {
     internal static readonly Guid SurfaceWithD2D = new("cb833102-d5d1-448b-a31a-52a9509f24e6");
     internal static readonly Guid DeviceContext = new("e8f7fe7a-191c-466d-ad95-975678bda998");
+    internal static readonly Guid Bitmap1 = new("a898a84c-3873-4588-b08b-ebbf978df041");
     internal static readonly Guid FontFace3 = new("d37d7598-09be-4222-a236-2081341cc1f2");
     internal static readonly Guid FontFace5 = new("98eff3a5-b667-479a-b145-e2fa5b9fdc29");
     internal static readonly Guid FontFace2 = new("d8b768ff-64bc-4e66-982b-ec8e87f693f7");
@@ -39,6 +40,13 @@ internal static class NativeLabelInterop
     [StructLayout(LayoutKind.Sequential)] internal struct RectF { public float Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] internal struct Matrix { public float M11, M12, M21, M22, Dx, Dy; }
     [StructLayout(LayoutKind.Sequential)] internal struct ColorF { public float R, G, B, A; }
+    [StructLayout(LayoutKind.Sequential)] internal struct SizeU { public uint Width, Height; }
+    [StructLayout(LayoutKind.Sequential)] internal struct PointU { public uint X, Y; }
+    [StructLayout(LayoutKind.Sequential)] internal struct RectU { public uint Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] internal struct PixelFormat { public uint Format, AlphaMode; }
+    [StructLayout(LayoutKind.Sequential)] internal struct BitmapProperties1
+    { public PixelFormat PixelFormat; public float DpiX, DpiY; public uint Options; public IntPtr ColorContext; }
+    [StructLayout(LayoutKind.Sequential)] internal struct MappedRect { public uint Pitch; public IntPtr Bits; }
     [StructLayout(LayoutKind.Sequential)] internal struct TextMetrics
     { public float Left, Top, Width, WidthIncludingTrailingWhitespace, Height, LayoutWidth, LayoutHeight; public uint MaxBidiReorderingDepth, LineCount; }
     [StructLayout(LayoutKind.Sequential)] internal struct LineMetrics
@@ -71,6 +79,17 @@ internal static class NativeLabelInterop
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetDevice(IntPtr self, IntPtr device);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int BeginSurface(IntPtr self, ref Rect update, ref Guid iid, out IntPtr context, out Point offset);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int EndSurface(IntPtr self);
+    // d2d1.h / d2d1_1.h. These getters have native struct/void return values,
+    // not HRESULTs; keep their ABI distinct from InterfaceResult.
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetTargetImage(IntPtr self, out IntPtr image);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate SizeU GetBitmapPixelSize(IntPtr self);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate PixelFormat GetBitmapPixelFormat(IntPtr self);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapDpi(IntPtr self, out float x, out float y);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapColorContext(IntPtr self, out IntPtr colorContext);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int CreateReadbackBitmap(IntPtr self, SizeU size, IntPtr data, uint pitch, ref BitmapProperties1 properties, out IntPtr bitmap);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int CopyBitmapPixels(IntPtr self, ref PointU destination, IntPtr source, ref RectU sourceRectangle);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int MapBitmapPixels(IntPtr self, uint options, out MappedRect mapped);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int UnmapBitmapPixels(IntPtr self);
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)] internal delegate int CreateFormat(IntPtr self,
         [MarshalAs(UnmanagedType.LPWStr)] string family, IntPtr collection, uint weight, uint style, uint stretch, float size,
         [MarshalAs(UnmanagedType.LPWStr)] string locale, out IntPtr format);

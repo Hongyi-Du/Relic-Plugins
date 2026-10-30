@@ -82,7 +82,7 @@ public sealed partial class MainWindow
         finally { CompositionTarget.Rendering -= onRendering; CompositionTarget.Rendered -= OnRendered; }
     }
 
-    private async Task BeginNativeLabelCaptureAsync(string caseId)
+    private async Task BeginNativeLabelCaptureAsync(string outputDirectory, string caseId)
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("NativeLabel capture synchronization is CI-only");
         EndNativeLabelCapture();
@@ -132,12 +132,44 @@ public sealed partial class MainWindow
             // extraction, and its raw JSON retains the missing frame evidence.
             capturedNativeLabels = null; capturedNativeLabelBaseline = null;
         }
+        finally
+        {
+            // Export even if the frame observer or EndDraw failed. These are
+            // the current production target's bytes, not a replacement PNG.
+            var readbacks = new JsonArray(); var readbackErrors = new JsonArray();
+            capturedNativeLabelEvidence["surface_readbacks"] = readbacks;
+            capturedNativeLabelEvidence["surface_readback_errors"] = readbackErrors;
+            try
+            {
+                var labels = NativeLabelsForCapture();
+                for (var i = 0; i < labels.Length; i++)
+                {
+                    try
+                    {
+                        var record = labels[i].WriteCaptureReadback(System.IO.Path.Combine(outputDirectory, "native-label-surfaces"), caseId, i);
+                        record["directory"] = "native-label-surfaces"; readbacks.Add(record);
+                        if (record["status"]?.ToString() != "surface-pixels-read"
+                            || record["is_current_draw_at_export"]?.GetValue<bool>() != true
+                            || record["surface_submission_succeeded"]?.GetValue<bool>() != true)
+                            readbackErrors.Add("Actual NativeLabel target readback is incomplete for label " + i);
+                    }
+                    catch (Exception exportError)
+                    {
+                        readbacks.Add(new JsonObject { ["capture_label_index"] = i, ["status"] = "export-failed", ["failure"] = exportError.ToString() });
+                        readbackErrors.Add("Actual NativeLabel target export failed for label " + i + ": " + exportError);
+                    }
+                }
+            }
+            catch (Exception walkError) { readbackErrors.Add("Actual NativeLabel readback membership is unmeasured: " + walkError); }
+        }
     }
 
     private void RequireNativeLabelCaptureCompleted()
     {
         if (capturedNativeLabelEvidence?["failure"] is { } failure)
             throw new InvalidOperationException("NativeLabel frame evidence failed: " + failure);
+        if (capturedNativeLabelEvidence?["surface_readback_errors"] is JsonArray { Count: > 0 } errors)
+            throw new InvalidOperationException("NativeLabel actual surface readback failed: " + errors);
     }
 
     private void CheckpointNativeLabelCapture(string stage)

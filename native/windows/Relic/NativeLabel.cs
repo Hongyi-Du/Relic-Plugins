@@ -35,6 +35,7 @@ public sealed class NativeLabel : Panel
     private bool queued, rendering;
     private long layoutRevision, surfaceRevision, drawOrdinal;
     private JsonObject? receipt;
+    private NativeLabelReadback? readback;
     private JsonObject? fallbackConfiguration;
     private string? failure;
 
@@ -55,6 +56,21 @@ public sealed class NativeLabel : Panel
     // The CI caller guards this request. It invokes the same production paint
     // path, with unchanged text/style/layout inputs; no synthetic frame is made.
     internal void RequestCaptureRedraw() { InvalidateDraw(); InvalidateArrange(); QueueDraw(); }
+
+    internal JsonObject WriteCaptureReadback(string outputDirectory, string caseId, int labelIndex)
+    {
+        if (!NativeLabelReadback.Enabled) throw new InvalidOperationException("NativeLabel readback export is CI-only");
+        if (readback == null) return new JsonObject
+        {
+            ["status"] = "not-measured", ["reason"] = "No actual production surface readback exists for this label",
+            ["current_layout_revision"] = layoutRevision, ["current_surface_revision"] = surfaceRevision,
+            ["current_draw_ordinal"] = drawOrdinal, ["presentation_identity_proven"] = false
+        };
+        var isCurrent = readback.LayoutRevision == layoutRevision && readback.SurfaceRevision == surfaceRevision
+            && readback.DrawOrdinal == drawOrdinal && receipt != null && failure == null && !queued && !rendering
+            && receipt["surface_end_draw_succeeded"]?.GetValue<bool>() == true && ProductionSurfaceBindingMatches();
+        return readback.Write(outputDirectory, caseId, labelIndex, isCurrent);
+    }
 
     internal bool OwnsProductionImage(Image candidate) => ReferenceEquals(image, candidate);
     internal JsonObject CaptureProductionImageBinding(Image candidate)
@@ -143,6 +159,7 @@ public sealed class NativeLabel : Panel
         ["applied_font_fallback"] = fallbackConfiguration?.DeepClone(),
         ["current_layout_revision"] = layoutRevision, ["current_surface_revision"] = surfaceRevision,
         ["last_failure"] = failure, ["draw"] = receipt?.DeepClone(),
+        ["surface_readback"] = readback?.Snapshot(),
         ["presentation_frame"] = null,
         ["coverage_complete"] = false,
         ["coverage_reason"] = "Initial noneditable label renderer: screenshot/presentation synchronization and canonical text projection are not implemented. Only successful EndDraw records describe submitted pixels; font identity comes from the actual renderer callback, never the fallback configuration."
@@ -317,7 +334,7 @@ public sealed class NativeLabel : Panel
     private void Render()
     {
         if (rendering || arrangedWidth <= 0 || arrangedHeight <= 0 || layout == IntPtr.Zero) return;
-        rendering = true; InvalidateDraw(); IntPtr context = IntPtr.Zero, brush = IntPtr.Zero;
+        rendering = true; InvalidateDraw(); readback = null; IntPtr context = IntPtr.Zero, brush = IntPtr.Zero;
         var began = false; var clipped = false;
         try
         {
@@ -351,9 +368,15 @@ public sealed class NativeLabel : Panel
                     ["newline_utf16"] = line.NewlineLength, ["height"] = line.Height, ["baseline"] = line.Baseline, ["is_trimmed"] = line.IsTrimmed != 0 });
             var hitTest = ReadHitTestBounds();
             Method<VoidCall>(context, 46)(context); clipped = false;
+            // Read only the pixels written by this original production draw.
+            // No second Draw/layout/target is substituted. Production sessions
+            // never allocate staging storage or perform GPU/CPU readback.
+            if (NativeLabelReadback.Enabled)
+                readback = NativeLabelReadback.Observe(context, offset, pixelWidth, pixelHeight, layoutRevision, surfaceRevision, drawOrdinal);
             // BeginDraw/EndDraw belong to the XAML surface, not the shared D2D
             // context. A run callback alone is never treated as committed paint.
-            var endResult = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop); began = false; Check(endResult);
+            var endResult = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop); began = false;
+            readback?.ObserveEndDraw(endResult); Check(endResult);
             receipt = new JsonObject
             {
                 ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision, ["draw_ordinal"] = drawOrdinal,
@@ -386,6 +409,7 @@ public sealed class NativeLabel : Panel
             if (began)
             {
                 var end = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop);
+                readback?.ObserveEndDraw(end);
                 if (end < 0) failure += "\nSurface EndDraw failed: 0x" + end.ToString("x8");
             }
             Release(ref brush); Release(ref context); rendering = false;
