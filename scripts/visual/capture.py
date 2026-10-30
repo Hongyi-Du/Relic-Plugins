@@ -336,6 +336,17 @@ class PanelResizeCapture:
     """Observe production panel pointer handling, without writing layout/state."""
     SELECTOR = "#panel > .pane-resize"
     OPEN_SELECTOR = "#appbar .ab-right > .ab-sep + button"
+    POST_GESTURE_SETTLE = """async () => {
+      const started=performance.now(),frames=[]; let timeout;
+      const deadline=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Actual panel renderer settling exceeded 1000 ms')),1000);});
+      try {
+        await Promise.race([(async()=>{await document.fonts.ready;
+          await new Promise(resolve=>requestAnimationFrame(t=>{frames.push(t);resolve();}));
+          await new Promise(resolve=>requestAnimationFrame(t=>{frames.push(t);resolve();}));})(),deadline]);
+        return {status:document.fonts.status,count:document.fonts.size,
+          settling:{started_performance_ms:started,completed_performance_ms:performance.now(),actual_animation_frame_timestamps:frames}};
+      } finally {clearTimeout(timeout);}
+    }"""
     READ_STATE = """capture => {
       const box=el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
       const {handle,panel}=capture,s=getComputedStyle(handle),p=getComputedStyle(panel);
@@ -434,7 +445,7 @@ class PanelResizeCapture:
                 self.step("pointer:move_left_64_in_8_steps", lambda: self.page.mouse.move(end["x"], end["y"], steps=8))
             finally:
                 self.step("pointer:left_up", lambda: self.page.mouse.up(button="left"))
-        self.evidence["fonts_after_action"] = self.page.evaluate(TextareaResizeCapture.SETTLE)
+        self.evidence["fonts_after_action"] = self.settle_post_gesture()
         after = self.observer.evaluate(self.READ_STATE)
         self.evidence["after"] = after
         self.evidence["geometry_delta"] = {part: {key: after[part]["bounds"][key] - before[part]["bounds"][key]
@@ -464,6 +475,37 @@ class PanelResizeCapture:
         elif any(event["type"] in ("pointerdown", "pointerup") for event in events):
             raise RuntimeError("The panel hover scene unexpectedly pressed the handle")
         self.checkpoint("after_action")
+
+    def settle_post_gesture(self):
+        # The shared scene has an explicit post-gesture phase before its first
+        # continuity baseline. Headless Chromium exposes the real DOM title,
+        # not an observable browser-UI tooltip. Do not create or hide one, and
+        # do not transfer a Windows ToolTipService delay to a different renderer.
+        record = {"source": "Actual production pointer gesture, document.fonts.ready and two actual renderer frames",
+            "deadline_ms": 1000, "started_host_monotonic": time.monotonic(), "completed": False,
+            "tooltip_policy": "Observe actual DOM title/hover only; browser-native tooltip opening is not claimed",
+            "baseline_established": self.baseline is not None, "state_before": self.observer.evaluate(self.READ_STATE)}
+        self.evidence["post_gesture_settling"] = record
+        self.save()
+        if self.baseline is not None:
+            raise RuntimeError("Post-gesture settling cannot reset an established panel baseline")
+        try:
+            result = self.page.evaluate(self.POST_GESTURE_SETTLE)
+            record["renderer_result"] = result
+            record["state_after"] = self.observer.evaluate(self.READ_STATE)
+            record["completed_host_monotonic"] = time.monotonic()
+            record["elapsed_ms"] = (record["completed_host_monotonic"] - record["started_host_monotonic"]) * 1000
+            if record["elapsed_ms"] > 1000:
+                raise RuntimeError("Actual panel post-gesture settling exceeded the original 1000 ms deadline")
+            if result.get("status") != "loaded":
+                raise RuntimeError("Actual panel fonts were not loaded after post-gesture settling")
+            record["completed"] = True
+            return result
+        except Exception as error:
+            record["error"] = str(error)
+            raise
+        finally:
+            self.save()
 
     @staticmethod
     def validate_identity(state):

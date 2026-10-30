@@ -91,6 +91,66 @@ class PanelResizeCaptureTests(unittest.TestCase):
             self.assertTrue(action.evidence["after"]["handle"]["hovered"])
             self.assertEqual(action.evidence["geometry_delta"]["panel"], {"x": 0, "y": 0, "width": 0, "height": 0})
 
+    def test_post_gesture_renderer_events_are_kept_before_first_baseline_and_later_events_still_fail(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, page, _, _, state = self.fixture(folder, "panel-resize-hover")
+            def renderer(expression):
+                if expression == capture.PanelResizeCapture.POST_GESTURE_SETTLE:
+                    # Synthetic same-position trusted move arriving while the
+                    # renderer completes. It must not be filtered as redundant.
+                    state["pointer_events"].append(copy.deepcopy(state["pointer_events"][-1]))
+                return {"status": "loaded", "count": 2}
+            page.evaluate.side_effect = renderer
+            action.open()
+            settling = action.evidence["post_gesture_settling"]
+            self.assertEqual(len(settling["state_before"]["pointer_events"]), 1)
+            self.assertEqual(len(settling["state_after"]["pointer_events"]), 2)
+            self.assertEqual(len(action.baseline["pointer_events"]), 2)
+            self.assertTrue(settling["completed"])
+            self.assertFalse(settling["baseline_established"])
+            state["pointer_events"].append(copy.deepcopy(state["pointer_events"][-1]))
+            with self.assertRaisesRegex(RuntimeError, "changed"):
+                action.checkpoint("after_screenshot")
+            self.assertEqual(len(action.evidence["checkpoints"][-1]["state"]["pointer_events"]), 3)
+            action.close()
+
+    def test_post_gesture_overrun_retains_receipt_and_does_not_establish_baseline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, _, observer, *_ = self.fixture(folder)
+            action.observer = observer
+            with patch.object(capture.time, "monotonic", side_effect=[10, 11.001]):
+                with self.assertRaisesRegex(RuntimeError, "1000 ms deadline"):
+                    action.settle_post_gesture()
+            self.assertIsNone(action.baseline)
+            self.assertFalse(action.evidence["post_gesture_settling"]["completed"])
+            self.assertGreater(action.evidence["post_gesture_settling"]["elapsed_ms"], 1000)
+            self.assertIn("error", action.evidence["post_gesture_settling"])
+            action.close()
+
+    def test_post_gesture_renderer_failure_is_not_a_successful_observation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, page, observer, *_ = self.fixture(folder)
+            action.observer = observer
+            page.evaluate.side_effect = RuntimeError("actual renderer promise failed")
+            with self.assertRaisesRegex(RuntimeError, "actual renderer promise failed"):
+                action.settle_post_gesture()
+            self.assertEqual(action.evidence["post_gesture_settling"]["error"], "actual renderer promise failed")
+            self.assertFalse(action.evidence["post_gesture_settling"]["completed"])
+            self.assertIsNone(action.baseline)
+            action.close()
+
+    def test_post_gesture_cannot_reset_an_existing_continuity_baseline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, page, observer, *_ = self.fixture(folder)
+            action.observer = observer
+            action.baseline = {"actual": "earlier observed baseline"}
+            before = copy.deepcopy(action.baseline)
+            with self.assertRaisesRegex(RuntimeError, "reset an established"):
+                action.settle_post_gesture()
+            self.assertEqual(action.baseline, before)
+            page.evaluate.assert_not_called()
+            action.close()
+
     def test_small_viewport_opens_hidden_panel_through_actual_overview_button(self):
         with tempfile.TemporaryDirectory() as folder:
             action, page, _, opener, _ = self.fixture(folder, width=1024, hidden=True)

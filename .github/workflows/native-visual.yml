@@ -19,10 +19,14 @@ on:
         description: Optional existing capture run to recompare; leaves every original measurement unchanged
         type: string
         default: ''
+      paint_archive_run_id:
+        description: In paint mode only, decode an existing browser SKP artifact without starting any app or browser
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
-  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.matrix || 'full' }}
+  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'full' }}
   cancel-in-progress: false
 jobs:
   archive-compare:
@@ -35,10 +39,14 @@ jobs:
       capture_run_id: ${{ inputs.capture_run_id }}
   paint-diagnostics:
     if: ${{ !inputs.capture_run_id && github.event_name == 'workflow_dispatch' && inputs.matrix == 'paint' }}
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/native-paint-diagnostics.yml
     with:
       language: en-US
       theme: light
+      archive_run_id: ${{ inputs.paint_archive_run_id || '' }}
   element-checker:
     if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     uses: ./.github/workflows/native-element-checks.yml

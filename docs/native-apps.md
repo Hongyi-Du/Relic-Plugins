@@ -1,5 +1,49 @@
 # Native Relic App contract
 
+Changes for the clients (latest macOS requests): the actual list-disc paint in
+Chromium 156.0.8078.4 is a FillEllipse symbol, not its accessibility bullet text.
+The requested separate shape/source measurement is being implemented in the
+reference extractor; it is not currently a measured match. The branch also
+exports actual rename outline/local-owner contours. Those native contours do
+not supply the still-missing reference focus contour. Opaque-dialog occlusion
+remains unmeasured and its extra elements remain reported.
+
+Changes for the clients (current failed captures and evidence preservation):
+20e17bc Windows build and both test jobs pass, and shared CI passes 106 Node
+checks plus 722 Python tests. Its smoke capture nevertheless fails 19 component
+checks: non-finite values in the final NativeLabel observer could not serialize,
+settings foreground is still missing, and pane hover continuity still changes.
+Native raw export now preserves each non-finite value with its JSON pointer,
+original numeric format and IEEE bits, while retaining an explicit failure;
+it supplies no finite replacement coordinate. Four pure tests cover this path.
+NativeLabel paint also resolves its current effective brush instead of trusting
+a detached subscription cache and exports the actual foreground sources.
+The six failing macOS glyph assertions in run 41064569908 are not repaired by
+successful extraction; the merged branch restores its working production draw
+path while keeping its stricter extra-layer and pixel checks enabled.
+
+Changes for the clients (real controls and settling): Windows clips the existing
+toolbar Image at its actual reference 5 DIP radius, without an extra painted
+wrapper. Actual backing Visual/clip/geometry identities and properties are now
+retained independently from UIElement.Clip; incomplete transforms and final
+presentation remain unmeasured. Search retains its visible search placeholder
+and matches the reference's actual labelwrapped accessible name, which comes
+from the microphone when voice is enabled. Panel hover captures now explicitly
+settle real post-gesture events within the existing 1000 ms budget before the
+first baseline. Windows reads the real system hover delay and processes a real
+dispatcher turn; the reference records fonts-ready and two real renderer frames.
+All later event counts and full-state comparisons remain strict. An actual
+native tooltip absent from headless Chromium is still an extra element.
+
+Changes for the clients (isolated browser paint decoding): manual visual paint
+mode accepts `paint_archive_run_id` to inspect one original SKP from the existing
+Windows Chromium artifact. The independent CI-only tool validates actual browser
+revision/official DEPS, builds pinned Skia with the runner's existing compiler,
+and records original glyph IDs, positions, font streams and axes without drawing
+a substitute screenshot. No canonical measurement, matrix, matcher or tolerance
+uses these results. Original trace loss and missing DOM/frame/final-PNG identity
+remain failures; actual decoder build and execution are pending CI.
+
 Changes for the clients (button interaction and macOS diagnostics): Windows
 button labels, reply summaries, secretary choices, avatar overlays and clickable
 overview rows no longer intercept their parent button's pointer action as

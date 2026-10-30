@@ -231,7 +231,10 @@ public sealed partial class MainWindow
         view.Items.Add(NativeMenuSeparator()); Item(view, T("appmenu.reload"), Refresh, shortcut: "Ctrl+R");
         var help = Group("appmenu.help"); Item(help, T("shortcuts.title"), Shortcuts); Item(help, T("common.voice_input"), () => SettingsScreen("voice")); Item(help, T("common.harness"), () => SettingsScreen("harness")); help.Items.Add(NativeMenuSeparator()); Item(help, T("appmenu.about"), () => SettingsScreen("about"));
         if (sendButton != null) { AutomationProperties.SetName(sendButton, T("common.send")); ToolTipService.SetToolTip(sendButton, T("composer.send_title")); }
-        search.PlaceholderText = T("page.search"); AutomationProperties.SetName(search, T("page.search"));
+        search.PlaceholderText = T("page.search");
+        // The pinned reference wraps #search and its microphone in a label:
+        // CDP's actual labelwrapped name is the microphone name while voice is enabled.
+        AutomationProperties.SetName(search, T(preferences.Text("voice") != "off" ? "common.voice_input" : "page.search"));
         AutomationProperties.SetName(titlebarRegion, T("page.titlebar")); AutomationProperties.SetName(treeRegion, T("page.tree"));
         AutomationProperties.SetName(chatRegion, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));
     }

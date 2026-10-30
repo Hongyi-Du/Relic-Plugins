@@ -24,6 +24,7 @@ from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
 from windows_avatar_parts import windows_avatar_parts
+from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
 
 
@@ -2032,6 +2033,14 @@ def project(xaml_path, uia_path, png_path):
         errors.append("Screenshot size differs from measured viewport")
     source_raw = xaml["raw_nodes"]
     source_by_id = {node["id"]: node for node in source_raw}
+    composition_clips = {}
+    for source_node in source_raw:
+        if not isinstance(source_node.get("bounds"), dict):
+            continue
+        clip_audit, clip_issues = composition_clip(source_node)
+        composition_clips[source_node["id"]] = clip_audit
+        if not source_node.get("hidden_reason") and positive(source_node.get("visible_bounds")):
+            unmeasured.extend(clip_issues)
     dialog_surfaces = measured_dialog_surfaces(source_raw, source_by_id, unmeasured)
     dialog_surface_owners = {surface["id"]: owner for owner, surface in dialog_surfaces.items()}
     identity_bindings = bind_automation_identities(source_raw, uia)
@@ -2695,6 +2704,8 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "style." + issue["field"], "reason": issue["reason"]})
         project_background_pattern(element, paint_node)
         project_windows_image(element, unmeasured, errors)
+        if node["id"] in composition_clips:
+            apply_composition_clip(element, composition_clips[node["id"]])
         for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):
             if style.get(key) is None:
                 unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})
@@ -2734,6 +2745,11 @@ def project(xaml_path, uia_path, png_path):
             parent = by_id.get(parent, {}).get("parent")
         element["parent"] = parent
     capture_evidence = copy.deepcopy(xaml.get("capture_evidence", {}))
+    # Raw object receipts remain in XAML and each emitted owner's evidence.
+    # Keep non-emitted layout owners in this audit so ancestor clips cannot vanish.
+    capture_evidence["composition_clips"] = {
+        key: {field: copy.deepcopy(value.get(field)) for field in ("owner_id", "status", "window_geometry", "image_corner_radius", "presentation_identity_proven")}
+        for key, value in composition_clips.items()}
     capture_evidence["automation_identity_bindings"] = identity_bindings
     capture_evidence["uia_pairing_rejections"] = list(rejected_identity_pairs.values())
     # Optional supplementary diagnostic. Keep the original UIA errors, bounds

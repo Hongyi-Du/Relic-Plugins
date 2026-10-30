@@ -269,7 +269,8 @@ public sealed partial class MainWindow
                     try
                     {
                         if (capturedNativeLabelEvidence != null)
-                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".native-label-frame.json"), capturedNativeLabelEvidence.ToJsonString());
+                            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".native-label-frame.json"),
+                                NativeCaptureNumbers.Prepare(capturedNativeLabelEvidence, "Actual NativeLabel frame observer").ToJsonString());
                     }
                     finally { EndNativeLabelCapture(); }
                     var resumed = ResumeCapturedMessageToasts();

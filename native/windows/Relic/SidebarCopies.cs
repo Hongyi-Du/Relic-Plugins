@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
+using System.Numerics;
 using System.Text.Json.Nodes;
 
 namespace Relic;
@@ -12,6 +14,8 @@ public sealed partial class MainWindow
     private readonly NativeToolbar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, IsDynamicOverflowEnabled = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 39, MinHeight = 0, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 0, 2, 0), Height = 39, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private Image? toolbarLogo;
+    private Microsoft.UI.Composition.CompositionRoundedRectangleGeometry? toolbarLogoClipGeometry;
+    private Microsoft.UI.Composition.CompositionGeometricClip? toolbarLogoClip;
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private void DrawToolbar()
@@ -36,6 +40,8 @@ public sealed partial class MainWindow
                 Width = 18, Height = 18, Margin = new Thickness(6, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false
             };
+            toolbarLogo.Loaded += (_, _) => ClipToolbarLogo();
+            toolbarLogo.SizeChanged += (_, _) => ClipToolbarLogo();
             NativeSvgAsset.LoadPackagedInto(toolbarLogo, "Assets/Relic.svg");
         }
         navigationButtons.Children.Add(toolbarLogo);
@@ -51,6 +57,18 @@ public sealed partial class MainWindow
         int i = 1;
         foreach (var (id, key, glyph) in new[] { ("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5") })
             AddCommand(ToolbarIconButton(glyph, T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id));
+    }
+
+    private void ClipToolbarLogo()
+    {
+        if (toolbarLogo is not { IsLoaded: true } image || image.ActualWidth <= 0 || image.ActualHeight <= 0) return;
+        var visual = ElementCompositionPreview.GetElementVisual(image);
+        toolbarLogoClipGeometry ??= visual.Compositor.CreateRoundedRectangleGeometry();
+        toolbarLogoClipGeometry.Size = new Vector2((float)image.ActualWidth, (float)image.ActualHeight);
+        toolbarLogoClipGeometry.CornerRadius = new Vector2(5);
+        toolbarLogoClip ??= visual.Compositor.CreateGeometricClip(toolbarLogoClipGeometry);
+        // Clip this Image's real paint, matching .ab-logo without an extra visual wrapper.
+        visual.Clip = toolbarLogoClip;
     }
     private Button ToolbarIconButton(string glyph, string tip, Func<Task> action, int badge = 0, bool selected = false, bool alert = false)
     {
