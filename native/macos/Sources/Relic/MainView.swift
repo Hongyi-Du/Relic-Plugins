@@ -196,7 +196,7 @@ struct RightPane: View {
                                 .environment(\.nativeElementParent, "relic-tab/" + pane.0)
                         }
                     }
-                }.scrollIndicators(.hidden)
+                }.scrollIndicators(.hidden).frame(height: 28)
                 IconButton(title: m.t("panel.hide_title"), icon: "x", size: 16) { m.panelOpen = false }.accessibilityLabel(m.t("panel.hide"))
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: "relic-card/right-pane-header"))

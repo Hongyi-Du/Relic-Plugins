@@ -160,6 +160,7 @@ struct FileTree: View {
         VStack(alignment: .leading, spacing: 0) {
             Rows(entries) { entry in
                 let open = expanded.contains(entry["path"].text)
+                let identity = "relic-list-row/file/" + entry["path"].text
                 Button {
                     if entry["dir"].flag { if open { expanded.remove(entry["path"].text) } else { expanded.insert(entry["path"].text) } }
                     else { m.run { try await m.openFile(entry["path"].text) } }
@@ -172,6 +173,8 @@ struct FileTree: View {
                     }.padding(.leading, CGFloat(depth * 14 + 4)).padding(.trailing, 6).frame(height: 26)
                         .modifier(RecordedSurface(background: .clear, radius: 6, expanded: entry["dir"].flag ? open : nil))
                 }.buttonStyle(FileRowStyle()).help(entry["path"].text)
+                    .accessibilityIdentifier(identity).accessibilityLabel(entry["name"].text)
+                    .environment(\.nativeElementParent, identity)
                 if entry["dir"].flag && open && !ancestors.union([path]).contains(entry["path"].text) {
                     AnyView(FileTree(path: entry["path"].text, ancestors: ancestors.union([path]), depth: depth + 1))
                 }
