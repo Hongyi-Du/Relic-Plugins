@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (778c96b actual complete identities): group now has
+303 exact XAML-owner/independent-UIA full RuntimeId pairs, file-code 186 and
+live-tool-output 306. The target text owners xaml-517/uia-117 and
+xaml-970/uia-233 are included. Original provider errors are retained; identity
+alone does not prove range visibility or continuity with the final PNG.
+
+The 7df43bd English dark 1024x700 full shard exposed a different zero-range
+case: the trimmed sidebar title's WinRT provider itself returns an all-zero
+tail range. It is not a wrapped second line or subpixel integerization. Chat
+titles now use the same production NativeLabel as row previews, retaining
+13.3/550/17.955, single-line ellipsis, complete accessible name and unchanged
+row interactions. The headless build passes; actual title geometry and all
+unresolved trim/paint measurements still require the next capture.
+
 Changes for the clients (font-weight quantity contract): the shared schema now
 keeps actual configured requests separate from actual rendered-face weights.
 The original `style.font_weight` is retained with its provider meaning; both
