@@ -10,7 +10,13 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新完整通过的原生构建为 `711d27a`：
+最新完整通过的原生构建为 `5d97933`：
+[41038867598 / macos 124006493039](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41038867598/job/124006493039)
+release 编译、打包及 **179 项测试通过**。包含原生滑块重复 AX 枚举与索引检查、
+实际字体表／基线／popup 标题、Markdown 标记源文本等回归；滚动条注册递归已在 CI 验证修复。
+构建工作流整体成功，不代表逐元素门禁成功；更新后的捕获尚在运行。
+
+此前完整通过的原生构建 `711d27a`：
 [41029422150 / macos 123975289918](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41029422150/job/123975289918)
 release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、原始工具文本边界和只读文档末尾换行高度回归。
 此后的静态字体表／文字基线修改仍待验证：`3462591` release 编译成功，XCTest 在字体绘制测试退出 signal 11；
@@ -24,7 +30,8 @@ release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、�
 现已保存实际 `Relic-2026-10-30-100410.ips`，位于
 `S:\Codex\Outputs\Relic-native-visual\parity-ed5b808\crash\`。
 栈显示 AppKit 注册子项 UIElementSpecifier 时通过 `accessibilityIndexOfChild` 再次枚举父级，
-因此即使只读 role 也会递归。`1ecee11` 增加原生注册重入保护和重复子项索引测试，等待 CI。
+因此即使只读 role 也会递归。`1ecee11` 增加原生注册重入保护和重复子项索引测试，
+已在上述 `5d97933` CI 通过。
 `5d97933` 同时修正完整中文浅色 165 状态中实测的成员选项、工作区、轨迹行的独立子元素和名称；
 菜单快捷键、Markdown 标记及表格单元格名称亦已修改。新截图尚未验证这些差异已消失。
 诊断样本的新增测试不替代全部 660 状态门禁。

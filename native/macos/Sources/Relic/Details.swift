@@ -12,7 +12,7 @@ struct DetailsView: View {
                 ReferenceLabel(m.snapshot["org"]["name"].text, size: 15.5, weight: 650).frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 2) {
                     ForEach([("trace", "common.context_trace"), ("tasks", "common.tasks"), ("protocols", "details.tab_protocols"), ("docs", "details.tab_docs")], id: \.0) { key, title in
-                        TextButton(m.t(title), size: 12.5, weight: m.detailTab == key ? 600 : 400, color: m.detailTab == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 12) { m.detailTab = key }
+                        TextButton(m.t(title), size: 12.5, weight: m.detailTab == key ? 600 : 400, color: m.detailTab == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 12, identifier: "relic-tab/details/" + key) { m.detailTab = key }
                             .buttonStyle(QuietButtonStyle(selected: m.detailTab == key, selectionApplicable: true, selectionColor: RelicStyle.card, selectionShadows: SurfaceShadow.small)).accessibilityAddTraits(m.detailTab == key ? .isSelected : [])
                     }
                 }.fixedSize(horizontal: true, vertical: false).padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 9, kind: "card"))

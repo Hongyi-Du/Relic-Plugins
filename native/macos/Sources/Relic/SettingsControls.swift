@@ -65,10 +65,11 @@ struct SettingsNavigationButton: View {
 struct SettingsSegments: View {
     let options: [(String, String)]
     @Binding var selection: String
+    @State private var identity = UUID().uuidString
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.0) { value, title in
-                TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9) { selection = value }
+                TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9, identifier: "relic-tab/segment/" + identity + "/" + value) { selection = value }
                     .buttonStyle(.plain)
                     .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
                     .accessibilityAddTraits(value == selection ? .isSelected : [])

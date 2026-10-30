@@ -191,7 +191,7 @@ struct ChatView: View {
             if m.member.isEmpty { SidebarGroupAvatar() } else { Avatar(member: m.member, size: 28, secretaryStyle: m.member == m.secretary, showState: true) }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
+                    let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.roleName(m.member, "common.secretary")]) : m.name(m.member)
                     ReferenceLabel(title, size: 15, weight: 650, lineHeight: 19.5).help(title)
                     if m.member.isEmpty { ReferenceLabel(m.t("common.members", ["n": String(m.members.count)]), size: 15, color: RelicStyle.muted, lineHeight: 19.5) }
                     else {

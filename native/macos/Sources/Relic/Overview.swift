@@ -5,7 +5,7 @@ struct Overview: View {
     @EnvironmentObject var m: Model
     @State private var purposeOpen = false
     private var org: Node { m.snapshot["org"] }
-    private func roleName(_ id: String, _ key: String) -> String { m.name(id) == m.t(key) ? id : m.name(id) }
+    private func roleName(_ id: String, _ key: String) -> String { m.roleName(id, key) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             OverviewBlock {
@@ -237,23 +237,32 @@ struct TaskCard: View {
     @EnvironmentObject var m: Model
     let task: Node
     @State private var expanded = false
+    @State private var avatarImageVisible = false
     private var owner: String { "relic-row/task/" + task["id"].text }
+    private var metadata: String { task["id"].text + " · " + (task["owner"].text.isEmpty ? m.t("details.no_owner") : m.name(task["owner"].text)) + (task["at"].isNull ? "" : " · " + m.t("details.updated", ["when": m.day(task["at"]) + " " + m.clock(task["at"])])) }
+    private var hasReport: Bool { task["status"].text == "done" && !task["report"].text.isEmpty }
+    private var accessibleName: String {
+        [avatarImageVisible || task["owner"].text.isEmpty ? "" : String(m.name(task["owner"].text).prefix(1)).uppercased(),
+         task["title"].text, metadata, hasReport ? m.t("details.has_report") : "", m.taskLabel(task["status"].text)]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button { expanded.toggle() } label: {
                 HStack(spacing: 10) {
-                    if !task["owner"].text.isEmpty { Avatar(member: task["owner"].text, size: 28) }
+                    if !task["owner"].text.isEmpty { Avatar(member: task["owner"].text, size: 28, imageVisibility: { avatarImageVisible = $0 }) }
                     VStack(alignment: .leading, spacing: 0) {
                         ReferenceLabel(task["title"].text, weight: 600, owner: owner)
-                        ReferenceLabel(task["id"].text + " · " + (task["owner"].text.isEmpty ? m.t("details.no_owner") : m.name(task["owner"].text)) + (task["at"].isNull ? "" : " · " + m.t("details.updated", ["when": m.day(task["at"]) + " " + m.clock(task["at"])])), size: 12, color: RelicStyle.muted, owner: owner)
+                        ReferenceLabel(metadata, size: 12, color: RelicStyle.muted, owner: owner)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
-                        if task["status"].text == "done", !task["report"].text.isEmpty { OverviewChip(text: m.t("details.has_report"), tone: "accent") }
+                        if hasReport { OverviewChip(text: m.t("details.has_report"), tone: "accent") }
                         OverviewChip(text: m.taskLabel(task["status"].text), tone: task["status"].text == "done" ? "ok" : task["status"].text == "blocked" ? "bad" : task["status"].text == "working" ? "warn" : "")
                     }
                 }.padding(.horizontal, 12).padding(.vertical, 10)
                     .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: expanded ? 1 : 0, trailing: 0), owner: owner, expanded: expanded))
-            }.buttonStyle(.plain).accessibilityIdentifier(owner)
+            }.buttonStyle(.plain).accessibilityIdentifier(owner).accessibilityLabel(accessibleName)
+                .environment(\.nativeElementParent, owner)
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(m.t("details.label_title")).foregroundStyle(RelicStyle.muted) + Text(task["title"].text)
