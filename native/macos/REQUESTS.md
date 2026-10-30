@@ -1,3 +1,36 @@
+## 2026-10-30: resumed; 239 tests green, actual snapshot still fails
+
+`dea54e8` Native apps 41102763471 / macOS 124225131473 builds and passes all
+239 tests. Package validation 41102763383 also passes. This confirms the
+shadowed-fill fallback, actual search placeholder/editor, field paint switches
+and exact scroll-focus getter. It does not establish element parity.
+
+Smoke 41102763767 is downloaded to `parity-dea54e8-smoke`. Both platforms have
+22 paired cases and zero accepted/strictly checked out of 672 expected.
+macOS: 5523 valid native / 4913 paired; missing 46, extra 610, text 0,
+geometry 554, style 6398, state 1327, kind 0, region 0, order 667, layout 2367,
+icon 3, extraction 26830. Windows: 5165 valid native / 4869 paired; missing 93,
+extra 296, text 632, geometry 1283, style 14582, state 708, kind 14, region 20,
+order 449, layout 1851, icon 1, extraction 76845. No exceptions are accepted.
+
+The real group snapshot still has six outgoing-message order errors. The old
+isolated test used a ReferenceLabel in place of Avatar and did not cover its
+actual AX container. A new mounted test uses the real Avatar and a multi-element
+metadata/body card. Production avatar priority now uses its source row priority
+plus 0.5, between that row's body and its date separator, rather than the same
+global priority 1 for every avatar. No element sorting by reference is added.
+
+Actual rejected `plusD` filter layers are all in the native system titlebar,
+outside the captured content view. Their names are retained without interpreting
+an undocumented blend name. Shadowed fills currently have no owned image, so
+coverage remains unknown. Actual draw-context bit depth, alpha/bitmap info and
+color space are now retained; the unchanged full-bitmap test uploads
+surface-render-contexts.json to inform a pixel-preserving owned-image fix.
+
+Full 41102763380 has a native 1280x800 timeout at member-card-rename and partial
+language shards. Its unchanged report is being downloaded to `parity-dea54e8`;
+the owner is investigating actual progress receipts, not extending deadlines.
+
 ## 2026-10-30: retain the actual filter identity behind rejected coverage
 
 The actual chart PNG has the expected visible diagram, while its geometry
