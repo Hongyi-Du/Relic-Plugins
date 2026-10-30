@@ -63,7 +63,7 @@ class WindowsCaptureProcessTests(unittest.TestCase):
             self.assertEqual(json.loads((root / "complete.json").read_text()), result)
             self.assertEqual(manifest, original)
 
-    def test_macos_keeps_one_existing_multi_case_process(self):
+    def test_macos_single_viewport_keeps_one_existing_multi_case_process(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             manifest = self.manifest(root, ["group", "private"])

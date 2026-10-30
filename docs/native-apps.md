@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (macOS viewport sharding implemented): shared capture
+now runs multi-size macOS manifests as independent per-viewport processes with
+the same fixture/server, output root, case IDs and original order. Each retains
+its own manifest, progress, raw completion and owned-process cleanup. Failed
+shards do not suppress later sizes. Success counts require an actual unique
+captured receipt and both files; partial PNGs never replace missing receipts.
+Single-size diagnostic behavior is unchanged. The existing 1200-second process,
+90-second progress and workflow deadlines are unchanged. Thirteen mocked
+regressions run in CI; local checks are syntax compilation and diff checking.
+
 Changes for the clients (Windows own-outline and actual text quantities):
 ordinary exact WinUI primitives now record their own paint contract, actual
 focus relationship and app hand-in Composition attachment. Known absence is
