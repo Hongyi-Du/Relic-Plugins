@@ -1,3 +1,21 @@
+## 2026-10-30: preserve exact call boundaries for the actual native stall
+
+The full zh-CN-light 1280x800 artifact includes the original
+`data/zh-CN/light/viewports/1280x800/native-stall.sample.{json,txt}`. Sampling
+succeeded under the existing 90-second watchdog. The main thread is idle in
+NSApplication's normal event loop, rather than visibly blocked in a layout
+call. An HIE thread is suspended at
+SOME_OTHER_THREAD_SWALLOWED_AT_LEAST_ONE_EXCEPTION; this alone does not identify
+the cause. The completed scene-action receipt proves the rename input appeared,
+but no native-geometry/screenshot receipt follows.
+
+VisualCapture now writes a separate `<case>.capture-phases.json` timeline before
+and after the member action, pointer settle, final layout/display, screenshot
+and element extraction. It never modifies current-case.txt or resets the
+watchdog. Existing timeout sampling is already sufficient on the shared side;
+no deadline change or case exclusion is requested. Need the next CI sample and
+phase receipt before calling this stall diagnosed or fixed.
+
 ## 2026-10-30: resumed; 239 tests green, actual snapshot still fails
 
 `dea54e8` Native apps 41102763471 / macOS 124225131473 builds and passes all
