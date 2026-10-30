@@ -162,6 +162,7 @@ struct CopyCard: View {
     let copy: Node
     let retire: () -> Void
     @State private var acknowledging = false
+    @State private var acknowledgeIdentity = "relic-text-button/acknowledge-copy/" + UUID().uuidString
     private var live: Bool { copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) }
     private var organization: Node { m.organizations.first { $0["id"].text == copy["org"].text } ?? Node(["id": copy["org"].text, "name": copy["org_name"].text]) }
     private var tone: String { !["", "active"].contains(copy["org_status"].text) ? "" : copy["status"].text == "active" ? "ok" : copy["status"].text == "retired" && copy["retired_by"].text == "human" ? "bad" : "" }
@@ -193,8 +194,8 @@ struct CopyCard: View {
                     OverviewChip(text: m.copyLabel(copy), tone: tone)
                 }.frame(maxWidth: 300, alignment: .trailing)
             }
-            RichText(copy["summary"].text).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
-                .modifier(RecordedSurface(background: live ? RelicStyle.sidebar : RelicStyle.background, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "region")).recordedOpacity(live ? 1 : 0.8)
+            RichText(copy["summary"].text, document: true).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 9)
+                .modifier(RecordedSurface(background: live ? RelicStyle.sidebar : RelicStyle.background, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "card")).recordedOpacity(live ? 1 : 0.8)
             ReferenceLabel(metadata, size: 12, color: RelicStyle.muted, lines: 0)
             ReferenceLabel(stats, size: 12, color: RelicStyle.muted, lines: 0)
             RulesView(rules: copy["rules"].rows)
@@ -202,13 +203,17 @@ struct CopyCard: View {
                 FlowLayout(spacing: 6) {
                     if !copy["read"].flag {
                         Button { acknowledging = true; m.run { defer { acknowledging = false }; try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/read", [:]); try await m.refresh() } } label: {
-                            HStack(spacing: 6) { ReferenceIcon(name: "check", size: 14); ReferenceLabel(m.t("cc.ack"), size: 12, weight: 600) }
+                            HStack(spacing: 6) {
+                                ReferenceIcon(name: "check", size: 14, owner: acknowledgeIdentity)
+                                ReferenceLabel(m.t("cc.ack"), size: 12, weight: 600, owner: acknowledgeIdentity)
+                            }.environment(\.nativeElementParent, acknowledgeIdentity)
                         }.buttonStyle(ReferenceButtonStyle(small: true)).disabled(acknowledging)
+                            .accessibilityIdentifier(acknowledgeIdentity).accessibilityLabel(m.t("cc.ack"))
                     }
                     if live { TextButton(m.t("cc.retire"), size: 12, color: RelicStyle.red, action: retire).buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
                 }
             }
-        }.padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(RecordedSurface(background: live ? RelicStyle.card : RelicStyle.sidebar, border: copy["read"].flag ? RelicStyle.line : RelicStyle.mix(RelicStyle.accent, RelicStyle.line, fraction: 0.45), borderWidth: 1, radius: 12, kind: "card", insetLeadingWidth: copy["read"].flag ? 0 : 3, insetLeadingColor: RelicStyle.accent))
+        }.padding(.horizontal, 15).padding(.vertical, 13).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RecordedSurface(background: live ? RelicStyle.card : RelicStyle.sidebar, border: copy["read"].flag ? RelicStyle.line : RelicStyle.mix(RelicStyle.accent, RelicStyle.line, fraction: 0.45), borderWidth: 1, radius: 12, kind: "card", insetLeadingWidth: copy["read"].flag ? 0 : 3, insetLeadingColor: RelicStyle.accent, unread: !copy["read"].flag))
     }
 }

@@ -7,7 +7,6 @@ import AppKit
     static func makeLabel() -> ReferenceLabelView {
         let storage = NSTextStorage(), manager = NativeGlyphLayoutManager()
         manager.recordDraws = VisualCapture.enabled
-        manager.drawsGlyphsIntoCurrentContext = true
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)

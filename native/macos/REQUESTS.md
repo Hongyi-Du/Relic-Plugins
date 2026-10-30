@@ -1,5 +1,26 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Production labels/placeholders now retain the working AppKit glyph primitive
+while the alternate direct primitive is tested. This restores visible text;
+the actual extra ContentLayer remains an extraction failure and the strict
+mounted zero-child-layer test stays enabled. No unknown layer is allowlisted.
+
+f0c2487 CI 41064042324 also fails: 212 tests, six failures. CTFontDrawGlyphs
+still produces empty label rasters and an AppKit ContentLayer; it is NOT a
+verified repair. The callback's actual clip, CTM and glyph positions are valid
+in the preceding raw capture. The next candidate explicitly sets glyph fill
+mode and retains every strict assertion. Current native binaries must not be
+accepted while these tests fail.
+
+Shared CI request: the macOS unit-test job should upload
+`native/macos/.build/draw-diagnostics/**` with `if: failure()` and
+`if-no-files-found: ignore`, artifact name `native-macos-draw-diagnostics`.
+GlyphCaptureTests now saves both actual native PNGs plus their exact source
+when the existing byte-equality assertion fails. These are small CI-only
+diagnostics, not golden images or replacement screenshots. This is needed
+because the current crash-report artifact retains nothing for ordinary
+pixel assertion failures. Keep all test assertions unchanged.
+
 d74684f now exports the requested v2 `owner_ax_frame` and
 `content_screen_frame`, with the exact source strings and bottom-left AppKit
 screen coordinates. Both are independent actual native API measurements;

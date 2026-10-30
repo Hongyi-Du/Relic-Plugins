@@ -373,17 +373,18 @@ struct RulesView: View {
     @EnvironmentObject var m: Model
     let rules: [Node]
     @State private var expanded = false
-    @State private var identity = "relic-rule-toggle/" + UUID().uuidString
+    @State private var identity = "relic-text-button/rules/" + UUID().uuidString
     private var checks: [Node] { rules.filter { $0["effect"].text == "check" } }
     var body: some View {
         if !checks.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Button { expanded.toggle() } label: {
                     HStack(spacing: 5) {
-                        ReferenceIcon(name: "chev", size: 13).rotationEffect(.degrees(expanded ? 90 : 0))
+                        ReferenceIcon(name: "chev", size: 13, owner: identity).rotationEffect(.degrees(expanded ? 90 : 0))
                         ReferenceLabel(m.t("cc.code"), size: 12.5, color: RelicStyle.secondary, owner: identity)
                     }.modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
-                }.buttonStyle(.plain).accessibilityIdentifier(identity)
+                        .environment(\.nativeElementParent, identity)
+                }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(m.t("cc.code"))
                 if expanded {
                     Rows(checks) { rule in
                         VStack(alignment: .leading, spacing: 6) {

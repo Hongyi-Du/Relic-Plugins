@@ -41,7 +41,9 @@ struct ReferenceLabel: NSViewRepresentable {
         let storage = NSTextStorage(), layout = NativeGlyphLayoutManager()
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         layout.recordDraws = VisualCapture.enabled
-        layout.drawsGlyphsIntoCurrentContext = true
+        // Keep AppKit's working production paint until the alternate primitive
+        // passes the actual bitmap tests. Its extra layer remains an explicit
+        // extraction/test failure, never an assumed absence of paint.
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
