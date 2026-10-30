@@ -33,6 +33,7 @@ import RelicCore
                 item["clip_automatic_insets"] = clip.automaticallyAdjustsContentInsets
             }
             if let layer = view.layer {
+                item["layer_order"] = NativeLayerOrder.observation(layer)
                 item["layer_bounds"] = ElementCapture.box(layer.bounds)
                 item["layer_position"] = ["x": layer.position.x, "y": layer.position.y]
                 item["layer_anchor"] = ["x": layer.anchorPoint.x, "y": layer.anchorPoint.y]
