@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (macOS full-run timeout request): the owner measured
+147 completed PNG/element pairs before the unchanged 1200-second native process
+deadline, with normal 4.623–14.466 second case intervals rather than a stalled
+case. The requested shared viewport sharding is being implemented: three
+independent 55-case native invocations against the same fixture/server, retaining
+every original case ID, error and the existing per-process deadline. The full
+660-state gate and tolerances remain unchanged. Compact macOS JSON serialization
+is merged; its data is unchanged and actual speedup still needs CI evidence.
+
 Changes for the clients (macOS mounted-toast capture): the owner's latest
 Copy capture correction is merged. It waits for the same actual SwiftUI toast
 surface/text to mount while the original lifetime runs, then observes that
