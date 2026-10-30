@@ -107,6 +107,22 @@ public sealed partial class MainWindow
                     children.Add(new JsonObject { ["id"] = childId, ["index"] = index, ["same_parent_object"] = sameParent });
                 }
                 receipt["children"] = new JsonObject { ["status"] = "measured", ["complete"] = complete, ["items"] = children };
+                if (actual == typeof(ScrollContentPresenter))
+                {
+                    // Exact sealed SDK type: its native base is CContentPresenter,
+                    // whose own background/border uses BorderRenderHelper. The
+                    // scrolling geometry/Clip and every child remain independent.
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/controls/generated/CScrollContentPresenter.g.h#L17
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/BaseContentRenderer.cpp#L1132
+                    receipt["scroll_presenter"] = new JsonObject
+                    {
+                        ["source"] = "actual exact ScrollContentPresenter runtime BaseType/IsSealed and current visual-child count",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
+                        ["visual_child_count"] = count,
+                        ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/controls/generated/CScrollContentPresenter.g.h"
+                    };
+                }
                 if (actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView))
                 {
                     var token = (OverviewTokenView)value;
@@ -252,6 +268,7 @@ public sealed partial class MainWindow
     private static string? PrimitiveOutlineContract(Type actual) =>
         actual == typeof(Border) ? "native-border-fill-and-border"
         : actual == typeof(ContentPresenter) ? "native-presenter-fill-border-and-content"
+        : actual == typeof(ScrollContentPresenter) ? "native-scroll-content-presenter-fill-border-and-content"
         : actual == typeof(Grid) || actual == typeof(StackPanel) || actual == typeof(Canvas) ? "native-panel-background"
         : actual == typeof(Rectangle) || actual == typeof(Ellipse) || actual == typeof(Line)
             || actual == typeof(Microsoft.UI.Xaml.Shapes.Path) || actual == typeof(Polygon) || actual == typeof(Polyline) ? "native-shape-fill-and-stroke"

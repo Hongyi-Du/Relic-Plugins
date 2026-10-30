@@ -16,6 +16,8 @@ OS2_TABLE_TAG = int.from_bytes(b"OS/2", "big")
 FVAR_TABLE_TAG = int.from_bytes(b"fvar", "big")
 WINDOWS_FACE_SOURCE = "DWRITE_GLYPH_RUN.fontFace passed to the actual D2D DrawGlyphRun"
 WINDOWS_FORMAT_SOURCE = "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw"
+WINDOWS_XAML_SOURCE = "actual XAML text-owner FontWeight.Weight getter"
+WINDOWS_XAML_BINDING_SOURCE = "actual XAML text_source selected by existing projection"
 
 
 def weight(value):
@@ -34,6 +36,80 @@ def _record(value, source, raw, reason=None):
     if reason:
         result["reason"] = reason
     return result
+
+
+def _xaml_configured_weight(element, evidence, style):
+    """Validate the same actual XAML text owner, never a containing control.
+
+    Getters measure an effective property request (including inheritance).
+    They cannot establish the font face or weight eventually used for a glyph.
+    The receipt is additive: old captures without it remain unmeasured.
+    """
+    receipt = evidence.get("xaml_font_weight_configuration")
+    if receipt is None:
+        return None
+    binding = evidence.get("xaml_font_weight_binding")
+    raw = {"configuration": receipt, "binding": binding}
+    def unknown(reason):
+        return _record(None, WINDOWS_XAML_SOURCE, raw, reason)
+
+    if (not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1
+            or receipt.get("source") != WINDOWS_XAML_SOURCE or not isinstance(binding, dict)
+            or binding.get("source") != WINDOWS_XAML_BINDING_SOURCE
+            or binding.get("canonical_owner_id") != element.get("id")):
+        return unknown("XAML configured weight has no versioned receipt bound to this projected element")
+    typ = binding.get("source_type")
+    runtime = {"TextBlock": "Microsoft.UI.Xaml.Controls.TextBlock",
+               "RichTextBlock": "Microsoft.UI.Xaml.Controls.RichTextBlock",
+               "Run": "Microsoft.UI.Xaml.Documents.Run"}.get(typ)
+    source_id = binding.get("source_id")
+    if (runtime is None or receipt.get("runtime_type") != runtime
+            or receipt.get("property") != typ + ".FontWeight.Weight"
+            or not isinstance(source_id, str) or not source_id or receipt.get("source_id") != source_id):
+        return unknown("Configured getter does not belong to the actual supported XAML text owner")
+    if source_id != element.get("id"):
+        ownership = binding.get("ownership")
+        if (not isinstance(ownership, dict) or ownership.get("source_id") != source_id
+                or ownership.get("owner_id") != element.get("id")
+                or ownership.get("reason") != "single simple control label"):
+            return unknown("A containing element has no existing single-text-source ownership for this getter")
+    elif binding.get("ownership") is not None:
+        return unknown("Direct text owner unexpectedly claims a different projection owner")
+    text = binding.get("text")
+    value = receipt.get("value")
+    if (not isinstance(text, str) or not text or receipt.get("text") != text or element.get("text") != text
+            or not weight(value) or not weight(receipt.get("raw_style_font_weight"))
+            or not weight(binding.get("style_font_weight")) or not weight(style.get("font_weight"))
+            or value != receipt["raw_style_font_weight"] or value != binding["style_font_weight"]
+            or value != style["font_weight"]):
+        return unknown("Configured weight/text differs between the actual getter, raw source and projected text")
+    runs = binding.get("rich_text_runs")
+    run_source = binding.get("text_run_source")
+    if typ == "Run":
+        if not isinstance(run_source, dict) or not isinstance(runs, list) or len(runs) != 1 or not isinstance(runs[0], dict):
+            return unknown("Run configured weight has no unique retained actual leaf record")
+        run = runs[0]
+        owner, index = run_source.get("owner"), run_source.get("index")
+        start, end = run_source.get("start_offset"), run_source.get("end_offset")
+        own = run.get("own_paint_evidence")
+        if (not isinstance(owner, str) or not owner or type(index) is not int or index < 0
+                or type(start) is not int or type(end) is not int or start < 0 or end <= start
+                or source_id != owner + ":run:" + str(index)
+                or receipt.get("owner_id") != owner or receipt.get("run_index") != index
+                or type(receipt.get("run_index")) is not int
+                or any(type(receipt.get(key)) is not int or receipt[key] != run_source[key]
+                       or type(run.get(key)) is not int or run[key] != run_source[key]
+                       for key in ("start_offset", "end_offset"))
+                or run.get("type") != "Run" or run.get("text") != text or not weight(run.get("font_weight"))
+                or run["font_weight"] != value or run.get("font_weight_configuration") != receipt
+                or not isinstance(own, dict) or own.get("source") != "actual TextElement runtime type and owner ContentStart/ContentEnd range"
+                or own.get("runtime_type") != runtime or own.get("owner_id") != owner or own.get("exact_run_type") is not True
+                or any(type(own.get(key)) is not int or own[key] != run_source[key] for key in ("start_offset", "end_offset"))):
+            return unknown("Run configured weight does not match the actual leaf identity, text and source span")
+    elif (receipt.get("owner_id") != source_id or run_source is not None or runs not in (None, [])
+          or any(key in receipt for key in ("run_index", "start_offset", "end_offset"))):
+        return unknown("Parent text-owner request cannot stand in for separately measured rich-text leaves")
+    return _record(value, WINDOWS_XAML_SOURCE, raw)
 
 
 def _mac_projection(element, evidence):
@@ -140,6 +216,12 @@ def project_font_weights(element):
     if not result["applicable"]:
         result["reason"] = "This element owns neither visible text nor a font glyph"
         return result
+
+    xaml_configured = _xaml_configured_weight(element, evidence, style)
+    if xaml_configured is not None:
+        result["configured"] = xaml_configured
+        if weight(xaml_configured.get("value")):
+            result["legacy"]["quantity"] = "configured"
 
     request = evidence.get("font_request")
     if isinstance(request, dict) and request.get("source") == "getComputedStyle":
