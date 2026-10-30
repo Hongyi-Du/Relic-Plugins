@@ -13,8 +13,11 @@
 当前已推送至 `fd93174`，其中包括实际 CGFloat 字体度量读取、只读文字重排时保留阅读位置、
 成员名片“保存模型”按钮填满内容列，以及 CI 操作前的实际滚动布局就绪记录。
 [Native apps 41043480042](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41043480042)
-的 macOS job 尚在排队。此前 `63aecc0`、`b63cd2f` 的 macOS 测试在排队中被后续推送取代；
-因此不能把代码修正视为已通过测试。共享菜单父级回归已由 Windows 分支修正，待合并及新 CI。
+的 [macOS job 124021988466](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41043480042/job/124021988466)
+已完成 release 编译、打包及 **183 项测试，0 失败**。实际字体度量和只读文字重排测试均通过。
+此前 `63aecc0`、`b63cd2f` 的 macOS 测试在排队中被后续推送取代；本次才取得这批修复的测试证据。
+该工作流整体仍因共享菜单父级 fixture 失败；Windows 已修正并合入当前分支，待新 CI。
+后续新增 @ 候选项子元素／名称和只读文字自身轮廓测量，尚待各自的构建、测试与截图。
 
 最新下载的正式报告来自 `72f5571` 的 **19 场景诊断**，
 [41040938552](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41040938552)，位于
@@ -31,9 +34,9 @@ Windows 为 4145 个原生元素、4265 个有效参考元素、配对 3916。
 
 该次原生滚动记录直接确认右栏 y=7 来自 NSTextView 在 frame 调整时自动显示休眠选区。
 `ReadOnlyTextView` 只抑制 frame 调整期间的自动滚动，显式滚动和选择行为保留；
-新测试与截图尚待 CI，不能提前宣称几何差异消除。
+新测试已在上述 183 项中通过，截图仍待 CI，不能提前宣称几何差异消除。
 
-最新完整通过的原生构建为 `efa7553`：
+此前完整通过的原生构建为 `efa7553`：
 [41039878013 / macos 124009778780](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41039878013/job/124009778780)
 release 编译、打包及 **180 项测试通过**，包括新增中英文秘书称呼回退测试。
 `72f5571` 后续增加实际字体度量边界检查，尚待新 CI 验证。

@@ -1,5 +1,11 @@
 ## 2026-10-30: bounded own-outline evidence for native read-only text
 
+`fd93174` native apps run `41043480042`, macOS job `124021988466`, now passes
+release build, packaging and all 183 tests. This verifies the live CGFloat metric
+projection and read-only text reflow regression. It precedes this own-outline
+batch. The overall run still fails the shared menu fixture already corrected
+in 000c186 and merged here; no capture or parity success follows from unit tests.
+
 The next macOS batch measures only the own paint of the two final production
 text classes, ReferenceLabelView and QuoteTextView, with their exact native
 layout managers. The raw `native_text_outline` receipt retains current source
