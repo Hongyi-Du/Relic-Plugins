@@ -42,15 +42,13 @@ struct ReferenceLabel: NSViewRepresentable {
         layout.drawsGlyphsIntoCurrentContext = true
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         layout.recordDraws = VisualCapture.enabled
-        // Keep AppKit's working production paint until the alternate primitive
-        // passes the actual bitmap tests. Its extra layer remains an explicit
-        // extraction/test failure, never an assumed absence of paint.
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
         view.pathLineBreaks.enabled = pathWrapping; layout.delegate = view.pathLineBreaks
         view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
         view.focusRingType = .none
+        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
         // SwiftUI assigns the measured frame. TextKit must not resize it during
         // draw or AX inspection after that layout has been committed.
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
@@ -115,8 +113,70 @@ final class ReferenceLabelView: ReadOnlyTextView {
     var productionRegion = "window"
     var hasExplicitAccessibilityName = false
     var textGlyphIcon = false
+    private var backingImage: CGImage?
+    private var backingSource: NSAttributedString?
+    private var backingBounds = NSRect.zero, backingFrame = NSRect.zero
+    private var backingWindow: ObjectIdentifier?
+    private var backingScale: CGFloat = 1
+    private var backingDraw: [String: Any]?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override var wantsUpdateLayer: Bool { true }
+    override func makeBackingLayer() -> CALayer { CALayer() }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance(); needsDisplay = true
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties(); needsDisplay = true
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { needsDisplay = true }
+    }
+    override func updateLayer() {
+        guard let layer else { return }
+        let scale = window?.backingScaleFactor ?? 1
+        guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: Int(ceil(bounds.width * scale)), height: Int(ceil(bounds.height * scale)),
+                bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
+            layer.contents = nil; backingImage = nil; backingSource = nil; backingDraw = nil
+            return
+        }
+        context.translateBy(x: 0, y: CGFloat(context.height))
+        context.scaleBy(x: scale, y: -scale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        draw(bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = context.makeImage() else { return }
+        // Submit the actual native raster to this view's own backing layer.
+        // No AppKit editable-text ContentLayer or private image representation
+        // participates in this drawing path.
+        layer.contentsScale = scale; layer.contentsGravity = .topLeft; layer.contents = image
+        backingImage = image; backingSource = textStorage.map { NSAttributedString(attributedString: $0) }
+        backingBounds = bounds; backingFrame = frame; backingScale = scale
+        backingWindow = window.map(ObjectIdentifier.init)
+        backingDraw = (layoutManager as? NativeGlyphLayoutManager)?.lastDraw
+    }
+    func backingPaintObservation() -> [String: Any] {
+        let contents = layer?.contents as AnyObject?
+        let matches = backingImage.map { contents === $0 } ?? false
+        let current = matches && backingSource.map { source in textStorage.map { source.isEqual(to: $0) } ?? false } == true
+            && backingBounds == bounds && backingFrame == frame && backingWindow == window.map(ObjectIdentifier.init)
+            && layer?.contentsScale == backingScale && layer?.contentsGravity == .topLeft
+        return ["source": "production ReferenceLabelView.updateLayer native sRGB image",
+            "current": current, "view_identity": String(describing: ObjectIdentifier(self)),
+            "window_identity": window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "image_identity": backingImage.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "layer_contents_is_same_image": matches, "scale": backingScale,
+            "image_width": backingImage?.width as Any? ?? NSNull(), "image_height": backingImage?.height as Any? ?? NSNull(),
+            "local_bounds": ElementCapture.box(backingBounds), "native_frame": ElementCapture.box(backingFrame),
+            "glyph_draw": backingDraw as Any? ?? NSNull(), "final_png_attribution_proven": false]
+    }
     override func draw(_ dirtyRect: NSRect) {
         // These labels are never editable or selectable. Draw their actual
         // TextKit layout directly, so AppKit's editable-text content layers do

@@ -51,6 +51,7 @@ struct Sidebar: View {
                 .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-profile").accessibilityLabel("")
         }.padding(.trailing, 1).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
+            .accessibilityIdentifier("relic-region/sidebar")
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
     }
 }

@@ -1,5 +1,37 @@
 # macOS 原生 Relic App：逐元素验收
 
+**当前未完成 Amendment 4；没有已获接受的例外。**
+
+完整 CI 报告 `1ffe201` 已下载至
+`S:\Codex\Outputs\Relic-native-visual\parity-1ffe201\report\`：原始 `parity-report.json`
+为 1,491,300,561 字节，包含 672 个场景及 1,344 次平台比较；2018 个 HTML 页面和
+672 份逐场景 JSON 均保留。`parity-summary.json` 仅提取原始顶层统计，方便查看。
+[完整 CI 41055830236](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41055830236)
+结果为 `passed:false`、`exceptions:[]`；两平台 `scenes_checked/scenes_passed/matched_elements`
+均为 0，表示提取证据未达要求，不能把“已列入比较”写成“已通过检查”。
+
+| 1ffe201 完整基线 | 原始/有效原生元素 | 参考有效元素 | 配对元素 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 153257 / 153257 | 128820 | 126469 | 2351 | 26788 | 106 | 50034 | 236124 | 14875 | 24 | 118 | 20921 | 64263 | 0 | 787781 |
+| Windows | 129015 / 129015 | 129176 | 120488 | 8688 | 8527 | 16210 | 84003 | 402527 | 35679 | 432 | 410 | 26805 | 53074 | 12 | 956778 |
+
+更新的 22 场景诊断 `d6fc630`（加入 Markdown 文件页）已下载到
+`S:\Codex\Outputs\Relic-native-visual\parity-d6fc630\report\`，
+[CI 41072732345](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41072732345)，仍失败、无例外。
+macOS 原始/有效元素 5527，配对 4902：缺失57、多余625、文字0、几何1185、样式9260、
+状态1349、种类0、区域1、顺序782、布局2448、图标3、提取34284。
+原生圆点已出现在实际 Markdown 截图中；弹窗改由真实 NSScrollView 持有名称后，
+抄送弹窗原先重复的 AX 区域已消失。背景控件遮挡仍未获证明，仍保留为多余/未知。
+
+`20e61cf` 的 macOS release 构建成功，215 项测试中 214 项通过；八组文字位图对比全通过，
+唯一失败仍是实际窗口存在 AppKit ContentLayer。
+[CI 41074621325](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41074621325)。
+`37e0f98` 改用公开的 AppKit updateLayer 路径，把真实 TextKit 绘制结果作为 CGImage
+提交到自己的 CALayer；新增实际图层位图对比与失效绑定测试，等待 CI，未放宽原断言。
+可选的原生背景填充也只进入像素测试，尚未用于生产弹窗；其遮挡证明仍为 false。
+
+以下保留此前的诊断、功能清单和真机验收记录；这些历史源码覆盖记录不等于逐元素通过。
+
 最新诊断产物为 `15581b1`，21 个场景均完成 macOS 采集，实际截图中的普通文字已恢复：
 `S:\Codex\Outputs\Relic-native-visual\parity-15581b1\report\`，
 [CI 41066609753](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41066609753)。

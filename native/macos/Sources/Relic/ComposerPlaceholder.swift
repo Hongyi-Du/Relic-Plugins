@@ -14,6 +14,7 @@ import AppKit
         view.sourceStorage = storage
         view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
         view.focusRingType = .none; view.isRichText = true
+        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
         view.isHorizontallyResizable = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; container.lineFragmentPadding = 0
         container.widthTracksTextView = true; container.heightTracksTextView = false

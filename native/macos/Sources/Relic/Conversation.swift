@@ -192,6 +192,7 @@ struct ChatView: View {
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
+            .accessibilityIdentifier("relic-region/conversation")
     }
     private var header: some View {
         HStack(spacing: 12) {

@@ -30,6 +30,11 @@ import AppKit
         if !view.subviews.isEmpty { errors.append("Text view has additional native child paint") }
         if fontDraw["status"] as? String != "measured-current-draw" { errors.append("No current source-bound glyph draw") }
         if let layer {
+            if let label = view as? ReferenceLabelView {
+                let backing = label.backingPaintObservation()
+                evidence["native_backing_image"] = backing
+                if backing["current"] as? Bool != true { errors.append("The layer's current native label image is not bound to its actual drawing") }
+            }
             let childCount = layer.sublayers?.count ?? 0
             let animations = layer.animationKeys() ?? []
             evidence["layer"] = ["identity": String(describing: ObjectIdentifier(layer)),
