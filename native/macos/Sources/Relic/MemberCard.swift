@@ -132,7 +132,7 @@ struct MemberCard: View {
         }
     }
     private func cardSelect(_ title: String, value: Binding<String>, options: [(String, String)]) -> some View {
-        ReferenceSelect(title: title, selection: value, options: options, pointSize: 12.5).padding(.horizontal, 9).frame(height: 30)
+        ReferenceSelect(title: title, selection: value, options: options, pointSize: 12.5).padding(.leading, 9).padding(.trailing, 1).frame(height: 30)
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 8, owner: "relic-dropdown/" + title))
     }
     private var actions: some View {
