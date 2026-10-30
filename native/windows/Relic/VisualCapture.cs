@@ -196,7 +196,9 @@ public sealed partial class MainWindow
                     if (liveTool != null && (!liveTool.IsExpanded || !liveTool.IsLoaded)) throw new InvalidOperationException("Live tool disclosure closed or unloaded before screenshot");
                     if (capturedMessageEvidence != null) capturedMessageEvidence["before_screenshot"] = CaptureMessageSceneState();
                     CaptureTextareaCheckpoint("before_screenshot");
+                    RecordPanelResizePhase("before_native_label_capture");
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
+                    RecordPanelResizePhase("after_native_label_capture");
                     CapturePanelResizeCheckpoint("before_screenshot");
                     BeginTextRangeFrameCapture(shot.Text("id"));
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
