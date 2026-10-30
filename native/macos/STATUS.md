@@ -10,10 +10,34 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新已验证原生构建为 `72cf551`：
-[41027616653 / macos 123969414929](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41027616653/job/123969414929)
-release 编译及 **164 项测试通过**，含实际箭头 fallback 字体和原始工具文本边界回归。
-`711d27a` 已推送协议说明卡片、详情标签页和只读文档末尾换行高度修复；新增测试待 CI。
+最新完整通过的原生构建为 `711d27a`：
+[41029422150 / macos 123975289918](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41029422150/job/123975289918)
+release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、原始工具文本边界和只读文档末尾换行高度回归。
+此后的静态字体表／文字基线修改仍待验证：`3462591` release 编译成功，XCTest 在字体绘制测试退出 signal 11；
+`f6c73ce` 已移除排版代理内的布局递归查询，保留原测试，并请求 CI 上传原始崩溃报告。
+
+最新已下载的完整矩阵失败报告是
+`S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\full-report\`，
+来源 [41019034145](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41019034145)。
+保留 `parity-report.json`、`summary.json`、1981 个 HTML 页面及全部对应图片／热图。
+macOS 完成 660 原生捕获；原始／有效原生元素 153652／153566（无效 86），
+原始／有效参考元素 128628／126540（无效 2088），配对 121878。
+Windows 原始／有效原生元素均为 124623；参考 129000／126932（无效 2068），配对 117300。
+完整门禁两平台均 `scenes_expected: 660`、`scenes_checked: 0`、`scenes_passed: 0`、`matched_elements: 0`；
+`passed: false`，`exceptions: []`，没有放宽任何容差。
+
+| 0a1d569 完整平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 4662 | 31688 | 4359 | 110743 | 254162 | 17104 | 517 | 654 | 33700 | 75428 | 12 | 890660 |
+| Windows | 9632 | 7323 | 18502 | 93006 | 471944 | 36638 | 336 | 412 | 24532 | 51608 | 0 | 1080297 |
+
+较新源码 `711d27a` 的 **19 场景诊断**完整报告已在
+`S:\Codex\Outputs\Relic-native-visual\parity-711d27a\report\`，
+[CI 41029421500](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41029421500)。
+macOS 4841 原生元素、4263 有效参考元素、4189 配对；缺失 74、多余 652、文字 4、几何 3058、
+样式 8412、状态 1202、种类 11、区域 2、顺序 599、布局 2622、图标 0、提取错误 32111。
+它仍不能通过完整门禁；18 个实际场景文字配对差异为 0，剩余文件行号名称已在后续源码修正。
+`3462591` 后续修复工具展开时的阅读位置、8 字符制表位、设置卡片归属和色块边框／选中环；等待新捕获。
 
 更新诊断的完整 JSON／HTML／热图位于
 `S:\Codex\Outputs\Relic-native-visual\parity-05f400c\report\`，
