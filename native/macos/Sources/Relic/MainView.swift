@@ -71,7 +71,7 @@ struct AppToolbar: View {
     @State private var anchors: [String: CGRect] = [:]
     private let menus = [("file", "common.file"), ("edit", "appmenu.edit"), ("view", "appmenu.view"), ("help", "appmenu.help")]
     var body: some View {
-        ZStack {
+        ToolbarLayout {
             HStack(spacing: 2) {
                 RelicLogo().padding(.leading, 6).padding(.trailing, 8)
                 IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar", size: 16, height: 28) { m.sidebarOpen.toggle() }
@@ -85,7 +85,10 @@ struct AppToolbar: View {
                             .onHover { over in if over && m.appMenu != nil { m.appMenu = key } }
                     }
                 }.padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
-                Spacer(minLength: 10)
+            }
+            let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
+            Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
+            HStack(spacing: 2) {
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count, size: 16, height: 28) { m.setPane("overview") }
                 IconButton(title: m.t(m.copies.contains { !$0["read"].flag } ? "appbar.cc" : "appbar.cc_none", ["n": String(m.copies.filter { !$0["read"].flag }.count)]), icon: "cc", badge: m.copies.filter { !$0["read"].flag }.count, size: 16, height: 28) { m.sheet = .copies }
                 RelicStyle.border.frame(width: 1, height: 16).padding(.horizontal, 4)
@@ -95,8 +98,6 @@ struct AppToolbar: View {
                     }
                 }
             }
-            let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
-            Text(title).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
         }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
             .coordinateSpace(name: "appbar").onPreferenceChange(MenuAnchors.self) { anchors = $0 }
@@ -106,6 +107,23 @@ struct AppToolbar: View {
                 }
             }
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.titlebar"))
+    }
+}
+
+/// Keep the title centered in the window while retaining the visible reading
+/// order: navigation and menus, title, then the right-hand actions. A title
+/// painted as the last ZStack overlay is exposed after all toolbar buttons.
+private struct ToolbarLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }, height: proposal.height ?? 40)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let left = subviews[0].sizeThatFits(.unspecified), right = subviews[2].sizeThatFits(.unspecified)
+        let center = subviews[1].sizeThatFits(ProposedViewSize(width: bounds.width * 0.4, height: bounds.height))
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY - left.height / 2), proposal: ProposedViewSize(left))
+        subviews[1].place(at: CGPoint(x: bounds.midX - center.width / 2, y: bounds.midY - center.height / 2), proposal: ProposedViewSize(center))
+        subviews[2].place(at: CGPoint(x: bounds.maxX - right.width, y: bounds.midY - right.height / 2), proposal: ProposedViewSize(right))
     }
 }
 
