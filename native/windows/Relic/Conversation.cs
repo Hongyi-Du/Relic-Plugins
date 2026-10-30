@@ -469,15 +469,25 @@ public sealed partial class MainWindow
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
             var faces = new StackPanel { Orientation = Orientation.Horizontal };
+            var replyNameParts = new List<string>();
             foreach (var person in item["thread"].Rows("people").Take(3))
             {
                 var replyingMember = snap.Rows("members").FirstOrDefault(m => m.Text("name") == person.Text());
-                faces.Children.Add(new Border { Child = SmallAvatar(replyingMember.Text("avatar"), Display(person.Text()), size: 20), BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, -4, 0) });
+                var replyAvatar = SmallAvatar(replyingMember.Text("avatar"), Display(person.Text()), size: 20);
+                // PersonPicture's template displays this actual paint content.
+                // Text avatars contribute their visible initials; images add no alt text.
+                if (replyAvatar is Grid avatarLayout)
+                    foreach (var picture in avatarLayout.Children.OfType<PersonPicture>())
+                        if (picture.Tag is Border { Child: TextBlock initials } && initials.Text.Length > 0)
+                            replyNameParts.Add(initials.Text);
+                faces.Children.Add(new Border { Child = replyAvatar, BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, -4, 0) });
             }
             row.Children.Add(faces);
             var count = Text(T("thread.replies", ("n", item["thread"].Text("count"))), 12.5); count.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; count.Foreground = Accent; row.Children.Add(count);
-            row.Children.Add(Quiet(T("thread.last_reply", ("when", ShortWhen(item["thread"].Text("last_at")))), 12.5));
+            var lastReply = Quiet(T("thread.last_reply", ("when", ShortWhen(item["thread"].Text("last_at")))), 12.5); row.Children.Add(lastReply);
             var replies = QuietButton("", () => OpenThread(item.Text("id"))); replies.Content = row; replies.Padding = new Thickness(4, 3, 8, 3); replies.CornerRadius = new CornerRadius(8); after.Children.Add(replies);
+            replyNameParts.Add(count.Text); replyNameParts.Add(lastReply.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(replies, string.Join(" ", replyNameParts.Where(part => part.Length > 0)));
         }
         var secretary = from == snap["org"].Text("secretary");
         var bubble = new Border { Child = box, Padding = new Thickness(13, 9, 13, 9), CornerRadius = mine ? new CornerRadius(14, 4, 14, 14) : new CornerRadius(4, 14, 14, 14), Background = mine ? MessageTint() : Paint("F4F3F0", "2A2A28"), BorderBrush = secretary ? Paint("7058B8", "A894E0") : Line, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch };

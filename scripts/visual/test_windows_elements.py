@@ -336,20 +336,30 @@ class ProjectionTests(unittest.TestCase):
         result = self.project_recorded_menu_group(fixture)
         elements = self.by_id(result)
         menu, child = elements["xaml-28"], elements["xaml-29"]
-        actual_owner = fixture["xaml"]["raw_nodes"][0]
-        actual_provider = fixture["uia"]["raw_nodes"][0]
+        actual_owners = {node["id"]: node for node in fixture["xaml"]["raw_nodes"]}
+        actual_providers = {node["id"]: node for node in fixture["uia"]["raw_nodes"]}
+        actual_owner = actual_owners["xaml-28"]
+        actual_provider = actual_providers["uia-9"]
         self.assertEqual(menu["kind"], "region")
         self.assertEqual(menu["name"], actual_provider["name"])
         self.assertEqual(menu["bounds"], actual_owner["bounds"])
         self.assertEqual(menu["parent"], actual_owner["parent"])
+        header = elements[actual_owner["parent"]]
+        self.assertEqual(header["kind"], "region")
+        self.assertEqual(header["parent"], actual_owners["xaml-1"]["parent"])
+        self.assertEqual(header["evidence"]["uia_id"], "uia-4")
+        self.assertIsNone(elements[header["parent"]]["parent"])
+        self.assertIn(("xaml-1", "uia-4", [42, 131466, 4, 1]),
+                      [(pair["xaml_id"], pair["uia_id"], pair["runtime_id"])
+                       for pair in result["capture_evidence"]["automation_identity_bindings"]["pairs"]])
         self.assertEqual(menu["region"], actual_owner["region"])
         self.assertEqual(menu["evidence"]["uia_id"], "uia-9")
         self.assertEqual(menu["evidence"]["uia_group_region"]["runtime_id"], [42, 131466, 4, 6])
         self.assertEqual(child["parent"], menu["id"])
         self.assertEqual(child["kind"], "button")
-        self.assertEqual(child["name"], fixture["uia"]["raw_nodes"][1]["name"])
+        self.assertEqual(child["name"], actual_providers["uia-10"]["name"])
         self.assertLess(menu["order"], child["order"])
-        # The scoped fixture intentionally omits other paint/ancestor evidence.
+        # The scoped fixture intentionally omits other paint descendants.
         # Proving this role cannot resolve those independent coverage failures.
         self.assertTrue(result["coverage"]["unmeasured"])
 
@@ -359,8 +369,8 @@ class ProjectionTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case):
                 fixture = self.recorded_menu_group()
-                owner = fixture["xaml"]["raw_nodes"][0]
-                provider = fixture["uia"]["raw_nodes"][0]
+                owner = next(node for node in fixture["xaml"]["raw_nodes"] if node["id"] == "xaml-28")
+                provider = next(node for node in fixture["uia"]["raw_nodes"] if node["id"] == "uia-9")
                 if case == "missing":
                     owner.pop("automation_identity_evidence")
                 elif case == "no-peer":
@@ -391,7 +401,7 @@ class ProjectionTests(unittest.TestCase):
 
     def test_group_identity_not_name_or_geometry_selects_provider_and_keeps_errors(self):
         fixture = self.recorded_menu_group()
-        provider = fixture["uia"]["raw_nodes"][0]
+        provider = next(node for node in fixture["uia"]["raw_nodes"] if node["id"] == "uia-9")
         decoy = deepcopy(provider)
         decoy.update(id="synthetic-geometry-decoy", runtime_id="42.131466.4.999")
         fixture["uia"]["raw_nodes"].append(decoy)
@@ -403,7 +413,8 @@ class ProjectionTests(unittest.TestCase):
         result = self.project_recorded_menu_group(fixture)
         menu = self.by_id(result)["xaml-28"]
         self.assertEqual(menu["name"], provider["name"])
-        self.assertEqual(menu["bounds"], fixture["xaml"]["raw_nodes"][0]["bounds"])
+        actual_owner = next(node for node in fixture["xaml"]["raw_nodes"] if node["id"] == "xaml-28")
+        self.assertEqual(menu["bounds"], actual_owner["bounds"])
         self.assertEqual(menu["evidence"]["uia_id"], "uia-9")
         self.assertIn("Synthetic independent provider failure", result["extraction_errors"])
 

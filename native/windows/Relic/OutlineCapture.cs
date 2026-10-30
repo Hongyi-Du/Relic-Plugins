@@ -107,6 +107,63 @@ public sealed partial class MainWindow
                     children.Add(new JsonObject { ["id"] = childId, ["index"] = index, ["same_parent_object"] = sameParent });
                 }
                 receipt["children"] = new JsonObject { ["status"] = "measured", ["complete"] = complete, ["items"] = children };
+                if (actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView))
+                {
+                    var token = (OverviewTokenView)value;
+                    var presenter = count == 1 ? VisualTreeHelper.GetChild(token, 0) as ContentPresenter : null;
+                    var content = token.Content as DependencyObject;
+                    // Exact local sealed leaves, not arbitrary ContentControl.
+                    // SDK 1.6.9 ContentControl's own pre/post draw handles only
+                    // ListViewBaseItem chrome; these classes have no such base.
+                    // Their real ContentPresenter supplies fill/border/content.
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/BaseContentRenderer.cpp#L1338
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/inc/ContentControl.h#L72
+                    receipt["overview_token_content"] = new JsonObject
+                    {
+                        ["source"] = "actual sealed OverviewTokenView leaf runtime, template and ContentPresenter/Content object identities",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["base_base_type"] = actual.BaseType?.BaseType?.FullName,
+                        ["is_sealed"] = actual.IsSealed,
+                        ["audited_source"] = "native/windows/Relic/OverviewStyles.cs#OverviewTokenView",
+                        ["template_present"] = token.Template != null, ["template_type"] = token.Template?.GetType().FullName,
+                        ["visual_child_count"] = count,
+                        ["presenter_id"] = presenter != null && ids.TryGetValue(presenter, out var presenterId) ? presenterId : null,
+                        ["presenter_runtime_type"] = presenter?.GetType().FullName,
+                        ["presenter_is_current_only_child"] = presenter != null && presenter.GetType() == typeof(ContentPresenter)
+                            && count == 1 && ReferenceEquals(VisualTreeHelper.GetChild(token, 0), presenter)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(presenter), token),
+                        ["content_id"] = content != null && ids.TryGetValue(content, out var tokenContentId) ? tokenContentId : null,
+                        ["content_type"] = content?.GetType().Name,
+                        ["presenter_content_same_object"] = presenter != null && content != null && ReferenceEquals(presenter.Content, content),
+                        ["content_is_current_presenter_child"] = presenter != null && content != null
+                            && VisualTreeHelper.GetChildrenCount(presenter) == 1
+                            && ReferenceEquals(VisualTreeHelper.GetChild(presenter, 0), content)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(content), presenter)
+                    };
+                }
+                if (actual == typeof(NativeStateDotView))
+                {
+                    var dot = (NativeStateDotView)value;
+                    // The exact production Grid has ordinary native panel
+                    // paint and two separately captured Ellipse paint layers.
+                    // No inset-shadow equivalence follows from this contract.
+                    receipt["state_dot_grid"] = new JsonObject
+                    {
+                        ["source"] = "actual sealed NativeStateDotView runtime and Surround/VacancyRing object identities",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
+                        ["audited_source"] = "native/windows/Relic/NativeStateDotView.cs#NativeStateDotView",
+                        ["visual_child_count"] = count, ["panel_child_count"] = dot.Children.Count,
+                        ["surround_id"] = ids.TryGetValue(dot.Surround, out var surroundId) ? surroundId : null,
+                        ["vacancy_ring_id"] = ids.TryGetValue(dot.VacancyRing, out var vacancyId) ? vacancyId : null,
+                        ["production_layers_are_current_children"] = dot.HasCurrentPaintChildren && count == 2
+                            && dot.Surround.GetType() == typeof(Ellipse) && dot.VacancyRing.GetType() == typeof(Ellipse)
+                            && ReferenceEquals(VisualTreeHelper.GetChild(dot, 0), dot.Surround)
+                            && ReferenceEquals(VisualTreeHelper.GetChild(dot, 1), dot.VacancyRing)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(dot.Surround), dot)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(dot.VacancyRing), dot)
+                    };
+                }
                 if (actual == typeof(PersonPicture))
                 {
                     var picture = (PersonPicture)value;
@@ -219,6 +276,8 @@ public sealed partial class MainWindow
         // This unsealed SDK class is accepted only by exact runtime equality,
         // with its actual present template and complete nonempty child set.
         : actual == typeof(PersonPicture) ? "native-personpicture-control-template-children-only"
+        : actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView) ? "relic-overview-token-template-content"
+        : actual == typeof(NativeStateDotView) ? "relic-state-dot-grid-owned-ellipses"
         // Exact sealed app renderer: native Panel paint plus an independently
         // owned Image surface. The live runtime/child/binding proof is required
         // above; no arbitrary Panel subclass or unmeasured image inherits it.
