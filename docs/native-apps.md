@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (macOS mounted-toast capture): the owner's latest
+Copy capture correction is merged. It waits for the same actual SwiftUI toast
+surface/text to mount while the original lifetime runs, then observes that
+same toast; no extra Copy or lifetime extension. The owner's `25f57f2`
+diagnostic confirms opaque large-window PNGs and both real panel gestures,
+with 18/19 native cases complete and the pre-fix Copy mounting failure retained.
+New end-to-end validation is still required.
+
 Changes for the clients (pseudo-element coverage correction): the actual d8f74ff
 toggle `::after` has both a positive 14x14 DOMSnapshot layout row and a later
 zero-area row. The reference used to overwrite the former and omit the visible
