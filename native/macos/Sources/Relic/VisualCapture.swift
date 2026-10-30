@@ -19,6 +19,7 @@ import RelicAX
         let manifestURL = URL(fileURLWithPath: manifestPath)
         var results: [[String: Any]] = []
         var caseErrors: [String] = []
+        var display: CaptureDisplay?
         do {
             guard env["GITHUB_ACTIONS"] == "true" else { throw RelicError.message("Visual capture is restricted to GitHub Actions") }
             NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
@@ -26,6 +27,8 @@ import RelicAX
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
             let fixture = manifest["fixture"], language = Words.normalize(manifest["lang"].text), theme = manifest["theme"].text
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            display = try CaptureDisplay(cases: manifest["cases"].rows, output: output)
+            try await Task.sleep(for: .milliseconds(250))
             model.client = try Client(port: fixture["port"].integer, token: fixture["token"].text)
             await model.start()
             guard model.ready else { throw RelicError.message(model.error) }
@@ -142,6 +145,17 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
+                if ["member-app", "member-host", "member-existing", "member-edit", "member-host-model-suggestions", "member-existing-seat-suggestions"].contains(scene) {
+                    let key = scene == "member-app" ? "member.create_member" : scene == "member-edit" ? "common.save" : scene.hasPrefix("member-existing") ? "member.bind" : "member.create_start"
+                    let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+                    while accessibilityFrame(root: hosting, matches: { attributes in
+                        attributes["role"] as? String == "AXButton" && attributes["enabled"] as? Bool == true &&
+                        ["label", "title", "value"].contains { attributes[$0] as? String == model.t(key) }
+                    }) == nil {
+                        guard model.error.isEmpty, ContinuousClock.now < deadline else { throw RelicError.message("Native member form did not finish loading its real options: " + scene + ": " + model.error) }
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
+                }
                 if scene.hasPrefix("member-card-") {
                     let action = try await openMemberCardState(scene, model: model, window: window)
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
@@ -223,13 +237,13 @@ import RelicAX
             // bundle and still fails the visual job after preserving all captures.
             try await verifyCompoundAccessibilityLabels()
             try receipt(caseErrors, count: results.count, cases: results, beside: manifestURL)
-            model.stop()
+            model.stop(); display?.restore()
             if !caseErrors.isEmpty { exit(1) }
             NSApp.terminate(nil)
         } catch {
             try? receipt(caseErrors + [error.localizedDescription], count: results.count, cases: results, beside: manifestURL)
             fputs("Relic visual capture failed: " + error.localizedDescription + "\n", stderr)
-            model.stop(); exit(1)
+            model.stop(); display?.restore(); exit(1)
         }
     }
     private static func verifyCompoundAccessibilityLabels() async throws {

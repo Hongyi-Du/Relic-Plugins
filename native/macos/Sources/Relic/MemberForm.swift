@@ -25,6 +25,7 @@ struct MemberForm: View {
     @State private var search = ""
     @State private var original = Node()
     @State private var loading = true
+    @State private var sessionsLoading = false
     private var submitLabel: String {
         if !m.editMember.isEmpty { return "common.save" }
         if mode == "existing" { return "member.bind" }
@@ -42,17 +43,19 @@ struct MemberForm: View {
                     if mode == "app" { appFields } else { hostFields }
                 }
             }
-            SaveButton(labelKey: submitLabel, reserveErrorSpace: true, action: save).disabled(loading)
+            SaveButton(labelKey: submitLabel, reserveErrorSpace: true, available: !loading && (mode != "existing" || !sessionsLoading), action: save)
         }.frame(maxWidth: .infinity, alignment: .topLeading)
         .task {
-            m.run {
+            do {
                 defer { loading = false }
                 mode = m.editMember.isEmpty ? m.memberMode : "host"; secretary = m.newSecretary
                 if secretary { name = "secretary" }
-                harnesses = try await m.get("/api/harnesses").rows; harness = harnesses.first { $0["available"].flag && !$0["later"].flag }?["id"].text ?? ""
-                let found = try await m.get("/api/sessions"); sessions = found["sessions"].rows.filter { $0["harness"].text != "chatgpt" || m.platform["chatgpt_delivery"].flag }; problems = found["problems"].rows
+                async let availableHarnesses = m.get("/api/harnesses")
+                async let seatOptions = m.get("/api/seat-options")
+                let loaded = try await (availableHarnesses, seatOptions)
+                harnesses = loaded.0.rows; harness = harnesses.first { $0["available"].flag && !$0["later"].flag }?["id"].text ?? ""
                 sessionIndex = ""
-                options = try await m.get("/api/seat-options"); permission = options["claude_modes"].rows.first?.text ?? ""
+                options = loaded.1; permission = options["claude_modes"].rows.first?.text ?? ""
                 if !m.editMember.isEmpty {
                     let card = try await m.get(m.path("/member/" + Client.segment(m.editMember))); original = card["config"]
                     name = m.editMember; role = card["role"].text; hostHarness = original["harness"].text.isEmpty ? "claude-code" : original["harness"].text; surface = original["surface"].text.isEmpty ? "cli" : original["surface"].text
@@ -60,7 +63,15 @@ struct MemberForm: View {
                     environment = original["environment"].text.isEmpty ? "local" : original["environment"].text; permission = original["permission"].text.isEmpty ? (options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "") : original["permission"].text
                     env = original["env"].object.sorted { $0.key < $1.key }.map { $0.key + "=" + Node($0.value).text }.joined(separator: "\n")
                 }
-            }
+            } catch is CancellationError {} catch { m.error = error.localizedDescription }
+        }.task(id: mode) {
+            guard mode == "existing" else { return }
+            sessionsLoading = true
+            defer { sessionsLoading = false }
+            do {
+                let found = try await m.get("/api/sessions")
+                sessions = found["sessions"].rows.filter { $0["harness"].text != "chatgpt" || m.platform["chatgpt_delivery"].flag }; problems = found["problems"].rows
+            } catch is CancellationError {} catch { m.error = error.localizedDescription }
         }
     }
 
@@ -89,8 +100,8 @@ struct MemberForm: View {
         field("common.session", placeholder: "member.session_search", text: $search)
         FittingScroll(maxHeight: 246) {
             VStack(alignment: .leading, spacing: 4) {
-                if loading { ReferenceLabel(m.t("member.finding_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
-                if !loading && sessions.isEmpty { ReferenceLabel(m.t("member.no_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
+                if loading || sessionsLoading { ReferenceLabel(m.t("member.finding_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
+                if !loading && !sessionsLoading && sessions.isEmpty { ReferenceLabel(m.t("member.no_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
                 if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }) { ReferenceLabel(m.t("member.no_match"), size: 14, color: RelicStyle.muted, lines: 0) }
                 ForEach(Array(sessions.enumerated().filter { search.isEmpty || [$0.element["title"].text, $0.element["cwd"].text, $0.element["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }.prefix(80)), id: \.offset) { index, session in
                     Button { sessionIndex = String(index) } label: {
@@ -150,7 +161,7 @@ struct MemberForm: View {
                     let parts = kind.split(separator: "/").map(String.init)
                     HStack(spacing: 10) {
                         NativeRadio(selected: Binding(get: { kind == hostHarness + "/" + surface }, set: { if $0 { hostHarness = parts[0]; surface = parts[1]; permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" } }))
-                        ReferenceLabel(m.t(parts[1] == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": parts[0] == "codex" ? "Codex" : "Claude Code"]), size: 14, weight: 700, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+                        ReferenceLabel(m.t(parts[1] == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": harnesses.first { $0["id"].text == parts[0] }?["title"].text ?? parts[0]]), size: 12.5, weight: 700, color: RelicStyle.secondary, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(.horizontal, 12).padding(.vertical, 10).modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
                 }
             }
