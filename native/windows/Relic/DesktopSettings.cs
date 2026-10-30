@@ -20,7 +20,7 @@ public sealed partial class MainWindow
     private SpeechRecognitionEngine? speech;
     private Button? speechButton;
 
-    private async Task Dialog(ContentDialog dialog, bool contentOwnsPadding = false)
+    private async Task Dialog(ContentDialog dialog, bool contentOwnsPadding = false, bool singleSurfaceBackground = false)
     {
         dialog.Language = words.Language;
         transientFlyout?.Hide();
@@ -43,7 +43,11 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogPadding"] = new Thickness(contentOwnsPadding ? 0 : 22);
         dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0, 0, 0, 14);
         dialog.Resources["ContentDialogSeparatorThickness"] = new Thickness(0);
-        dialog.Resources["ContentDialogTopOverlay"] = dialog.Background;
+        // Settings delegates its overall fill to the real BackgroundElement.
+        // Set this instance resource before the SDK template is realized;
+        // ordinary dialogs retain their existing independent content fill.
+        dialog.Resources["ContentDialogTopOverlay"] = singleSurfaceBackground
+            ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : dialog.Background;
         dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 14, 12)) { Opacity = .32 };
         dialog.Opened += (_, _) => StyleDialogParts(dialog);
         visibleDialogTask = dialog.ShowAsync().AsTask();
@@ -231,7 +235,9 @@ public sealed partial class MainWindow
     private async Task SettingsScreen(string section = "profile")
     {
         var current = section;
-        var body = new Grid { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = Paint("FFFFFF", "252523") };
+        // A transparent brush keeps the layout surface hit-testable without
+        // painting a second overall fill above the ContentDialog surface.
+        var body = new Grid { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         body.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = body };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("common.settings"));
@@ -289,7 +295,7 @@ public sealed partial class MainWindow
         };
         async Task Draw(string key)
         {
-            current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); body.Background = dialog.Background = Paint("FFFFFF", "252523");
+            current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); dialog.Background = Paint("FFFFFF", "252523");
             close.Foreground = Paint("5A5853", "B8B5AE");
             if (tabs.TryGetValue(key, out var selectedTab)) navigationBar.SelectedItem = selectedTab.Item;
             foreach (var (id, tab) in tabs) tab.Item.IsSelected = id == key;
@@ -386,7 +392,7 @@ public sealed partial class MainWindow
             body.Height = Math.Min(640, Math.Max(0, args.NewSize.Height - 48));
         }
         root.SizeChanged += Resize;
-        try { await Draw(section); await Dialog(dialog, contentOwnsPadding: true); }
+        try { await Draw(section); await Dialog(dialog, contentOwnsPadding: true, singleSurfaceBackground: true); }
         finally { root.SizeChanged -= Resize; }
     }
     private async Task HarnessSettings(StackPanel content)

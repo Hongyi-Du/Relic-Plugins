@@ -1,5 +1,30 @@
 # Native Relic App contract
 
+Changes for the clients (settings surface ownership): only the Windows settings
+dialog now uses its real BackgroundElement as the overall light/dark fill. Its
+SDK TopOverlay and authored body retain hit testing with transparent brushes.
+Navigation fill/right border, sizing, clipping, shadows and dialog lifecycle are
+unchanged; other dialogs keep the default behavior. This removes duplicated
+production fills rather than hiding their records in the extractor. Both themes
+and all sizes still need actual CI verification.
+
+Capture evidence at 67ed20d: both panel scenes satisfy the unchanged readiness
+budget and all post-PNG state/event checkpoints; Markdown has no visible error
+banner or UIA extraction failure. Live tool output still loses one 0.400024px
+text-range height in the external UIA channel. All 132 observer DPI readings are
+PMv2, so DPI declaration did not explain that loss. Original values/errors remain.
+Both platforms have 22 artifact sets, but zero fully measured/passing scenes.
+The older efd2025 full run 41090672407 was superseded after repeated known capture
+failures; its artifacts remain and cancellation is not acceptance. The latest
+full workflow still requires all 672 cases per platform.
+
+Changes for the clients (macOS shadow regression consumed): 663ced3's 236 tests
+exposed 107 changed rounded-edge pixels for a shadowed fill. The owner retained
+its prior native fill path for shadowed surfaces, with the unchanged whole-PNG
+assertion; owned-image opacity remains unknown there. Passed scoped navigation
+priority tests are now applied to message rows without inventory/coordinate
+sorting. Both production changes need subsequent captures.
+
 Changes for the clients (actual selected-tab labels): Windows captures the real
 SelectorBarItem.Tag / ContentPresenter.Content binding, complete current subtree
 and text getters. A single visible text source without nested interactive controls
