@@ -1,5 +1,27 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**Requested-vs-resolved font weight remains a shared measurement issue.**
+`a3ca2a3` group reference bold has computed CSS weight 700 but CDP reports
+`PingFangSC-Semibold`; the native actual callback uses that same face with
+`wght=600`. Geometry now matches (171.36 / 171.375). Native text now retains
+`evidence.projection.native_font_weight_configuration` from the actual rendered
+attributed input, separately from its unchanged canonical resolved weight and
+actual callback variations. This supplies the missing quantity distinction;
+it is not an exception and does not waive a style error. Please keep both
+configured and actual-face quantities when completing the reference schema;
+do not treat computed CSS 700 as measured resolved font-axis 700.
+
+
+**Fresh shared CI evidence:** `7df43bd` run `41013183162`, macOS job
+`123923528659`, passed release build and **148 tests**. The rich-source-span
+test passed the exact PNG equality checks against the unsplit draw and
+capture-disabled draw. Native actual font projection still does not assert
+final-window glyph contribution. The same run's parity failure is Windows-only:
+missing `settings.claude_desktop_hint`, `settings.desktop_connections`,
+`settings.desktop_probe`, `settings.desktop_probe_hint`; macOS lists are empty.
+Please retain those actual Windows Settings controls/labels in the shared work.
+
+
 **a3ca2a3 actual diagnostic follow-up:** downloaded macOS/reference/HTML/JSON
 to `S:\Codex\Outputs\Relic-native-visual\parity-a3ca2a3\`. All 19 native cases
 captured; actual sidebar order now includes each avatar and dot before its name.

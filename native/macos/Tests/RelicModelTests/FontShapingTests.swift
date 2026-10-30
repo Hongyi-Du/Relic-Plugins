@@ -10,6 +10,8 @@ import CoreText
         let value = try AttributedString(markdown: "**聊天、概况、工作区、设置**")
         let production = NativeTextStyle.render(value, size: 14)
         let font = try XCTUnwrap(production.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(production.attribute(.relicConfiguredFontWeight, at: 0, effectiveRange: nil) as? Int, 700)
+        XCTAssertEqual(ElementCapture.cssWeight(font), 600, "The actual selected Semibold face must remain distinct from the requested bold style")
         XCTAssertEqual(CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute) as? String, "auto")
         let actual = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(production), nil, nil, nil)
         print("FONT STRONG CJK actual=\(actual) reference=171.375")
