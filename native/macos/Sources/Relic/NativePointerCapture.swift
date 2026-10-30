@@ -12,8 +12,19 @@ import RelicAX
             "point": ["x": point.x, "y": point.y], "coordinate_space": "bottom-left screen points",
             "capture_window": identity(window), "front_window": front.map(identity) as Any? ?? NSNull(),
             "status": "unmeasured", "changes_hover_state": false]
-        guard let front, let hit = RelicAXHitTest(front, point) as AnyObject? else {
+        guard let front else {
             result["reason"] = "No frontmost native accessibility hit at the observed pointer"; return result
+        }
+        // Read the actual content hierarchy for a point inside it. A window's
+        // own accessibility hit implementation can stop at the window element.
+        // Retain that result too, rather than treating it as a deepest control.
+        result["window_hit"] = (RelicAXHitTest(front, point) as AnyObject?).map(identity) as Any? ?? NSNull()
+        var receiver: AnyObject = front
+        if let content = front.contentView,
+           front.convertToScreen(content.convert(content.bounds, to: nil)).contains(point) { receiver = content }
+        result["hit_test_receiver"] = identity(receiver)
+        guard let hit = RelicAXHitTest(receiver, point) as AnyObject? else {
+            result["reason"] = "The actual content accessibility hit returned no element"; return result
         }
         var chain: [[String: Any]] = [], seen = Set<ObjectIdentifier>(), next: AnyObject? = hit
         var reachedWindow = false, cycle = false
