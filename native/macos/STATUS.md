@@ -47,6 +47,25 @@
 元素坐标不一致的剩余原因仍待新证据确定，不能用偏移补偿冒充修复。完整新矩阵及全部绘制属性
 仍待 CI 截图和严格逐元素验证。
 
+`668b1f8` 的 [40987858676](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40987858676)
+已构建，但 126 个测试有 10 个断言失败。目录三行换行及长路径回归通过；失败来自独立标签
+未挂载时返回 AXUnknown、两个旧测试意外创建 TextKit 2，以及 ImageRenderer 无法绘制混合
+AppKit 按钮背后的探针。`8308590` 使测试使用生产 TextKit 1 标签及实际 NSHostingView 位图，
+保留原断言及色差限值，等待 CI 证实修复。
+
+完整 `c4b113d` 英文浅色分片的 159 个 case 已下载到
+`S:\Codex\Outputs\Relic-native-visual\parity-c4b113d\macos-en-US-light\`，参考位于同级
+`reference-macos-en-US-light\`。149 个采集完成，10 个保留失败现场，不是逐元素通过。
+失败涉及群聊几何、候选输入内部文字视图、头像/实时工具验证及 1280×800 下消息悬停。
+后续 `3c652b7` 将聊天底部 24 px 留白纳入真实滚动目标，使用 VStack 完整排版当前已加载的
+消息页；`668b1f8` 明确消息行的悬停命中矩形。设置页英文导航原有多余 Spacer 产生第二个
+10 px 间距，导致 Language and names 被截断，现已移除该间距并保留标签的完整可用宽度。
+发送按钮和下拉箭头的最新实际绘制仍待新矩阵验证。
+
+明确未解决的参考差异包括浏览器 reference 的 Install 按钮/浏览器安装说明，而原生应用已安装，
+且任务禁止浏览器界面；历史源码 parity 的安装替代项不能当作 Amendment 4 批准的视觉例外。
+该缺失仍计入失败。未测量的文本绘制、原生控件和装饰仍不得填充为匹配。
+
 最新下载的完整报告来自旧提交 `f7b6bf0`，不是上述修复后的结果：
 [Native visual review 40974621706](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40974621706)。
 HTML、JSON、已有配对的热图和源元素文件位于
