@@ -36,11 +36,18 @@ struct RecordedSurface: ViewModifier {
             // CSS box shadows belong to the surface outline. Applying SwiftUI
             // shadow to the content hierarchy also shadows fields/text inside
             // dialogs. Paint each shadow from the same background shape instead.
-            ZStack {
-                ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
-                    shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
+            if shadows.isEmpty { shape.fill(background) }
+            else {
+                ZStack {
+                    ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
+                        shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
+                    }
+                    shape.fill(background)
                 }
-                shape.fill(background)
+                // Keep translucent shadow layers in the reference's non-linear
+                // sRGB blending space. AppKit controls remain outside this
+                // shape-only raster group and retain their actual native draws.
+                .drawingGroup(opaque: false, colorMode: .nonLinear)
             }
         }
             .overlay {

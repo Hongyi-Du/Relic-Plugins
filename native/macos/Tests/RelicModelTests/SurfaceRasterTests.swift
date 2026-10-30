@@ -4,6 +4,28 @@ import AppKit
 @testable import Relic
 
 @MainActor final class SurfaceRasterTests: XCTestCase {
+    func testDialogShadowMatchesTheActualReferenceEdgeProfile() throws {
+        // Actual 56253c7 macOS reference, zh-CN/light/1024x700/member-card.
+        // Sample the middle of the straight bottom edge, away from corner and
+        // text paint, with each offset measured from the card's own bottom.
+        let sample = Color.clear.frame(width: 340, height: 525)
+            .modifier(RecordedSurface(background: .white, border: RelicStyle.line, borderWidth: 1,
+                radius: 16, shadows: SurfaceShadow.dialog))
+            .padding(60).background(Color.white).environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: sample)
+        host.appearance = NSAppearance(named: .aqua)
+        host.frame = NSRect(x: 0, y: 0, width: 460, height: 645)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        for (offset, expected) in [(1, [225.0,225,224]), (4, [232.0,232,232]), (8, [237.0,237,237]),
+                                   (16, [244.0,244,243]), (24, [249.0,249,249]), (40, [255.0,255,255])] {
+            let pixel = try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 230, y: 585 + offset))
+            print("DIALOG SHADOW offset=\(offset) actual=\(pixel) reference=\(expected)")
+            for channel in 0..<3 { XCTAssertEqual(pixel[channel], expected[channel], accuracy: 2) }
+        }
+    }
+
     func testCabinetRingsPreserveTheInnerGapAndOriginalAvatarFill() throws {
         let sample = Color.clear.frame(width: 22, height: 22)
             .modifier(RecordedSurface(background: Color(.sRGB, red: 0, green: 0, blue: 1), radius: 6,
