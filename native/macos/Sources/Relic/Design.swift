@@ -156,11 +156,20 @@ struct IconButton: View {
     private var controlIdentity: String { badge > 0 ? identity.replacingOccurrences(of: "relic-icon-button/", with: "relic-badged-button/") : identity }
     let action: () -> Void
     var body: some View {
-        Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : hovering || selected ? RelicStyle.ink : color ?? RelicStyle.secondary, owner: controlIdentity).frame(width: width, height: height) }
+        Button(action: action) {
+            ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : hovering || selected ? RelicStyle.ink : color ?? RelicStyle.secondary, owner: controlIdentity)
+                .frame(width: width, height: height)
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        NativeCountBadge(text: String(badge), toolbar: true)
+                            .environment(\.nativeElementParent, controlIdentity)
+                            .allowsHitTesting(false)
+                    }
+                }
+        }
             .buttonStyle(QuietButtonStyle(selected: selected, radius: radius)).foregroundStyle(RelicStyle.secondary)
             .onHover { hovering = $0 }
             .help(title).accessibilityLabel(title).accessibilityIdentifier(controlIdentity)
-            .overlay(alignment: .topTrailing) { if badge > 0 { NativeCountBadge(text: String(badge), toolbar: true).allowsHitTesting(false) } }
     }
 }
 

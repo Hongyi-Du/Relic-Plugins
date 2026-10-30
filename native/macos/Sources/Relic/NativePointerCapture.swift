@@ -15,13 +15,23 @@ import RelicAX
         guard let front else {
             result["reason"] = "No frontmost native accessibility hit at the observed pointer"; return result
         }
-        // Read the actual content hierarchy for a point inside it. A window's
-        // own accessibility hit implementation can stop at the window element.
-        // Retain that result too, rather than treating it as a deepest control.
+        // An accessibility container may return itself even when it has
+        // children. Also read AppKit's real mouse-hit receiver, then ask that
+        // receiver for its AX element. Keep all three observations separate.
         result["window_hit"] = (RelicAXHitTest(front, point) as AnyObject?).map(identity) as Any? ?? NSNull()
         var receiver: AnyObject = front
         if let content = front.contentView,
-           front.convertToScreen(content.convert(content.bounds, to: nil)).contains(point) { receiver = content }
+           front.convertToScreen(content.convert(content.bounds, to: nil)).contains(point) {
+            result["content_hit"] = (RelicAXHitTest(content, point) as AnyObject?).map(identity) as Any? ?? NSNull()
+            // NSView.hitTest takes coordinates in the receiver's superview.
+            let windowPoint = front.convertPoint(fromScreen: point)
+            let hitPoint = content.superview?.convert(windowPoint, from: nil) ?? windowPoint
+            let view = content.hitTest(hitPoint)
+            result["mouse_hit_view"] = view.map(identity) as Any? ?? NSNull()
+            result["mouse_hit_class"] = view.map { String(describing: type(of: $0)) } as Any? ?? NSNull()
+            result["mouse_hit_input"] = ["x": hitPoint.x, "y": hitPoint.y]
+            receiver = view ?? content
+        }
         result["hit_test_receiver"] = identity(receiver)
         guard let hit = RelicAXHitTest(receiver, point) as AnyObject? else {
             result["reason"] = "The actual content accessibility hit returned no element"; return result

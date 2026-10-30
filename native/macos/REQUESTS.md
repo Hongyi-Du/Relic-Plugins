@@ -1,3 +1,40 @@
+## 2026-10-30: obsolete CI work superseded; the full matrix stays required
+
+Shared Native apps 41092324513 / macOS 124190297636 (`98841c1`) builds and runs
+230 tests with only the two known content-AX-hit assertions failing. The raw
+receipt confirms that the content hit returns NSWindow, while the separately
+recorded window hit differs. The later actual NSView mouse-hit change still
+needs its own build/tests.
+
+At 17:23Z, cancellation was requested for our obsolete full run 41083211615
+(`02df6a9`, already multiple failed shards and one cancelled macOS shard), and
+our queued 41092316439 / 41091443092. Their macOS code is superseded and the
+shared `98841c1` build plus 22 captures already provide the relevant evidence.
+Existing artifacts remain on GitHub. Latest full and smoke runs retain every
+required case; no cancelled/partial run counts as accepted and no scene is
+excluded. New smoke 41098292475 and Native apps 41097832962 target `86357fe`.
+
+## 2026-10-30: toolbar count belongs inside its real button
+
+`98841c1` fixes the file header but exposes six header order errors: native
+navigation reads each top-right count before its button/icon. IconButton's badge
+was an outside overlay, a sibling of the control. It is now an overlay inside
+the actual Button label and inherits that button's production parent identity.
+Its position, dimensions, accessible title and count are unchanged. Actual
+native hierarchy and same-scene pixel capture must verify the result; the
+extractor does not sort by reference labels or coordinates.
+
+## 2026-10-30: pointer observation distinguishes the actual AppKit mouse receiver
+
+Actual `98841c1` message-hover shows the window AX getter stopping at a scroll
+container and the content AX getter stopping at NSHostingView. Neither proves
+the deepest pointer owner. NativePointerCapture now also reads the real
+NSView.hitTest receiver, using that API's superview coordinate space, and asks
+that actual receiver for its AX hit. Window/content/mouse hits remain separate
+in the receipt. SwiftUI virtual descendants that still cannot be bound remain
+unknown. The existing exact NSButton/owned-cell and covered-button negatives
+are retained. No canonical hover state is inferred from these observations.
+
 ## 2026-10-30: actual file-header order fixed; message avatar order remains wrong
 
 Downloaded 22 macOS captures from shared run 41092315894 (`98841c1`). In file-code
