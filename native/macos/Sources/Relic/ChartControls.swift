@@ -27,7 +27,7 @@ struct ChartLegend: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 16) { symbols; Spacer(minLength: 0); hint }
             VStack(alignment: .trailing, spacing: 6) { HStack(spacing: 16) { symbols }; hint }
-        }.padding(.horizontal, 16).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.horizontal, 16).padding(.vertical, 8).padding(.bottom, 1).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
     }
     private var hint: some View { ReferenceLabel(m.t("chart.pan_hint"), size: 12, color: RelicStyle.faint).fixedSize() }

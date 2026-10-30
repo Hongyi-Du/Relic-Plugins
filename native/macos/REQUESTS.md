@@ -1,5 +1,22 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Latest native evidence: `838f96c` build/test run `40978875575` passes 110 tests.
+Smoke `40978583080` captures all 11 cases but retains one actual state failure:
+the tool row hovers at the requested center, yet expanded remains false. The
+production plain Button label contained a non-hit-testable Spacer. Native now
+uses a full rectangular contentShape for real row clicks; the unchanged capture
+assertion must verify it. Historical transcript action groups also now retain
+their actual border, timestamp, avatar-column offset, counted tool summary and
+separate call/result blocks.
+
+The form textarea's visible native resize grip remains a missing counterpart;
+please add reference measurement for the real textarea resize affordance and a
+`new-org-textarea-resized` state using a pointer drag on it. Existing canonical
+kinds do not include a resize handle. Supply its measured kind/geometry/paint
+and state before defining the common counterpart; keep this as a failure, not
+an omission or exception. Native fixed-row editing now uses the entire assigned
+viewport so its placeholder starts at the top instead of being vertically centered.
+
 macOS capture event-dispatch correction: full run `40974621706` still stalls
 at the first real input click after replacing NSPopover; smoke `40974672159`
 reaches the live tool click but fails its open-output assertion. Capture now

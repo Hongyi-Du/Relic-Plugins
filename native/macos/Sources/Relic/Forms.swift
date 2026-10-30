@@ -71,7 +71,7 @@ struct NativeTextArea: View {
     @State private var identity = "form-" + UUID().uuidString
     @State private var focused = false
     var body: some View {
-        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, members: [], onMention: { _ in }, send: {})
+        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, viewportHeight: CGFloat(rows) * pointSize * 1.6, members: [], onMention: { _ in }, send: {})
             .frame(height: CGFloat(rows) * pointSize * 1.6).padding(.horizontal, 11).padding(.vertical, 8)
             .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-composer/" + identity))
             .overlay(alignment: .trailing) { if voice { VoiceButton(text: $text).padding(.trailing, 4) } }

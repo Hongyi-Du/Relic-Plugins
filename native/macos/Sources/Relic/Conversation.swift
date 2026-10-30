@@ -294,17 +294,7 @@ struct MessageView: View {
             }.padding(.top, 8)
         }
         else if item["type"].text == "acts" {
-            let actions = ToolActivity.pair(item["steps"].rows)
-            DisclosureGroup {
-                ForEach(Array(actions.enumerated()), id: \.offset) { _, row in ActivityRow(row: row, member: item["member"].text) }
-            } label: {
-                HStack {
-                    Text(m.t("step.actions", ["n": String(actions.count)]))
-                    Text(actions.compactMap { $0.call == nil ? nil : $0.title }.prefix(4).joined(separator: " · ")).lineLimit(1).foregroundStyle(.secondary)
-                    let failed = actions.filter(\.failed).count
-                    if failed > 0 { Text(m.t("step.failed", ["n": String(failed)])).foregroundStyle(.red) }
-                }
-            }
+            ActivityGroup(item: item).padding(.leading, inThread ? 40 : 46).padding(.top, 4)
         } else {
             HStack(alignment: .top, spacing: 10) {
                 if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
@@ -406,14 +396,27 @@ struct ActivityRow: View {
     let member: String
     @State private var expanded = false
     @State private var full: [String: Node] = [:]
+    @State private var hovering = false
+    @State private var identity = "relic-row/activity/" + UUID().uuidString
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            ForEach(Array([row.call, row.result].compactMap { $0 }.enumerated()), id: \.offset) { _, step in
-                Text((full[step["i"].text] ?? step)["text"].text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 0) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 8) {
+                    Color.clear.frame(width: 7, height: 7).modifier(RecordedSurface(background: row.failed ? RelicStyle.red : row.result != nil ? RelicStyle.green : RelicStyle.faint, radius: 3.5, kind: "badge"))
+                    ReferenceLabel(row.call == nil ? m.t("common.result") : row.title, size: 12.5, weight: 600, lineHeight: 20, owner: identity).fixedSize()
+                    ReferenceLabel(row.argument, size: 11.5, color: RelicStyle.muted, owner: identity, monospaced: true).frame(maxWidth: .infinity, alignment: .leading)
+                    ReferenceLabel(m.clock((row.call ?? row.result ?? Node())["at"]), size: 11, color: RelicStyle.muted, owner: identity).fixedSize()
+                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
+                    .modifier(RecordedSurface(background: hovering ? RelicStyle.sidebar : .clear, owner: identity, hovered: hovering, expanded: expanded))
+            }.buttonStyle(.plain).accessibilityIdentifier(identity).onHover { hovering = $0 }
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array([row.call, row.result].compactMap { $0 }.enumerated()), id: \.offset) { _, step in
+                        ActivityOutput(text: (full[step["i"].text] ?? step)["text"].text)
+                    }
+                }.padding(.leading, 27).padding(.trailing, 10).padding(.top, 2).padding(.bottom, 8)
             }
-        } label: {
-            HStack { Text(row.call == nil ? m.t("common.result") : row.title).bold(); Text(row.argument).lineLimit(1); Spacer(); Text(m.clock((row.call ?? row.result ?? Node())["at"])).font(RelicStyle.font(12, weight: 400)) }
-        }.foregroundStyle(row.failed ? .red : .secondary).task(id: expanded) {
+        }.task(id: expanded) {
             guard expanded else { return }
             for step in [row.call, row.result].compactMap({ $0 }) where step["cut"].flag && !step["i"].isNull && full[step["i"].text] == nil {
                 if let result = try? await m.get(m.path("/step?member=" + Client.segment(member) + "&i=" + step["i"].text)) { full[step["i"].text] = result }
@@ -441,7 +444,7 @@ struct StepView: View {
                     ReferenceLabel(title, size: 12.5, weight: 600, owner: identity).fixedSize()
                     Text(summary).font(Font(RelicStyle.monoFont(11.5))).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     ReferenceLabel(m.clock(step["at"]), size: 11, color: RelicStyle.muted, owner: identity).fixedSize()
-                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3)
+                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity)
             if expanded {
