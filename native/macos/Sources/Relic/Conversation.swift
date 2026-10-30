@@ -292,8 +292,9 @@ struct ConversationStream: View {
                         }
                 }
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
-            }.onChange(of: m.selection) { initialLoad = true; following.followsBottom = true }
+            }.onChange(of: m.selection) { initialLoad = true; following = ConversationScrollFollowing() }
                 .onChange(of: m.revision) {
+                    following.contentChanged()
                     if initialLoad || following.followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
                 }
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }

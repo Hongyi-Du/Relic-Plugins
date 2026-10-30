@@ -1,4 +1,42 @@
+## 2026-10-30: owned-layer regression isolated from production
+
+Actual `0d3d681` smoke captures from run 41078665367 completed, but show blank
+ReferenceLabel text. Their actual glyph receipts are null. No bitmap success
+is claimed: the earlier direct-CGContext eight-fixture success did not validate
+the subsequent SwiftUI-hosted updateLayer lifecycle. `f538c9d` restores the
+previous production draw path and retains the owned-layer approach only as an
+explicit unit-test candidate. The original unknown ContentLayer drawing duty
+therefore remains an unresolved parity failure, without any allowlist.
+
+An additional test now mounts that candidate through the real ReferenceLabel /
+NSHostingView / cacheDisplay path, requires nonempty text pixels, and compares
+the full PNG against the existing painter. Candidate backing is explicitly
+enabled only after its source TextKit view has been initialized. The app still
+uses the previously validated drawing path until those mounted tests pass.
+
+## 2026-10-30: live disclosure scroll and actual child ownership
+
+The `06b914e` live-tool-output action receipt records the clicked row at screen
+y=420 and the same expanded row at y=517: a 97px jump, equal to the inserted
+output height. The production follow state cleared its disclosure guard after
+the first size change; a subsequent TextKit pass could request bottom scrolling.
+It now retains that guard until a real Model.revision/content update, and the
+unit regression includes two successive layout passes before that event.
+The capture driver still performs the real click and sets no matching offset.
+
+The tool row also declares its actual parent environment for the 7px status
+dot. Its measured mounted ancestry now retains that child before the title;
+it must not be appended after unrelated cards. The earlier report paired this
+dot with a 620px permission card. No matcher positions or reference IDs are
+injected into the native hierarchy.
+
 ## 2026-10-30: actual popup fill observations now available
+
+Consumed the shared reader contract: each observation is now obtained once
+and reused unchanged in both `elements.capture_evidence.native_fill_draws`
+and `ax.native_fill_draws`. Layer order is likewise emitted in both exports
+from one snapshot. `CGImage.typeID` was already fixed in `cc4d1cd` and pushed;
+the subsequent test run is queued, not yet passing.
 
 `e8307ed` macOS job 124132215180 passes both NativeSurfaceFill tests, including
 all four byte-identical SwiftUI/native bitmap fixtures (square, rounded and

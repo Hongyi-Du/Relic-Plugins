@@ -4,9 +4,10 @@ import SwiftUI
 @testable import Relic
 
 @MainActor final class OutlineDrawTests: XCTestCase {
-    func testLayerBackedLabelUsesItsSingleNativeTextKitDrawingPath() throws {
+    func testOwnedLayerCandidateUsesItsSingleNativeTextKitDrawingPath() throws {
         _ = NSApplication.shared
         let view = ReferenceLabel("Relic → 组织", size: 14, lines: 0).makeLabelView()
+        view.usesOwnedBackingImage = true
         view.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
         view.wantsLayer = true
         let manager = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
@@ -32,9 +33,41 @@ import SwiftUI
         XCTAssertTrue(painted, "Removing an extra draw path must retain the actual glyph pixels")
     }
 
+    func testOwnedLayerCandidateSurvivesTheActualSwiftUIHostingAndCapturePath() throws {
+        _ = NSApplication.shared
+        var images: [Data] = []
+        for owned in [false, true] {
+            let root = ReferenceLabel("Relic → 组织", size: 14, ownedLayer: owned)
+                .frame(width: 180, height: 32)
+            let host = NSHostingView(rootView: root)
+            host.frame = NSRect(x: 0, y: 0, width: 180, height: 32)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; window.orderFront(nil)
+            host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); CATransaction.flush()
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            var painted = 0
+            for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
+                if (CaptureRaster.sRGBPixel(bitmap, x: x, y: y)?[3] ?? 0) > 0 { painted += 1 }
+            } }
+            XCTAssertGreaterThan(painted, 0, "The actual hosting capture must include the label, owned=\(owned)")
+            window.orderOut(nil)
+        }
+        if images[0] != images[1] {
+            let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try images[0].write(to: directory.appendingPathComponent("label-host-draw.png"))
+            try images[1].write(to: directory.appendingPathComponent("label-host-layer.png"))
+        }
+        XCTAssertEqual(images[0], images[1], "The candidate must preserve every hosted label pixel")
+    }
+
     func testSubmittedLabelLayerImagePreservesAppKitsActualBitmap() throws {
         _ = NSApplication.shared
         let view = ReferenceLabel("Relic 🙂 组织", size: 14).makeLabelView()
+        view.usesOwnedBackingImage = true
         view.frame = NSRect(x: 0, y: 0, width: 180, height: 32)
         view.wantsLayer = true
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)

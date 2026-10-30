@@ -19,7 +19,10 @@ final class ConversationScrollTests: XCTestCase {
         XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 900), bottom: 698, viewport: viewport))
         XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 996), bottom: 794, viewport: viewport),
             "The clicked disclosure adds height without issuing a bottom-scroll request")
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 998), bottom: 796, viewport: viewport),
+            "A second TextKit layout pass for that same disclosure must preserve the reading position too")
         XCTAssertTrue(state.followsBottom, "A later incoming message still uses the reference's 120px follow threshold")
+        state.contentChanged()
         XCTAssertTrue(state.observe(content: CGSize(width: 784, height: 1036), bottom: 834, viewport: viewport))
     }
 
