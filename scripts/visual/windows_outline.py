@@ -27,6 +27,10 @@ DOT_CONTRACT = "relic-state-dot-grid-owned-ellipses"
 DOT_SOURCE = "actual sealed NativeStateDotView runtime and Surround/VacancyRing object identities"
 DOT_LAYERS_SOURCE = "actual NativeStateDotView owned paint objects and current Children order"
 DOT_LAYER_SOURCE = "actual NativeStateDotView owned Ellipse object identity"
+SCROLL_PRESENTER_RUNTIME = "Microsoft.UI.Xaml.Controls.ScrollContentPresenter"
+SCROLL_PRESENTER_CONTRACT = "native-scroll-content-presenter-fill-border-and-content"
+SCROLL_PRESENTER_SOURCE = "actual exact ScrollContentPresenter runtime BaseType/IsSealed and current visual-child count"
+SCROLL_PRESENTER_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/controls/generated/CScrollContentPresenter.g.h"
 LOCAL_LAYOUT_SOURCE = "actual local layout Type.BaseType/IsSealed and exact audited source contract"
 # Audited exact production classes: five add Measure/Arrange only, while the
 # Grid adds only its real region peer. Their native Panel background/border and
@@ -116,7 +120,8 @@ def native_outline(node, by_id):
     token_runtime = isinstance(runtime, str) and runtime in TOKEN_RUNTIMES
     contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME
                 else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
-                else DOT_CONTRACT if runtime == DOT_RUNTIME else local_contract[0] if local_contract
+                else DOT_CONTRACT if runtime == DOT_RUNTIME else SCROLL_PRESENTER_CONTRACT if runtime == SCROLL_PRESENTER_RUNTIME
+                else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
     if (contract is None or raw.get("own_paint_contract") != contract
@@ -128,6 +133,25 @@ def native_outline(node, by_id):
                 or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
                 or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
             gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
+    if runtime == SCROLL_PRESENTER_RUNTIME:
+        # The exact SDK class is sealed, and its native CContentPresenter base
+        # draws its own fill/border. This proof is not template-only, does not
+        # infer a viewport/clip, and accepts any completely captured child set.
+        presenter = raw.get("scroll_presenter")
+        current_children = [child for child in by_id.values()
+                            if child.get("parent") == node["id"] and not child.get("text_run_source")]
+        valid_presenter = (isinstance(presenter, dict) and presenter.get("source") == SCROLL_PRESENTER_SOURCE
+                           and presenter.get("status") == "measured" and presenter.get("owner_id") == node["id"]
+                           and presenter.get("base_type") == "Microsoft.UI.Xaml.Controls.ContentPresenter"
+                           and presenter.get("is_sealed") is True
+                           and presenter.get("audited_sdk_source") == SCROLL_PRESENTER_SDK_SOURCE
+                           and type(presenter.get("visual_child_count")) is int
+                           and presenter["visual_child_count"] == len(current_children))
+        if not valid_presenter:
+            gap("Exact ScrollContentPresenter lacks its sealed SDK base-type and actual current-child-count receipt")
+        else:
+            evidence["scope"] = ("Exact SDK ScrollContentPresenter own fill/border only; actual scroll/clip geometry "
+                                 "and independently captured children retain their own obligations")
     if token_runtime:
         # Only the two audited sealed leaves over OverviewTokenView. The fixed
         # SDK ContentControl render branch handles ListViewBaseItem chrome;

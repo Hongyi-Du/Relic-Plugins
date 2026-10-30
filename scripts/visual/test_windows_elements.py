@@ -84,6 +84,45 @@ def measured(nodes):
 
 
 class ProjectionTests(unittest.TestCase):
+    def test_actual_run_configuration_reaches_canonical_text_without_parent_request(self):
+        from test_xaml_font_weights import recorded_samples, synthetic_run_receipt
+        sample = recorded_samples()[1]
+        run = deepcopy(sample["run"])
+        run["font_weight_configuration"] = synthetic_run_receipt(sample)
+        for has_receipt in (True, False):
+            with self.subTest(has_receipt=has_receipt):
+                leaf = deepcopy(run)
+                if not has_receipt:
+                    leaf.pop("font_weight_configuration")
+                node = xaml_node(sample["node"]["id"], text=sample["node"]["text"], bounds=sample["node"]["bounds"])
+                node["style"]["font_weight"] = 900  # Different parent request must not replace the leaf's actual request.
+                node["layout"]["rich_text_runs"] = [leaf]
+                node["layout"]["character_boxes_coordinate_space"] = "content-window"
+                result = self.capture(measured([node]))
+                item = self.by_id(result)[node["id"] + ":run:0"]
+                configured = item["evidence"]["font_weight_quantities"]["configured"]["value"]
+                self.assertEqual(configured, run["font_weight"] if has_receipt else None)
+                self.assertIsNone(item["evidence"]["font_weight_quantities"]["resolved"]["faces"])
+                self.assertTrue(result["extraction_errors"], "Configured request does not clear unrelated missing measurements")
+
+    def test_single_control_label_transfers_only_its_own_configured_request(self):
+        from test_xaml_font_weights import recorded_samples, synthetic_run_receipt
+        sample = recorded_samples()[1]
+        run = deepcopy(sample["run"])
+        run["font_weight_configuration"] = synthetic_run_receipt(sample)
+        owner = xaml_node("synthetic-button", "Button", bounds=sample["node"]["bounds"])
+        owner["style"]["font_weight"] = 900
+        label = xaml_node(sample["node"]["id"], text=sample["node"]["text"], parent=owner["id"], bounds=sample["node"]["bounds"])
+        label["layout"].update(rich_text_runs=[run], character_boxes_coordinate_space="content-window")
+        result = self.capture(measured([owner, label]))
+        item = self.by_id(result)[owner["id"]]
+        binding = item["evidence"]["xaml_font_weight_binding"]
+        self.assertEqual(binding["source_id"], sample["node"]["id"] + ":run:0")
+        self.assertEqual(binding["ownership"], {"source_id": binding["source_id"], "owner_id": owner["id"],
+                                                "reason": "single simple control label"})
+        self.assertEqual(item["evidence"]["font_weight_quantities"]["configured"]["value"], run["font_weight"])
+        self.assertIsNone(item["evidence"]["font_weight_quantities"]["resolved"]["faces"])
+
     @staticmethod
     def recorded_ellipse_border():
         return json.loads((Path(__file__).parent / "fixtures" / "ellipse_border_recorded_0545cf0.json").read_text(encoding="utf-8"))

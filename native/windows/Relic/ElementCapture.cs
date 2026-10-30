@@ -218,6 +218,9 @@ public sealed partial class MainWindow
                     if (element is ContentPresenter presenterElement) node["background_sizing"] = presenterElement.BackgroundSizing.ToString();
                     if (element is Rectangle rectangle) node["shape_corner_radius"] = new JsonObject { ["x"] = rectangle.RadiusX, ["y"] = rectangle.RadiusY };
                     node["text"] = CaptureText(element);
+                    if (element is TextBlock or RichTextBlock)
+                        node["font_weight_configuration"] = CaptureFontWeightConfiguration(element, id, id,
+                            node["style"]?["font_weight"]?.GetValue<double>());
                     node["interaction_evidence"] = new JsonObject
                     {
                         ["is_control"] = element is Control,
@@ -674,6 +677,26 @@ public sealed partial class MainWindow
         _ => ""
     };
     private static string CaptureInlines(InlineCollection inlines) => string.Concat(inlines.Select(i => i switch { Run run => run.Text, LineBreak => "\n", Span span => CaptureInlines(span.Inlines), _ => "" }));
+    private static JsonObject CaptureFontWeightConfiguration(DependencyObject source, string ownerId, string sourceId, double? rawStyleWeight)
+    {
+        // These effective XAML requests include property inheritance. They are
+        // inputs to font selection, not measurements of the selected/fallback face.
+        var (property, value, text) = source switch
+        {
+            TextBlock block => ("TextBlock.FontWeight.Weight", (double)block.FontWeight.Weight, block.Text),
+            RichTextBlock block => ("RichTextBlock.FontWeight.Weight", (double)block.FontWeight.Weight, CaptureText(block)),
+            Run run => ("Run.FontWeight.Weight", (double)run.FontWeight.Weight, run.Text),
+            _ => throw new ArgumentException("Configured weight requires an actual XAML text owner", nameof(source))
+        };
+        return new JsonObject
+        {
+            ["version"] = 1, ["source"] = "actual XAML text-owner FontWeight.Weight getter",
+            ["property"] = property, ["value"] = value, ["runtime_type"] = source.GetType().FullName,
+            ["source_id"] = sourceId, ["owner_id"] = ownerId, ["text"] = text,
+            ["raw_style_font_weight"] = rawStyleWeight,
+            ["quantity"] = "effective configured request; not resolved render-face weight"
+        };
+    }
     private static JsonObject CaptureStyle(FrameworkElement element, double opacity, string id, JsonArray errors, bool visible)
     {
         Brush? foreground = null, background = null, border = null; double? size = null, weight = null; var thickness = new Thickness(); var radius = new CornerRadius();
@@ -962,21 +985,34 @@ public sealed partial class MainWindow
                     var actual = new Rect(left, top, right - left, bottom - top);
                     boxes.Add(CaptureBox(actual)); runBoxes.Add(CaptureBox(actual)); ys.Add(Math.Round(actual.Y, 2));
                 }
-                if (range.leaf != null) runs.Add(new JsonObject
+                if (range.leaf != null)
                 {
-                    ["type"] = range.leaf.GetType().Name,
-                    ["own_paint_evidence"] = new JsonObject { ["source"] = "actual TextElement runtime type and owner ContentStart/ContentEnd range",
-                        ["runtime_type"] = range.leaf.GetType().FullName, ["owner_id"] = id,
+                    var actualWeight = range.leaf.FontWeight.Weight;
+                    JsonObject? weightConfiguration = null;
+                    if (range.leaf is Run actualRun)
+                    {
+                        weightConfiguration = CaptureFontWeightConfiguration(actualRun, id, id + ":run:" + runs.Count, actualWeight);
+                        weightConfiguration["run_index"] = runs.Count;
+                        weightConfiguration["start_offset"] = range.start.Offset;
+                        weightConfiguration["end_offset"] = range.end.Offset;
+                    }
+                    runs.Add(new JsonObject
+                    {
+                        ["type"] = range.leaf.GetType().Name,
+                        ["own_paint_evidence"] = new JsonObject { ["source"] = "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                            ["runtime_type"] = range.leaf.GetType().FullName, ["owner_id"] = id,
+                            ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
+                            ["exact_run_type"] = range.leaf.GetType() == typeof(Run) },
+                        ["text"] = range.leaf is Run run ? run.Text : "\n",
                         ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
-                        ["exact_run_type"] = range.leaf.GetType() == typeof(Run) },
-                    ["text"] = range.leaf is Run run ? run.Text : "\n",
-                    ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
-                    ["font_size"] = range.leaf.FontSize, ["font_weight"] = range.leaf.FontWeight.Weight,
-                    ["foreground"] = CaptureColor(range.leaf.Foreground), ["font_family"] = range.leaf.FontFamily.Source,
-                    ["bounds"] = runBoxes, ["caret_evidence"] = runCarets,
-                    ["bounds_measurement"] = "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
-                    ["coordinate_space"] = "content-window", ["geometry_complete"] = !runIncomplete
-                });
+                        ["font_size"] = range.leaf.FontSize, ["font_weight"] = actualWeight,
+                        ["font_weight_configuration"] = weightConfiguration,
+                        ["foreground"] = CaptureColor(range.leaf.Foreground), ["font_family"] = range.leaf.FontFamily.Source,
+                        ["bounds"] = runBoxes, ["caret_evidence"] = runCarets,
+                        ["bounds_measurement"] = "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                        ["coordinate_space"] = "content-window", ["geometry_complete"] = !runIncomplete
+                    });
+                }
             }
             lines = incomplete ? null : ys.Count;
         }

@@ -721,6 +721,7 @@ def project_text_leaves(raw, unmeasured, pointer):
                         bounds=bounds, visible_bounds=clipped, hidden_reason=node.get("hidden_reason"),
                         render_sibling_order=index, style=style, state=state, icon=None, paint_kind="glyphs",
                         font_family=run.get("font_family"),
+                        font_weight_configuration=copy.deepcopy(run.get("font_weight_configuration")),
                         text_run_source={"owner": node["id"], "index": index, "start_offset": run.get("start_offset"),
                                          "end_offset": run.get("end_offset")},
                         layout={"wrap": node["layout"].get("wrap"), "truncation": node["layout"].get("truncation"),
@@ -2080,6 +2081,18 @@ def project(xaml_path, uia_path, png_path):
                                 "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(paint_node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
+                                "xaml_font_weight_configuration": copy.deepcopy(text_source.get("font_weight_configuration")),
+                                "xaml_font_weight_binding": {
+                                    "source": "actual XAML text_source selected by existing projection",
+                                    "canonical_owner_id": node["id"], "source_id": text_source["id"],
+                                    "source_type": text_source.get("type"), "text": text_source.get("text"),
+                                    "style_font_weight": text_source.get("style", {}).get("font_weight"),
+                                    "text_run_source": copy.deepcopy(run_source),
+                                    "rich_text_runs": copy.deepcopy(text_source.get("layout", {}).get("rich_text_runs")),
+                                    "ownership": ({"source_id": text_source["id"], "owner_id": owned[text_source["id"]][0],
+                                                   "reason": owned[text_source["id"]][1]}
+                                                  if text_source["id"] in owned else None)
+                                } if text_source.get("font_weight_configuration") is not None else None,
                                 "font_family_evidence": [copy.deepcopy(record.get("font_family_coverage")) for record in font_records],
                                 "provider_fonts": provider_fonts if text else [],
                                 "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,

@@ -1,5 +1,35 @@
 # Native Relic App contract
 
+Changes for the clients (actual da6cfd7 build results): run 41044003831 passes
+Windows build/package and 33 core plus 107 mock capture tests, macOS build/package
+and 183 tests, and the shared 106 Node/577 Python suite. Static vocabulary still
+fails its four existing Windows omissions. No visual scene is accepted.
+
+In actual 8767825 capture 41041721349, menu xaml-28 retains the real Group peer,
+name, header parent and 140/5/176/28 box; composer xaml-699 retains its real region
+at 276/794/824/106. PersonPicture no longer appears in the group own-outline
+gaps. Four measured Ellipse state dots retain radius5 from actual native inputs.
+The report is downloaded at `S:\Codex\Outputs\Relic-native-visual\parity-8767825\report`.
+It remains a failing 19-scene diagnostic subset, with three Windows capture
+errors and zero accepted scenes on either platform. The resized-panel capture
+happened to complete this time; its earlier observed instability is not resolved.
+
+The next batch records configured FontWeight requests at their actual XAML text
+owners and Runs, binding each getter to its raw text/style/node/span. Only this
+configured quantity is filled; composite-control defaults cannot stand in for
+their child text, and actual resolved faces/weights remain independent unknowns.
+Ten focused CI cases cover direct text, actual single-label ownership and rejected
+cross-owner/missing/changed inputs. ScrollContentPresenter separately gets an exact
+sealed SDK fill/border/content own-paint contract with six focused tests. Its real
+scroll clip and every child obligation remain unchanged. The combined WinUI
+project builds headlessly with zero warnings/errors; new CI evidence is required.
+
+Read macOS REQUESTS through 237e4b2: the shared menu fixture request is fixed by
+000c186 and passes at da6cfd7. Its initial-layout readiness and bounded read-only
+text outline receipts require no shared route or tolerance changes. These native
+changes are integrated for CI; unknown child/control paint is not inferred from
+an owned text span, and final PNG contribution remains a separate obligation.
+
 Changes for the clients (bounded native chip/badge/state-dot ownership): exact
 sealed OverviewChipView/OverviewBadgeView now retain their real type chain,
 applied template, sole ContentPresenter and actual Content object identities.
