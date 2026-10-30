@@ -187,14 +187,14 @@ import CoreText
         }
         return rows
     }
-    static func write(window: NSWindow, png: URL, item: Node, language: String, theme: String) throws {
+    static func write(window: NSWindow, png: URL, item: Node, language: String, theme: String, captureErrors: [String] = []) throws {
         var result: Result<Void, Error>!
         (window.contentView?.effectiveAppearance ?? window.effectiveAppearance).performAsCurrentDrawingAppearance {
-            result = Result { try writeMeasured(window: window, png: png, item: item, language: language, theme: theme) }
+            result = Result { try writeMeasured(window: window, png: png, item: item, language: language, theme: theme, captureErrors: captureErrors) }
         }
         try result.get()
     }
-    private static func writeMeasured(window: NSWindow, png: URL, item: Node, language: String, theme: String) throws {
+    private static func writeMeasured(window: NSWindow, png: URL, item: Node, language: String, theme: String, captureErrors: [String]) throws {
         guard let content = window.contentView, let bitmap = NSBitmapImageRep(data: try Data(contentsOf: png)) else { throw RelicError.message("Cannot inspect captured native image") }
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let viewport = NSRect(origin: .zero, size: content.bounds.size)
@@ -440,7 +440,7 @@ import CoreText
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
-        let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": [], "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
+        let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
         audit["surface_probes"] = surfaces.map { surface in var value = surface; value.removeValue(forKey: "rectValue"); return value }

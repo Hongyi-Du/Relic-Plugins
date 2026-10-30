@@ -22,7 +22,7 @@ struct Overview: View {
                     }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
                         .accessibilityElement(children: .contain).accessibilityLabel(m.t("org.view_mode"))
                 }
-                Text(org["name"].text).font(RelicStyle.font(16, weight: 700)).frame(minHeight: 21.6)
+                ReferenceLabel(org["name"].text, size: 16, weight: 700, lineHeight: 21.6, lines: 0)
                 ReferenceLabel(org["purpose"].text.isEmpty ? m.t("org.no_purpose") : org["purpose"].text, size: 12.5, color: RelicStyle.secondary, lineHeight: 20, lines: purposeOpen ? 0 : 3)
                     .help(m.t("org.click_expand")).onTapGesture { purposeOpen.toggle() }
                 FlowLayout {
@@ -52,7 +52,7 @@ struct Overview: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
     }
-    private func sectionTitle(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2) }
+    private func sectionTitle(_ key: String) -> some View { ReferenceLabel(m.t(key), size: 12, color: RelicStyle.muted, lineHeight: 19.2, lines: 0) }
     private func empty(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
     private var currentWork: some View {
         let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
@@ -199,10 +199,10 @@ struct DecisionView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(m.decisionTitle(decision)).font(RelicStyle.font(12.5, weight: 700)).fixedSize(horizontal: false, vertical: true)
+            ReferenceLabel(m.decisionTitle(decision), size: 12.5, weight: 700, lines: 0)
             switch decision["kind"].text {
             case "permission":
-                if !decision["detail"].text.isEmpty { Text(decision["detail"].text).foregroundStyle(RelicStyle.muted).lineLimit(1).help(decision["detail"].text) }
+                if !decision["detail"].text.isEmpty { ReferenceLabel(decision["detail"].text, size: 12.5, color: RelicStyle.muted).help(decision["detail"].text) }
                 FlowLayout {
                     Rows(decision["options"].rows) { option in
                         Button(option["name"].text.isEmpty ? option["kind"].text : option["name"].text) { sending = true; m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(decision["id"].text), ["option": option["id"].text]); try await m.refresh() } }
@@ -210,24 +210,24 @@ struct DecisionView: View {
                     }
                 }
             case "trajectory":
-                Text(m.t("decision.reason", ["reason": decision["reason"].text.isEmpty ? "—" : decision["reason"].text])).fixedSize(horizontal: false, vertical: true)
+                ReferenceLabel(m.t("decision.reason", ["reason": decision["reason"].text.isEmpty ? "—" : decision["reason"].text]), size: 12.5, lines: 0)
                 FlowLayout { Button(m.t("decision.approve_redacted")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
             case "approval":
-                if !decision["reason"].text.isEmpty { Text(m.t("decision.reason", ["reason": decision["reason"].text])).fixedSize(horizontal: false, vertical: true) }
-                Text([m.shortWhen(decision["at"]), m.approvalNote(decision)].filter { !$0.isEmpty }.joined(separator: " · ")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted)
+                if !decision["reason"].text.isEmpty { ReferenceLabel(m.t("decision.reason", ["reason": decision["reason"].text]), size: 12.5, lines: 0) }
+                ReferenceLabel([m.shortWhen(decision["at"]), m.approvalNote(decision)].filter { !$0.isEmpty }.joined(separator: " · "), size: 12, color: RelicStyle.muted, lines: 0)
                 FlowLayout { Button(m.t("decision.approve")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
             case "wake":
-                Text(m.clippedDecisionError(decision["error"].text)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true)
+                ReferenceLabel(m.clippedDecisionError(decision["error"].text), size: 12.5, color: RelicStyle.muted, lines: 0)
                 Button(m.t("decision.open_chat")) { m.run { try await m.select(m.organization, decision["member"].text) } }.buttonStyle(ReferenceButtonStyle(small: true))
             case "task":
-                Text(m.t("decision.task_owner", ["name": decision["member"].text.isEmpty ? "—" : m.name(decision["member"].text)])).foregroundStyle(RelicStyle.muted)
+                ReferenceLabel(m.t("decision.task_owner", ["name": decision["member"].text.isEmpty ? "—" : m.name(decision["member"].text)]), size: 12.5, color: RelicStyle.muted, lines: 0)
                 FlowLayout {
                     Button(m.t("decision.view_task")) { m.openDetails("tasks", task: decision["id"].text) }.buttonStyle(ReferenceButtonStyle(small: true))
                     if !decision["member"].text.isEmpty { Button(m.t("decision.ask", ["name": m.name(decision["member"].text)])) { m.run { try await m.select(m.organization, decision["member"].text) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
                 }
             default: Text(pretty(decision)).textSelection(.enabled)
             }
-        }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 8)
+        }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 11).padding(.vertical, 9)
             .modifier(RecordedSurface(background: RelicStyle.amberSoft, border: RelicStyle.amber.opacity(0.4), borderWidth: 1, radius: 10, kind: "card"))
             .disabled(sending)
     }

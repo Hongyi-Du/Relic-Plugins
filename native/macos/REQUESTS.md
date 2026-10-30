@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+macOS capture event-dispatch correction: full run `40974621706` still stalls
+at the first real input click after replacing NSPopover; smoke `40974672159`
+reaches the live tool click but fails its open-output assertion. Capture now
+queues complete mouse down/up and key down/up gestures through
+`NSApplication.postEvent(_:atStart:)` instead of synchronously calling
+`NSWindow.sendEvent` for mouseDown before mouseUp can be queued. Native text
+fields can enter an AppKit tracking loop during that call. This is a diagnosed
+dispatch hazard being tested, not a claim that the new capture has passed.
+
+If a macOS case still fails to advance, please retain a `/usr/bin/sample <pid> 3`
+report of the actual native process before the shared 90-second progress timeout
+terminates the run. Suggested output: `data/<lang>/<theme>/native-stall.sample.txt`;
+invoke only on the CI macOS runner and bound the diagnostic subprocess timeout.
+The existing error/timeout remains a failure; no increased tolerance or skipped
+case is requested.
+
+Native capture now catches individual case failures, saves the mounted failed
+window and its real AX/TextKit evidence with `native_scene_action_failed` in
+`extraction_errors`, retains errors in `complete.json`, and then attempts all
+remaining cases after the normal Model/view/fixture reset. A failed fixture
+setup never reuses the previous case's PNG. The run still exits nonzero if any
+case or integration assertion failed. This improves diagnostic coverage without
+turning a failed state into acceptance evidence.
+
 Please add `member-card-rename`, `member-card-model`, and `member-card-avatar-hover`
 to the shared matrix/reference harness: start from `member-card`, click the real
 rename button, click the real model Change button, or hover the real avatar,
@@ -7,6 +31,8 @@ respectively. macOS now renders the rename field in the header, the model editor
 inside its value column and the avatar hover layer, and will perform those real
 native actions in these additional scenes. Keep all existing 47 scenes and
 tolerances. These previously unmeasured states are required by Amendment 4.
+Resolved by `36fca26`: all three are in the shared 50-state / 600-case matrix;
+the native real-action capture handlers are retained and await CI validation.
 
 macOS consumes `fixture.scene_endpoint` before every case, records the actual
 response as `<case>.scene-fixture.json`, reloads the returned member's real Hub
@@ -51,6 +77,9 @@ same measurement quantity for both platforms, preserving each provider's raw
 components and raster evidence. This is not a request to relax alpha/DeltaE
 tolerances or copy reference colors into native data. Native values remain
 unchanged until a measured conversion is implemented and tested.
+Resolved in the shared contract merged through `36fca26`: computed float RGBA
+and independent canvas RGBA8 raster evidence now remain separate quantities.
+Native actual brush values and matcher tolerances have not changed.
 
 Canonical layout-container question: native AX exposes transparent grouping
 nodes (`AXGroup`, `AXScrollArea`, `AXOpaqueProviderGroup`) independently of
@@ -62,6 +91,9 @@ unpainted layout-only wrappers versus visible/interactive region elements.
 Native will retain every raw node and unresolved paint coverage failure; this
 must not become a blanket element/scene exclusion or an exception. Painted
 container borders/fills, scrollbars and actual controls remain separate evidence.
+The shared `native-layout-projection.md` merged through `7d0703d` supplies this
+contract. Native still needs independent paint/action/semantic ownership proof;
+no AX wrapper has been removed under this request.
 
 ## 2026-10-29: literal Harness label in the reference member form
 
