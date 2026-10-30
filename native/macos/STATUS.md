@@ -19,7 +19,15 @@ release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、�
 `ae977f2` 的 [41035024073 / macos 123993758261](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41035024073/job/123993758261)
 确认实际静态字体 Regular/Bold 绘制、固定行高基线、制表位及新增 popup 标题绘制测试通过；
 但测试进程在 `testThumbOnlyScrollerDoesNotExposeUnpaintedLegacyButtons` 退出 signal 11，整套测试仍失败。
-`e5fe085` 将滚动条子元素枚举中的完整 AX 查询改成只读取 role，避免导航属性反查父级子元素。
+`e5fe085` 只读取 role 的修改未解决滚动条崩溃：`ed5b808` 仍在同一测试退出 signal 11。
+其 [诊断捕获 41035817459](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41035817459)
+现已保存实际 `Relic-2026-10-30-100410.ips`，位于
+`S:\Codex\Outputs\Relic-native-visual\parity-ed5b808\crash\`。
+栈显示 AppKit 注册子项 UIElementSpecifier 时通过 `accessibilityIndexOfChild` 再次枚举父级，
+因此即使只读 role 也会递归。`1ecee11` 增加原生注册重入保护和重复子项索引测试，等待 CI。
+`5d97933` 同时修正完整中文浅色 165 状态中实测的成员选项、工作区、轨迹行的独立子元素和名称；
+菜单快捷键、Markdown 标记及表格单元格名称亦已修改。新截图尚未验证这些差异已消失。
+诊断样本的新增测试不替代全部 660 状态门禁。
 `9aaf342` 诊断捕获已绘制群聊 PNG，但 AX 阶段退出 -11、完成数为 0/19；产物在
 `S:\Codex\Outputs\Relic-native-visual\parity-9aaf342\macos\`。不把这一张 PNG 计为成功捕获。
 后续源码还补齐决策按钮实际文字绘制及边框宽度、popup 原生菜单标题的实际文字绘制、
