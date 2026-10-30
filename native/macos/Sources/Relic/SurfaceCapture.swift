@@ -30,7 +30,17 @@ struct RecordedSurface: ViewModifier {
         return UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3], bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
     }
     func body(content: Content) -> some View {
-        content.background(background, in: shape)
+        content.background {
+            // CSS box shadows belong to the surface outline. Applying SwiftUI
+            // shadow to the content hierarchy also shadows fields/text inside
+            // dialogs. Paint each shadow from the same background shape instead.
+            ZStack {
+                ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
+                    shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
+                }
+                shape.fill(background)
+            }
+        }
             .overlay {
                 if let edges {
                     ZStack {
@@ -48,7 +58,6 @@ struct RecordedSurface: ViewModifier {
                     RoundedRectangle(cornerRadius: radius + outerRingWidth).strokeBorder(outerRingColor, lineWidth: outerRingWidth).padding(-outerRingWidth).allowsHitTesting(false)
                 }
             }
-            .modifier(SurfaceShadows(values: shadows))
             .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor))
     }
 }
@@ -64,15 +73,6 @@ struct SurfaceShadow {
     }
     static let dialog = [SurfaceShadow(color: color(0.14, 0.5), radius: 16, x: 0, y: 10), SurfaceShadow(color: color(0.06, 0.3), radius: 3, x: 0, y: 2)]
 }
-private struct SurfaceShadows: ViewModifier {
-    let values: [SurfaceShadow]
-    func body(content: Content) -> some View {
-        values.reversed().reduce(AnyView(content)) { view, value in
-            AnyView(view.shadow(color: value.color, radius: value.radius, x: value.x, y: value.y))
-        }
-    }
-}
-
 private struct CaptureOpacityKey: EnvironmentKey { static var defaultValue: Double = 1 }
 extension EnvironmentValues {
     var captureOpacity: Double { get { self[CaptureOpacityKey.self] } set { self[CaptureOpacityKey.self] = newValue } }

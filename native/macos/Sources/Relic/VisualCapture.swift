@@ -56,6 +56,7 @@ import RelicAX
                 var sceneMounted = false
                 var caseDefaults: (UserDefaults, String)?
                 var messageCapture: MessageCaptureSession?
+                var resizeCapture: ResizeCaptureSession?
                 defer { messageCapture?.finish(); model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
                 do {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
@@ -122,7 +123,7 @@ import RelicAX
                     case "thread": try await model.openThread(fixture["thread"].text)
                     case "copies", "copy-rules": model.expandRules = scene == "copy-rules"; model.sheet = .copies
                     case "chart": model.sheet = .chart
-                    case "new-org": model.sheet = .create
+                    case "new-org", "new-org-textarea-resized": model.sheet = .create
                     case "member-app", "member-host", "member-existing": model.openMemberForm(mode: String(scene.dropFirst(7)))
                     case "member-host-model-suggestions": model.openMemberForm(mode: "host")
                     case "member-existing-seat-suggestions": model.openMemberForm(mode: "existing")
@@ -183,11 +184,15 @@ import RelicAX
                     try await Task.sleep(for: .milliseconds(350))
                     guard editor.mentionSuggestionsVisible else { throw RelicError.message("Mention scene did not present the native member picker: text=\(editor.string), selection=\(editor.selectedRange()), candidates=\(editor.mentionCandidates().count), frame=\(editor.frame), anchor=\(editor.mentionAnchorRect()), attached=\(editor.window != nil)") }
                 }
+                if scene == "new-org-textarea-resized" {
+                    resizeCapture = try ResizeCaptureSession(window: window, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
+                    try await resizeCapture?.perform(window: window)
+                }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 if scene == "quick-start" {
                     guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
                 }
-                if !["member-card-avatar-hover", "message-hover", "message-copy-toast"].contains(scene) {
+                if !["member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized"].contains(scene) {
                     try movePointer(to: NSPoint(x: 10, y: 10))
                     try await Task.sleep(for: .milliseconds(80))
                     let screen = window.convertToScreen(hosting.convert(hosting.bounds, to: nil))
@@ -204,12 +209,21 @@ import RelicAX
                     }
                     try evidence(["provider": "production NSAnimation clocks", "clocks": clocks], suffix: ".animations.json", item: item, output: output)
                 }
+                hosting.layoutSubtreeIfNeeded(); hosting.displayIfNeeded(); CATransaction.flush()
+                let geometry = GeometryCaptureSession(path: output.appendingPathComponent(item["id"].text + ".native-geometry.json"))
+                try geometry.observe("before-screenshot", window: window)
+                try resizeCapture?.observe("before-screenshot")
                 try messageCapture?.observe("before-screenshot", window: window)
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try messageCapture?.observe("after-screenshot", window: window)
+                try geometry.observe("after-screenshot", window: window)
+                try resizeCapture?.observe("after-screenshot")
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 try messageCapture?.observe("after-native-source-and-element-extraction", window: window)
+                try geometry.observe("after-native-source-and-element-extraction", window: window)
+                try resizeCapture?.observe("after-native-source-and-element-extraction")
                 try messageCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
+                try resizeCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
                 } catch {
@@ -224,6 +238,9 @@ import RelicAX
                     if sceneMounted {
                         do {
                             let png = output.appendingPathComponent(item["file"].text)
+                            if FileManager.default.fileExists(atPath: png.path) {
+                                try FileManager.default.copyItem(at: png, to: output.appendingPathComponent(item["id"].text + ".before-capture-error.png"))
+                            }
                             try capture(window, to: png, width: item["width"].integer, height: item["height"].integer)
                             try ElementCapture.write(window: window, png: png, item: item, language: language, theme: theme, captureErrors: [detail])
                             results.append(["id": item["id"].text, "file": item["file"].text, "status": "failed-state-captured", "error": detail])
@@ -368,7 +385,7 @@ import RelicAX
         for event in events { NSApp.postEvent(event, atStart: false) }
         print("Queued native mouse gesture: window=\(window.windowNumber), point=\(point)"); fflush(stdout)
     }
-    private static func movePointer(to screen: NSPoint) throws {
+    static func movePointer(to screen: NSPoint) throws {
         guard let primary = NSScreen.screens.first else { throw RelicError.message("No display for native pointer movement") }
         let point = CGPoint(x: screen.x, y: primary.frame.maxY - screen.y)
         guard CGWarpMouseCursorPosition(point) == .success,
