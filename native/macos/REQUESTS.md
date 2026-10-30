@@ -1,5 +1,16 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+20e61cf passes all eight unchanged glyph-image comparisons, but the mounted
+plain-label test still detects AppKit ContentLayer even with the CGContext
+primitive. ReferenceLabelView now uses AppKit's public wantsUpdateLayer /
+makeBackingLayer / updateLayer route: actual TextKit draws into an owned sRGB
+CGImage, then the view assigns that exact image to its own CALayer. Its
+`native_backing_image` observation binds image/layer identity, current attributed
+text, bounds/frame/window and scale to the actual glyph callback. The own-paint
+checker rejects stale/unbound images. A new CI test compares the submitted
+image's pixels against the original AppKit primitive, including Emoji; the
+zero-extra-layer assertion remains unchanged. No ContentLayer allowlist exists.
+
 Occlusion work is now starting from actual production paint. An opt-in
 `RecordedSurface.nativeFill` candidate uses NativeSurfaceFillView's actual
 CGContext.fillPath; it is NOT enabled in the application yet. CI first compares

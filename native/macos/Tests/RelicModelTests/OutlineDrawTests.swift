@@ -21,6 +21,7 @@ import SwiftUI
         XCTAssertTrue(view.subviews.isEmpty)
         let children = view.layer?.sublayers ?? []
         XCTAssertTrue(children.isEmpty, "A label must not retain another AppKit content paint layer: \(children.map { String(describing: type(of: $0)) })")
+        XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, true)
         var painted = false
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide where (CaptureRaster.sRGBPixel(bitmap, x: x, y: y)?[3] ?? 0) > 0 {
@@ -29,6 +30,40 @@ import SwiftUI
             if painted { break }
         }
         XCTAssertTrue(painted, "Removing an extra draw path must retain the actual glyph pixels")
+    }
+
+    func testSubmittedLabelLayerImagePreservesAppKitsActualBitmap() throws {
+        _ = NSApplication.shared
+        let view = ReferenceLabel("Relic 🙂 组织", size: 14).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 180, height: 32)
+        view.wantsLayer = true
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
+        view.layoutSubtreeIfNeeded(); view.display(); CATransaction.flush()
+        let contents = try XCTUnwrap(view.layer?.contents)
+        XCTAssertEqual(CFGetTypeID(contents as CFTypeRef), CGImageGetTypeID())
+        let image = contents as! CGImage
+        let actual = NSBitmapImageRep(cgImage: image)
+        XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, true)
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 5), with: "Other")
+        XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, false, "A source change cannot retain the earlier layer-image proof")
+
+        let baseline = ReferenceLabel("Relic 🙂 组织", size: 14).makeLabelView()
+        baseline.frame = view.frame
+        (baseline.layoutManager as? NativeGlyphLayoutManager)?.drawsGlyphsIntoCurrentContext = false
+        window.contentView = baseline
+        baseline.wantsLayer = false
+        baseline.layoutSubtreeIfNeeded()
+        let expected = try XCTUnwrap(CaptureRaster.forView(baseline))
+        baseline.cacheDisplay(in: baseline.bounds, to: expected)
+        XCTAssertEqual(actual.pixelsWide, expected.pixelsWide)
+        XCTAssertEqual(actual.pixelsHigh, expected.pixelsHigh)
+        guard actual.pixelsWide == expected.pixelsWide && actual.pixelsHigh == expected.pixelsHigh else { return }
+        var different = 0
+        for y in 0..<actual.pixelsHigh { for x in 0..<actual.pixelsWide {
+            if CaptureRaster.sRGBPixel(actual, x: x, y: y) != CaptureRaster.sRGBPixel(expected, x: x, y: y) { different += 1 }
+        } }
+        XCTAssertEqual(different, 0, "The submitted production layer image must retain every native glyph pixel")
     }
 
     func testTextOutlineContractRequiresItsActualCurrentNativeDrawAndRejectsAdditionalPaint() throws {
