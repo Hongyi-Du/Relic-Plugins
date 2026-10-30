@@ -7,8 +7,14 @@ pixel snapping. Ordered markers keep their actual text renderer. Raw element
 `current_draw` (provider, current view/window identity, revision, actual local
 ellipse/device ellipse, foreground, actual font metrics, CTM and clip), plus
 the actual screen bounds/ellipse and mounted native_structure. Its real AX
-image retains the spoken alternative `• ` and canonical kind icon. Canonical
-`icon` is deliberately unknown until the shared symbol-shape reader can check
+image retains the spoken alternative `• ` and canonical kind icon. Its visible
+`text` is empty because no text glyph is painted; the actual AX name
+and `alternative_text` remain `• `. This matches the new reference distinction
+without deriving either side's painted geometry from its accessibility label.
+Please include `file-markdown` in the diagnostic smoke matrix so the actual
+native disc and the shared symbol reader receive a short feedback loop as well
+as their existing full-matrix coverage. Full coverage and tolerances stay intact.
+Canonical `icon` is deliberately unknown until the shared symbol-shape reader can check
 the actual reference ellipse and this native receipt. Do not relabel it as a
 font glyph or accept a new icon exception. The native actual-circle pixel test
 checks the same 13.5px primary font's 7x19 symbol box and 5x5 painted ellipse.
