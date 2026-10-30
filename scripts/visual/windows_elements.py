@@ -15,7 +15,7 @@ from PIL import Image
 
 from paint_patterns import MeasurementError, captured_pattern, pattern_measurement_issue
 from image_projection import project_windows_image
-from windows_outline import native_outline
+from windows_outline import native_outline, overview_token_content
 from native_label_geometry import native_label_geometry
 from native_label_fonts import native_label_fonts
 from windows_automation_identity import OWNER_SOURCE, bind_automation_identities
@@ -1212,7 +1212,7 @@ def visible_uia_errors(uia):
     return errors, nonvisible
 
 
-def interaction_applicability(node, kind, witness):
+def interaction_applicability(node, kind, witness, by_id=None):
     """Distinguish nonapplicable UIA defaults from actual interactive state."""
     if kind in INTERACTIVE_KINDS:
         return True, "Native semantic interactive control"
@@ -1230,6 +1230,23 @@ def interaction_applicability(node, kind, witness):
             return False, "Paint-only XAML element; UIA reports no action pattern and IsKeyboardFocusable=false"
         return None, "UIA interaction applicability is not completely measured"
     interaction = node.get("interaction_evidence", {})
+    if node["type"] in {"OverviewChipView", "OverviewBadgeView"}:
+        # These exact sealed production containers have no independent action;
+        # their current template only presents a bound informational TextBlock.
+        # A tooltip may still need hit testing. Do not disable it, inherit a
+        # child's TextPattern, or describe a no-peer observation as a UIA state.
+        content = overview_token_content(node, by_id)
+        identity = node.get("automation_identity_evidence")
+        if (content is not None and content.get("type") == "TextBlock"
+                and interaction.get("source") == "Actual XAML Control type, IsTabStop and IsHitTestVisible properties"
+                and interaction.get("is_control") is True and interaction.get("is_tab_stop") is False
+                and node.get("state", {}).get("focused") is False
+                and isinstance(identity, dict) and identity.get("source") == OWNER_SOURCE
+                and identity.get("owner_id") == node["id"] and identity.get("status") == "no-peer"
+                and identity.get("peer_is_null") is True and identity.get("metadata_modified") is False):
+            return False, ("Exact sealed OverviewToken container with current ContentPresenter/TextBlock object binding, "
+                           "IsTabStop=false and actual no-peer receipt; no independent production action. "
+                           "Raw Control defaults, tooltip/hover and child text retain their own evidence.")
     if interaction.get("is_control") is False and (node["type"] in PAINT_ONLY_TYPES or measured_runtime_type(node, "is_panel") is True):
         return False, "Actual XAML non-Control paint element with no independent UIA interactive witness"
     if interaction.get("is_hit_test_visible") is False and interaction.get("is_tab_stop") is False:
@@ -2518,7 +2535,7 @@ def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
             matching = [n for n in matching if owner_provider and uia_scrollbar_owner(n) == owner_provider["id"]]
         matching.sort(key=lambda n: (n.get("name", "") not in (text, node.get("accessible_name", "")), distance(n["bounds"], node["bounds"])))
         witness = matching[0] if matching else None
-        interactive, interaction_reason = interaction_applicability(node, kind, witness)
+        interactive, interaction_reason = interaction_applicability(node, kind, witness, by_id)
         if witness:
             used_uia.add(witness["id"])
             paired_controls[node["id"]] = witness
@@ -2792,6 +2809,7 @@ def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
                                 "provider_fonts": provider_fonts if text else [],
                                 "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,
                                                               "xaml": copy.deepcopy(node.get("interaction_evidence")),
+                                                              "xaml_state": copy.deepcopy(node.get("state")),
                                                               "uia_state": copy.deepcopy(witness.get("state")) if witness else None,
                                                               "uia_patterns": copy.deepcopy(witness.get("supported_patterns")) if witness else None},
                                 "accessible_name_evidence": {"reported": reported_name, "source": "UIA.NameProperty" if name_witness else "XAML.AutomationProperties.Name",

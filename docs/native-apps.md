@@ -1,5 +1,18 @@
 # Native Relic App contract
 
+Changes for the clients (informational token state): the Windows reader reuses
+the exact sealed OverviewToken template/content identity contract plus actual
+no-peer, IsTabStop=false and unfocused observations to distinguish its container
+from an interactive control. Only that container's enabled/focused defaults are
+nonapplicable; raw values remain in the audit. Real peer/action/focus evidence,
+hover, tooltips and each child TextPattern remain independent and unchanged.
+The real 35ac04a badge/chip fixture contains no reference expectations. Seven
+regression methods include unknown templates, replaced children and real actions.
+
+CI progress: 37e5ae4's independent extraction-contract run 41147326267 passes all
+944 Python tests and the reference JavaScript checks. c8d6311's new actual native
+capture is still running. No full scene or final element gate is yet accepted.
+
 Changes for the clients (shared CI): native-element-checks.yml now runs on
 relevant native branch pushes as well as its unchanged reusable workflow_call.
 This runs the same full extraction-contract suite while platform jobs wait for

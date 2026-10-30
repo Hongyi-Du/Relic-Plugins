@@ -86,6 +86,56 @@ def ancestry(node_id, by_id):
     return result
 
 
+def overview_token_content(node, by_id):
+    """Return the actual bound content of an exact audited token, or None.
+
+    This only validates the production type/template/object tree. Paint,
+    interaction and the content's own obligations remain separate decisions.
+    """
+    raw = node.get("outline_owner_evidence")
+    if not isinstance(raw, dict) or not isinstance(by_id, dict):
+        return None
+    runtime = raw.get("runtime_type")
+    if (not isinstance(runtime, str) or runtime not in TOKEN_RUNTIMES
+            or raw.get("source") != SOURCE or raw.get("status") != "measured"
+            or raw.get("owner_id") != node.get("id")
+            or raw.get("own_paint_contract") != TOKEN_CONTRACT
+            or node.get("type") != runtime.rsplit(".", 1)[-1]):
+        return None
+    token = raw.get("overview_token_content")
+    render_type = node.get("render_type_evidence")
+    valid = (isinstance(token, dict) and token.get("source") == TOKEN_SOURCE
+             and token.get("status") == "measured" and token.get("owner_id") == node["id"]
+             and token.get("base_type") == "Relic.OverviewTokenView"
+             and token.get("base_base_type") == "Microsoft.UI.Xaml.Controls.ContentControl"
+             and token.get("is_sealed") is True
+             and token.get("audited_source") == "native/windows/Relic/OverviewStyles.cs#OverviewTokenView"
+             and token.get("template_present") is True
+             and token.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
+             and type(token.get("visual_child_count")) is int and token["visual_child_count"] == 1
+             and token.get("presenter_runtime_type") == "Microsoft.UI.Xaml.Controls.ContentPresenter"
+             and token.get("presenter_is_current_only_child") is True
+             and token.get("presenter_content_same_object") is True
+             and token.get("content_is_current_presenter_child") is True
+             and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+             and render_type.get("is_control") is True and render_type.get("is_content_control") is True
+             and render_type.get("control_template_present") is True)
+    presenter_id = token.get("presenter_id") if isinstance(token, dict) else None
+    content_id = token.get("content_id") if isinstance(token, dict) else None
+    presenter = by_id.get(presenter_id) if isinstance(presenter_id, str) else None
+    content = by_id.get(content_id) if isinstance(content_id, str) else None
+    valid = (valid and isinstance(presenter, dict) and isinstance(content, dict)
+             and len({node["id"], presenter_id, content_id}) == 3
+             and presenter.get("type") == "ContentPresenter" and presenter.get("parent") == node["id"]
+             and content.get("type") == token.get("content_type") and isinstance(token.get("content_type"), str)
+             and bool(token["content_type"]) and content.get("parent") == presenter_id
+             and [child["id"] for child in by_id.values()
+                  if child.get("parent") == node["id"] and not child.get("text_run_source")] == [presenter_id]
+             and [child["id"] for child in by_id.values()
+                  if child.get("parent") == presenter_id and not child.get("text_run_source")] == [content_id])
+    return content if valid else None
+
+
 def native_outline(node, by_id):
     """Return (canonical value, audit receipt, coverage gaps) for one owner."""
     raw = node.get("outline_owner_evidence")
@@ -220,39 +270,7 @@ def native_outline(node, by_id):
         # these exact local classes instead use their actual ContentPresenter.
         # Background/border properties and independently measured child paint
         # are retained; this is not a generic ContentControl exemption.
-        token = raw.get("overview_token_content")
-        render_type = node.get("render_type_evidence")
-        valid_token = (isinstance(token, dict) and token.get("source") == TOKEN_SOURCE
-                       and token.get("status") == "measured" and token.get("owner_id") == node["id"]
-                       and token.get("base_type") == "Relic.OverviewTokenView"
-                       and token.get("base_base_type") == "Microsoft.UI.Xaml.Controls.ContentControl"
-                       and token.get("is_sealed") is True
-                       and token.get("audited_source") == "native/windows/Relic/OverviewStyles.cs#OverviewTokenView"
-                       and token.get("template_present") is True
-                       and token.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
-                       and type(token.get("visual_child_count")) is int and token["visual_child_count"] == 1
-                       and token.get("presenter_runtime_type") == "Microsoft.UI.Xaml.Controls.ContentPresenter"
-                       and token.get("presenter_is_current_only_child") is True
-                       and token.get("presenter_content_same_object") is True
-                       and token.get("content_is_current_presenter_child") is True
-                       and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
-                       and render_type.get("is_control") is True and render_type.get("is_content_control") is True
-                       and render_type.get("control_template_present") is True)
-        presenter_id = token.get("presenter_id") if isinstance(token, dict) else None
-        content_id = token.get("content_id") if isinstance(token, dict) else None
-        presenter = by_id.get(presenter_id) if isinstance(presenter_id, str) else None
-        content = by_id.get(content_id) if isinstance(content_id, str) else None
-        valid_token = (valid_token and isinstance(presenter, dict) and isinstance(content, dict)
-                       and len({node["id"], presenter_id, content_id}) == 3
-                       and presenter.get("type") == "ContentPresenter" and presenter.get("parent") == node["id"]
-                       and content.get("type") == token.get("content_type") and isinstance(token.get("content_type"), str)
-                       and bool(token["content_type"])
-                       and content.get("parent") == presenter_id
-                       and [child["id"] for child in by_id.values()
-                            if child.get("parent") == node["id"] and not child.get("text_run_source")] == [presenter_id]
-                       and [child["id"] for child in by_id.values()
-                            if child.get("parent") == presenter_id and not child.get("text_run_source")] == [content_id])
-        if not valid_token:
+        if overview_token_content(node, by_id) is None:
             gap("Exact overview token lacks its sealed class chain, applied template and current ContentPresenter/Content identity proof")
         else:
             evidence["scope"] = ("Exact sealed overview token ContentControl parent only; its actual ContentPresenter "
