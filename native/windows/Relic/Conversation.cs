@@ -237,7 +237,29 @@ public sealed partial class MainWindow
         var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
         chatHead.ColumnDefinitions.Clear(); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); chatHead.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); chatHead.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var titles = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center }; var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        var portrait = member.Length == 0 ? SidebarPicture("", ChatAvatar(false), 28) : m.Flag("secretary") && m.Text("avatar").Length == 0 ? SidebarPicture("", ChatAvatar(true), 28) : SmallAvatar(m.Text("avatar"), Display(member), m.Text("state"), 28);
+        UIElement portrait = member.Length == 0 ? SidebarPicture("", ChatAvatar(false), 28) : m.Flag("secretary") && m.Text("avatar").Length == 0 ? SidebarPicture("", ChatAvatar(true), 28) : SmallAvatar(m.Text("avatar"), Display(member), size: 28);
+        if (member.Length > 0 && m.Text("state") is not ("" or "idle"))
+        {
+            // Both secAvatar and avatar(dot:true) own the same 10px state dot.
+            // The chat's background surrounds it; the sidebar's surface does not.
+            var state = m.Text("state");
+            var color = state switch
+            {
+                "working" or "running" => Paint("3E9B5E", "6CC287"), "active" => Paint("75A782", "669572"),
+                "waiting" or "starting" => Paint("B7791F", "E2B15A"), "error" => Paint("C2412D", "EE8A78"),
+                "vacant" => Paint("B8B5AF", "5F5D58"), _ => OverviewAlpha(Muted, 0)
+            };
+            var frame = new Grid { Width = 28, Height = 28, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
+            if (portrait is FrameworkElement face) face.UseLayoutRounding = false;
+            frame.Children.Add(portrait);
+            FrameworkElement dot = state == "vacant"
+                ? new NativeStateDotView(Paint("FFFFFF", "1F1F1E"), color)
+                : new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Stroke = Paint("FFFFFF", "1F1F1E"), StrokeThickness = 2, Fill = color, UseLayoutRounding = false };
+            // CSS right:-2px; bottom:-2px positions the 10px border box beyond
+            // the 28px avatar, without changing the avatar's layout footprint.
+            dot.Margin = new Thickness(0, 0, -2, -2); dot.HorizontalAlignment = HorizontalAlignment.Right; dot.VerticalAlignment = VerticalAlignment.Bottom;
+            frame.Children.Add(dot); portrait = frame;
+        }
         chatHead.Children.Add(portrait); Grid.SetColumn(titles, 1); chatHead.Children.Add(titles); Grid.SetColumn(actions, 2); chatHead.Children.Add(actions);
         TextBlock HeaderLabel(string value)
         {
@@ -268,7 +290,7 @@ public sealed partial class MainWindow
             var roleName = Display(member) == T("common.secretary") ? member : Display(member);
             heading.Children.Add(HeaderLabel(m.Flag("secretary") ? T("chat.secretary_title", ("name", roleName)) : Display(member)));
             if (m.Text("display").Length > 0 && m.Text("display") != member) { var identifier = HeaderLabel(member); identifier.Foreground = Muted; identifier.FontWeight = Microsoft.UI.Text.FontWeights.Normal; identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); identifier.FontSize = 13.8; heading.Children.Add(identifier); }
-            if (m.Flag("leader")) heading.Children.Add(Badge(T("common.leader"), true)); titles.Children.Add(heading);
+            if (m.Flag("leader")) heading.Children.Add(SidebarTag(T("common.leader"), false)); titles.Children.Add(heading);
             titles.Children.Add(HeaderMeta(string.Join(" · ", new[] { snap["org"].Text("name"), m.Text("harness_label"), m.Text("surface_label"), m.Text("model"), MemberState(m.Text("state")) }.Where(x => x.Length > 0))));
             if (m.Flag("embedded") && m.Text("state") is "running" or "waiting") actions.Children.Add(IconButton("\uE71A", "chat.stop_turn", () => Post("/cancel", new { member })));
             Button? card = null; card = IconButton("\uE77B", "chat.card", () => MemberCard(member, card)); actions.Children.Add(card);

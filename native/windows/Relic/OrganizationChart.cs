@@ -46,7 +46,7 @@ public sealed partial class MainWindow
         var body = new Grid { Width = Math.Max(0, root.ActualWidth - 40), Height = Math.Max(0, root.ActualHeight - 56),
             Background = Paint("FFFFFF", "252523"), CornerRadius = new CornerRadius(16) };
         body.RowDefinitions.Add(new() { Height = GridLength.Auto }); body.RowDefinitions.Add(new() { Height = GridLength.Auto }); body.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = body };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = body };
         AutomationProperties.SetName(dialog, T("chart.title"));
         var bar = new ChartFlexPanel { Spacing = 12, RowSpacing = 6, GrowFirst = true };
         var heading = ChartText(T("chart.title"), 15.5, weight: 650); heading.MinWidth = 120; bar.Children.Add(heading);

@@ -280,7 +280,7 @@ public sealed partial class MainWindow
             Grid.SetColumn(label, 1); Grid.SetRow(label, row); keys.Children.Add(label);
         }
         box.Children.Add(keys);
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = box };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = box };
         AutomationProperties.SetName(dialog, T("shortcuts.title"));
         var ok = NativeShortcutConfirm(T("shortcuts.ok")); ok.Click += (_, _) => dialog.Hide(); box.Children.Add(ok);
         dialog.Opened += (_, _) =>
