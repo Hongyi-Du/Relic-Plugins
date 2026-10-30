@@ -1,5 +1,22 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Full-run timeout diagnosis: `56253c7` / `40996703093`, macOS en-US/dark job
+`123871871096`, starts 148 cases over 1192.319 seconds and writes 147 PNG/element
+pairs before the 1200-second total native wait cuts it off. CI's actual progress
+timestamps give 8.111 seconds mean, 4.623 minimum and 14.466 maximum between cases;
+there is no 90-second stalled case. The last case is 1024x700 recipients. Reference
+then completes all 165 cases. Raw native receipt is a TimeoutError and no complete
+file; partial screenshots are not a successful full matrix.
+
+Please shard the macOS native invocation by viewport into three independent
+55-case manifests against the same existing fixture/server and unchanged case IDs,
+retaining the existing per-process timeout and every case/error in aggregation.
+This keeps the 660-case acceptance matrix and all element tolerances unchanged;
+it does not exclude failed states or increase a measurement tolerance. Current
+branch also writes the same raw AX/element/geometry data without indentation;
+the downloaded chart example drops to 51%/47%/44% of its prior JSON byte size,
+with no measurements removed. Actual runtime benefit still needs CI evidence.
+
 Confirmed large-window raster recovery: `25f57f2` / diagnostic `40997958370`
 has actual opaque 1440x900 native PNGs, including both new panel gestures.
 The previous all-transparent composite failure is absent. All 19 native cases

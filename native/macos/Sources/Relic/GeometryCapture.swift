@@ -59,6 +59,6 @@ import RelicCore
     private func append(_ observation: [String: Any]) {
         var phases = receipt["phases"] as? [[String: Any]] ?? []
         phases.append(observation); receipt["phases"] = phases
-        if let data = try? JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: path) }
+        if let data = try? JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]) { try? data.write(to: path) }
     }
 }
