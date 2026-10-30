@@ -1,5 +1,15 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+18c0b43's actual CoreText color candidate paints Emoji but differs from AppKit
+in 286 pixels (actual ink bounds y=2..20 versus y=1..20). The production label
+now uses the byte-identical CGContext path for outline fonts and the original
+AppKit primitive for actual color fonts, selected by CTFont's color-glyph trait.
+No bitmap assertion was relaxed. The receipt records which primitive actually
+ran and only records submitted text-space positions for the CGContext branch.
+Color-font AppKit ContentLayer evidence remains unresolved and visible to the
+strict checker; this is NOT an absence claim or accepted exception. The same
+mixed Emoji/Latin bitmap test continues to require byte-for-byte equality.
+
 Please inspect two deterministic pairing errors in the actual 15581b1 report
 (`41066609753`, downloaded `parity-15581b1/report`). No geometry tolerance or
 exception change is requested:
