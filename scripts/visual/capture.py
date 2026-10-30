@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -14,6 +15,10 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT / "plugins/relic"))
+from relic_core.process import creation_flags
+
+REFERENCE_CASE_TIMEOUT_SECONDS = 90
 DATALIST_SCENES = {
     "member-host-model-suggestions": "#layer input[list='relic-claude-models']",
     "member-existing-seat-suggestions": "#layer input[list='relic-seat-names']",
@@ -352,7 +357,7 @@ def read_fixture_json(fixture, path):
 class MessageSceneCapture:
     """Observe trusted production hover/copy and the same scene throughout capture.
 
-    Only the browser's virtual timeline is paused, after the real toast exists.
+    Only the browser's virtual timeline is paused, after the real toast PNG.
     No DOM/CSS/application state or timeout callback is replaced or extended.
     """
     READ_MESSAGE = """(el, selector) => {
@@ -474,17 +479,23 @@ class MessageSceneCapture:
             self.evidence["clipboard_after_phase"] = "after_copy_before_pause"
             if self.evidence["clipboard_after"] != self.body:
                 raise RuntimeError("Actual clipboard contents do not equal the selected API message body before pause")
-            self.progress("clock_pause")
-            before_clock = self.page.evaluate(self.READ_CLOCK)
-            self.paused = True  # Ensure cleanup attempts to resume even if CDP disconnects mid-command.
-            receipt = self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "pause"})
-            self.evidence["clock_pause"] = {"method": "Emulation.setVirtualTimePolicy", "parameters": {"policy": "pause"},
-                "receipt": receipt, "before": before_clock, "after": self.page.evaluate(self.READ_CLOCK),
-                "host_monotonic": time.monotonic(), "scope": "this isolated page target; actual toast already created"}
-            if not isinstance(receipt.get("virtualTimeTicksBase"), (int, float)):
-                raise RuntimeError("CDP did not return the actual virtual clock receipt")
-            self.progress("clock_pause", "completed")
         self.checkpoint("after_action")
+
+    def pause_for_sources(self):
+        """Freeze only after PNG; a paused renderer cannot fulfill ForceRedraw."""
+        if self.scene != "message-copy-toast" or self.paused:
+            raise RuntimeError("Only the running Copy scene can enter post-PNG source freeze")
+        self.progress("clock_pause")
+        before_clock = self.page.evaluate(self.READ_CLOCK)
+        self.paused = True  # Cleanup also resumes if this protocol call fails.
+        receipt = self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "pause"})
+        self.evidence["clock_pause"] = {"method": "Emulation.setVirtualTimePolicy", "parameters": {"policy": "pause"},
+            "receipt": receipt, "before": before_clock, "after": self.page.evaluate(self.READ_CLOCK),
+            "host_monotonic": time.monotonic(), "phase": "after_original_png_before_source_collection",
+            "scope": "this isolated page target; original toast timer ran throughout PNG capture"}
+        if not isinstance(receipt.get("virtualTimeTicksBase"), (int, float)):
+            raise RuntimeError("CDP did not return the actual virtual clock receipt")
+        self.progress("clock_pause", "completed")
 
     def checkpoint(self, stage):
         self.progress("checkpoint:" + stage)
@@ -516,7 +527,7 @@ class MessageSceneCapture:
             self.baseline = record
         elif state != self.baseline["state"]:
             raise RuntimeError("Message/toolbar/toast geometry, text, state or actual pointer changed during capture at " + stage)
-        elif self.paused and clock["performance_now"] != self.baseline["clock"]["performance_now"]:
+        elif self.paused and clock["performance_now"] != self.evidence["clock_pause"]["after"]["performance_now"]:
             raise RuntimeError("Actual browser virtual time advanced during paused toast capture at " + stage)
         self.progress("checkpoint:" + stage, "completed")
 
@@ -813,12 +824,15 @@ def open_member_card_scene(page, scene):
     return evidence
 
 
-def capture_paused_message_png(page, cdp, path, width, height, action):
-    """Save the original CDP page PNG without Playwright's async preparation.
+def capture_message_png(page, cdp, path, width, height, action):
+    """Save original page PNG while its renderer and toast timer still run.
 
-    Its screenshotter awaits document.fonts.ready even with animations=allow
-    and temporarily hides carets. Neither belongs inside the frozen phase.
+    Page.captureScreenshot forces a new compositor frame. Pausing the virtual
+    scheduler first can deadlock that request. Freeze only after its reply;
+    the subsequent checkpoint must still observe the same real toast object.
     """
+    if action.paused is True:
+        raise RuntimeError("Cannot request a new compositor screenshot while the actual virtual clock is paused")
     action.progress("screenshot:viewport")
     viewport = page.evaluate("() => ({width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio,scroll_x:scrollX,scroll_y:scrollY})")
     if viewport.get("width") != width or viewport.get("height") != height or viewport.get("device_pixel_ratio") != 1:
@@ -826,6 +840,7 @@ def capture_paused_message_png(page, cdp, path, width, height, action):
     parameters = {"format": "png", "fromSurface": True, "captureBeyondViewport": False,
         "clip": {"x": viewport["scroll_x"], "y": viewport["scroll_y"], "width": width, "height": height, "scale": 1}}
     action.evidence["screenshot"] = {"method": "Page.captureScreenshot", "parameters": parameters, "actual_viewport": viewport,
+        "phase": "production_toast_timer_running",
         "quantity": "original browser page-surface PNG; no DOM/caret/style/animation mutation or image composition"}
     action.progress("screenshot:viewport", "completed")
     action.progress("screenshot:Page.captureScreenshot")
@@ -903,7 +918,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             action.open()
             action.checkpoint("before_screenshot")
         if case["scene"] == "message-copy-toast":
-            capture_paused_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
+            capture_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
+            message.pause_for_sources()
         else:
             source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES else "disabled"))
         for action in actions:
@@ -957,7 +973,16 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
                 page.close()
 
 
-def reference(manifest):
+def reference_browser(manifest):
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Reference browser capture is CI-only.")
+    if len(manifest["cases"]) != 1:
+        raise ValueError("Reference browser worker requires exactly one case")
+    def progress(stage):
+        path = manifest.get("reference_progress_path")
+        if path:
+            Path(path).write_text(manifest["cases"][0]["id"] + ": " + stage, encoding="utf-8")
+    progress("starting browser runtime")
     from playwright.sync_api import sync_playwright
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
     at = source.rfind("})();")
@@ -967,15 +992,15 @@ def reference(manifest):
         # Capture the production page's own scrollbar styling. Playwright's
         # default --hide-scrollbars otherwise suppresses visible reference UI.
         browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"], ignore_default_args=["--hide-scrollbars"])
-        # Reuse the transport pool. A fresh Chromium context for each of 126
-        # scenes exhausted the Windows runner's socket buffers near the end of
-        # en-US/light (40930725969). Reset browser storage before each real page
-        # load, preserving the previous isolated scene inputs without hundreds
-        # of independent connection pools. No page markup/style is replaced.
+        progress("browser launched; creating isolated page context")
+        # The parent bounds this one-case worker, including browser shutdown.
+        # A fresh browser owns its transport and storage and is fully reaped
+        # before the next case. The same server/fixture remains unchanged.
         context = browser.new_context(device_scale_factor=1, locale=manifest["lang"], color_scheme=manifest["theme"], timezone_id="UTC")
         context.add_init_script("localStorage.clear(); sessionStorage.clear();")
         for case in manifest["cases"]:
             print("Reference capture: " + case["id"], flush=True)
+            progress("preparing shared fixture scene")
             prepared = prepare_scene(manifest["fixture"], case["scene"])
             case_fixture = dict(manifest["fixture"], scene_state=prepared)
             (Path(manifest["output"]) / (case["id"] + ".scene-fixture.json")).write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
@@ -985,9 +1010,11 @@ def reference(manifest):
             page.route("**/app.js", lambda route: route.fulfill(body=source, content_type="application/javascript"))
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            progress("loading production page")
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
             navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES | PANEL_RESIZE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
+            progress("opening actual scene controls")
             page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
@@ -1008,11 +1035,166 @@ def reference(manifest):
             animation = prepare_animation_capture(page, cdp, case["scene"])
             if animation is not None:
                 (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
+            progress("capturing actual actions, PNG and source evidence")
             capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist)
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
+        progress("closing browser context and runtime")
         context.close()
         browser.close()
+
+
+def reference_worker(manifest_path):
+    """CI child entry point; a receipt is success only after browser cleanup."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Reference worker is CI-only; no local browser starts.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if len(manifest["cases"]) != 1:
+        raise ValueError("Reference worker requires exactly one manifest case")
+    case = manifest["cases"][0]
+    result = {"case": case["id"], "count": 0, "status": "started", "errors": [], "pid": os.getpid()}
+    destination = manifest_path.parent / "worker-complete.json"
+    (manifest_path.parent / "current-case.txt").write_text(case["id"], encoding="utf-8")
+    destination.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        reference_browser(manifest)
+        result.update(status="captured", count=1)
+    except Exception as error:
+        result.update(status="failed")
+        result["errors"].append(str(error))
+        (manifest_path.parent / "worker-exception.log").write_text(traceback.format_exc(), encoding="utf-8")
+    finally:
+        destination.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
+def stop_reference_worker(process):
+    """Reap the owned CI browser process tree; never target another session."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Reference process cleanup is CI-only.")
+    result = {"pid": process.pid, "platform": sys.platform, "tree_termination": False, "errors": []}
+    if process.poll() is None:
+        result["tree_termination"] = True
+        try:
+            if sys.platform == "win32":
+                command = ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"]
+                result["command"] = command
+                killed = subprocess.run(command, capture_output=True, text=True, timeout=10, creationflags=creation_flags())
+                result.update(taskkill_returncode=killed.returncode, stdout=killed.stdout, stderr=killed.stderr)
+                if killed.returncode != 0 and process.poll() is None:
+                    raise RuntimeError("Owned reference process-tree termination returned " + str(killed.returncode))
+            else:
+                # This process was created with start_new_session=True: its
+                # actual PID is also the owned process group, not a user group.
+                os.killpg(process.pid, getattr(signal, "SIGKILL", 9))
+                result["signal"] = "SIGKILL owned new session"
+        except Exception as error:
+            result["errors"].append(str(error))
+            if process.poll() is None:
+                process.kill()
+                result["root_only_fallback"] = True
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        result["root_only_fallback"] = True
+        result["errors"].append("Worker did not reap within the 10-second cleanup bound")
+        process.wait(timeout=5)
+    result["returncode"] = process.returncode
+    return result
+
+
+def reference_process(manifest_path, manifest):
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Reference process capture is CI-only; no local process is launched.")
+    if len(manifest["cases"]) != 1:
+        raise ValueError("Reference process requires exactly one case")
+    case = manifest["cases"][0]
+    result = {"case": case["id"], "status": "started", "count": 0, "errors": [],
+        "timeout_seconds": REFERENCE_CASE_TIMEOUT_SECONDS}
+    destination = manifest_path.parent / "process-receipt.json"
+    def save():
+        destination.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    process = None
+    started = time.monotonic()
+    result.update(started_host_monotonic=started, deadline_host_monotonic=started + REFERENCE_CASE_TIMEOUT_SECONDS)
+    save()
+    with (manifest_path.parent / "browser.log").open("w", encoding="utf-8") as log:
+        try:
+            options = {"stdout": log, "stderr": log, "creationflags": creation_flags()}
+            if sys.platform != "win32":
+                options["start_new_session"] = True
+            process = subprocess.Popen([sys.executable, "-X", "utf8", str(HERE / "capture.py"), "--reference-worker", str(manifest_path)], **options)
+            result["pid"] = process.pid
+            save()
+            remaining = result["deadline_host_monotonic"] - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(process.args, REFERENCE_CASE_TIMEOUT_SECONDS)
+            process.wait(timeout=remaining)
+            worker_path = manifest_path.parent / "worker-complete.json"
+            worker = json.loads(worker_path.read_text(encoding="utf-8")) if worker_path.is_file() else None
+            result["worker"] = worker
+            if process.returncode != 0 or not isinstance(worker, dict) or worker.get("pid") != process.pid or worker.get("case") != case["id"] or worker.get("count") != 1 or worker.get("status") != "captured" or worker.get("errors"):
+                raise RuntimeError("Reference worker did not complete its actual case: " + json.dumps(worker, ensure_ascii=False))
+            result.update(status="captured", count=1)
+        except Exception as error:
+            result.update(status="failed", count=0)
+            result["errors"].append("Reference case exceeded its 90-second deadline" if isinstance(error, subprocess.TimeoutExpired) else str(error))
+            result["timed_out"] = isinstance(error, subprocess.TimeoutExpired)
+            progress_path = manifest_path.parent / "current-case.txt"
+            result["last_progress"] = progress_path.read_text(encoding="utf-8") if progress_path.is_file() else None
+            action_path = Path(manifest["output"]) / (case["id"] + ".scene-action.json")
+            if action_path.is_file():
+                try:
+                    action = json.loads(action_path.read_text(encoding="utf-8"))
+                    result["scene_action_receipt"] = str(action_path)
+                    result["last_action_step"] = (action.get("steps") or [None])[-1]
+                    result["completed_checkpoints"] = [item["stage"] for item in action.get("checkpoints", [])]
+                except Exception as diagnostic_error:
+                    result["action_receipt_read_error"] = str(diagnostic_error)
+            (manifest_path.parent / "capture-exception.log").write_text(traceback.format_exc(), encoding="utf-8")
+            save()  # Preserve the timeout and exact pending phase before cleanup.
+        finally:
+            if process is not None:
+                try:
+                    result["cleanup"] = stop_reference_worker(process)
+                    if result["cleanup"]["errors"]:
+                        result.update(status="failed", count=0)
+                        result["errors"].extend("Cleanup: " + error for error in result["cleanup"]["errors"])
+                except Exception as error:
+                    result.update(status="failed", count=0)
+                    result["errors"].append("Cleanup: " + str(error))
+            result["finished_host_monotonic"] = time.monotonic()
+            save()
+    return result
+
+
+def reference(manifest):
+    """Attempt every original case with a bounded independent browser owner."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Reference capture is CI-only; no local process is launched.")
+    work = Path(manifest["output"]) / "data" / manifest["lang"] / manifest["theme"]
+    work.mkdir(parents=True, exist_ok=True)
+    aggregate = {"expected_count": len(manifest["cases"]), "attempted_count": 0, "count": 0, "cases": [], "errors": []}
+    for case in manifest["cases"]:
+        directory = work / "cases" / case["id"]
+        directory.mkdir(parents=True, exist_ok=True)
+        per_case = dict(manifest, cases=[case], reference_progress_path=str(directory / "current-case.txt"))
+        path = directory / "manifest.json"
+        path.write_text(json.dumps(per_case, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("Reference isolated capture: " + case["id"], flush=True)
+        try:
+            result = reference_process(path, per_case)
+        except Exception as error:
+            result = {"case": case["id"], "status": "failed", "count": 0, "errors": [str(error)]}
+            (directory / "capture-exception.log").write_text(traceback.format_exc(), encoding="utf-8")
+        result["directory"] = str(directory)
+        aggregate["cases"].append(result)
+        aggregate["attempted_count"] += 1
+        aggregate["count"] += 1 if result.get("status") == "captured" and result.get("count") == 1 and not result.get("errors") else 0
+        aggregate["errors"].extend(case["id"] + ": " + error for error in result.get("errors", []))
+        (work / "complete.json").write_text(json.dumps(aggregate, ensure_ascii=False, indent=2), encoding="utf-8")
+    return aggregate
 
 
 def font_evidence(cdp, snapshot, input_text):
@@ -1350,8 +1532,10 @@ def capture_components(manifest_path, manifest, exe=None, reference_output=None)
         save()
         try:
             if client == "reference":
-                reference(current)
-                entry["count"] = len(current["cases"])
+                receipt = reference(current)
+                entry["receipt"] = receipt
+                entry["count"] = receipt.get("count", 0)
+                entry["errors"] = receipt.get("errors", [])
             else:
                 if exe is None:
                     raise ValueError("Native capture needs --exe")
@@ -1440,4 +1624,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--reference-worker":
+        worker_result = reference_worker(Path(sys.argv[2]))
+        raise SystemExit(0 if worker_result["status"] == "captured" else 1)
     main()

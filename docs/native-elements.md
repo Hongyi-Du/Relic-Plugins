@@ -24,6 +24,14 @@ track/thumb paint stays a coverage failure. A painted or labelled child is not
 discarded as a wrapper. Template page-action hit areas without independent paint
 or labels may belong to the actual scrollbar owner, with complete object ancestry,
 action and hit-area evidence retained in the raw tree and projection record.
+For a thumb, canonical `bounds` means its actual paint primitive's border box;
+an observed alpha/ink box is a separate quantity and cannot replace that box.
+Windows records the actual hit box, primitive outer box and background-fill
+envelope separately. Its finite supported branch uses measured solid rectangular
+template primitives with complete transform, clipping, brush and rounding
+evidence. A nonzero native radius remains unresolved until its actual curve is
+measured; the requested radius value does not stand in for a CSS radius. The
+transparent track's actual usable region is still a required element.
 
 This is a required machine gate, independent of route/vocabulary coverage and
 screenshot completeness. The earlier visual differences are failures to fix,

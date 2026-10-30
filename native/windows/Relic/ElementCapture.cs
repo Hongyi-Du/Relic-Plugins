@@ -306,6 +306,7 @@ public sealed partial class MainWindow
                             ["source"] = "Actual current ScrollBar template FrameworkElement properties",
                             ["horizontal_alignment"] = layoutElement.HorizontalAlignment.ToString(),
                             ["vertical_alignment"] = layoutElement.VerticalAlignment.ToString(),
+                            ["use_layout_rounding"] = layoutElement.UseLayoutRounding,
                             ["width"] = double.IsFinite(layoutElement.Width) ? layoutElement.Width : null,
                             ["height"] = double.IsFinite(layoutElement.Height) ? layoutElement.Height : null,
                             ["width_is_auto"] = double.IsNaN(layoutElement.Width), ["height_is_auto"] = double.IsNaN(layoutElement.Height),

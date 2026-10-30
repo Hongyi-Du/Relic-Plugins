@@ -35,7 +35,7 @@ class ComponentCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
             root = Path(folder); manifest = self.manifest(root)
             with patch.object(capture, "native", side_effect=RuntimeError("provider timeout")), \
-                    patch.object(capture, "reference") as reference:
+                    patch.object(capture, "reference", return_value={"count": 2, "errors": []}) as reference:
                 result = capture.capture_components(root / "manifest.json", manifest, Path("Relic.exe"), root / "reference")
             reference.assert_called_once()
             self.assertEqual([row["count"] for row in result["components"]], [0, 2])
@@ -50,7 +50,7 @@ class ComponentCaptureTests(unittest.TestCase):
             def partial(*args):
                 (root / "native" / "case-b.png").write_bytes(b"fixture placeholder, not a validated capture")
                 return {"count": 1, "errors": ["case-b: incomplete UIA"]}
-            with patch.object(capture, "native", side_effect=partial), patch.object(capture, "reference"):
+            with patch.object(capture, "native", side_effect=partial), patch.object(capture, "reference", return_value={"count": 2, "errors": []}):
                 result = capture.capture_components(root / "manifest.json", manifest, Path("Relic.exe"), root / "reference")
             native = result["components"][0]
             self.assertEqual(native["status"], "failed")
@@ -64,6 +64,16 @@ class ComponentCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "CI-only"):
                 capture.capture_components(Path("unused"), {})
             native.assert_not_called(); reference.assert_not_called()
+
+    def test_reference_partial_counts_and_errors_come_from_real_case_receipts(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            root = Path(folder); manifest = self.manifest(root)
+            with patch.object(capture, "native", return_value={"count": 2, "errors": []}), \
+                    patch.object(capture, "reference", return_value={"count": 1, "errors": ["case-b: screenshot deadline"]}):
+                result = capture.capture_components(root / "manifest.json", manifest, Path("Relic.exe"), root / "reference")
+            self.assertEqual(result["components"][1]["count"], 1)
+            self.assertEqual(result["components"][1]["status"], "failed")
+            self.assertEqual(result["errors"], ["reference: case-b: screenshot deadline"])
 
 
 if __name__ == "__main__":
