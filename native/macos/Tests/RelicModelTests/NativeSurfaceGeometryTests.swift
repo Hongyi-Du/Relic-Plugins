@@ -1,9 +1,32 @@
 import XCTest
 import AppKit
 import SwiftUI
+import RelicAX
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
+    func testSwiftUIHostedCheckboxKeepsItsActualHitFrameOnThePaintedTrack() throws {
+        let host = NSHostingView(rootView: ReferenceSwitch("Auto wake", isOn: .constant(false)))
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 32, height: 18),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host; window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        func find(_ view: NSView) -> ReferenceSwitchButton? {
+            if let button = view as? ReferenceSwitchButton { return button }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let button = try XCTUnwrap(find(host))
+        XCTAssertEqual(button.bounds.size, NSSize(width: 32, height: 18))
+        let actual = try XCTUnwrap(RelicAXRead(button)["frame"] as? NSValue).rectValue
+        XCTAssertEqual(actual.size, NSSize(width: 32, height: 18))
+        let content = window.convertToScreen(host.convert(host.bounds, to: nil))
+        let owner = try XCTUnwrap(button.accessibilityIdentifier())
+        let surface = try XCTUnwrap(SurfacePaintProbe.snapshots(in: content).first { $0["owner"] as? String == owner })
+        XCTAssertEqual(ElementCapture.topLeft(actual, in: content), try XCTUnwrap(surface["rectValue"] as? NSValue).rectValue,
+            "Native interaction and painted geometry must agree after actual SwiftUI layout")
+    }
+
     func testPaddedCardUsesItsMountedSurfaceWhileRetainingAXContentBounds() throws {
         let owner = "relic-card/geometry-test"
         let sample = ReferenceLabel("A padded card", size: 13)
@@ -21,7 +44,9 @@ import SwiftUI
         XCTAssertEqual(measured.width, 170, accuracy: 0.01)
         XCTAssertEqual(measured.height, 36, accuracy: 0.01)
         let contentBounds = ElementCapture.box(NSRect(x: 10, y: 8, width: 150, height: 20))
-        var element: [String: Any] = ["kind": "card", "identifier": owner, "rect": contentBounds]
+        // The real SwiftUI AXGroup arrives as a region before its actual
+        // production surface supplies the more specific card kind.
+        var element: [String: Any] = ["kind": "region", "identifier": owner, "rect": contentBounds]
         NativeSurfaceGeometry.attach(to: &element, surface: surface, viewport: host.bounds)
         XCTAssertEqual(ElementCapture.rect(element["rect"]), measured)
         XCTAssertEqual(ElementCapture.rect(element["ax_content_rect"]), ElementCapture.rect(contentBounds))
