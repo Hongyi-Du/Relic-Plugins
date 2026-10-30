@@ -1,3 +1,14 @@
+## 2026-10-30: actual file-header order fixed; message avatar order remains wrong
+
+Downloaded 22 macOS captures from shared run 41092315894 (`98841c1`). In file-code
+and file-markdown the actual native navigation order now puts header/title/path
+and actions before the contents. Group still puts the outgoing avatar after
+its metadata and message bubble. Its source-first Layout alone is insufficient.
+An isolated mounted test now checks whether scoped row and avatar accessibility
+sort priorities produce the required actual order while preserving the exact
+native accessible-element inventory. No production priority change is enabled
+until the test establishes both; no reference-coordinate sorting is used.
+
 ## 2026-10-30: opaque coverage diagnostics preserve all elements
 
 New `capture_evidence.native_opaque_candidates` and the same raw AX field record
