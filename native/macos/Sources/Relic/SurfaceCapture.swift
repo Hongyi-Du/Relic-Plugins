@@ -27,6 +27,7 @@ struct RecordedSurface: ViewModifier {
     var outerRingColor: Color = .clear
     var rings: [SurfaceRing] = []
     var outline: SurfaceOutline? = nil
+    var nativeFill = false
     @State private var cardIdentity = "relic-card/" + UUID().uuidString
     @Environment(\.captureOpacity) private var opacity
     private var surfaceOwner: String? { owner ?? (kind == "card" ? cardIdentity : nil) }
@@ -52,7 +53,18 @@ struct RecordedSurface: ViewModifier {
             // CSS box shadows belong to the surface outline. Applying SwiftUI
             // shadow to the content hierarchy also shadows fields/text inside
             // dialogs. Paint each shadow from the same background shape instead.
-            if shadows.isEmpty { shape.fill(background) }
+            if nativeFill {
+                ZStack {
+                    if !shadows.isEmpty {
+                        ZStack {
+                            ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
+                                shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
+                            }
+                        }.padding(shadowOutset).drawingGroup(opaque: false, colorMode: .nonLinear).padding(-shadowOutset)
+                    }
+                    NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner)
+                }
+            } else if shadows.isEmpty { shape.fill(background) }
             else {
                 ZStack {
                     ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
