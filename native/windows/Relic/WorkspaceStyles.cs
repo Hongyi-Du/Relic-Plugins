@@ -136,7 +136,9 @@ public sealed partial class MainWindow
         row.Children.Add(WorkspaceIcon("file", 16));
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var title = WorkspaceLabel(name, 13, 650); title.LineHeight = 17.55;
-        var path = WorkspaceLabel(filePath, 11); path.LineHeight = 13; path.FontFamily = new FontFamily("Cascadia Code"); path.Foreground = Muted; ToolTipService.SetToolTip(path, filePath);
+        var path = new NativeLabel(filePath, "Cascadia Code", 11, 400, words.Language, 13,
+            characterEllipsis: true, accessibleText: true) { Foreground = Muted };
+        ToolTipService.SetToolTip(path, filePath);
         labels.Children.Add(title); labels.Children.Add(path); Grid.SetColumn(labels, 1); row.Children.Add(labels);
         var copy = IconButton("\uE8C8", "file.copy_path", () => { Copy(filePath); return Task.CompletedTask; }); copy.Content = WorkspaceIcon("copy", 15); Grid.SetColumn(copy, 2); row.Children.Add(copy);
         var open = IconButton("\uE8A7", "file.open_default", () => OpenDefault(filePath)); open.Content = WorkspaceIcon("open", 15); Grid.SetColumn(open, 3); row.Children.Add(open);
@@ -163,7 +165,12 @@ public sealed partial class MainWindow
     {
         var lines = source.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'); var shown = lines.Take(6000).ToArray();
         var layout = new Grid { Padding = new Thickness(0, 0, 16, 0), MinHeight = shown.Length * 19.2 };
-        layout.ColumnDefinitions.Add(new() { Width = new GridLength(60) }); layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        // Match .code-view .ln's max-content width with min-width:100%.
+        // Horizontal scrolling measures natural long-line width; a star column
+        // also gives the real document the remaining viewport width at arrange.
+        // An Auto column left short documents at their longest-line width even
+        // while the parent Grid already filled the whole viewport.
+        layout.ColumnDefinitions.Add(new() { Width = new GridLength(60) }); layout.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         Border? highlight = null;
         if (selectedLine > 0 && selectedLine <= shown.Length)
         {
@@ -185,8 +192,24 @@ public sealed partial class MainWindow
         copy.Click += (_, _) => { var value = code.ReadSelectedSourceText(); Copy(value.Length > 0 ? value : code.ReadSourceText()); }; menu.Items.Add(copy);
         var quote = new MenuFlyoutItem { Text = T("common.quote") };
         quote.Click += (_, _) => { var value = code.ReadSelectedSourceText(); Quote(T("common.quote"), value.Length > 0 ? value : code.ReadSourceText()); }; menu.Items.Add(quote); code.ContextFlyout = menu;
-        var scroll = new ScrollViewer { Content = layout, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        scroll.SizeChanged += (_, _) => layout.MinWidth = Math.Max(0, scroll.ActualWidth);
+        var scroll = new ScrollViewer { Content = layout, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        long? viewportToken = null;
+        void FillViewport()
+        {
+            if (double.IsFinite(scroll.ViewportWidth)) layout.MinWidth = Math.Max(0, scroll.ViewportWidth);
+        }
+        scroll.Loaded += (_, _) =>
+        {
+            viewportToken ??= scroll.RegisterPropertyChangedCallback(ScrollViewer.ViewportWidthProperty, (_, _) => FillViewport());
+            FillViewport();
+        };
+        scroll.Unloaded += (_, _) =>
+        {
+            if (viewportToken is { } token) scroll.UnregisterPropertyChangedCallback(ScrollViewer.ViewportWidthProperty, token);
+            viewportToken = null;
+        };
         var surface = new Border { Child = scroll, Padding = new Thickness(0, 6, 0, 18), BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0), Background = Paint("FFFFFF", "1F1F1E") };
         detail.Children.Add(surface);
         code.DocumentArranged += (_, _) =>
