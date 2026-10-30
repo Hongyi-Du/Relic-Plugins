@@ -1,5 +1,23 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+The 15581b1 copies capture contains two actual accessibility regions at the
+same panel bounds: a named SwiftUI AXGroup and its unnamed NSScrollView.
+Content-sized dialogs now give the real NSScrollView the panel identifier and
+title directly, removing the redundant production accessibility wrapper. Native
+scrolling and children stay on that viewport. Fixed-height dialogs retain their
+existing container. This is a production ownership fix, not a capture filter;
+the next raw AX tree must confirm whether the duplicate has actually gone.
+
+The e9206ea diagnostic images isolate the alternate glyph failure inside the
+actual callback: the callback and final bitmap are both empty. TextKit supplies
+user-space positions, whereas CGContext.showGlyphs(at:) consumes text-space
+positions. The alternate path now inverse-maps each actual callback position
+through its actual text matrix before submitting it to CoreGraphics; both the
+original and submitted positions remain in the receipt. Production stays on
+AppKit until the unchanged bitmap and layer tests pass. Apple API contracts:
+https://developer.apple.com/documentation/coregraphics/cgcontext/showglyphs(_:at:)
+https://developer.apple.com/documentation/appkit/nslayoutmanager/showcgglyphs(_:positions:count:font:textmatrix:attributes:in:)
+
 macOS now draws unordered-list discs with NativeListMarkerView's actual
 CGContext.fillEllipse, using its own primary font metrics and device-space
 pixel snapping. Ordered markers keep their actual text renderer. Raw element
@@ -7,8 +25,14 @@ pixel snapping. Ordered markers keep their actual text renderer. Raw element
 `current_draw` (provider, current view/window identity, revision, actual local
 ellipse/device ellipse, foreground, actual font metrics, CTM and clip), plus
 the actual screen bounds/ellipse and mounted native_structure. Its real AX
-image retains the spoken alternative `• ` and canonical kind icon. Canonical
-`icon` is deliberately unknown until the shared symbol-shape reader can check
+image retains the spoken alternative `• ` and canonical kind icon. Its visible
+`text` is empty because no text glyph is painted; the actual AX name
+and `alternative_text` remain `• `. This matches the new reference distinction
+without deriving either side's painted geometry from its accessibility label.
+Please include `file-markdown` in the diagnostic smoke matrix so the actual
+native disc and the shared symbol reader receive a short feedback loop as well
+as their existing full-matrix coverage. Full coverage and tolerances stay intact.
+Canonical `icon` is deliberately unknown until the shared symbol-shape reader can check
 the actual reference ellipse and this native receipt. Do not relabel it as a
 font glyph or accept a new icon exception. The native actual-circle pixel test
 checks the same 13.5px primary font's 7x19 symbol box and 5x5 painted ellipse.

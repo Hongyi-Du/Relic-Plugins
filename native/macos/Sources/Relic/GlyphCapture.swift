@@ -126,6 +126,15 @@ class NativeGlyphLayoutManager: NSLayoutManager {
     }
     override func showCGGlyphs(_ glyphs: UnsafePointer<CGGlyph>, positions: UnsafePointer<CGPoint>, count glyphCount: Int,
                               font: NSFont, textMatrix: CGAffineTransform, attributes: [NSAttributedString.Key: Any] = [:], in context: CGContext) {
+        var glyphMatrix = textMatrix
+        glyphMatrix.tx = 0; glyphMatrix.ty = 0
+        let userPositions = Array(UnsafeBufferPointer(start: positions, count: glyphCount))
+        // TextKit supplies user-space positions; CGContext.showGlyphs(at:)
+        // requires text-space positions. Passing the original positions flips
+        // their baselines a second time in a flipped NSTextView and clips all
+        // ink outside the view. Preserve the original placement by applying
+        // the inverse of the very matrix that CoreGraphics will apply.
+        let textPositions = userPositions.map { $0.applying(glyphMatrix.inverted()) }
         NativeTextRasterization.begin(context)
         defer {
             if captureCallbackBitmap { lastCallbackBitmap = context.makeImage() }
@@ -148,7 +157,8 @@ class NativeGlyphLayoutManager: NSLayoutManager {
             calls.append(["glyphs": Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)).map(Int.init),
                 "source_character_range": activeCharacters.map { ["location": $0.location, "length": $0.length] } as Any? ?? NSNull(),
                 "source_glyph_range": activeRange.map { ["location": $0.location, "length": $0.length] } as Any? ?? NSNull(),
-                "positions_user_space": Array(UnsafeBufferPointer(start: positions, count: glyphCount)).map { ["x": $0.x, "y": $0.y] },
+                "positions_user_space": userPositions.map { ["x": $0.x, "y": $0.y] },
+                "submitted_positions_text_space": drawsGlyphsIntoCurrentContext ? textPositions.map { ["x": $0.x, "y": $0.y] } as Any : NSNull(),
                 "font_glyph_bounds": glyphBounds.map(box), "text_matrix": transform(textMatrix), "context_ctm": transform(context.ctm),
                 "clip_user_space": box(context.boundingBoxOfClipPath),
                 "actual_font": ["postscript_name": font.fontName, "family_name": font.familyName as Any? ?? NSNull(), "size": font.pointSize,
@@ -159,18 +169,16 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
                 "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
                 "bitmap_width": context.width, "bitmap_height": context.height,
-                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with explicit actual TextKit font, size, matrix and positions" : "NSLayoutManager.showCGGlyphs"])
+                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with actual TextKit font, size, matrix and inverse-mapped text-space positions" : "NSLayoutManager.showCGGlyphs"])
         }
         if drawsGlyphsIntoCurrentContext {
             // Explicitly configure the callback's actual substituted font,
             // point size and text-to-user matrix. Both the inherited-state
             // primitive and CTFontDrawGlyphs produced empty CI rasters. Do not
             // infer any of these values from the attributed font request.
-            var matrix = textMatrix
-            matrix.tx = 0; matrix.ty = 0
             context.setFont(CTFontCopyGraphicsFont(font as CTFont, nil))
             context.setFontSize(font.pointSize)
-            context.textMatrix = matrix
+            context.textMatrix = glyphMatrix
             // AppKit's callback context does not guarantee a usable inherited
             // text drawing mode for a custom primitive. These plain labels have
             // foreground ink, not stroked glyphs or a text clipping operation.
@@ -179,7 +187,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 context.setFillColor(foreground.cgColor)
             }
             context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)),
-                               at: Array(UnsafeBufferPointer(start: positions, count: glyphCount)))
+                               at: textPositions)
         } else {
             super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
         }

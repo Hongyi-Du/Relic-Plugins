@@ -36,7 +36,7 @@ struct DialogLayer: View {
             if let height = layout.height {
                 SheetContent(sheet: sheet).frame(width: layout.width, height: height)
             } else {
-                FittingScroll(maxHeight: layout.maximumHeight) {
+                FittingScroll(maxHeight: layout.maximumHeight, accessibilityOwner: panelIdentity, accessibilityTitle: title) {
                     // The reference card's 18px padding sits inside its 1px
                     // border. RecordedSurface draws that border inside the
                     // outer frame, so reserve it in the real content layout.
@@ -50,9 +50,23 @@ struct DialogLayer: View {
             if sheet == .settings {
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }.padding(14)
             }
-        }.measuredRegion("dialog", createsAccessibilityContainer: false).accessibilityElement(children: .contain)
-            .accessibilityLabel(title).accessibilityIdentifier(panelIdentity)
+        }.measuredRegion("dialog", createsAccessibilityContainer: false)
+            .modifier(DialogAccessibilityOwner(identifier: layout.height == nil ? nil : panelIdentity, title: title))
             .onPreferenceChange(DialogTitlePreference.self) { contentTitle = $0 }
+    }
+}
+
+// A content-sized dialog is itself the scroll region. Let its actual
+// NSScrollView own the name and controls instead of adding a second accessible
+// region at the same bounds. Fixed-height dialogs keep their native container.
+private struct DialogAccessibilityOwner: ViewModifier {
+    let identifier: String?
+    let title: String
+    @ViewBuilder func body(content: Content) -> some View {
+        if let identifier {
+            content.accessibilityElement(children: .contain)
+                .accessibilityLabel(title).accessibilityIdentifier(identifier)
+        } else { content }
     }
 }
 
@@ -67,12 +81,19 @@ struct DialogTitlePreference: PreferenceKey {
 // scroll view then scrolls the same content, rather than clipping a fixed sheet.
 struct FittingScroll<Content: View>: View {
     let maxHeight: CGFloat
+    var accessibilityOwner: String? = nil
+    var accessibilityTitle = ""
     @ViewBuilder let content: () -> Content
     @State private var contentHeight: CGFloat = 0
     var body: some View {
         ScrollView {
             content().frame(maxWidth: .infinity, alignment: .topLeading)
                 .background(GeometryReader { proxy in Color.clear.preference(key: DialogContentHeight.self, value: proxy.size.height) })
+                .background {
+                    if let accessibilityOwner {
+                        NativeScrollOwner(identifier: accessibilityOwner, title: accessibilityTitle)
+                    }
+                }
         }.frame(height: min(maxHeight, contentHeight > 0 ? contentHeight : maxHeight))
             .onPreferenceChange(DialogContentHeight.self) { contentHeight = $0 }
     }
