@@ -166,7 +166,7 @@ import RelicAX
                     let action = try await openMessageAction(scene, messageID: fixture["thread"].text, model: model, window: window,
                         evidencePath: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
                     messageCapture = MessageCaptureSession(model: model, messageID: fixture["thread"].text, copying: scene == "message-copy-toast", action: action, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
-                    try messageCapture?.begin(window: window)
+                    try await messageCapture?.begin(window: window)
                 }
                 if scene == "live-tool-output" {
                     let action = try await openLiveOutput(prepared, model: model, window: window)

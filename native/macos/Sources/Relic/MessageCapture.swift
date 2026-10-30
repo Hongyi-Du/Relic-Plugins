@@ -14,15 +14,51 @@ import RelicCore
     init(model: Model, messageID: String, copying: Bool, action: [String: Any], path: URL) {
         self.model = model; self.messageID = messageID; self.copying = copying; self.path = path
         self.toast = copying ? model.toasts.last(where: { $0.text == model.t("msg.copied") }) : nil
-        receipt = action; receipt["observations"] = [] as [[String: Any]]
+        receipt = action; receipt["action_status"] = action["status"] ?? NSNull()
+        receipt["continuity_status"] = "not-started"; receipt["observations"] = [] as [[String: Any]]
     }
-    func begin(window: NSWindow) throws {
+    func begin(window: NSWindow) async throws {
         defer { save() }
-        if copying {
+        do {
+          if copying {
             guard let toast else { throw RelicError.message("The actual Copy action has no success toast to pause") }
+            // Model publication precedes SwiftUI mounting. Do not pause and
+            // inspect an as-yet absent toast a few milliseconds after Copy.
+            // Wait for this exact toast's real view/surface while its original
+            // production expiry clock keeps running; never recreate or extend it.
+            try await waitForMountedToast(toast, window: window)
             receipt["timer_pause"] = try toast.pauseTimer()
+          }
+          try observe("after-action", window: window)
+        } catch {
+            receipt["continuity_status"] = "failed"
+            receipt["failure"] = String(describing: error)
+            throw error
         }
-        try observe("after-action", window: window)
+    }
+    private func waitForMountedToast(_ toast: NativeToastMessage, window: NSWindow) async throws {
+        var attempts: [[String: Any]] = []
+        defer { receipt["toast_mount_observations"] = attempts }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        let owner = "relic-toast/" + toast.id.uuidString
+        while true {
+            guard model.toasts.contains(where: { $0 === toast }), toast.timerState == "running",
+                  let content = window.contentView else {
+                throw RelicError.message("The original Copy toast expired, was replaced, or lost its window before mounting")
+            }
+            let canvas = window.convertToScreen(content.convert(content.bounds, to: nil))
+            func labels(_ view: NSView) -> [ReferenceLabelView] { (view as? ReferenceLabelView).map { [$0] } ?? view.subviews.flatMap(labels) }
+            let texts = labels(content).filter { $0.productionOwner == owner && NativeVisibility.screenClip($0).map { !$0.isNull && !$0.isEmpty } == true }
+            let surfaces = SurfacePaintProbe.snapshots(in: canvas).filter {
+                $0["owner"] as? String == owner && !ElementCapture.rect($0["nativeVisibleBounds"]).isEmpty && !ElementCapture.rect($0["nativeVisibleBounds"]).isNull
+            }
+            attempts.append(["host_uptime_seconds": ProcessInfo.processInfo.systemUptime,
+                "timer": toast.timerSnapshot(), "text_views": texts.map { ["identity": String(describing: ObjectIdentifier($0)), "text": $0.string] },
+                "surfaces": surfaces.map { ["bounds": $0["bounds"]!, "identity": ($0["evidence"] as? [String: Any])?["identity"] as Any? ?? NSNull()] }])
+            if texts.count == 1, texts.first?.string == model.t("msg.copied"), surfaces.count == 1 { return }
+            guard ContinuousClock.now < deadline else { throw RelicError.message("The actual Copy toast did not mount before the bounded observation deadline") }
+            try await Task.sleep(for: .milliseconds(16))
+        }
     }
     func observe(_ phase: String, window: NSWindow) throws {
         defer { save() }
@@ -62,21 +98,26 @@ import RelicCore
         let pointerInTarget = anchors.contains { NativeVisibility.screenClip($0)?.contains(pointer) == true } ||
             buttons.contains { ElementCapture.rect($0["bounds"]).contains(NSPoint(x: pointer.x - canvas.minX, y: canvas.maxY - pointer.y)) }
         guard anchors.count == 1, buttons.count == 1, pointerInTarget else {
+            receipt["continuity_status"] = "failed"
             receipt["failure"] = "Message/toolbar/pointer continuity failed at " + phase
             throw RelicError.message(receipt["failure"] as! String)
         }
         if copying {
             guard let toast, model.toasts.contains(where: { $0 === toast }), texts.count == 1, texts.first?.string == model.t("msg.copied"),
                   toastSurfaces.count == 1, clipboard == expected, timer?["state"] as? String == "paused" else {
+                receipt["continuity_status"] = "failed"
                 receipt["failure"] = "Clipboard/toast/paused timer continuity failed at " + phase
                 throw RelicError.message(receipt["failure"] as! String)
             }
         }
         if let baseline, baseline != encoded {
+            receipt["continuity_status"] = "failed"
             receipt["failure"] = "Actual message action state changed between capture phases at " + phase
             throw RelicError.message(receipt["failure"] as! String)
         }
         baseline = encoded
+        receipt["continuity_status"] = "observed"
+        receipt["verified_through"] = phase
     }
     func annotateElements(_ path: URL) throws {
         var document = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
