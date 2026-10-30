@@ -237,7 +237,11 @@ struct ConversationStream: View {
             VStack(spacing: 0) {
                 GeometryReader { viewport in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        // The server supplies a bounded conversation page. Lay
+                        // out that page before anchoring: LazyVStack estimates
+                        // offscreen row heights and revises the document when
+                        // accessibility subsequently materializes those rows.
+                        VStack(alignment: .leading, spacing: 0) {
                             if m.moreChat { Button(m.t("trace.load_older")) { followsBottom = false; m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             ForEach(m.conversationRows(m.displayMessages)) { row in
@@ -246,8 +250,11 @@ struct ConversationStream: View {
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
-                            Color.clear.frame(height: 1).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
-                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
+                            // Include the reference's 24px trailing space in
+                            // the scroll target. Padding outside the target is
+                            // scrolled offscreen by scrollTo(anchor: .bottom).
+                            Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
+                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
                     }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
