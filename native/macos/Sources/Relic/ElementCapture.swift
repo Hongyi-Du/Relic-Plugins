@@ -39,6 +39,7 @@ import CoreText
         case "AXSplitter", "AXSplitGroup": return "divider"
         case "AXScrollArea": return "region"
         case "AXScrollBar": return "scrollbar"
+        case "AXGrowArea": return "resize-handle"
         case "AXGroup", "AXLayoutArea": return "region"
         default: return "unknown"
         }
@@ -231,6 +232,7 @@ import CoreText
             node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
             node["object_identity"] = String(describing: ObjectIdentifier(object))
+            if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
             if let view = object as? NSView {
                 node["native_view_geometry"] = ["frame": box(view.frame), "bounds": box(view.bounds), "flipped": view.isFlipped,
                     "screen_bounds": view.window.map { box($0.convertToScreen(view.convert(view.bounds, to: nil))) } as Any? ?? NSNull(),

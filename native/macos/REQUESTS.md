@@ -1,5 +1,22 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The new `new-org-textarea-resized` scene from `a87f924` is consumed (53 states /
+636 cases, diagnostic 17). Production native form textareas now have an AppKit
+corner handle and resize through their real mouseDown/Dragged/Up handler in
+both dimensions. CI requests the shared measured-corner +64px gesture, retains
+the actual received events, owner/editor identities, values, pointer and observed
+geometry deltas, and checks stability across PNG and extraction. Handle paint
+is independently described by its actual draw routine; reference grip paint
+measurement remains unresolved, so this is not an equivalence claim or exception.
+
+New `.native-geometry.json` receipts compare the mounted NSView/NSClipView tree
+before PNG, after PNG and after AX/TextKit inspection. The actual a644753 PNG
+and text/surface geometry disagree inside the conversation scroll region.
+These passive receipts retain frame/bounds/scroll coordinates and layer positions
+to isolate the cause; they do not replace canonical bounds with reference values.
+Geometry drift fails capture, and an existing PNG is preserved separately before
+the failed-state screenshot is taken. The change awaits CI validation.
+
 The macOS runner evidence reports a 768px screen while the native content is
 1440x900; the real pointer cannot address every control when the window exceeds
 that display. macOS CI now records all actual CGDisplay modes, selects an
