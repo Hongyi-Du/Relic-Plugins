@@ -91,7 +91,7 @@ struct MemberForm: View {
     }
     private func toggle(_ key: String, value: Binding<Bool>) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Toggle(m.t(key), isOn: value).toggleStyle(SettingsToggleStyle()).labelsHidden()
+            ReferenceSwitch(m.t(key), isOn: value)
             ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.secondary, lines: 0).onTapGesture { value.wrappedValue.toggle() }
         }
     }

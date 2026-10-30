@@ -65,7 +65,7 @@ struct ChartView: View {
     }
     private func chartToggle(_ key: String, value: Binding<Bool>) -> some View {
         HStack(spacing: 8) {
-            Toggle(m.t(key), isOn: value).toggleStyle(SettingsToggleStyle()).labelsHidden()
+            ReferenceSwitch(m.t(key), isOn: value)
             ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.secondary).fixedSize()
         }
     }

@@ -6,6 +6,24 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testNativeSwitchHasItsOwnHitFrameAndRealCheckboxAction() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        window.contentView = root
+        let button = NativeSwitchControl.makeButton()
+        button.setAccessibilityLabel("Auto wake"); root.addSubview(button)
+        let raw = RelicAXRead(button)
+        XCTAssertEqual(raw["role"] as? String, "AXCheckBox")
+        XCTAssertEqual(raw["label"] as? String, "Auto wake")
+        XCTAssertEqual(try XCTUnwrap(raw["frame"] as? NSValue).rectValue.size, NSSize(width: 32, height: 18))
+        XCTAssertEqual((raw["value"] as? NSNumber)?.intValue, 0)
+        button.performClick(nil)
+        XCTAssertEqual(button.state, .on)
+        XCTAssertEqual((RelicAXRead(button)["value"] as? NSNumber)?.intValue, 1)
+        button.isEnabled = false; button.performClick(nil)
+        XCTAssertEqual(button.state, .on, "The disabled native control must not toggle")
+        XCTAssertEqual(RelicAXRead(button)["enabled"] as? Bool, false)
+    }
     func testStandaloneComposerAccessibilityTracksActualEditability() {
         let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
         for enabled in [true, false, true] {

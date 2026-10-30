@@ -1,5 +1,25 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**a3ca2a3 actual diagnostic follow-up:** downloaded macOS/reference/HTML/JSON
+to `S:\Codex\Outputs\Relic-native-visual\parity-a3ca2a3\`. All 19 native cases
+captured; actual sidebar order now includes each avatar and dot before its name.
+macOS missing 155, extra 723, text 477, geometry 3279, style 7990, state 1279,
+kind 9, region 28, order 1323, layout 2948, icon 0, extraction 31240. Both
+platforms still have zero accepted scenes under the full 660-case gate.
+
+`41b68f4` macOS run `41012301431`, job `123920672083`, passed release build
+and **147 tests**. Actual Chinese bold advance is 171.36 vs reference 171.375;
+the unchanged English bold assertion also passes (292.4191 vs 292.40625).
+
+The actual captures still report a 257px AX checkbox for a painted 32px track:
+SwiftUI's accessibility representation inherits the entire outer Toggle row.
+The macOS production switch now uses a real fixed-size NSButton checkbox with
+the same SwiftUI track/knob paint and an independent visible native text label.
+AX geometry, click/checked and disabled-state tests cover the real NSButton;
+new capture must validate it. This replaces the faulty representation rather
+than overriding exported bounds with expected values.
+
+
 `2cb073c` macOS Native apps job `123917017688` (run `41011131346`) passed
 release build and all **143 tests**. The unchanged six-point dialog shadow
 test now passes after the raster-outset fix. Actual `27e39b3` window PNGs

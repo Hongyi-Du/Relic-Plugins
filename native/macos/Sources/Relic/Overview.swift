@@ -35,7 +35,7 @@ struct Overview: View {
                     if !m.secretary.isEmpty { OverviewChip(text: m.t("org.secretary_chip", ["name": roleName(m.secretary, "common.secretary")]), tone: "sec") }
                 }
                 if !["", "active"].contains(org["status"].text) { Text(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
-                Toggle(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } })).toggleStyle(OverviewToggleStyle())
+                ReferenceSwitchRow(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
             }
             OverviewBlock {
                 HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { NativeCountBadge(text: String(m.snapshot["decisions"].rows.count)) } }
@@ -145,10 +145,10 @@ struct HierarchyView: View {
             if org["kind"].text == "subgroup" {
                 note(m.t("org.subgroup_note", ["name": m.organizations.first { $0["id"].text == org["home"].text }?["name"].text ?? (org["parent"]["name"].text.isEmpty ? "-" : org["parent"]["name"].text)]))
             } else {
-                Toggle(m.t("org.cabinet_toggle"), isOn: Binding(get: { org["cabinet"].flag }, set: { value in m.run {
+                ReferenceSwitchRow(m.t("org.cabinet_toggle"), isOn: Binding(get: { org["cabinet"].flag }, set: { value in m.run {
                     do { try await m.post(m.path("/cabinet"), ["on": value]); try await m.refresh() }
                     catch { throw RelicError.message(m.t("org.cabinet_failed", ["error": error.localizedDescription])) }
-                } })).toggleStyle(OverviewToggleStyle()).disabled(!active)
+                } })).disabled(!active)
                 let other = m.organizations.first { $0["cabinet"].flag && $0["id"].text != m.organization }
                 note(m.t(org["cabinet"].flag ? "org.cabinet_on_hint" : other == nil ? "org.cabinet_hint" : "org.cabinet_elsewhere", ["name": other?["name"].text ?? ""]))
             }
