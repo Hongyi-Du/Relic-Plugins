@@ -1,5 +1,16 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Important capture regression, not acceptance: the downloaded `ee478c5` diagnostic
+(`40993478737`) contains fully transparent native PNGs (all RGBA channels zero).
+Its AX counts and 17 completed older actions do not make those screenshots valid.
+The retagged NSBitmapImageRep final canvas retained a pre-draw image snapshot.
+`9990d4f` now composites the actual native caches into an owned sRGB CGContext,
+snapshots only after drawing, and verifies opaque source/final pixels. Its unit
+test exercises that same compositing + PNG round trip with the original color
+assertions. New CI is pending. Preserve the old transparent PNGs as failures;
+no screenshot is replaced with reference paint. Local evidence is under
+`S:\Codex\Outputs\Relic-native-visual\smoke-ee478c5\`.
+
 Image identity request: reference `#appbar img.ab-logo` is a visible image even
 though its web AX node is ignored. Its current canonical icon glyph is a
 per-run `http://127.0.0.1:<port>/static/icon.svg` URL. Please retain the actual

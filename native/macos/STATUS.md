@@ -10,6 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+**最新采集回归待验证修复**：`ee478c5` 的 [40993478737](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40993478737)
+虽然旧 17 个动作完成、两个新增动作尚未实现，但其原生 PNG 的所有 RGBA 通道都是 0，不能作为有效截图。
+文件保留在 `S:\Codex\Outputs\Relic-native-visual\smoke-ee478c5\`。`9990d4f` 修正最终画布的合成路径，
+在真实 sRGB CGContext 绘制完成后才生成图像快照，测试覆盖相同的最终合成和 PNG 编解码；
+新增真实源图及成图透明度检查。CI 尚待验证，原单控件测试通过不能代替完整成图验证。
+
 最新构建证据：`14b78e0` 的 [Native apps 40994507899](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40994507899)
 macOS 构建与 128 个测试全部通过，包含原容差下的发送按钮真实像素断言和 PNG 编解码一致性。
 CI 原始通道为启用 `[27,27,26,255]`、禁用 `[175,175,175,255]`；此前失败来自
