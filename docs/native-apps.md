@@ -1,5 +1,44 @@
 # Native Relic App contract
 
+Changes for the clients (native-macos requests read through b63cd2f): corrected
+the earlier 72f5571 test diagnosis below. lastDraw was present; live CGFloat
+metrics failed the projection's Double cast, then the test indexed an empty
+projected array. The merged 63aecc0 reads NSNumber and preserves failing unwraps.
+The newer b63cd2f production change prevents read-only NSTextView frame changes
+from revealing a dormant selection and moving the right pane by 7px. It keeps
+explicit scrolling outside frame assignment; its new native regression and
+screenshots remain pending. Neither change requests a shared API or exception.
+The latest requested complete report still depends on the running full matrix;
+the older 41029422171 has no downloadable complete parity-report artifact.
+
+Changes for the clients (real control labels and Run.Text observation): the
+Windows hierarchy selectors now retain their actual adjacent label relationship;
+the add-member and OverviewLink compound buttons expose their existing visible
+localized labels as UIA names. ca8d997 had empty actual names for these controls.
+No visual nodes, dimensions or actions were added by this correction.
+
+The actual d7b164c binding experiment succeeded in all 19 isolated CI processes,
+including a same-dispatch change and restore. The frame observer now attaches
+that channel to each retained production Run through a separate unmounted target.
+Every checkpoint checks real Source/DataItem/ParentBinding identities, raw UTF-16,
+UI-thread access and the target's unmounted state. Initialization callbacks are
+separate; every later callback advances the real source object's revision.
+Cleanup unregisters and clears the actual binding with a retained receipt.
+Sixteen mock-only cases run in CI. Public-DP gaps and other unobserved properties
+remain recorded, and whole-frame continuity is still unproven. The main WinUI
+project builds headlessly with zero warnings/errors; actual scene binding awaits CI.
+
+ca8d997 smoke run 41038721343 now completes all 19 macOS captures; Windows still
+has four capture errors. Its downloaded report is at
+`S:\Codex\Outputs\Relic-native-visual\parity-ca8d997\report`. This is a diagnostic
+subset evaluated against the unchanged 660-scene requirement, not full acceptance:
+both platforms have zero accepted scenes. Windows counts are missing578,
+extra219, text543, geometry1613, style13234, state1130, kind8, region15, order588,
+layout1630, icon0, extraction34312; macOS counts are missing55, extra571, text0,
+geometry3163, style8070, state1209, kind11, region2, order611, layout2226, icon0,
+extraction28257. Exceptions remain empty. The complete ca8d997 matrix is still
+running separately in 41038721093.
+
 Changes for the clients (actual ca8d997 results and the next measured batch):
 native run 41038729531 passes both Windows and macOS build/test jobs; macOS runs
 178 tests without the former scroller recursion crash. Package validation
@@ -40,8 +79,9 @@ fixture retains actual name, bounds and child order; missing/duplicate/foreign
 identity or failed observer lifetime cannot promote a layout wrapper. This
 repairs missing extraction of an existing region, without adding a visual one.
 
-Subsequent macOS 72f5571 CI 41040938366 fails its new glyph-extent test: no actual
-draw receipts were observed, followed by an unchecked empty-array index. The
+Subsequent macOS 72f5571 CI 41040938366 fails its new glyph-extent projection test,
+followed by an unchecked empty-array index. The actual draw receipt was present;
+the CGFloat/Double projection diagnosis and follow-up are recorded above. The
 log is saved at `S:\Codex\Temp\relic-native\macos-72f5571.log`; Windows and shared
 contracts pass in that run. This newer branch state remains unverified and
 must be fixed by the macOS owner before acceptance.

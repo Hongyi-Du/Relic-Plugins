@@ -47,6 +47,7 @@ public sealed partial class MainWindow
         row.Children.Add(label);
         if (icon.Length > 0 && !iconFirst) row.Children.Add(ReferenceIcon(icon, 12));
         var button = QuietButton("", action); button.Content = row; button.Padding = new Thickness(0); button.MinHeight = 0;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label.Text);
         button.Foreground = Muted; button.CornerRadius = new CornerRadius(0); return button;
     }
 
