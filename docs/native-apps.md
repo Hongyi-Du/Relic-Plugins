@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (macOS configured font-weight evidence): merged
+5bf9303, retaining the actual attributed input weight separately from the
+actual drawn font face/variation. A requested CSS weight and a resolved font
+axis are different quantities; the shared reference measurement must retain
+both without filling an unmeasured axis from CSS. Existing mismatch checks
+remain in force while that shared follow-up is implemented. The preceding
+7df43bd macOS release build and 148 tests passed in run 41013183162; the
+overall native workflow still fails its Windows vocabulary gate. New fixed-size
+checkboxes and separate avatar/badge names also require the next capture.
+
 Changes for the clients (observed provider-lifetime result): a3ca2a3 group held
 648 actual observer references. All 391 peer QIs failed before the independent
 walk; while the same observer remained alive, 303 succeeded and 88 remained
