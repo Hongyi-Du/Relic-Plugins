@@ -85,6 +85,12 @@ enum RelicStyle {
     }
 }
 
+/// A production label that already draws its enabled/disabled appearance must
+/// not receive PlainButtonStyle's additional system disabled opacity.
+struct ContentButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
+}
+
 struct QuietButtonStyle: ButtonStyle {
     var selected = false
     var selectionApplicable = false
