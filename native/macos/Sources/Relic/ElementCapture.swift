@@ -180,12 +180,15 @@ import CoreText
             let text = (storage.string as NSString).substring(with: range)
             guard !text.isEmpty else { return }
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+            let inkEnvelope = manager.boundingRect(forGlyphRange: glyphs, in: container)
+            let advances = NativeTextGeometry.advances(manager, container: container, characters: range)
+            let rect = (advances.envelope ?? inkEnvelope).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
             var lines: [[String: Double]] = []
             manager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineRange, _ in
                 let intersection = NSIntersectionRange(glyphs, lineRange)
                 if intersection.length > 0 { lines.append(box(manager.boundingRect(forGlyphRange: intersection, in: container).offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y))) }
             }
+            if advances.envelope != nil { lines = advances.rectangles.map { box($0.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)) } }
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
             let mode = container.maximumNumberOfLines > 0 ? container.lineBreakMode : paragraph?.lineBreakMode ?? container.lineBreakMode
             let wrap = mode == .byCharWrapping ? "character" : mode == .byWordWrapping ? "word" : "none"
@@ -193,6 +196,8 @@ import CoreText
             let font = attributes[.font] as? NSFont ?? view.font
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
+                "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
+                "native_insertion_geometry": advances.lines, "native_ink_envelope": box(inkEnvelope),
                 "kind": attributes[.link] == nil ? "text" : "link",
                 "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
                 "style": ["fontSize": font.map { Double($0.pointSize) } as Any? ?? NSNull(),
@@ -490,6 +495,11 @@ import CoreText
             }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
+            if let projection = node["projection"] as? [String: Any],
+               projection["native_insertion_geometry"] != nil,
+               projection["text_bounds_quantity"] as? String != "native-line-insertion-advance-range" {
+                unmeasured.append(id + ":text.advance_geometry")
+            }
             var evidence = node
             evidence["font_family"] = sourceStyle["fontFamily"] ?? NSNull()
             evidence["raw_node_id"] = id

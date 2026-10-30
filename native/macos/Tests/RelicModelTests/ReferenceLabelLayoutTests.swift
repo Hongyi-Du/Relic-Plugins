@@ -15,6 +15,9 @@ import AppKit
         let envelope = manager.boundingRect(forGlyphRange: manager.glyphRange(for: container), in: container)
         print("SIDEBAR MIXED advance=\(advance) envelope=\(envelope)")
         XCTAssertEqual(advance, 130.640625, accuracy: 0.5)
+        let measured = NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: (view.string as NSString).length))
+        XCTAssertEqual(try XCTUnwrap(measured.envelope).width, 130.640625, accuracy: 0.5)
+        XCTAssertNotEqual(try XCTUnwrap(measured.envelope).width, envelope.width, "Ink envelope must not be substituted for text advance")
     }
 
     func testPurposeWrappingUsesTheActualBorderBoxContentWidth() throws {
@@ -33,6 +36,9 @@ import AppKit
         print("PURPOSE LINES ranges=\(ranges) widths=\(widths) frame=\(view.frame)")
         XCTAssertEqual(ranges, [NSRange(location: 0, length: 38), NSRange(location: 38, length: 23), NSRange(location: 61, length: 2)])
         for (actual, reference) in zip(widths, [294.671875, 293.40625, 25.515625]) { XCTAssertEqual(actual, reference, accuracy: 0.5) }
+        let measured = NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: (source as NSString).length))
+        XCTAssertTrue(measured.complete)
+        XCTAssertEqual(measured.rectangles.count, 3)
         XCTAssertEqual(view.frame, NSRect(x: 0, y: 0, width: 307, height: 60))
     }
 
