@@ -1,10 +1,12 @@
 """Independent recorded-shape font fixtures; no fonts, windows or processes run."""
 from copy import deepcopy
+import base64
 import json
 from pathlib import Path
 import unittest
 
-from font_weights import (MAC_DRAW_SOURCE, WINDOWS_FACE_SOURCE, WINDOWS_FORMAT_SOURCE,
+from font_weights import (MAC_DRAW_SOURCE, MAC_WEIGHT_SOURCE, OS2_TABLE_TAG, FVAR_TABLE_TAG,
+                          WINDOWS_FACE_SOURCE, WINDOWS_FORMAT_SOURCE,
                           compare_font_weights, font_weight_issues, project_font_weights)
 
 
@@ -26,7 +28,148 @@ def reference_element():
                                           "variation_settings": "normal"}}}
 
 
+def synthetic_os2(value=400, version=0, length=68):
+    """Parser fixture, not a downloaded/loaded font or measured production face."""
+    table = bytearray(length)
+    table[0:2] = version.to_bytes(2, "big")
+    table[4:6] = value.to_bytes(2, "big")
+    return base64.b64encode(table).decode("ascii")
+
+
+def static_mac_element(value=400, version=0, length=68):
+    item = mac_element(configured=value, actual=None)
+    font = item["style"]["rendered_fonts"][0]
+    font.update(family_name="Synthetic Static Fixture", postscript_name="SyntheticStaticFixture-Regular",
+                actual_variations=None)
+    font["weight_measurement"] = {
+        "version": 1, "source": MAC_WEIGHT_SOURCE, "status": "measured", "postscript_name": font["postscript_name"],
+        "quantity": "static-face-os2-usWeightClass", "value": value, "available_table_tags": [OS2_TABLE_TAG],
+        "variation_axes": None, "actual_variations": None, "os2_base64": synthetic_os2(value, version, length)}
+    item["evidence"]["projection"]["native_font_drawing"]["fonts"] = deepcopy(item["style"]["rendered_fonts"])
+    return item
+
+
+def sync_drawing_fonts(item):
+    item["evidence"]["projection"]["native_font_drawing"]["fonts"] = deepcopy(item["style"]["rendered_fonts"])
+
+
 class FontWeightTests(unittest.TestCase):
+    def test_bound_static_face_os2_is_decoded_without_rewriting_configured_or_legacy_weights(self):
+        item = static_mac_element(400)
+        original = deepcopy(item)
+        result = project_font_weights(item)
+        face = result["resolved"]["faces"][0]
+        self.assertEqual(face["value"], 400)
+        self.assertEqual(face["quantity"], "static-face-os2-usWeightClass")
+        self.assertEqual(face["parsed_os2"], {"version": 0, "byte_length": 68, "usWeightClass": 400,
+                                             "offset": 4, "byte_order": "big"})
+        self.assertEqual(face["raw"], item["style"]["rendered_fonts"][0])
+        self.assertEqual(result["configured"]["value"], 400)
+        self.assertEqual(result["legacy"]["value"], 600)
+        self.assertEqual(font_weight_issues(item), [])
+        self.assertEqual(item, original)
+        self.assertEqual([row["field"] for row in compare_font_weights(reference_element(), item)],
+                         ["font_weight.configured", "font_weight.resolved"])
+
+    def test_known_os2_versions_and_weight_range_endpoints_use_the_actual_big_endian_bytes(self):
+        for version in range(6):
+            for value in (1, 400, 700, 1000):
+                with self.subTest(version=version, value=value):
+                    item = static_mac_element(value, version, 100)
+                    face = project_font_weights(item)["resolved"]["faces"][0]
+                    self.assertEqual(face["value"], value)
+                    self.assertEqual(face["parsed_os2"]["version"], version)
+                    self.assertEqual(font_weight_issues(item), [])
+
+    def test_static_face_rejects_unknown_variable_inconsistent_or_corrupt_table_receipts(self):
+        changes = ("missing-inventory", "null-inventory", "missing-os2", "fvar", "bad-table-tag", "bool-table-tag",
+                   "axes-missing", "axes-nonempty", "axes-wrong-type", "coordinates-missing", "coordinates-nonempty",
+                   "font-coordinates-missing", "font-coordinates-nonempty", "wrong-ps", "missing-ps",
+                   "source", "receipt-version", "receipt-version-bool", "status", "quantity", "missing-bytes",
+                   "bad-base64", "truncated", "unknown-version", "zero-weight", "excess-weight", "different-value", "bool-value")
+        for change in changes:
+            with self.subTest(change=change):
+                item = static_mac_element()
+                font = item["style"]["rendered_fonts"][0]
+                receipt = font["weight_measurement"]
+                if change == "missing-inventory": receipt.pop("available_table_tags")
+                elif change == "null-inventory": receipt["available_table_tags"] = None
+                elif change == "missing-os2": receipt["available_table_tags"] = [int.from_bytes(b"name", "big")]
+                elif change == "fvar": receipt["available_table_tags"].append(FVAR_TABLE_TAG)
+                elif change == "bad-table-tag": receipt["available_table_tags"].append("fvar")
+                elif change == "bool-table-tag": receipt["available_table_tags"].append(True)
+                elif change == "axes-missing": receipt.pop("variation_axes")
+                elif change == "axes-nonempty": receipt["variation_axes"] = [{"tag": 2003265652}]
+                elif change == "axes-wrong-type": receipt["variation_axes"] = {}
+                elif change == "coordinates-missing": receipt.pop("actual_variations")
+                elif change == "coordinates-nonempty": receipt["actual_variations"] = {"1869640570": 12}
+                elif change == "font-coordinates-missing": font.pop("actual_variations")
+                elif change == "font-coordinates-nonempty": font["actual_variations"] = {"2003265652": 600}
+                elif change == "wrong-ps": receipt["postscript_name"] = "AnotherActualFace"
+                elif change == "missing-ps": font.pop("postscript_name")
+                elif change == "source": receipt["source"] = "separately resolved replacement font"
+                elif change == "receipt-version": receipt["version"] = 2
+                elif change == "receipt-version-bool": receipt["version"] = True
+                elif change == "status": receipt["status"] = "unmeasured"
+                elif change == "quantity": receipt["quantity"] = "configured weight"
+                elif change == "missing-bytes": receipt.pop("os2_base64")
+                elif change == "bad-base64": receipt["os2_base64"] = "%%invalid%%"
+                elif change == "truncated": receipt["os2_base64"] = synthetic_os2(length=67)
+                elif change == "unknown-version": receipt["os2_base64"] = synthetic_os2(version=6)
+                elif change == "zero-weight": receipt["os2_base64"] = synthetic_os2(value=0)
+                elif change == "excess-weight": receipt["os2_base64"] = synthetic_os2(value=1001)
+                elif change == "different-value": receipt["value"] = 700
+                elif change == "bool-value": receipt["value"] = True
+                sync_drawing_fonts(item)
+                self.assertIsNone(project_font_weights(item)["resolved"]["faces"][0]["value"])
+                self.assertTrue(any(issue["field"] == "font_weight.resolved" for issue in font_weight_issues(item)))
+
+    def test_static_face_requires_actual_draw_and_source_owner_before_parsing_table(self):
+        for change in ("source-text", "status", "provider", "callback-fonts"):
+            with self.subTest(change=change):
+                item = static_mac_element()
+                projection = item["evidence"]["projection"]
+                drawing = projection["native_font_drawing"]
+                if change == "source-text": projection["text"] = "unrelated source"
+                elif change == "status": drawing["status"] = "stale-draw"
+                elif change == "provider": drawing["provider"] = "new independent font layout"
+                elif change == "callback-fonts": drawing["fonts"][0]["weight_measurement"]["value"] = 700
+                self.assertIsNone(project_font_weights(item)["resolved"]["faces"])
+
+    def test_empty_explicit_variations_allow_static_face_but_never_fill_a_missing_variable_coordinate(self):
+        item = static_mac_element()
+        font = item["style"]["rendered_fonts"][0]
+        receipt = font["weight_measurement"]
+        receipt["variation_axes"] = []
+        font["actual_variations"] = receipt["actual_variations"] = {}
+        sync_drawing_fonts(item)
+        self.assertEqual(project_font_weights(item)["resolved"]["faces"][0]["value"], 400)
+        receipt["available_table_tags"].append(FVAR_TABLE_TAG)
+        sync_drawing_fonts(item)
+        self.assertIsNone(project_font_weights(item)["resolved"]["faces"][0]["value"])
+
+    def test_variable_receipt_uses_actual_coordinate_not_static_os2_value(self):
+        item = static_mac_element(400)
+        font = item["style"]["rendered_fonts"][0]
+        receipt = font["weight_measurement"]
+        font["actual_variations"] = {"2003265652": 650}
+        receipt.update(quantity="actual-wght-coordinate", value=650, actual_variations={"2003265652": 650},
+                       available_table_tags=[OS2_TABLE_TAG, FVAR_TABLE_TAG], variation_axes=[{"tag": 2003265652}])
+        sync_drawing_fonts(item)
+        face = project_font_weights(item)["resolved"]["faces"][0]
+        self.assertEqual(face["value"], 650)
+        self.assertEqual(face["quantity"], "actual-wght-coordinate")
+        self.assertNotIn("parsed_os2", face)
+        for change in ("value", "coordinate", "no-coordinate"):
+            with self.subTest(change=change):
+                broken = deepcopy(item)
+                bad = broken["style"]["rendered_fonts"][0]["weight_measurement"]
+                if change == "value": bad["value"] = 400
+                elif change == "coordinate": bad["actual_variations"]["2003265652"] = 400
+                else: bad["actual_variations"] = {}
+                sync_drawing_fonts(broken)
+                self.assertIsNone(project_font_weights(broken)["resolved"]["faces"][0]["value"])
+
     def test_actual_css700_and_same_semibold_face_do_not_prove_resolved700_or600(self):
         reference, native = reference_element(), mac_element()
         before = deepcopy((reference, native))

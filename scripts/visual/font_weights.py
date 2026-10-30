@@ -4,11 +4,16 @@ No face name, requested family, configured weight or trait-name interpolation
 can establish an actual OpenType weight. Missing quantities remain failures.
 """
 from copy import deepcopy
+import base64
+import binascii
 import math
 
 VERSION = 1
 WGHT_CORETEXT_TAG = str(int.from_bytes(b"wght", "big"))
 MAC_DRAW_SOURCE = "production NSLayoutManager.showCGGlyphs callback"
+MAC_WEIGHT_SOURCE = "CTFont tables and variations of the actual showCGGlyphs font"
+OS2_TABLE_TAG = int.from_bytes(b"OS/2", "big")
+FVAR_TABLE_TAG = int.from_bytes(b"fvar", "big")
 WINDOWS_FACE_SOURCE = "DWRITE_GLYPH_RUN.fontFace passed to the actual D2D DrawGlyphRun"
 WINDOWS_FORMAT_SOURCE = "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw"
 
@@ -49,6 +54,72 @@ def _mac_projection(element, evidence):
     if len(candidates) != 1:
         return None, None, [path for path, _ in candidates]
     return candidates[0][0], candidates[0][1], [candidates[0][0]]
+
+
+def _mac_face_weight(font):
+    """Read only the face already bound to the actual drawing/source span.
+
+    A static face's OS/2 class and a variable instance's wght coordinate are
+    separate measured quantities. OS/2 cannot resolve an unknown instance.
+    """
+    axes = font.get("actual_variations")
+    actual = axes.get(WGHT_CORETEXT_TAG) if isinstance(axes, dict) else None
+    source = "CTFontCopyVariation of the actual showCGGlyphs font"
+    if "weight_measurement" not in font:
+        result = _record(actual, source, font,
+                         None if weight(actual) else "The actual callback font has no measured wght axis")
+        result["quantity"] = "actual-wght-coordinate" if weight(actual) else None
+        return result
+
+    receipt = font["weight_measurement"]
+    def unknown(reason):
+        return {**_record(None, MAC_WEIGHT_SOURCE, font, reason), "quantity": None}
+
+    if (not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1
+            or receipt.get("source") != MAC_WEIGHT_SOURCE or receipt.get("status") != "measured"
+            or not isinstance(font.get("postscript_name"), str) or not font["postscript_name"]
+            or receipt.get("postscript_name") != font["postscript_name"]):
+        return unknown("Actual callback weight receipt has missing/changed source, version, status or PostScript identity")
+    if receipt.get("quantity") == "actual-wght-coordinate":
+        if (not weight(actual) or not isinstance(receipt.get("actual_variations"), dict)
+                or not weight(receipt["actual_variations"].get(WGHT_CORETEXT_TAG))
+                or receipt["actual_variations"] != axes
+                or not weight(receipt.get("value")) or receipt["value"] != actual):
+            return unknown("Variable weight receipt does not match the actual callback wght coordinate")
+        return {**_record(actual, source, font), "quantity": "actual-wght-coordinate"}
+    if receipt.get("quantity") != "static-face-os2-usWeightClass":
+        return unknown("Actual callback weight receipt has no supported measured quantity")
+    tags = receipt.get("available_table_tags")
+    if (not isinstance(tags, list) or not tags
+            or any(type(tag) is not int or not 0 <= tag <= 0xffffffff for tag in tags)
+            or OS2_TABLE_TAG not in tags or FVAR_TABLE_TAG in tags):
+        return unknown("Static-face weight requires the actual table inventory with OS/2 and without fvar")
+    if ("variation_axes" not in receipt
+            or receipt["variation_axes"] is not None and receipt["variation_axes"] != []
+            or "actual_variations" not in receipt
+            or receipt["actual_variations"] is not None and receipt["actual_variations"] != {}
+            or "actual_variations" not in font or axes is not None and axes != {}):
+        return unknown("Static-face weight cannot replace nonempty or unmeasured actual variation axes/coordinates")
+    encoded = receipt.get("os2_base64")
+    if not isinstance(encoded, str):
+        return unknown("Actual complete OS/2 table bytes are missing")
+    try:
+        table = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        return unknown("Actual OS/2 table is not valid base64")
+    # OpenType OS/2 versions 0..5 share the big-endian uint16 at offset 4.
+    # The callback contract requires at least 68 retained bytes. This only
+    # extracts the weight field, not validation of the remaining font tables.
+    if len(table) < 68:
+        return unknown("Actual OS/2 table is truncated below the 68-byte common table extent")
+    version, value = int.from_bytes(table[:2], "big"), int.from_bytes(table[4:6], "big")
+    if version not in range(6) or not weight(value):
+        return unknown("Actual OS/2 version or usWeightClass is outside the supported format/range")
+    if not weight(receipt.get("value")) or receipt["value"] != value:
+        return unknown("Recorded static-face value differs from the actual OS/2 bytes")
+    return {**_record(value, MAC_WEIGHT_SOURCE, font), "quantity": "static-face-os2-usWeightClass",
+            "parsed_os2": {"version": version, "byte_length": len(table), "usWeightClass": value,
+                           "offset": 4, "byte_order": "big"}}
 
 
 def project_font_weights(element):
@@ -95,11 +166,8 @@ def project_font_weights(element):
                 and drawing.get("fonts") == fonts):
             faces = []
             for font in fonts:
-                axes = font.get("actual_variations") if isinstance(font, dict) else None
-                actual = axes.get(WGHT_CORETEXT_TAG) if isinstance(axes, dict) else None
                 faces.append({"family_name": font.get("family_name"), "postscript_name": font.get("postscript_name"),
-                              **_record(actual, "CTFontCopyVariation of the actual showCGGlyphs font", font,
-                                        None if weight(actual) else "The actual callback font has no measured wght axis")})
+                              **_mac_face_weight(font)})
             result["resolved"] = {"source_span_complete": True, "faces": faces,
                                   "source": MAC_DRAW_SOURCE,
                                   "source_evidence_path": projection_path + ".native_font_drawing"}
