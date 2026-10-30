@@ -52,6 +52,40 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
+    // The CI caller guards this request. It invokes the same production paint
+    // path, with unchanged text/style/layout inputs; no synthetic frame is made.
+    internal void RequestCaptureRedraw() { InvalidateDraw(); InvalidateArrange(); QueueDraw(); }
+
+    internal bool OwnsProductionImage(Image candidate) => ReferenceEquals(image, candidate);
+    internal JsonObject CaptureProductionImageBinding(Image candidate)
+    {
+        var sameImage = OwnsProductionImage(candidate);
+        return new JsonObject
+        {
+            ["source"] = "actual NativeLabel production Image object identity and SurfaceImageSource COM binding",
+            ["same_image_object"] = sameImage,
+            ["surface_binding_same_com_identity"] = sameImage && ProductionSurfaceBindingMatches(),
+            ["source_type"] = candidate.Source?.GetType().FullName,
+            ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision, ["draw_ordinal"] = drawOrdinal,
+            ["quantity"] = "Ownership of the actual text paint surface; not independent image content or proof of final presentation"
+        };
+    }
+
+    private bool ProductionSurfaceBindingMatches()
+    {
+        if (surface == null || image.Source == null) return false;
+        var bound = WinRT.MarshalInspectable<object>.FromManaged(image.Source);
+        var produced = WinRT.MarshalInspectable<object>.FromManaged(surface);
+        IntPtr boundIdentity = IntPtr.Zero, producedIdentity = IntPtr.Zero;
+        try
+        {
+            var unknown = new Guid("00000000-0000-0000-c000-000000000046");
+            boundIdentity = Query(bound, unknown); producedIdentity = Query(produced, unknown);
+            return boundIdentity == producedIdentity;
+        }
+        finally { Release(ref boundIdentity); Release(ref producedIdentity); Release(ref bound); Release(ref produced); }
+    }
+
     internal JsonObject ObserveCaptureVersion(UIElement windowContent)
     {
         if (!IsLoaded || queued || rendering || failure != null || receipt == null
@@ -63,16 +97,7 @@ public sealed class NativeLabel : Panel
         if (surface == null || image.Source == null) throw new InvalidOperationException("NativeLabel has no bound production surface: " + text);
         // The property's projection can be a different managed wrapper. Compare
         // actual COM identity, not a presumed Image.Source wrapper identity.
-        var bound = WinRT.MarshalInspectable<object>.FromManaged(image.Source);
-        var produced = WinRT.MarshalInspectable<object>.FromManaged(surface);
-        IntPtr boundIdentity = IntPtr.Zero, producedIdentity = IntPtr.Zero;
-        try
-        {
-            var unknown = new Guid("00000000-0000-0000-c000-000000000046");
-            boundIdentity = Query(bound, unknown); producedIdentity = Query(produced, unknown);
-            if (boundIdentity != producedIdentity) throw new InvalidOperationException("NativeLabel Image.Source is not the surface whose draw was recorded: " + text);
-        }
-        finally { Release(ref boundIdentity); Release(ref producedIdentity); Release(ref bound); Release(ref produced); }
+        if (!ProductionSurfaceBindingMatches()) throw new InvalidOperationException("NativeLabel Image.Source is not the surface whose draw was recorded: " + text);
         var transform = TransformToVisual(windowContent);
         var origin = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
         var horizontal = transform.TransformPoint(new Windows.Foundation.Point(1, 0));

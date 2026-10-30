@@ -1,5 +1,36 @@
 # Native Relic App contract
 
+Changes for the clients (34d4c35 runtime verification): run `40985550458` confirms
+the previous Windows pointer-action failures no longer occur. The real textarea
+grew by 64px with ten DragStarted/Delta/Completed records and four stable
+checkpoints; message Copy retained the actual clipboard, localized toast and
+paused/resumed production timer. This does not pass element parity: UIA still
+reports unmeasured zero-area text ranges, and eight scenes observed Rendering
+without Rendered. The frame observer now requests an actual production redraw
+after subscribing; a failed observer preserves PNG/source evidence and still
+fails the scene and gate. No missing frame acknowledgement is inferred.
+
+Changes for the clients (reference font attribution): real DOM Text backend IDs
+are mapped to frontend IDs and queried individually with CSS.getPlatformFontsForNode.
+Each request and result remains auditable. Parent aggregate counts cannot fill a
+failed child query. This uses the actual LayoutText shaping data supported by
+the captured Chromium build; ellipsis ink and actual weight axes remain unknown.
+
+Changes for the clients (Windows form and navigation): the repeated 22px modal
+padding has been removed only for content that already owns its padding. Settings
+now has one real vertical SelectorBar and selected item, preventing initial focus
+from replacing the requested page. Sidebar row accessibility names derive from
+their own mounted labels and update when those labels change; no reference text
+is copied into extraction. These changes await new CI captures at all sizes.
+
+Changes for the clients (Windows disclosure accessibility): the customized
+Expander template omitted the standard `ExpanderToggleButton` AutomationId.
+WinUI's actual ExpanderAutomationPeer uses that ID to replace its header peer
+with the header's children; the header event source points back to the Expander.
+The missing ID explains the observed self-child RuntimeId in copies. The real
+template now retains that platform contract. The extractor still rejects cycles
+and records both ends rather than hiding duplicate nodes. CI must verify the fix.
+
 Changes for the clients (6dbdfd8 capture results): Windows and macOS native
 build/test jobs in run `40983626194` passed. The independent Windows diagnostic
 run `40983620508` attempted all 17 cases; its reference completed all 17, including

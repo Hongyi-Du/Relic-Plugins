@@ -20,7 +20,7 @@ public sealed partial class MainWindow
     private SpeechRecognitionEngine? speech;
     private Button? speechButton;
 
-    private async Task Dialog(ContentDialog dialog)
+    private async Task Dialog(ContentDialog dialog, bool contentOwnsPadding = false)
     {
         transientFlyout?.Hide();
         if (visibleDialog != null)
@@ -36,7 +36,10 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogMinWidth"] = 0d; dialog.Resources["ContentDialogMinHeight"] = 0d;
         dialog.Resources["ContentDialogMaxWidth"] = Math.Max(0d, root.ActualWidth - 32);
         dialog.Resources["ContentDialogMaxHeight"] = Math.Max(0d, root.ActualHeight - 60);
-        dialog.Resources["ContentDialogPadding"] = new Thickness(22);
+        // Self-contained forms/settings already own their reference padding.
+        // Set the resource before template realization: changing it in Opened
+        // leaves the template's static ContentDialogPadding at another 22px.
+        dialog.Resources["ContentDialogPadding"] = new Thickness(contentOwnsPadding ? 0 : 22);
         dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0, 0, 0, 14);
         dialog.Resources["ContentDialogSeparatorThickness"] = new Thickness(0);
         dialog.Resources["ContentDialogTopOverlay"] = dialog.Background;
@@ -156,6 +159,7 @@ public sealed partial class MainWindow
                 CornerRadius = new CornerRadius(6), Background = selected ? Paint("FFFFFF", "252523") : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
             values.Add(item, value); tabs.Items.Add(item);
+            if (selected) tabs.SelectedItem = item;
         }
         tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem == null || !values.TryGetValue(tabs.SelectedItem, out var value) || value == preferences.Text(field)) return; await Run(async () => { await SavePreferences(new JsonObject { [field] = value }); await redraw(); }); };
         return new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(8), Background = Paint("EFEEEA", "262624") };
@@ -207,10 +211,30 @@ public sealed partial class MainWindow
         var close = IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; }); close.Content = ReferenceIcon("x", 18); close.Padding = new Thickness(0);
         close.HorizontalAlignment = HorizontalAlignment.Right; close.VerticalAlignment = VerticalAlignment.Top; close.Margin = new Thickness(0, 14, 14, 0); pane.Children.Add(close);
         var tabs = new Dictionary<string, (SelectorBarItem Item, TextBlock Label, ReferenceVectorIcon Icon)>();
+        var navigationBar = new SelectorBar
+        {
+            Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch,
+            Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+                <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="SelectorBar">
+                  <ItemsView x:Name="PART_ItemsView" ItemsSource="{TemplateBinding Items}" Padding="{TemplateBinding Padding}" HorizontalAlignment="Stretch" TabNavigation="{TemplateBinding TabNavigation}">
+                    <ItemsView.Layout><StackLayout Orientation="Vertical" Spacing="2"/></ItemsView.Layout>
+                  </ItemsView>
+                </ControlTemplate>
+                """)
+        };
+        navigation.Children.Add(navigationBar);
+        navigationBar.Loaded += (_, _) =>
+        {
+            // SelectorBar's base OnApplyTemplate configures horizontal scroll
+            // orientation. This production navigation uses a vertical layout.
+            if (DialogPart<ItemsView>(navigationBar, "PART_ItemsView")?.ScrollView is { } navigationScroll)
+                navigationScroll.ContentOrientation = ScrollingContentOrientation.Vertical;
+        };
         async Task Draw(string key)
         {
             current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); body.Background = dialog.Background = Paint("FFFFFF", "252523");
             navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink; close.Foreground = Muted;
+            if (tabs.TryGetValue(key, out var selectedTab)) navigationBar.SelectedItem = selectedTab.Item;
             foreach (var (id, tab) in tabs)
             {
                 var selected = id == key; tab.Item.IsSelected = selected; tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
@@ -277,10 +301,17 @@ public sealed partial class MainWindow
             var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = OverviewText(T(label), 14); text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
-            var bar = new SelectorBar { Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch }; bar.Items.Add(tab); navigation.Children.Add(bar); tabs.Add(key, (tab, text, icon));
-            bar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
-            bar.SelectionChanged += async (_, _) => { if (tab.IsSelected && current != key) await Run(() => Draw(key)); };
+            navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
+            navigationBar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
         }
+        // One real selection model owns all navigation rows. Seven independent
+        // one-item SelectorBars let modal initial focus select Profile and
+        // overwrite an explicitly requested Appearance/Language/etc. page.
+        navigationBar.SelectionChanged += async (_, _) =>
+        {
+            var selected = tabs.FirstOrDefault(entry => ReferenceEquals(entry.Value.Item, navigationBar.SelectedItem));
+            if (selected.Key != null && selected.Key != current) await Run(() => Draw(selected.Key));
+        };
         dialog.Opened += (_, _) =>
         {
             dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0);
@@ -289,7 +320,14 @@ public sealed partial class MainWindow
             if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } scroll) { scroll.Padding = new Thickness(0); scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; }
             if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
         };
-        await Draw(section); await Dialog(dialog);
+        void Resize(object sender, SizeChangedEventArgs args)
+        {
+            body.Width = Math.Min(920, Math.Max(0, args.NewSize.Width - 40));
+            body.Height = Math.Min(640, Math.Max(0, args.NewSize.Height - 48));
+        }
+        root.SizeChanged += Resize;
+        try { await Draw(section); await Dialog(dialog, contentOwnsPadding: true); }
+        finally { root.SizeChanged -= Resize; }
     }
     private async Task HarnessSettings(StackPanel content)
     {

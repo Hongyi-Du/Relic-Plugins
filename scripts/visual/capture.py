@@ -822,32 +822,98 @@ def reference(manifest):
 
 
 def font_evidence(cdp, snapshot, input_text):
-    """Record fonts actually used by Chromium for rendered text, not CSS fallbacks."""
-    cdp.send("CSS.enable")
+    """Query real Text nodes, retaining parent aggregates only as raw evidence.
+
+    Chromium accepts any DOM Node here. For a Text node it reads that node's
+    LayoutText/ShapeResult; querying an Element instead includes descendant
+    LayoutTexts and cannot attribute mixed fonts to a direct text sibling.
+    """
     document = snapshot["documents"][0]
     nodes, layout = document["nodes"], document["layout"]
-    candidates = set()
+    candidates = {}
+
+    def candidate(backend_id, node_type, source, **identity):
+        if not isinstance(backend_id, int) or isinstance(backend_id, bool):
+            return
+        record = candidates.setdefault(backend_id, {"backend_node_id": backend_id,
+            "node_type": node_type, "identities": []})
+        record["identities"].append({"source": source, "node_type": node_type, **identity})
+
+    def snapshot_candidate(index, source):
+        candidate(nodes["backendNodeId"][index], nodes["nodeType"][index], source,
+            snapshot_node_index=index, parent_backend_node_id=(
+                nodes["backendNodeId"][nodes["parentIndex"][index]] if nodes["parentIndex"][index] >= 0 else None),
+            node_value=snapshot["strings"][nodes["nodeValue"][index]] if nodes.get("nodeValue") else None)
+
     for offset, node_index in enumerate(layout["nodeIndex"]):
         text_index = layout["text"][offset]
         if text_index < 0 or not snapshot["strings"][text_index]:
             continue
+        snapshot_candidate(node_index, "DOMSnapshot.layout.text")
         owner = nodes["parentIndex"][node_index] if nodes["nodeType"][node_index] == 3 else node_index
-        if owner >= 0:
-            candidates.add(nodes["backendNodeId"][owner])
+        if owner >= 0 and owner != node_index:
+            snapshot_candidate(owner, "DOMSnapshot.parent-aggregate")
+    raw_nodes = {}
+
+    def index_raw(node):
+        if isinstance(node.get("backendNodeId"), int):
+            raw_nodes[node["backendNodeId"]] = node
+        for child in node.get("children", []) + node.get("shadowRoots", []):
+            index_raw(child)
+
+    index_raw(input_text.get("raw_document", {}).get("root", {}))
     for measured in input_text["inputs"].values():
         for text_node in measured["text_nodes"]:
-            if text_node["boxes"] and text_node.get("font_owner_backend_node_id"):
-                candidates.add(text_node["font_owner_backend_node_id"])
+            if not text_node["boxes"]:
+                continue
+            backend_id = text_node.get("backend_node_id")
+            actual = raw_nodes.get(backend_id, {})
+            # nodeType comes from the pierced DOM receipt, never from a name or
+            # the assumption that every input descendant is a Text node.
+            candidate(backend_id, actual.get("nodeType"), "DOM.getDocument-UA-text",
+                node_value=actual.get("nodeValue"), measured_text=text_node.get("text"))
+            owner = text_node.get("font_owner_backend_node_id")
+            actual_owner = raw_nodes.get(owner, {})
+            candidate(owner, actual_owner.get("nodeType"), "DOM.getDocument-UA-parent-aggregate",
+                node_value=actual_owner.get("nodeValue"))
     backend_ids = sorted(candidates)
-    result = {"source": "CDP.CSS.getPlatformFontsForNode", "by_backend_node": {}, "errors": []}
-    frontend_ids = cdp.send("DOM.pushNodesByBackendIdsToFrontend", {"backendNodeIds": backend_ids})["nodeIds"]
-    for backend_id, node_id in zip(backend_ids, frontend_ids):
+    result = {"source": "CDP.CSS.getPlatformFontsForNode", "by_backend_node": {},
+        "queries": {}, "errors": [], "setup": [],
+        "quantity": "actual LayoutText shaping font usage; not per-painted-glyph ink or resolved variation axes"}
+    setup_error = None
+    for method, parameters in [("CSS.enable", {}),
+            ("DOM.pushNodesByBackendIdsToFrontend", {"backendNodeIds": backend_ids})]:
+        receipt = {"method": method, "parameters": parameters, "result": None, "error": None}
+        result["setup"].append(receipt)
         try:
+            receipt["result"] = cdp.send(method, parameters)
+        except Exception as error:
+            receipt["error"] = str(error)
+            result["errors"].append({"method": method, "reason": str(error)})
+            setup_error = str(error)
+    frontend_ids = (result["setup"][-1]["result"] or {}).get("nodeIds", [])
+    for offset, backend_id in enumerate(backend_ids):
+        node_id = frontend_ids[offset] if offset < len(frontend_ids) else None
+        receipt = {**candidates[backend_id], "frontend_node_id": node_id,
+            "scope": "text-node-layout" if candidates[backend_id]["node_type"] == 3 else "descendant-layout-aggregate",
+            "request": {"method": "CSS.getPlatformFontsForNode", "parameters": {"nodeId": node_id}},
+            "request_sent": False, "result": None, "error": None}
+        result["queries"][str(backend_id)] = receipt
+        try:
+            if setup_error:
+                raise RuntimeError("Font query setup failed: " + setup_error)
             if not node_id:
                 raise RuntimeError("Rendered text node has no live frontend DOM node")
-            result["by_backend_node"][str(backend_id)] = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node_id})["fonts"]
+            receipt["request_sent"] = True
+            receipt["result"] = cdp.send(receipt["request"]["method"], receipt["request"]["parameters"])
+            fonts = receipt["result"].get("fonts")
+            if not isinstance(fonts, list) or not fonts:
+                raise RuntimeError("Actual DOM node returned no platform font usage")
+            result["by_backend_node"][str(backend_id)] = fonts
         except Exception as error:
-            result["errors"].append({"backend_node_id": backend_id, "reason": str(error)})
+            receipt["error"] = str(error)
+            result["errors"].append({"backend_node_id": backend_id, "node_type": receipt["node_type"],
+                "frontend_node_id": node_id, "reason": str(error)})
     return result
 
 

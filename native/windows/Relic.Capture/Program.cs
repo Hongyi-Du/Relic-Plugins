@@ -111,6 +111,8 @@ internal sealed class Capture
     private readonly int processId;
     private readonly double originX, originY;
     private readonly HashSet<string> seen = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JsonObject> firstObservations = new(StringComparer.Ordinal);
+    private readonly JsonArray treeEdges = new();
     private readonly JsonArray nodes = new(), errors = new();
     private readonly TreeWalker walker = TreeWalker.RawViewWalker;
     private NativeTextEvidence? nativeText;
@@ -158,6 +160,7 @@ internal sealed class Capture
                 ["scale"] = 1
             },
             ["source"] = "System.Windows.Automation.TreeWalker.RawViewWalker",
+            ["raw_tree_edges"] = treeEdges,
             ["raw_nodes"] = nodes,
             ["extraction_errors"] = errors
         };
@@ -173,7 +176,21 @@ internal sealed class Capture
             // provider includes it in its raw tree.
             if (element.Current.ProcessId != processId) return;
             var runtimeId = string.Join(".", element.GetRuntimeId());
-            if (!seen.Add(runtimeId)) return;
+            var edge = new JsonObject { ["observation_id"] = id, ["parent"] = parent, ["root_kind"] = rootKind, ["runtime_id"] = runtimeId };
+            treeEdges.Add(edge);
+            if (!seen.Add(runtimeId))
+            {
+                edge["first_observation"] = firstObservations[runtimeId].DeepClone();
+                edge["status"] = parent == null ? "already-walked-window-root" : "repeated-runtime-id";
+                // Enumerating the process's top-level HWNDs can encounter the
+                // primary root again. A repeated descendant edge is different:
+                // retain it and fail coverage instead of silently pruning it.
+                if (parent != null) errors.Add(id + ": repeated descendant RuntimeId in the actual raw tree; traversal coverage remains unresolved: " + runtimeId);
+                progress.Record("uia-capture/managed/tree-edge", edge["status"]!.GetValue<string>(), edge);
+                return;
+            }
+            firstObservations.Add(runtimeId, edge.DeepClone().AsObject());
+            edge["status"] = "first-observation";
             var unsupported = new JsonArray();
             var nodeErrors = new JsonArray();
             var node = new JsonObject
@@ -213,8 +230,18 @@ internal sealed class Capture
             // Do not prune offscreen/zero-size/title-bar parents here: visible
             // descendants and popup peers can extend outside a parent's box.
             var child = walker.GetFirstChild(element);
+            var siblingIds = new HashSet<string>(StringComparer.Ordinal);
             while (child != null)
             {
+                var childRuntimeId = string.Join(".", child.GetRuntimeId());
+                if (!siblingIds.Add(childRuntimeId))
+                {
+                    var cycle = new JsonObject { ["parent"] = id, ["root_kind"] = rootKind, ["runtime_id"] = childRuntimeId, ["status"] = "repeated-sibling-edge" };
+                    treeEdges.Add(cycle);
+                    errors.Add(id + ": raw sibling enumeration revisited RuntimeId " + childRuntimeId + "; branch coverage is incomplete.");
+                    progress.Record("uia-capture/managed/tree-edge", "failed", cycle);
+                    break;
+                }
                 Walk(child, id, rootKind);
                 child = walker.GetNextSibling(child);
             }

@@ -279,6 +279,84 @@ test('requested weight and variation settings stay distinct from resolved faces'
   assert.equal(request({ fontWeight: 'normal', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 400);
 });
 
+function fontNodeReader() {
+  const unmeasured = [], snapshotBackend = new WeakMap(), snapshotInputFontOwners = new WeakMap();
+  const fonts = { source: 'CDP.CSS.getPlatformFontsForNode', by_backend_node: {}, queries: {}, errors: [] };
+  const meta = { reference_environment: { fonts }, input_text_boxes: {} };
+  const identity = vm.runInNewContext('(' + expression('platformFontIdentity', 'fontRequestEvidence') + ')');
+  const read = vm.runInNewContext('(' + expression('platformFonts', 'supplementalRegionEvidence') + ')', {
+    meta, snapshotBackend, snapshotInputFontOwners, unmeasured, Node: { TEXT_NODE: 3 }, platformFontIdentity: identity,
+  });
+  const actual = (backend, face, count, type = 3) => {
+    const result = [{ familyName: 'actual family', postScriptName: face, glyphCount: count, isCustomFont: false }];
+    fonts.by_backend_node[backend] = result;
+    fonts.queries[backend] = { backend_node_id: backend, node_type: type, frontend_node_id: backend + 1000,
+      scope: type === 3 ? 'text-node-layout' : 'descendant-layout-aggregate', request_sent: true, error: null,
+      request: { method: 'CSS.getPlatformFontsForNode', parameters: { nodeId: backend + 1000 } }, result: { fonts: result } };
+  };
+  const owner = { matches: () => false }, first = {}, bold = {}, last = {};
+  for (const [node, backend] of [[owner, 360], [first, 361], [bold, 363], [last, 364]]) snapshotBackend.set(node, backend);
+  return { read, fonts, actual, meta, unmeasured, snapshotBackend, snapshotInputFontOwners, owner, first, bold, last };
+}
+
+test('font attribution uses the actual text node instead of its mixed parent aggregate', () => {
+  const f = fontNodeReader();
+  f.actual(360, 'parent-includes-nested-bold', 99, 1);
+  f.actual(361, 'actual-first-regular', 8); f.actual(363, 'actual-bold', 12); f.actual(364, 'actual-last-regular', 10);
+  const result = normalize(f.read(f.owner, '收到。我会按 ', 'dom-231:text-0', { textNode: f.first }));
+  assert.deepEqual(result.fonts.map(font => [font.postscript_name, font.glyph_count]), [['actual-first-regular', 8]]);
+  assert.deepEqual(result.evidence.owners.map(owner => owner.backend_node_id), [361]);
+  assert.equal(result.evidence.attribution, 'actual-text-node-layouts');
+  assert.equal(result.evidence.owners[0].query.frontend_node_id, 1361);
+  assert.deepEqual(f.unmeasured, []);
+});
+
+test('a control label combines only its owned actual Text queries and does not double count a node', () => {
+  const f = fontNodeReader();
+  f.actual(361, 'actual-face', 8); f.actual(364, 'actual-face', 10); f.actual(363, 'unowned-bold', 12);
+  const result = normalize(f.read(f.owner, 'actual owned label', 'actual-control', { ownedTextNodes: [f.first, f.last, f.first] }));
+  assert.deepEqual(result.fonts.map(font => [font.postscript_name, font.glyph_count]), [['actual-face', 18]]);
+  assert.deepEqual(result.evidence.owners.map(owner => owner.backend_node_id), [361, 364]);
+});
+
+test('a failed or unproven Text query cannot use successful parent statistics as fallback', () => {
+  for (const failure of ['missing', 'error', 'wrong-node-type', 'missing-query']) {
+    const f = fontNodeReader();
+    f.actual(360, 'parent-face', 99, 1);
+    if (failure !== 'missing') f.actual(361, 'child-face', 8, failure === 'wrong-node-type' ? 1 : 3);
+    if (failure === 'error') {
+      f.fonts.queries[361].error = 'Actual provider error';
+      f.fonts.errors.push({ backend_node_id: 361, reason: 'Actual provider error' });
+    }
+    if (failure === 'missing-query') delete f.fonts.queries[361];
+    const result = f.read(f.owner, 'actual text', 'actual-text', { textNode: f.first });
+    assert.equal(result.fonts, null, failure);
+    assert.equal(f.unmeasured.length, 1, failure);
+    assert.equal(f.unmeasured[0].property, 'style.rendered_fonts');
+    assert.deepEqual(normalize(result.evidence.owners.map(owner => owner.backend_node_id)), [361]);
+  }
+});
+
+test('UA input font supplement consumes the measured text-node identity, not its aggregate owner', () => {
+  const f = fontNodeReader(), input = { matches: () => true };
+  f.snapshotBackend.set(input, 500);
+  f.meta.input_text_boxes['500'] = { text_nodes: [{ backend_node_id: 502, font_owner_backend_node_id: 501,
+    text: 'actual value', boxes: [{ x: 10, y: 20, width: 30, height: 15 }] }] };
+  f.actual(501, 'ua-parent', 50, 1); f.actual(502, 'actual-input-face', 12);
+  const result = normalize(f.read(input, 'actual value', 'actual-input', {}));
+  assert.deepEqual(result.fonts.map(font => [font.postscript_name, font.glyph_count]), [['actual-input-face', 12]]);
+  assert.deepEqual(result.evidence.owners.map(owner => owner.backend_node_id), [502]);
+});
+
+test('whole pseudo-layout evidence stays explicitly scoped and cannot substitute for direct text', () => {
+  const f = fontNodeReader();
+  f.actual(600, 'actual-pseudo-face', 1, 1);
+  const result = normalize(f.read(f.owner, '1', 'actual-line::before', { pseudo: '::before', axBackend: 600 }));
+  assert.equal(result.evidence.attribution, 'whole-pseudo-layout');
+  assert.equal(result.fonts[0].postscript_name, 'actual-pseudo-face');
+  assert.match(result.evidence.quantity, /not a count of visible painted glyphs or ellipsis ink bounds/);
+});
+
 // Matrix/shape fixtures provide only the API quantities actually read by the
 // production function. They do not stand in for browser paint validation.
 class SVGElementFixture {

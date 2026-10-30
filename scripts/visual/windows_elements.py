@@ -421,6 +421,108 @@ def project_text_leaves(raw, unmeasured, pointer):
     return result
 
 
+def project_inline_reading_order(raw, unmeasured):
+    """Interleave measured Runs and real inline child subtrees in collection order.
+
+    Paint order and source parentage remain unchanged. Missing/ambiguous object
+    identity never causes a geometry-based sort or a partial guessed ordering.
+    """
+    by_id = {node["id"]: node for node in raw}
+    children = defaultdict(list)
+    for node in raw:
+        children[node.get("parent")].append(node)
+    ordered = {}
+    for owner in raw:
+        evidence = owner.get("inline_order_evidence")
+        if evidence is None or owner.get("hidden_reason"):
+            continue
+        entries = evidence.get("entries") if isinstance(evidence, dict) else None
+        if not isinstance(entries, list) or not any(isinstance(entry, dict) and entry.get("type") == "InlineUIContainer" for entry in entries):
+            continue
+        reason = None
+        if evidence.get("source") != "actual InlineCollection order and InlineUIContainer.Child object identity" or evidence.get("complete") is not True:
+            reason = "Actual inline collection/child identity evidence is incomplete"
+        proposed, provenance = [], {}
+        runs = owner.get("layout", {}).get("rich_text_runs", [])
+        for ordinal, entry in enumerate(entries):
+            if reason:
+                break
+            if not isinstance(entry, dict) or type(entry.get("ordinal")) is not int or entry["ordinal"] != ordinal:
+                reason = "Actual inline ordinal is absent or inconsistent"; break
+            path = entry.get("collection_path")
+            if not isinstance(path, list) or not path or any(type(index) is not int or index < 0 for index in path):
+                reason = "Actual InlineCollection index path is missing"; break
+            if not all(type(entry.get(key)) is int for key in ("start_offset", "end_offset")) or entry["end_offset"] < entry["start_offset"]:
+                reason = "Actual inline TextPointer offsets are missing"; break
+            child = None
+            if entry.get("type") in {"Run", "LineBreak"}:
+                index = entry.get("run_index")
+                if type(index) is not int or not isinstance(runs, list) or not 0 <= index < len(runs):
+                    reason = "Inline Run has no corresponding measured text range"; break
+                run = runs[index]
+                if any(run.get(key) != entry.get(key) for key in ("type", "start_offset", "end_offset")):
+                    reason = "Inline sequence does not describe the measured Run"; break
+                if run.get("type") == "LineBreak" or not run.get("text"):
+                    continue  # No separate painted text element is generated.
+                child = by_id.get(owner["id"] + ":run:" + str(index))
+            elif entry.get("type") == "InlineUIContainer":
+                child = by_id.get(entry.get("child_id"))
+                identity = child.get("inline_child_evidence") if child else None
+                if (entry.get("child_source") != "actual InlineUIContainer.Child object identity" or not isinstance(identity, dict)
+                        or identity.get("source") != "actual InlineUIContainer.Child object identity" or identity.get("owner_id") != owner["id"]
+                        or any(identity.get(key) != entry.get(key) for key in ("ordinal", "collection_path", "start_offset", "end_offset"))):
+                    reason = "Inline child has no matching actual object identity record"; break
+            else:
+                reason = "Unsupported actual inline element type"; break
+            if not child or child.get("parent") != owner["id"] or child["id"] in provenance:
+                reason = "Inline child is absent, repeated, or not a direct rendered child of its measured owner"; break
+            proposed.append(child)
+            provenance[child["id"]] = {"source": evidence["source"], "owner_id": owner["id"], "entry": copy.deepcopy(entry)}
+        if reason is None and {node["id"] for node in proposed} != {node["id"] for node in children[owner["id"]]}:
+            reason = "Actual rendered children are not completely accounted for by the inline collection"
+        if reason:
+            unmeasured.append({"id": owner["id"], "property": "reading_order.inline_collection", "reason": reason})
+            continue
+        ordered[owner["id"]] = proposed
+        for node in proposed:
+            node["inline_sequence_evidence"] = provenance[node["id"]]
+    if not ordered:
+        return raw
+    result, visited = [], set()
+    def walk(node):
+        if node["id"] in visited:
+            return
+        visited.add(node["id"]); result.append(node)
+        for child in ordered.get(node["id"], children[node["id"]]):
+            walk(child)
+    for node in raw:
+        if node.get("parent") not in by_id:
+            walk(node)
+    for node in raw:
+        walk(node)
+    return result
+
+
+def native_label_surfaces(raw, by_id, unmeasured):
+    """Identify only the Image actually owned/bound by the production label."""
+    result = {}
+    for node in raw:
+        evidence = node.get("native_label_surface_evidence")
+        if evidence is None:
+            continue
+        owner = by_id.get(evidence.get("owner_id")) if isinstance(evidence, dict) else None
+        if (not isinstance(evidence, dict)
+                or evidence.get("source") != "actual NativeLabel production Image object identity and SurfaceImageSource COM binding"
+                or evidence.get("same_image_object") is not True or evidence.get("surface_binding_same_com_identity") is not True
+                or evidence.get("source_type") != "Microsoft.UI.Xaml.Media.Imaging.SurfaceImageSource"
+                or node.get("type") != "Image" or not owner or owner.get("type") != "NativeLabel" or node.get("parent") != owner["id"]
+                or node.get("interaction_evidence", {}).get("is_hit_test_visible") is not False):
+            unmeasured.append({"id": node["id"], "property": "ownership.native_label_surface", "reason": "Actual production Image identity, noninteractive state or bound SurfaceImageSource is unverified"})
+            continue
+        result[node["id"]] = owner["id"]
+    return result
+
+
 def run_font_witnesses(uia_nodes, owner, glyph_boxes):
     """Match actual UIA format ranges to the measured leaf's glyph positions."""
     candidates = []
@@ -610,7 +712,7 @@ def project(xaml_path, uia_path, png_path):
     source_raw = xaml["raw_nodes"]
     if not source_raw or not uia.get("raw_nodes"):
         errors.append("Independent UIA and XAML source trees must both be nonempty")
-    raw = project_text_leaves(source_raw, unmeasured, xaml.get("pointer"))
+    raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
     by_id = {n["id"]: n for n in raw}
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
@@ -695,6 +797,9 @@ def project(xaml_path, uia_path, png_path):
         owner = ancestor(node, icons)
         if owner:
             owned[node["id"]] = (owner["id"], "icon implementation glyph")
+    label_surfaces = native_label_surfaces(raw, by_id, unmeasured)
+    for surface, owner in label_surfaces.items():
+        owned[surface] = (owner, "actual NativeLabel production text paint surface")
 
     host_ownership = host_container_ownership(uia, raw)
     projection.extend(host_ownership)
@@ -724,7 +829,10 @@ def project(xaml_path, uia_path, png_path):
             continue
         if node["id"] in owned:
             owner, why = owned[node["id"]]
-            projection.append({"source": node["id"], "owner": owner, "reason": why})
+            record = {"source": node["id"], "owner": owner, "reason": why}
+            if node["id"] in label_surfaces:
+                record["ownership_evidence"] = copy.deepcopy(node["native_label_surface_evidence"])
+            projection.append(record)
             continue
         typ = node["type"]
         style = copy.deepcopy(node.get("style", {}))
@@ -939,6 +1047,8 @@ def project(xaml_path, uia_path, png_path):
                                 "resize_handle_evidence": copy.deepcopy(node.get("resize_handle_evidence")),
                                 "native_label_evidence": copy.deepcopy(text_source.get("native_label_evidence")),
                                 "actual_trimming": copy.deepcopy(layout.get("actual_trimming")),
+                                "inline_sequence_evidence": copy.deepcopy(node.get("inline_sequence_evidence")),
+                                "inline_order_evidence": copy.deepcopy(node.get("inline_order_evidence")),
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),

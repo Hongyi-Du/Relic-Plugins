@@ -122,3 +122,21 @@ recheck native index coverage and timings with the corrected declaration.
 Two file-code `TextPattern` provider failures in that run remain unresolved;
 the journal now distinguishes document-range, visible-range, text, geometry,
 identity, and declared-font inspection stages without suppressing failures.
+
+In `34d4c35`, corrected full main-window indexes measured 315–367 nodes in
+approximately 241–283 ms. The copies scene instead exposed a repeated child
+RuntimeId at an Expander. The observer now retains the actual parent/child
+edges and both current native element property snapshots. It stops recursive
+entry into a repeated node, prevents repeated-sibling loops, and continues
+other reachable branches for diagnostics. The index remains incomplete and
+cannot satisfy an Attach. Managed traversal likewise records repeated
+descendant edges and fails coverage rather than silently discarding them.
+Revisiting an already-walked top-level HWND during process-window enumeration
+is recorded separately and does not recurse into the already observed tree.
+
+The six visible zero-area range errors in the otherwise completed `34d4c35`
+scenes remain unresolved. The two trimmed sidebar previews return an actual
+zero-area rectangle for their final punctuation while `IsHidden` is false.
+Neither the screen origin of that rectangle nor identical RuntimeId values
+prove invisible glyphs or interchangeable tree nodes, so those failures are
+not converted into successful coverage.

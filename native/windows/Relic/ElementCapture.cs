@@ -19,8 +19,12 @@ public sealed partial class MainWindow
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Element capture is CI-only");
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
+        if (capturedNativeLabelEvidence?["failure"] != null)
+            errors.Add("NativeLabel capture observer failed; frame/surface synchronization remains unmeasured: " + capturedNativeLabelEvidence["failure"]);
         var declaredContent = new Dictionary<DependencyObject, (string Owner, string Property)>();
         var renderIds = new Dictionary<DependencyObject, string>();
+        var renderNodes = new Dictionary<DependencyObject, JsonObject>();
+        var inlineOwners = new List<(FrameworkElement Owner, JsonObject Node, bool Visible)>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -42,6 +46,7 @@ public sealed partial class MainWindow
             var id = "xaml-" + nodes.Count; var type = value.GetType().Name; region = Region(value, region);
             renderIds[value] = id;
             var node = new JsonObject { ["id"] = id, ["parent"] = parent, ["type"] = type, ["region"] = region, ["order"] = nodes.Count };
+            renderNodes[value] = node;
             if (value is UIElement ordered) node["canvas_z_index"] = Canvas.GetZIndex(ordered);
             node["render_sibling_order"] = siblingOrder;
             node["paint_order"] = nodes.Count;
@@ -123,6 +128,15 @@ public sealed partial class MainWindow
                         if (hidden == null && production["coverage_complete"]?.GetValue<bool>() != true)
                             errors.Add(id + ": actual DirectWrite production label evidence is incomplete: " + production["coverage_reason"]);
                     }
+                    if (element is Image productionImage && VisualTreeHelper.GetParent(productionImage) is NativeLabel labelOwner
+                        && labelOwner.OwnsProductionImage(productionImage) && renderIds.TryGetValue(labelOwner, out var labelOwnerId))
+                    {
+                        var binding = labelOwner.CaptureProductionImageBinding(productionImage);
+                        binding["owner_id"] = labelOwnerId; node["native_label_surface_evidence"] = binding;
+                        if (hidden == null && binding["surface_binding_same_com_identity"]?.GetValue<bool>() != true)
+                            errors.Add(id + ": NativeLabel production image has no verified binding to its actual drawn surface");
+                    }
+                    if (element is TextBlock or RichTextBlock) inlineOwners.Add((element, node, hidden == null));
                     if (element is NativeTextarea textarea)
                     {
                         node["textarea_resize_evidence"] = new JsonObject
@@ -240,6 +254,46 @@ public sealed partial class MainWindow
         {
             paintLayer++;
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
+        }
+        // Resolve actual InlineUIContainer.Child object references only after
+        // the visual walk has assigned IDs. No text/box matching supplies order.
+        foreach (var (owner, ownerNode, visible) in inlineOwners)
+        {
+            var ownerId = renderIds[owner]; var entries = new JsonArray(); var complete = true; var runIndex = 0;
+            foreach (var (inline, path) in CaptureInlineSequence(owner))
+            {
+                var pathArray = new JsonArray(); foreach (var index in path) pathArray.Add(index);
+                var entry = new JsonObject { ["ordinal"] = entries.Count, ["type"] = inline.GetType().Name,
+                    ["collection_path"] = pathArray, ["start_offset"] = inline.ContentStart.Offset, ["end_offset"] = inline.ContentEnd.Offset };
+                if (inline is Microsoft.UI.Xaml.Documents.Run or LineBreak) entry["run_index"] = runIndex++;
+                else if (inline is InlineUIContainer container)
+                {
+                    entry["child_source"] = "actual InlineUIContainer.Child object identity";
+                    entry["child_id"] = null; entry["child_type"] = container.Child?.GetType().Name;
+                    if (container.Child != null && renderIds.TryGetValue(container.Child, out var childId))
+                    {
+                        entry["child_id"] = childId;
+                        renderNodes[container.Child]["inline_child_evidence"] = new JsonObject
+                        {
+                            ["source"] = "actual InlineUIContainer.Child object identity", ["owner_id"] = ownerId,
+                            ["ordinal"] = entries.Count, ["collection_path"] = pathArray.DeepClone(),
+                            ["start_offset"] = inline.ContentStart.Offset, ["end_offset"] = inline.ContentEnd.Offset
+                        };
+                    }
+                    else
+                    {
+                        complete = false;
+                        if (visible) errors.Add(ownerId + ": actual InlineUIContainer.Child is missing from the rendered tree; reading order is incomplete");
+                    }
+                }
+                else { complete = false; if (visible) errors.Add(ownerId + ": unhandled actual Inline type " + inline.GetType().Name); }
+                entries.Add(entry);
+            }
+            ownerNode["inline_order_evidence"] = new JsonObject
+            {
+                ["source"] = "actual InlineCollection order and InlineUIContainer.Child object identity",
+                ["complete"] = complete, ["entries"] = entries
+            };
         }
         if (popups.Length > 1) errors.Add("Multiple popup roots: their collection order requires independent HWND/compositor z-order verification.");
         var result = new JsonObject
@@ -502,6 +556,23 @@ public sealed partial class MainWindow
             if (inline is Microsoft.UI.Xaml.Documents.Run or LineBreak) yield return inline;
             else if (inline is Span span) foreach (var leaf in CaptureTextLeaves(span.Inlines)) yield return leaf;
         }
+    }
+    private static IEnumerable<(Inline Inline, int[] Path)> CaptureInlineSequence(FrameworkElement owner)
+    {
+        static IEnumerable<(Inline Inline, int[] Path)> Walk(InlineCollection collection, int[] prefix)
+        {
+            for (var index = 0; index < collection.Count; index++)
+            {
+                var inline = collection[index]; var path = prefix.Append(index).ToArray();
+                if (inline is Span span) { foreach (var child in Walk(span.Inlines, path)) yield return child; }
+                else yield return (inline, path);
+            }
+        }
+        if (owner is TextBlock plain) { foreach (var entry in Walk(plain.Inlines, new[] { 0 })) yield return entry; }
+        else if (owner is RichTextBlock rich)
+            for (var block = 0; block < rich.Blocks.Count; block++)
+                if (rich.Blocks[block] is Paragraph paragraph)
+                    foreach (var entry in Walk(paragraph.Inlines, new[] { block })) yield return entry;
     }
     private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors, UIElement captureRoot, bool visible)
     {

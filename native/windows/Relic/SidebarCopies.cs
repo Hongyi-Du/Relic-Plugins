@@ -124,6 +124,7 @@ public sealed partial class MainWindow
             var row = new ListViewItem { Content = content, Tag = action, Template = template, Padding = new Thickness(8 + indent, 6, 8, 6), Margin = new Thickness(0, 0, 0, chat ? 1 : 0),
                 MinHeight = chat ? 0 : 34, HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(8), Background = background, BorderThickness = new Thickness(0), UseLayoutRounding = false };
             row.PointerEntered += (_, _) => row.Background = selected ? background : Paint("EFEEEA", "262624"); row.PointerExited += (_, _) => row.Background = background;
+            BindSidebarRowName(row, content);
             list.Items.Add(row); if (selected) list.SelectedItem = row;
         }
         var visited = new HashSet<string>(); var query = search.Text.Trim(); bool Match(string value) => value.Contains(query, StringComparison.OrdinalIgnoreCase);
@@ -205,6 +206,44 @@ public sealed partial class MainWindow
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
     {
         var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false; return text;
+    }
+    private static void BindSidebarRowName(ListViewItem row, UIElement content)
+    {
+        // A Grid is not a text content object: the stock ListViewItem peer
+        // reports an empty Name. Derive this production row's accessible name
+        // from its own mounted labels, including avatar initials and badges.
+        var callbacks = new List<(DependencyObject Target, DependencyProperty Property, long Token)>();
+        void Update()
+        {
+            var parts = new List<string>();
+            void Read(DependencyObject node)
+            {
+                if (node is UIElement ui && (ui.Visibility != Visibility.Visible || ui.Opacity <= 0)) return;
+                if (node is TextBlock text)
+                {
+                    var value = System.Text.RegularExpressions.Regex.Replace(text.Text, @"\s+", " ").Trim();
+                    if (value.Length > 0) parts.Add(value);
+                    return;
+                }
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) Read(VisualTreeHelper.GetChild(node, i));
+            }
+            Read(content);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, string.Join(" ", parts));
+        }
+        void Clear()
+        {
+            foreach (var (target, property, token) in callbacks) target.UnregisterPropertyChangedCallback(property, token);
+            callbacks.Clear();
+        }
+        void Watch(DependencyObject node)
+        {
+            void Property(DependencyProperty property) => callbacks.Add((node, property, node.RegisterPropertyChangedCallback(property, (_, _) => Update())));
+            if (node is TextBlock) Property(TextBlock.TextProperty);
+            if (node is UIElement) { Property(UIElement.VisibilityProperty); Property(UIElement.OpacityProperty); }
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) Watch(VisualTreeHelper.GetChild(node, i));
+        }
+        row.Loaded += (_, _) => { Clear(); Watch(content); Update(); };
+        row.Unloaded += (_, _) => Clear();
     }
     private OverviewBadgeView SidebarTag(string text, bool secretary)
     {

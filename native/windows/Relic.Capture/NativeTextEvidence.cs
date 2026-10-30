@@ -20,6 +20,8 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
     private sealed class WindowIndex
     {
         public readonly Dictionary<string, INativeElement> Elements = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, JsonObject> Observations = new(StringComparer.Ordinal);
+        public readonly JsonArray TraversalErrors = new();
         public readonly JsonObject Evidence = new() { ["status"] = "incomplete", ["source"] = "One actual IUIAutomation.RawViewWalker HWND subtree enumeration" };
         public Exception? Error;
     }
@@ -154,14 +156,15 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         {
             var root = progress.Measure("uia-capture/native/index/root", () => automation.ElementFromHandle(hwnd), context);
             var walker = progress.Measure("uia-capture/native/index/raw-walker", automation.GetRawViewWalker, context);
-            Visit(root, 0);
-            index.Evidence["status"] = "complete";
+            Visit(root, 0, null);
+            index.Evidence["status"] = index.Error == null ? "complete" : "incomplete";
 
-            void Visit(INativeElement element, int depth)
+            void Visit(INativeElement element, int depth, int[]? parentRuntimeId)
             {
                 if (depth > 1000 || index.Elements.Count >= 100000)
                     throw new InvalidOperationException("Native raw tree exceeded the traversal safety bound; index is incomplete.");
-                var stage = new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["depth"] = depth, ["indexed_nodes"] = index.Elements.Count };
+                var stage = new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["depth"] = depth, ["indexed_nodes"] = index.Elements.Count,
+                    ["parent_runtime_id"] = parentRuntimeId == null ? null : Ints(parentRuntimeId) };
                 progress.Record("uia-capture/native/index/node", "started", stage);
                 var pid = Convert.ToInt32(element.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture);
                 if (pid != processId)
@@ -169,16 +172,40 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
                 var runtimeId = element.GetRuntimeId();
                 stage["runtime_id"] = Ints(runtimeId);
                 if (runtimeId.Length == 0) throw new InvalidOperationException("Native raw tree contains an empty RuntimeId.");
-                if (!index.Elements.TryAdd(RuntimeKey(runtimeId), element))
+                var key = RuntimeKey(runtimeId);
+                if (!index.Elements.TryAdd(key, element))
                 {
                     index.Evidence["duplicate_runtime_id"] = Ints(runtimeId);
-                    throw new InvalidOperationException("Native raw tree contains a duplicate RuntimeId; no element is chosen and index is incomplete.");
+                    var duplicate = new JsonObject
+                    {
+                        ["kind"] = "duplicate-runtime-id", ["first_observation"] = index.Observations[key].DeepClone(),
+                        ["repeated_edge"] = stage.DeepClone(), ["first_element_current"] = DescribeElement(index.Elements[key]),
+                        ["repeated_element_current"] = DescribeElement(element),
+                        ["diagnostic"] = "The repeated edge is not recursively entered; index remains incomplete and no lookup is accepted. Other sibling branches are still measured."
+                    };
+                    index.TraversalErrors.Add(duplicate);
+                    index.Error ??= new InvalidOperationException("Native raw tree contains a duplicate RuntimeId; no element is chosen and index is incomplete.");
+                    progress.Record("uia-capture/native/index/duplicate", "failed", duplicate);
+                    return;
                 }
+                index.Observations.Add(key, stage.DeepClone().AsObject());
                 progress.Record("uia-capture/native/index/node", "indexed", stage);
                 var child = progress.Measure("uia-capture/native/index/first-child", () => walker.GetFirstChildElement(element), stage);
+                var siblingIds = new HashSet<string>(StringComparer.Ordinal);
                 while (child != null)
                 {
-                    Visit(child, depth + 1);
+                    var childRuntimeId = child.GetRuntimeId();
+                    if (!siblingIds.Add(RuntimeKey(childRuntimeId)))
+                    {
+                        var cycle = new JsonObject { ["kind"] = "repeated-sibling-edge", ["parent_runtime_id"] = Ints(runtimeId),
+                            ["child_runtime_id"] = Ints(childRuntimeId), ["child_current"] = DescribeElement(child),
+                            ["diagnostic"] = "Sibling enumeration would revisit the same RuntimeId; this branch is incomplete." };
+                        index.TraversalErrors.Add(cycle);
+                        index.Error ??= new InvalidOperationException("Native raw tree contains a repeated sibling RuntimeId; index is incomplete.");
+                        progress.Record("uia-capture/native/index/sibling-cycle", "failed", cycle);
+                        break;
+                    }
+                    Visit(child, depth + 1, runtimeId);
                     var current = child;
                     child = progress.Measure("uia-capture/native/index/next-sibling", () => walker.GetNextSiblingElement(current), stage);
                 }
@@ -192,11 +219,38 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         finally
         {
             index.Evidence["node_count"] = index.Elements.Count;
+            index.Evidence["traversal_errors"] = index.TraversalErrors;
             index.Evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
             index.Evidence["hwnd"] = hwnd.ToInt64();
             progress.Record("uia-capture/native/index", index.Evidence["status"]!.GetValue<string>(), index.Evidence);
         }
     }
+
+    private static JsonObject DescribeElement(INativeElement element)
+    {
+        var result = new JsonObject();
+        foreach (var (name, property) in new[]
+        {
+            ("process_id", AutomationElement.ProcessIdProperty), ("class_name", AutomationElement.ClassNameProperty),
+            ("control_type", AutomationElement.ControlTypeProperty), ("name", AutomationElement.NameProperty),
+            ("bounds_screen", AutomationElement.BoundingRectangleProperty), ("offscreen", AutomationElement.IsOffscreenProperty)
+        })
+        {
+            try { result[name] = NativeProperty(element.GetCurrentPropertyValue(property.Id)); }
+            catch (Exception error) { result[name] = new JsonObject { ["status"] = "error", ["error"] = error.ToString() }; }
+        }
+        try { result["runtime_id"] = Ints(element.GetRuntimeId()); }
+        catch (Exception error) { result["runtime_id_error"] = error.ToString(); }
+        return result;
+    }
+
+    private static JsonNode? NativeProperty(object? value) => value switch
+    {
+        null => null, string text => JsonValue.Create(text), bool flag => JsonValue.Create(flag),
+        int integer => JsonValue.Create(integer), double number => Number(number),
+        Array values => new JsonArray(values.Cast<object?>().Select(NativeProperty).ToArray()),
+        _ => new JsonObject { ["status"] = "unsupported-native-property-value", ["managed_type"] = value.GetType().FullName }
+    };
 
     public static JsonObject ManagedIdentity(TextPatternRange range, TextPatternRange document)
     {
