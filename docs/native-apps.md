@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (merged macOS wrap-strategy request): native-macos now
+retains paragraph and text-container line-break modes separately. Its request
+to separate normal wrapping, emergency word breaks and observed line fragments
+in the shared schema is under source review; current mismatches stay failed.
+The newly merged macOS card/tab owner bindings and shadow test color-space
+correction need CI validation. Windows's message-baseline/COM-transfer change
+passes a headless build with zero warnings/errors; all new tests run in CI.
+
 Changes for the clients (Windows message baselines and real provider identity):
 message headers now align each actual TextBlock.BaselineOffset and preserve both
 ascents and descents. Original widths, 6px gaps and wrapping order remain; an
