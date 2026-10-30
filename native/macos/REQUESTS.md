@@ -37,6 +37,15 @@ AppKit until the unchanged bitmap and layer tests pass. Apple API contracts:
 https://developer.apple.com/documentation/coregraphics/cgcontext/showglyphs(_:at:)
 https://developer.apple.com/documentation/appkit/nslayoutmanager/showcgglyphs(_:positions:count:font:textmatrix:attributes:in:)
 
+The 19a4f92 macOS job confirms the corrected positions: Chinese/Latin,
+truncation and strikethrough PNGs now equal AppKit byte for byte. The only
+remaining bitmap mismatch is the omitted color Emoji (the surrounding Latin
+is present). Color-font callbacks now use CTFontDrawGlyphs with the actual
+substituted CTFont and the same inverse-mapped positions; outline fonts keep
+the verified CGContext primitive. Production is still unchanged pending CI.
+The actual list marker now supplies the requested content_screen_frame origin
+by converting the current NSWindow.contentView bounds into screen coordinates.
+
 macOS now draws unordered-list discs with NativeListMarkerView's actual
 CGContext.fillEllipse, using its own primary font metrics and device-space
 pixel snapping. Ordered markers keep their actual text renderer. Raw element
