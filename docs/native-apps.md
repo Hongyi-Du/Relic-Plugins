@@ -1,5 +1,48 @@
 # Native Relic App contract
 
+Changes for the clients (pseudo-element coverage correction): the actual d8f74ff
+toggle `::after` has both a positive 14x14 DOMSnapshot layout row and a later
+zero-area row. The reference used to overwrite the former and omit the visible
+white knob. It now retains all rows and accepts only one distinct positive box;
+ambiguous or missing geometry fails. The knob is emitted independently, with its
+actual 7px radius. Windows now draws its knob as a native rounded surface with
+the missing compositor shadow; blur equivalence remains unmeasured and failed.
+
+Windows NativeLabel extraction now records glyph paint before the Panel branch,
+and validates the actual current layout's size/weight getters and brush inputs.
+Observer association uses object reference identity. Submitted style is distinct
+from final visible glyph geometry/presentation, which remain open obligations.
+The real ellipsis regression checks actual layout/inline-object/production
+renderer glyph callbacks; zero inline layout height is retained rather than
+mistaken for absent glyph paint. The final test D2D sink is explicitly mocked.
+
+Changes for the clients (independent outline and measured-icon pairing): the
+reference now exports actual computed outline values separately from borders;
+the shared matcher requires explicit evidence for absence and retains unknown
+contour/dash/phase as failures. Common schema and native obligations are in
+`docs/native-outline-evidence.md`. Verified same-region SVG/vector paint content
+now anchors icon pairs before sequence fallback, unique identities first, then
+repeated identities in actual reading order. This resolves the requested pairing
+diagnostic without suppressing missing, extra, kind, order or visual mismatches.
+Full native outline coverage and actual active-contour measurement remain open.
+
+Changes for the clients (d8f74ff capture evidence): all 19 Windows-reference
+scenes completed; the shared checker passes 69 Node and 359 Python tests in CI.
+The group reference logo and actual Windows SVG Image both project independently
+to `vector-image-v1`. macOS's actual ordered logo draw parameters are merged in
+`5d789e9`; its native build/tests pass in run `41000400641`. Windows's new real
+ellipsis tests expose an inline metrics height assumption and remain failed;
+the core 28 tests pass. No element-parity acceptance is claimed.
+
+The Windows panel-hover receipt exposed a real delayed empty tooltip: the
+resize handles had cached their strings before `/api/i18n` arrived. Their live
+labels now refresh with menus/language. Capture waits, with bounded recorded
+observations, for actual pointer-release/layout events to establish idle hover;
+it never synthesizes another input or forces a visual state. A tooltip that
+changes between PNG and extraction remains a failed checkpoint. Custom toggle
+and scrollbar page controls explicitly clear unused default gradient borders;
+their actual track/thumb paint remains independently recorded.
+
 Changes for the clients (actual sidebar preview trimming): the Windows group and
 private preview entry now uses its production DirectWrite layout for CHARACTER
 trimming, the real ellipsis inline object, and recorded DrawInlineObject/glyph

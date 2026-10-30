@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     private bool sideOpen = true, panelOpen = true;
     private double sideWidth = 276, panelWidth = 340, fileWidth = 520;
     private Thumb? panelResize;
+    private readonly List<Thumb> paneResizeHandles = new();
     private string viewMode = "direct";
     private readonly List<(string Org, string Member)> history = new();
     private int historyIndex = -1;
@@ -111,12 +112,24 @@ public sealed partial class MainWindow
             var left = i == 0; var thumb = new Thumb { Width = 5, HorizontalAlignment = left ? HorizontalAlignment.Right : HorizontalAlignment.Left,
                 Style = (Style)Application.Current.Resources["RelicResizeThumbStyle"] };
             if (!left) panelResize = thumb;
-            thumb.Loaded += (_, _) => ToolTipService.SetToolTip(thumb, T("panel.resize"));
+            paneResizeHandles.Add(thumb);
+            thumb.Loaded += (_, _) => RefreshResizeLabels();
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
             thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else if (pane == "files") fileWidth = Math.Clamp(fileWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
             thumb.DragCompleted += (_, _) => SaveViewState();
         }
         root.SizeChanged += (_, _) => LayoutColumns();
+    }
+    private void RefreshResizeLabels()
+    {
+        // Handles load before the server's word list arrives. Do not cache an
+        // empty tooltip then; refresh the same controls when menus/language do.
+        var label = T("panel.resize");
+        foreach (var handle in paneResizeHandles)
+        {
+            AutomationProperties.SetName(handle, label);
+            ToolTipService.SetToolTip(handle, label.Length > 0 ? label : null);
+        }
     }
     private void PushHistory()
     {
@@ -166,6 +179,7 @@ public sealed partial class MainWindow
     private ComposerInput? editingComposer;
     private void BuildMenus()
     {
+        RefreshResizeLabels();
         CloseNativeMenu(); nativeMenus.Clear(); menu.Children.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
         StyleNativeMenuBar();

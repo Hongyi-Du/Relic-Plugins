@@ -155,6 +155,78 @@ const element = (bounds, values = {}) => ({
     textOverflow: 'clip', webkitLineClamp: 'none' }, ...values,
 });
 
+const pseudoLayoutMeasurement = vm.runInNewContext('(' + expression('pseudoLayoutMeasurement', 'snapshot') + ')');
+function togglePseudoLayout() {
+  // Actual d8f74ff group snapshot: backend520/pseudo node514 has BOTH rows.
+  // Last-row overwrite selected409 and hid the visible white14px thumb at408.
+  const layout = { nodeIndex: Array(410).fill(-1), bounds: Array(410).fill(null), paintOrders: Array(410).fill(null),
+    clientRects: Array(410).fill(null), offsetRects: Array(410).fill(null), scrollRects: Array(410).fill(null), text: Array(410).fill(-1) };
+  layout.nodeIndex[407] = 513; layout.bounds[407] = [1117, 289.78125, 32, 18]; layout.paintOrders[407] = 138;
+  for (const row of [408, 409]) {
+    layout.nodeIndex[row] = 514; layout.paintOrders[row] = 139;
+    layout.clientRects[row] = [0, 0, 14, 14]; layout.offsetRects[row] = [2, 2, 14, 14]; layout.scrollRects[row] = [0, 0, 14, 14];
+  }
+  layout.bounds[408] = [1119, 291.78125, 14, 14]; layout.bounds[409] = [0, 0, 0, 0];
+  return layout;
+}
+
+test('actual toggle after pseudo keeps its14px visible box despite a later zero-area layout row', () => {
+  const layout = togglePseudoLayout(), original = structuredClone(layout);
+  const measured = normalize(pseudoLayoutMeasurement(514, layout, { scrollOffsetX: 0, scrollOffsetY: 0 }));
+  assert.deepEqual(measured.bounds, { x: 1119, y: 291.78125, width: 14, height: 14 });
+  assert.equal(measured.layout_index, 408); assert.equal(measured.paint_order, 139);
+  assert.deepEqual(measured.selected_layout_indices, [408]); assert.deepEqual(measured.problems, []);
+  assert.deepEqual(measured.layout_rows.map(row => row.source_bounds), [[1119, 291.78125, 14, 14], [0, 0, 0, 0]]);
+  assert.deepEqual(measured.layout_rows.map(row => row.text_index), [-1, -1]);
+  assert.deepEqual(layout, original, 'Raw snapshot rows, including zero-area records, are never rewritten');
+  const owner = element({ x: 1117, y: 289.78125, width: 32, height: 18 });
+  assert.deepEqual(normalize(visibleRect(owner, measured.bounds)), measured.bounds, 'The actual circle remains eligible for visible pseudo emission');
+  const radius = vm.runInNewContext('(' + expression('radius', 'hasClass') + ')', { number: value => Number.parseFloat(value) });
+  assert.equal(radius('50%', owner, measured.bounds), 7, 'Percentage radius uses the actual14px pseudo box, never the owner or zero row');
+});
+
+test('pseudo geometry follows actual unique positive bounds regardless of row order or document scroll', () => {
+  const layout = togglePseudoLayout();
+  [layout.bounds[408], layout.bounds[409]] = [layout.bounds[409], layout.bounds[408]];
+  const measured = normalize(pseudoLayoutMeasurement(514, layout, { scrollOffsetX: 100, scrollOffsetY: 20 }));
+  assert.deepEqual(measured.bounds, { x: 1019, y: 271.78125, width: 14, height: 14 });
+  assert.equal(measured.layout_index, 409); assert.deepEqual(measured.selected_layout_indices, [409]);
+  assert.equal(measured.layout_rows.length, 2); assert.deepEqual(measured.problems, []);
+});
+
+test('multiple distinct actual pseudo boxes stay ambiguous without guessed unions or chosen fragments', () => {
+  const layout = togglePseudoLayout(); layout.bounds[409] = [1133, 291.78125, 14, 14];
+  const measured = normalize(pseudoLayoutMeasurement(514, layout, {}));
+  assert.equal(measured.bounds, null); assert.equal(measured.layout_index, null); assert.equal(measured.paint_order, null);
+  assert.deepEqual(measured.selected_layout_indices, []); assert.equal(measured.layout_rows.length, 2);
+  assert.ok(measured.problems.some(problem => /multiple distinct/.test(problem.reason)));
+});
+
+test('missing, zero-only and malformed pseudo layout remain explicit failures instead of claimed hidden paint', () => {
+  for (const alteration of [
+    value => { value.nodeIndex[408] = value.nodeIndex[409] = -1; },
+    value => { value.bounds[408] = [0, 0, 0, 0]; },
+    value => { value.bounds[409] = [0, 0, -1, 14]; },
+    value => { value.bounds[409] = null; },
+  ]) {
+    const layout = togglePseudoLayout(); alteration(layout);
+    const measured = normalize(pseudoLayoutMeasurement(514, layout, {}));
+    assert.equal(measured.bounds, null); assert.ok(measured.problems.some(problem => problem.property === 'pseudo.bounds'));
+  }
+});
+
+test('identical actual positive pseudo rectangles retain all rows and do not guess conflicting paint order', () => {
+  const layout = togglePseudoLayout(); layout.bounds[409] = [...layout.bounds[408]];
+  const measured = normalize(pseudoLayoutMeasurement(514, layout, {}));
+  assert.deepEqual(measured.bounds, { x: 1119, y: 291.78125, width: 14, height: 14 });
+  assert.equal(measured.layout_index, null); assert.deepEqual(measured.selected_layout_indices, [408, 409]);
+  assert.equal(measured.paint_order, 139); assert.deepEqual(measured.problems, []);
+  layout.paintOrders[409] = 140;
+  const conflicting = normalize(pseudoLayoutMeasurement(514, layout, {}));
+  assert.deepEqual(conflicting.bounds, measured.bounds); assert.equal(conflicting.paint_order, null);
+  assert.ok(conflicting.problems.some(problem => problem.property === 'pseudo.paint_order'));
+});
+
 function disclosure(tag, children = [], open = false, bounds = { x: 377, y: 575.59375, width: 686, height: 19.1875 }) {
   const node = element(bounds, { localName: tag, children, open,
     selector: tag, getAttribute(name) { return name === 'open' && this.open ? '' : null; },
@@ -613,7 +685,7 @@ function matrix(a, b = 0, c = 0, d = a, e = 0, f = 0) {
 }
 function strokeReader() {
   const errors = [];
-  const read = vm.runInNewContext('(' + expression('svgStrokeData', 'styleData') + ')', {
+  const read = vm.runInNewContext('(' + expression('svgStrokeData', 'outlineData') + ')', {
     SVGElement: SVGElementFixture, SVGGeometryElement: SVGGeometryFixture, svgStrokes: new WeakMap(),
     styleOf: shape => shape.style, pathOf: () => '#actual-path', cumulativeOpacity: () => 1,
     color: () => [112, 88, 184, 255], nodeIds: new WeakMap(), unmeasured: errors,
@@ -698,6 +770,7 @@ test('CSS border styles preserve each side and do not invent dashed paint length
     number: value => Number.parseFloat(value), radius: () => 0, SVGElement: SVGElementFixture,
     color: value => value, pathOf: () => '#real-border', cumulativeOpacity: () => 1,
     shadowData: () => [], backgroundData: () => 'none', svgStrokeData: () => null,
+    outlineData: () => ({ value: 'none' }),
   });
   const style = { fontSize: '14px', fontWeight: '400', color: '#111111', backgroundColor: '#ffffff',
     borderTopWidth: '1px', borderRightWidth: '2px', borderBottomWidth: '0px', borderLeftWidth: '3px',
@@ -708,6 +781,106 @@ test('CSS border styles preserve each side and do not invent dashed paint length
   assert.deepEqual(result.border_widths, [1, 2, 0, 3]);
   assert.equal(result.border_dash, undefined, 'CSS dashed does not expose the UA-selected dash/gap lengths');
   assert.equal(result.stroke_dash, null);
+});
+
+function outlineFixture(changes = {}) {
+  const style = { outlineStyle: 'dashed', outlineWidth: '1.5px', outlineOffset: '-1.5px', outlineColor: 'rgb(143, 140, 134)',
+    transform: 'none', perspective: 'none', zoom: '1', scale: 'none', rotate: 'none', translate: 'none', ...changes };
+  const bounds = { x: 22, y: 84, width: 22, height: 22 };
+  const owner = { localName: 'span', parentElement: null, style, getBoundingClientRect: () => bounds, getClientRects: () => [bounds] };
+  const computed = vm.runInNewContext('(' + expression('computedSrgb', 'color') + ')');
+  const read = vm.runInNewContext('(' + expression('outlineData', 'styleData') + ')', {
+    pathOf: () => '#actual-outline-owner', rect: box => ({ ...box }), styleOf: el => el.style, SVGElement: SVGElementFixture,
+    color: value => computed(value).rgba,
+  });
+  return { owner, style, bounds, read };
+}
+
+test('computed outline is independent from the 22px owner box and has no inferred dashed contour', () => {
+  const { owner, style, bounds, read } = outlineFixture();
+  const result = normalize(read(owner, style));
+  assert.deepEqual(result.value, { style: 'dashed', color: [143, 140, 134, 255], width: 1.5, offset: -1.5,
+    dash: null, dash_offset: null, contour: null });
+  assert.equal(result.evidence.absence_proven, false);
+  assert.deepEqual(result.evidence.owner_bounds, bounds); assert.deepEqual(result.evidence.owner_client_rects, [bounds]);
+  assert.equal(result.evidence.outline_to_window_scale, 1);
+  assert.deepEqual(result.evidence.computed, { style: 'dashed', color: style.outlineColor, width: '1.5px', offset: '-1.5px' });
+  assert.deepEqual(result.problems.map(problem => problem.property), ['style.outline.dash', 'style.outline.dash_offset', 'style.outline.contour']);
+});
+
+test('outline records the actual computed width including UA snapping instead of stylesheet constants', () => {
+  const { owner, style, read } = outlineFixture({ outlineWidth: '1px' });
+  const result = normalize(read(owner, style));
+  assert.equal(result.value.width, 1, 'The declared 1.5px subgroup style cannot replace an actual 1px computed value');
+  assert.equal(result.value.offset, -1.5); assert.equal(result.evidence.computed.width, '1px');
+  assert.equal(result.value.contour, null);
+});
+
+test('none requires actual nonpainting outline evidence and zero auto width is not absence', () => {
+  for (const changes of [{ outlineStyle: 'none', outlineWidth: '3px' }, { outlineStyle: 'solid', outlineWidth: '0px' }]) {
+    const { owner, style, read } = outlineFixture(changes), result = normalize(read(owner, style));
+    assert.equal(result.value, 'none'); assert.equal(result.evidence.absence_proven, true);
+    assert.deepEqual(result.problems, []); assert.ok(result.evidence.absence_reason);
+  }
+  const { owner, style, read } = outlineFixture({ outlineStyle: 'auto', outlineWidth: '0px' });
+  const automatic = normalize(read(owner, style));
+  assert.equal(automatic.value.style, 'auto'); assert.equal(automatic.value.width, null); assert.equal(automatic.value.color, null);
+  assert.equal(automatic.evidence.absence_proven, false); assert.equal(automatic.evidence.computed.width, '0px');
+  assert.ok(automatic.problems.some(problem => problem.property === 'style.outline.auto_paint'));
+});
+
+test('solid outline has no dash subdivision but its actual contour remains unknown', () => {
+  const { owner, style, read } = outlineFixture({ outlineStyle: 'solid', outlineWidth: '2px', outlineOffset: '1px',
+    outlineColor: 'color(srgb 1 0.5 0.25 / 0.6)' });
+  const result = normalize(read(owner, style));
+  assert.deepEqual(result.value.dash, []); assert.equal(result.value.dash_offset, null, 'Continuous paint has no applicable dash phase, not a measured zero');
+  assert.deepEqual(result.value.color, [255, 127.5, 63.75, .6 * 255]);
+  assert.equal(result.value.contour, null); assert.equal(result.value.offset, 1);
+  assert.deepEqual(result.problems.map(problem => problem.property), ['style.outline.contour']);
+});
+
+test('transformed or unresolved outline units preserve local evidence without guessed window lengths', () => {
+  for (const changes of [{ transform: 'matrix(2, 0, 0, 1, 0, 0)' }, { zoom: '1.25' }, { scale: '2 2' },
+    { rotate: '30deg' }, { translate: '10px 0px' }]) {
+    const { owner, style, read } = outlineFixture(changes), result = normalize(read(owner, style));
+    assert.equal(result.value.width, null); assert.equal(result.value.offset, null);
+    assert.equal(result.evidence.local_width, 1.5); assert.equal(result.evidence.local_offset, -1.5);
+    assert.ok(result.problems.some(problem => problem.property === 'style.outline.coordinate_space'));
+  }
+  const f = outlineFixture({ outlineWidth: 'medium', outlineOffset: 'calc(1px + 2%)' }), result = normalize(f.read(f.owner, f.style));
+  assert.equal(result.value.width, null); assert.equal(result.value.offset, null);
+  assert.equal(result.evidence.computed.offset, 'calc(1px + 2%)');
+  assert.ok(result.problems.some(problem => problem.property === 'style.outline.width'));
+  assert.ok(result.problems.some(problem => problem.property === 'style.outline.offset'));
+});
+
+test('style extraction keeps outline separate from an actual zero border', () => {
+  const f = outlineFixture();
+  const read = vm.runInNewContext('(' + expression('styleData', 'stateOf') + ')', {
+    number: value => Number.parseFloat(value), radius: () => 6, SVGElement: SVGElementFixture,
+    color: value => value, pathOf: () => '#actual-outline-owner', cumulativeOpacity: () => 1,
+    shadowData: () => [], backgroundData: () => 'none', svgStrokeData: () => null, outlineData: f.read,
+  });
+  for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+    f.style['border' + side + 'Width'] = '0px'; f.style['border' + side + 'Style'] = 'none'; f.style['border' + side + 'Color'] = 'rgb(143, 140, 134)';
+  }
+  const result = normalize(read(f.owner, f.style, false));
+  assert.equal(result.border_width, 0); assert.deepEqual(result.border_widths, [0, 0, 0, 0]);
+  assert.deepEqual(result.border_styles, ['none', 'none', 'none', 'none']);
+  assert.equal(result.outline.width, 1.5); assert.equal(result.outline.offset, -1.5); assert.equal(result.outline.contour, null);
+});
+
+test('a real outline-only DOM box remains a painted element rather than a layout-only wrapper', () => {
+  const f = outlineFixture();
+  f.owner.localName = 'div'; f.owner.getAttribute = () => null; f.owner.matches = () => false;
+  Object.assign(f.style, { backgroundColor: 'rgba(0,0,0,0)', boxShadow: 'none', backgroundImage: 'none' });
+  for (const side of ['Top', 'Right', 'Bottom', 'Left']) f.style['border' + side + 'Width'] = '0px';
+  const read = vm.runInNewContext('(' + expression('kindOf', 'semanticOwnerKinds') + ')', {
+    document: { body: {} }, supplementalRegionEvidence: () => null, panelResizeEvidence: () => null,
+    color: () => [0, 0, 0, 0], pathOf: () => '#actual-outline-owner', number: value => Number.parseFloat(value),
+  });
+  assert.equal(read(f.owner, f.style, null), 'card');
+  f.style.outlineStyle = 'none'; assert.equal(read(f.owner, f.style, null), null);
 });
 
 test('current chart organization is distinct from selection and uses actual aria-current', () => {

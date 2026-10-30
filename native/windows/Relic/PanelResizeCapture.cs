@@ -68,6 +68,7 @@ public sealed partial class MainWindow
         };
         await CaptureMovePointer(start);
         await Task.Delay(100); root.UpdateLayout();
+        await AwaitPanelResizeHover("initial-hover");
         capturedPanelResizeEvidence["hover"] = ObservePanelResizeState();
         RequirePanelResizeHover();
         if (scene == "panel-resized")
@@ -85,6 +86,7 @@ public sealed partial class MainWindow
             finally { CapturePointerButton(false); }
         }
         await Task.Delay(150); root.UpdateLayout();
+        await AwaitPanelResizeHover("after-action-hover");
         var after = ObservePanelResizeState(); capturedPanelResizeEvidence["after"] = after;
         var paneAfter = inspectorSurface.TransformToVisual(root).TransformBounds(new Rect(0, 0, inspectorSurface.ActualWidth, inspectorSurface.ActualHeight));
         var delta = new JsonObject { ["x"] = paneAfter.X - paneBefore.X, ["y"] = paneAfter.Y - paneBefore.Y,
@@ -201,13 +203,42 @@ public sealed partial class MainWindow
         };
     }
 
+    private static bool IsObservedPanelResizeHover(JsonObject state)
+    {
+        var handle = state["handle"]!;
+        return handle["hover_observed_by_events"]?.GetValue<bool>() == true
+            && handle["pointer_hit_test_contains_handle"]?.GetValue<bool>() == true
+            && handle["dragging"]?.GetValue<bool>() == false && state["pointer"]!["left_button_pressed"]?.GetValue<bool>() == false
+            && handle["visual_states"]!.AsArray().OfType<JsonObject>().Any(item => item["group"]?.ToString() == "CommonStates" && item["current_state"]?.ToString() == "PointerOver");
+    }
+
+    private async Task AwaitPanelResizeHover(string phase)
+    {
+        // Pointer release/capture-lost and the layout caused by a real drag are
+        // queued independently. Wait for their observed result; do not create
+        // another input event, assign a visual state or move the cursor again.
+        var observations = new JsonArray();
+        var wait = new JsonObject { ["phase"] = phase, ["deadline_ms"] = 1000,
+            ["observations"] = observations, ["completed"] = false };
+        if (capturedPanelResizeEvidence!["hover_waits"] is not JsonArray waits)
+            capturedPanelResizeEvidence["hover_waits"] = waits = new JsonArray();
+        waits.Add(wait);
+        var timer = Stopwatch.StartNew();
+        while (true)
+        {
+            root.UpdateLayout();
+            var state = ObservePanelResizeState();
+            observations.Add(new JsonObject { ["elapsed_ms"] = timer.Elapsed.TotalMilliseconds, ["state"] = state });
+            if (IsObservedPanelResizeHover(state)) { wait["completed"] = true; return; }
+            if (timer.ElapsedMilliseconds >= 1000)
+                throw new InvalidOperationException("Actual panel resize hover did not settle within its observed deadline: " + phase);
+            await Task.Delay(25);
+        }
+    }
+
     private void RequirePanelResizeHover()
     {
-        var state = ObservePanelResizeState();
-        var handle = state["handle"]!;
-        if (!capturedPanelResizePointerOver || handle["pointer_hit_test_contains_handle"]?.GetValue<bool>() != true
-            || handle["dragging"]?.GetValue<bool>() == true || state["pointer"]!["left_button_pressed"]?.GetValue<bool>() == true
-            || !handle["visual_states"]!.AsArray().OfType<JsonObject>().Any(item => item["group"]?.ToString() == "CommonStates" && item["current_state"]?.ToString() == "PointerOver"))
+        if (!IsObservedPanelResizeHover(ObservePanelResizeState()))
             throw new InvalidOperationException("The actual pointer, hit test and production Thumb state do not establish an idle hover");
     }
 

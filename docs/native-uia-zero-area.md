@@ -126,3 +126,17 @@ factory slot 20、TextFormat/Layout slots 9/17、InlineObject slots 3/4；
 新的 receipt 提供可进一步验证的实际绘制来源；省略对象与 trim interval 的严格对应、
 最终截图可见字形的规范化几何、未知或失败 inline 绘制的完整覆盖仍需在 CI 实际证据中验证。
 `coverage_complete=false` 保留，因此相关未知不会被这批生产替换自动清除。
+
+下一批接线已将 `NativeLabel` 的 `paint_kind` 放在 `Panel` 分支之前，避免其真实字形控件被基类命中为矩形。
+字号、字重和 wrapping 来自同一生产 layout 的 `IDWriteTextFormat` getters；颜色来自该次真正创建
+D2D brush 的未栅格化输入。每个 XAML label 与 frame observer 的索引通过实际 `ReferenceEquals` 建立，
+projector 核对当前绑定、layout/surface/draw revision、成功 EndDraw、实际 getter 和 brush receipt 后
+才提供这些 canonical style 字段。实际提交的完整 glyph/face 记录另行保留，尚未把它们当作已证实的
+最终可见字体集合，也没有把 HitTest、ink 或 inline 布局尺寸填入 DOM 量纲的 text bounds。
+
+CI `5d789e9` 揭示原回归错误地要求省略对象 `GetMetrics.Height > 0`。微软对该结构的定义是
+inline 对象的**布局尺寸**，没有承诺它的 height 是正面积字形边界；现有失败日志本身只证明
+该大于零条件不成立，不能据此声明已观察到精确零值。回归改为要求有限、非负 height，保留原值，
+并通过真实 `layout.Draw`、真实省略对象的 `Draw` 和生产 `NativeLabelRenderer` 验证实际 glyph 提交。
+测试仅将末端 D2D sink 替换为记录 stub，因此其通过只证明调用与字形提交，不声称产生了真实 PNG
+或测得 ink；真正像素验证仍由 CI 应用截图和 surface readback 执行。没有修改任何几何或颜色容差。

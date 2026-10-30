@@ -21,11 +21,12 @@ def element(eid="r0", text="今天 11:00", order=0, kind="text", region="convers
                       "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0,
                       "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)], "corner_radii": [0, 0, 0, 0],
                       "border_styles": ["none"] * 4,
-                      "opacity": 1, "background_image": "none", "shadow": [],
+                      "opacity": 1, "background_image": "none", "shadow": [], "outline": "none",
                       "rendered_fonts": [{"family_name": "Fixture Sans", "postscript_name": "FixtureSans-Regular", "glyph_count": 8, "is_custom_font": False}]},
             "state": {key: None for key in STATE_FIELDS},
             "layout": {"wrap": "none", "truncation": "none", "line_count": 1}, "icon": None,
-            "evidence": {"source": "test-only fixture", "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}}
+            "evidence": {"source": "test-only fixture", "outline": {"absence_proven": True, "source": "synthetic fixture with no outline"},
+                         "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}}
 
 
 def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group", viewport=None):
@@ -185,6 +186,69 @@ class ElementComparisonTests(unittest.TestCase):
         for altered in (changed, color, path):
             b["icon"] = altered
             self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_measured_icon_anchors_stop_shift_after_a_missing_toolbar_glyph(self):
+        def icon_item(eid, order, path):
+            item = element(eid, text="", order=order, kind="icon", region="header")
+            item["icon"] = {"source": "svg", "glyph": json.dumps({"tag": "path", "attributes": {"d": path}, "children": []})}
+            return item
+        refs = [icon_item("sidebar", 0, "M1 1L2 2"), icon_item("back", 1, "M2 1L1 2"), icon_item("forward", 2, "M1 2L2 1")]
+        natives = [icon_item("native-back", 0, "M2 1L1 2"), icon_item("native-forward", 1, "M1 2L2 1")]
+        result = compare_elements(refs, natives)
+        self.assertEqual([("back", "native-back"), ("forward", "native-forward")], [(p["reference"], p["native"]) for p in result["pairs"]])
+        self.assertEqual(["sidebar"], [row["reference"] for row in result["missing"]])
+        self.assertFalse(result["extra"])
+        self.assertFalse(result["icon_mismatch"])
+
+    def test_repeated_icon_anchors_keep_reading_order_and_report_real_differences(self):
+        refs = [element("r0", text="", order=0, kind="image"), element("r1", text="", order=1, kind="image")]
+        natives = [element("n0", text="", order=0, kind="image"), element("n1", text="", order=1, kind="image")]
+        for item in refs + natives: item["icon"] = vector_image_fixture()
+        natives[0]["bounds"]["x"] += 10
+        natives[1]["style"]["opacity"] = .5
+        pairs, missing, extra = match_elements(refs, natives)
+        self.assertEqual([(0, 0), (1, 1)], pairs)
+        self.assertFalse(missing); self.assertFalse(extra)
+        result = compare_elements(refs, natives)
+        self.assertTrue(result["geometry_out_of_tolerance"])
+        self.assertTrue(result["style_out_of_tolerance"])
+
+    def test_icon_anchors_retain_swap_order_kind_and_text_failures(self):
+        a, b = element("a", text="", order=0, kind="image"), element("b", text="", order=1, kind="image")
+        a["icon"] = vector_image_fixture(); b["icon"] = vector_image_fixture()
+        b["icon"]["glyph"]["layers"][2]["radius"] = 3
+        nb, na = deepcopy(b), deepcopy(a)
+        nb.update(id="nb", order=0, name="actual other name", kind="icon")
+        na.update(id="na", order=1)
+        result = compare_elements([a, b], [nb, na])
+        self.assertEqual(2, len(result["order_mismatch"]))
+        self.assertTrue(result["kind_mismatch"])
+        self.assertTrue(result["text_mismatch"])
+
+    def test_invalid_or_transport_only_icons_cannot_anchor_pairing(self):
+        from element_parity import measured_icon_anchor
+        for icon in ({"source": "image", "glyph": "same-url.svg"},
+                     {"source": "font", "glyph": "E123"},
+                     {"source": "svg", "glyph": "unparsed"},
+                     {"source": "vector-image-v1", "glyph": {}}):
+            item = element(text="", kind="icon"); item["icon"] = icon
+            self.assertIsNone(measured_icon_anchor(item))
+        first, second = element(text="", region="header"), element(text="", region="sidebar")
+        first["icon"] = vector_image_fixture(); second["icon"] = vector_image_fixture()
+        self.assertNotEqual(measured_icon_anchor(first), measured_icon_anchor(second))
+
+    def test_icon_anchor_never_equates_boolean_and_numeric_values(self):
+        from element_parity import measured_icon_anchor
+        numeric, boolean = element(text=""), element(text="")
+        tree = {"tag": "circle", "attributes": {"r": 1}, "children": []}
+        numeric["icon"] = {"source": "svg", "glyph": json.dumps(tree)}
+        tree["attributes"]["r"] = True
+        boolean["icon"] = {"source": "svg", "glyph": json.dumps(tree)}
+        self.assertIsNotNone(measured_icon_anchor(numeric))
+        self.assertIsNone(measured_icon_anchor(boolean))
+        boolean["icon"] = vector_image_fixture()
+        boolean["icon"]["glyph"]["layers"][2]["radius"] = True
+        self.assertIsNone(measured_icon_anchor(boolean))
 
     def test_svg_identity_compares_parsed_tree_without_json_serialization_noise(self):
         a, b = element(), element("n")
