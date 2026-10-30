@@ -59,9 +59,14 @@ import AppKit
         let sample = Rectangle().fill(Color.black).frame(width: 20, height: 20)
             .frame(width: 100, height: 100)
             .modifier(RecordedSurface(background: .white, radius: 10, shadows: [SurfaceShadow(color: .black, radius: 8, x: 0, y: 6)]))
-        let renderer = ImageRenderer(content: sample)
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.cgImage), bitmap = NSBitmapImageRep(cgImage: image)
+        // The production outline is now an actual AppKit overlay. ImageRenderer
+        // substitutes unsupported-view placeholder paint for that layer, so
+        // inspect the same real hosting-view cache as the window capture.
+        let host = NSHostingView(rootView: sample)
+        host.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
         for point in [(30,50), (50,70), (70,50), (50,30)] {
             let color = try XCTUnwrap(bitmap.colorAt(x: point.0, y: point.1)?.usingColorSpace(.sRGB))
             XCTAssertEqual(color.redComponent, 1, accuracy: 0.01)

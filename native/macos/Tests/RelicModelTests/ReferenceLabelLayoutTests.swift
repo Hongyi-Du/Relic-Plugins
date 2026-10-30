@@ -39,6 +39,10 @@ import AppKit
         let measured = NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: (source as NSString).length))
         XCTAssertTrue(measured.complete)
         XCTAssertEqual(measured.rectangles.count, 3)
+        let rows = ElementCapture.textRuns(view)
+        let layout = try XCTUnwrap(rows.first?["layout"] as? [String: Any])
+        XCTAssertEqual(layout["wrap"] as? String, "word", "A measured three-line paragraph keeps word wrapping before its clamped last line")
+        XCTAssertEqual(layout["truncation"] as? String, "ellipsis")
         XCTAssertEqual(view.frame, NSRect(x: 0, y: 0, width: 307, height: 60))
     }
 

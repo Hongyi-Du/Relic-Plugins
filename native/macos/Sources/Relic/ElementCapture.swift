@@ -206,9 +206,13 @@ import CoreText
             }
             if advances.envelope != nil { lines = advances.rectangles.map { box($0.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)) } }
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
-            let mode = container.maximumNumberOfLines > 0 ? container.lineBreakMode : paragraph?.lineBreakMode ?? container.lineBreakMode
+            // A multi-line clamp still wraps paragraphs before the final line.
+            // Keep its paragraph wrapping and its container's final-line
+            // truncation as independent measured native configuration values.
+            let mode = container.maximumNumberOfLines == 1 ? container.lineBreakMode : paragraph?.lineBreakMode ?? container.lineBreakMode
+            let tailMode = container.maximumNumberOfLines > 0 ? container.lineBreakMode : mode
             let wrap = mode == .byCharWrapping ? "character" : mode == .byWordWrapping ? "word" : "none"
-            let truncation = [.byTruncatingHead, .byTruncatingMiddle, .byTruncatingTail].contains(mode) ? "ellipsis" : mode == .byClipping ? "clip" : "none"
+            let truncation = [.byTruncatingHead, .byTruncatingMiddle, .byTruncatingTail].contains(tailMode) ? "ellipsis" : tailMode == .byClipping ? "clip" : "none"
             let font = attributes[.font] as? NSFont ?? view.font
             let measuredSizes = Set(fonts.map { Double($0.pointSize) })
             let measuredWeights = Set(fonts.map { cssWeight($0) })
@@ -216,6 +220,8 @@ import CoreText
                 "local_rect": NSValue(rect: rect), "lines": lines,
                 "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
                 "native_insertion_geometry": advances.lines, "native_ink_envelope": box(inkEnvelope),
+                "native_line_break_configuration": ["paragraph_mode": paragraph?.lineBreakMode.rawValue as Any? ?? NSNull(),
+                    "container_mode": container.lineBreakMode.rawValue, "maximum_lines": container.maximumNumberOfLines],
                 "kind": attributes[.link] == nil ? "text" : "link",
                 "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
                 "native_attribute_runs": attributeRuns,
@@ -269,7 +275,7 @@ import CoreText
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
+            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
             if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }

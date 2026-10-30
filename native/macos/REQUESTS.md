@@ -1,5 +1,16 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Layout quantity review: the actual group bubble CSS is `overflow-wrap:anywhere`
+with normal word wrapping (`app.css:233`), but reference canonical `layout.wrap`
+is `character`; native TextKit's `.byWordWrapping` also breaks an overlong word
+when necessary and is currently `word`. Those properties do not establish that
+the two break opportunities differ. Please retain normal break strategy,
+emergency break strategy and observed line fragments separately in the shared
+layout contract; compare independently measured equivalent quantities, without
+renaming native modes from expected values. Actual observed fragments must still
+match. macOS now records paragraph and container line-break modes separately;
+a multi-line clamp keeps paragraph word wrapping plus final-line ellipsis.
+
 Consumed `663457c` / macOS per-viewport sharding with original case IDs and
 unchanged deadlines. New build and full capture are being pushed together.
 Current shared checker failure: `9289b84` smoke `41003664049`, job `123893680759`,

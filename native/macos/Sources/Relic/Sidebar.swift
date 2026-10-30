@@ -13,10 +13,11 @@ struct Sidebar: View {
                     HStack(spacing: 10) { ReferenceIcon(name: "neworg", size: 17, owner: newOrganizationOwner); ReferenceLabel(m.t("common.new_org"), lines: 0, owner: newOrganizationOwner); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
                 }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier(newOrganizationOwner)
                 HStack(spacing: 8) {
-                    ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted)
+                    ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted, owner: "relic-card/sidebar-search")
                     TextField(m.t("page.search"), text: $m.search).textFieldStyle(.plain).focused($focused)
                     VoiceButton(text: $m.search).labelStyle(.iconOnly)
-                }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
+                }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/sidebar-search"))
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
             ScrollView {
                 VStack(spacing: 0) {
@@ -44,7 +45,8 @@ struct Sidebar: View {
                     .help(m.t("page.me"))
                 IconButton(title: m.t("common.settings"), icon: "gear") { m.sheet = .settings }
             }.padding(8).padding(.top, 1)
-                .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card"))
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card", owner: "relic-card/sidebar-profile"))
+                .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-profile").accessibilityLabel("")
         }.padding(.trailing, 1).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
@@ -80,7 +82,7 @@ struct OrgTree: View {
                             .highPriorityGesture(TapGesture().onEnded { if active || !children.isEmpty { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
                         ReferenceLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144, lines: 2, owner: owner).frame(maxWidth: .infinity, alignment: .leading)
-                        if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, owner: owner) }
+                        if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: active || !children.isEmpty ? !folded : nil)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
@@ -100,7 +102,8 @@ struct OrgTree: View {
                             HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted, owner: "relic-text-button/add-member/" + id); ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0, owner: "relic-text-button/add-member/" + id); Spacer(minLength: 0) }.padding(.horizontal, 8).padding(.vertical, 6)
                         }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-text-button/add-member/" + id)
                     }.padding(.leading, 15).padding(.top, 2).padding(.bottom, 8)
-                        .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "card")).padding(.leading, 10)
+                        .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "card", owner: "relic-card/org-children/" + id))
+                        .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/org-children/" + id).accessibilityLabel("").padding(.leading, 10)
                 }
             }
             if !folded { Rows(children) { child in AnyView(OrgTree(node: child, ancestors: ancestors.union([id]), depth: depth + 1)) } }
@@ -159,7 +162,7 @@ struct SidebarChatRow: View {
                     if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 3) {
-                    if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, owner: owner) }
+                    if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
                     if unread > 0 { NativeCountBadge(text: unread > 99 ? "99+" : String(unread)) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
