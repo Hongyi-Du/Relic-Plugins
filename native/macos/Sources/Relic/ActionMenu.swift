@@ -193,11 +193,13 @@ struct MenuItemStyle: ButtonStyle {
 struct Keycap: View {
     let value: String
     var menu = false
+    @State private var identity = "relic-chip/keycap/" + UUID().uuidString
     init(_ value: String, menu: Bool = false) { self.value = value; self.menu = menu }
     var body: some View {
-        ReferenceLabel(value, size: menu ? 11 : 11.5, color: menu ? RelicStyle.muted : RelicStyle.ink, lineHeight: menu ? 13 : 14, monospaced: true)
+        ReferenceLabel(value, size: menu ? 11 : 11.5, color: menu ? RelicStyle.muted : RelicStyle.ink, lineHeight: menu ? 13 : 14, owner: identity, monospaced: true)
             .fixedSize().padding(.horizontal, menu ? 0 : 7).padding(.top, menu ? 0 : 2).padding(.bottom, menu ? 0 : 3)
             .modifier(RecordedSurface(background: menu ? .clear : RelicStyle.hover, border: menu ? .clear : RelicStyle.border,
-                borderWidth: menu ? 0 : 1, radius: menu ? 0 : 5, edges: menu ? nil : EdgeInsets(top: 1, leading: 1, bottom: 2, trailing: 1), kind: "chip"))
+                borderWidth: menu ? 0 : 1, radius: 5, edges: menu ? nil : EdgeInsets(top: 1, leading: 1, bottom: 2, trailing: 1), kind: "chip", owner: identity))
+            .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
     }
 }

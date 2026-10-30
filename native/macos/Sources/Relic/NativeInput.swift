@@ -11,6 +11,7 @@ struct MentionEditor: NSViewRepresentable {
     @Binding var text: String
     var contextID = "main"
     var placeholder = ""
+    var accessibleName: String? = nil
     var focusChanged: (Bool) -> Void = { _ in }
     var pointSize: CGFloat? = nil
     var sendsOnReturn = true
@@ -33,7 +34,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
         editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
-        editor.placeholder = placeholder; editor.setAccessibilityLabel(placeholder); editor.focusChanged = focusChanged
+        editor.placeholder = placeholder; editor.setAccessibilityLabel(accessibleName ?? placeholder); editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
@@ -46,7 +47,7 @@ struct MentionEditor: NSViewRepresentable {
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
         editor.presentationModel = m; editor.composerID = contextID
-        editor.placeholder = placeholder; editor.setAccessibilityLabel(placeholder); editor.focusChanged = focusChanged
+        editor.placeholder = placeholder; editor.setAccessibilityLabel(accessibleName ?? placeholder); editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         editor.textColor = NSColor(textColor)
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
@@ -316,7 +317,7 @@ struct VoiceButton: View {
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, color: voice.recording ? RelicStyle.red : nil, action: toggle)
+            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, radius: size / 2, color: voice.recording ? RelicStyle.red : nil, action: toggle)
                 .disabled(voice.starting).accessibilityLabel(m.t("common.voice_input"))
                 .help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         }

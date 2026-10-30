@@ -10,6 +10,7 @@ struct ReferenceSelect: NSViewRepresentable {
     @Binding var selection: String
     let options: [(String, String)]
     var pointSize: CGFloat = 14
+    var accessibleName: String? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> ReferencePopUpButton {
         let view = ReferencePopUpButton(frame: .zero, pullsDown: false)
@@ -30,7 +31,7 @@ struct ReferenceSelect: NSViewRepresentable {
         }
         if let index = options.firstIndex(where: { $0.0 == selection }) { view.selectItem(at: index) }
         view.attributedTitle = NSAttributedString(string: view.title, attributes: [.font: RelicStyle.nativeFont(pointSize, weight: 400), .foregroundColor: NSColor(textColor), .tracking: 0])
-        view.configureAccessibility(title: title)
+        view.configureAccessibility(title: title, name: accessibleName)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferencePopUpButton, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: pointSize * 1.6)
@@ -51,12 +52,12 @@ struct ReferenceSelect: NSViewRepresentable {
 final class ReferencePopUpButton: NSPopUpButton {
     var arrowColor: NSColor = .labelColor { didSet { needsDisplay = true } }
     private(set) var arrowDraw: [String: Any]?
-    func configureAccessibility(title: String) {
+    func configureAccessibility(title: String, name: String? = nil) {
         let identity = "relic-dropdown/" + title
-        setAccessibilityLabel(title); setAccessibilityIdentifier(identity)
+        setAccessibilityLabel(name ?? title); setAccessibilityIdentifier(identity)
         // AppKit exposes the actual NSPopUpButtonCell as the AX element; the
         // backing NSView's metadata does not automatically reach that cell.
-        cell?.setAccessibilityLabel(title); cell?.setAccessibilityIdentifier(identity)
+        cell?.setAccessibilityLabel(name ?? title); cell?.setAccessibilityIdentifier(identity)
     }
     override func draw(_ dirtyRect: NSRect) {
         let context = NSGraphicsContext.current?.cgContext

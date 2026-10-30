@@ -16,7 +16,7 @@ struct OrganizationAvatar: View {
             .modifier(RecordedSurface(background: RelicStyle.avatar(node["id"].text, background: true, dark: false),
                 radius: 6, kind: "avatar", owner: identity,
                 rings: node["cabinet"].flag ? [SurfaceRing(width: 2, color: RelicStyle.card), SurfaceRing(width: 3.5, color: RelicStyle.violet)] : [],
-                outline: subgroup ? SurfaceOutline(width: 1.5, color: foreground, dash: [3, 3]) : nil))
+                outline: subgroup ? SurfaceOutline(width: 1, color: foreground, dash: [3, 3]) : nil))
             .saturation(desaturateEnded && ended ? 0 : 1)
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
     }

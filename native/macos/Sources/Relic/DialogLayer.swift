@@ -6,7 +6,17 @@ import RelicCore
 struct DialogLayer: View {
     @EnvironmentObject var m: Model
     let sheet: Model.Sheet
+    @State private var contentTitle = ""
     private var layout: DialogGeometry { DialogGeometry(kind: sheet.rawValue, window: m.windowSize) }
+    private var title: String {
+        switch sheet {
+        case .chart: return m.t("chart.title")
+        case .settings: return m.t("common.settings")
+        case .details: return m.t("details.dialog")
+        case .copies: return m.t("cc.title")
+        default: return contentTitle
+        }
+    }
     var body: some View {
         ZStack(alignment: sheet == .card ? .topLeading : .center) {
             Color.clear.contentShape(Rectangle())
@@ -35,7 +45,15 @@ struct DialogLayer: View {
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }.padding(14)
             }
         }.measuredRegion("dialog", createsAccessibilityContainer: false).accessibilityElement(children: .contain)
-            .accessibilityLabel(sheet == .chart ? m.t("chart.title") : "")
+            .accessibilityLabel(title)
+            .onPreferenceChange(DialogTitlePreference.self) { contentTitle = $0 }
+    }
+}
+
+struct DialogTitlePreference: PreferenceKey {
+    static var defaultValue = ""
+    static func reduce(value: inout String, nextValue: () -> String) {
+        let next = nextValue(); if !next.isEmpty { value = next }
     }
 }
 

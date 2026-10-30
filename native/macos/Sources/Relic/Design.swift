@@ -55,8 +55,12 @@ enum RelicStyle {
         let converted = NSFontManager.shared.convert(font, toHaveTrait: trait)
         // NSFontManager drops CoreText's optical-size attribute when selecting
         // a bold/italic face. Preserve the actual base font configuration.
-        guard let optical = CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute) else { return converted }
-        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: optical] as CFDictionary)
+        var attributes: [String: Any] = [:]
+        for key in [kCTFontOpticalSizeAttribute, kCTFontCascadeListAttribute] {
+            if let value = CTFontCopyAttribute(font as CTFont, key) { attributes[key as String] = value }
+        }
+        guard !attributes.isEmpty else { return converted }
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
         return CTFontCreateCopyWithAttributes(converted as CTFont, converted.pointSize, nil, descriptor) as NSFont
     }
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
@@ -67,7 +71,14 @@ enum RelicStyle {
             // PingFangUI resolves to a variable font on current macOS. The same
             // PostScript face has different advances without optical sizing;
             // use its public automatic optical-size setting, as the reference does.
-            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: "auto"] as CFDictionary)
+            // The reference's next installed family after PingFang is
+            // system-ui. AppKit's global cascade otherwise selects Lucida
+            // Grande for arrows, changing both the actual face and advance.
+            let fallback = NSFont.systemFont(ofSize: size, weight: weight >= 700 ? .bold : weight >= 550 ? .semibold : weight >= 500 ? .medium : .regular)
+            let descriptor = CTFontDescriptorCreateWithAttributes([
+                kCTFontOpticalSizeAttribute: "auto",
+                kCTFontCascadeListAttribute: [CTFontCopyFontDescriptor(fallback as CTFont)]
+            ] as CFDictionary)
             return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, descriptor) as NSFont
         }
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]
@@ -135,6 +146,7 @@ struct IconButton: View {
     var size: CGFloat = 18
     var height: CGFloat = 30
     var width: CGFloat = 30
+    var radius: CGFloat = 7
     var color: Color? = nil
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
@@ -143,7 +155,7 @@ struct IconButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) { ReferenceIcon(name: icon, size: size, color: !enabled ? RelicStyle.faint : hovering || selected ? RelicStyle.ink : color ?? RelicStyle.secondary, owner: controlIdentity).frame(width: width, height: height) }
-            .buttonStyle(QuietButtonStyle(selected: selected)).foregroundStyle(RelicStyle.secondary)
+            .buttonStyle(QuietButtonStyle(selected: selected, radius: radius)).foregroundStyle(RelicStyle.secondary)
             .onHover { hovering = $0 }
             .help(title).accessibilityLabel(title).accessibilityIdentifier(controlIdentity)
             .overlay(alignment: .topTrailing) { if badge > 0 { NativeCountBadge(text: String(badge), toolbar: true).allowsHitTesting(false) } }
