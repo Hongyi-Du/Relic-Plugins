@@ -27,7 +27,13 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                               font: NSFont, textMatrix: CGAffineTransform, attributes: [NSAttributedString.Key: Any] = [:], in context: CGContext) {
         if recordDraws, activeRange != nil {
             func transform(_ t: CGAffineTransform) -> [String: Double] { ["a": t.a, "b": t.b, "c": t.c, "d": t.d, "tx": t.tx, "ty": t.ty] }
-            func box(_ rect: CGRect) -> Any { rect.isInfinite || rect.isNull ? NSNull() : ElementCapture.box(rect) }
+            func box(_ rect: CGRect) -> Any {
+                rect.isInfinite || rect.isNull ? NSNull() : ["x": Double(rect.minX), "y": Double(rect.minY), "width": Double(rect.width), "height": Double(rect.height)]
+            }
+            let foreground: Any
+            if let color = (attributes[.foregroundColor] as? NSColor)?.usingColorSpace(.sRGB) {
+                foreground = [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent].map { Double($0 * 255) }
+            } else { foreground = NSNull() }
             var glyphBounds = Array(repeating: CGRect.zero, count: glyphCount)
             _ = CTFontGetBoundingRectsForGlyphs(font as CTFont, .default, glyphs, &glyphBounds, glyphCount)
             let variations = (CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber]).map { values in
@@ -39,7 +45,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "clip_user_space": box(context.boundingBoxOfClipPath),
                 "actual_font": ["postscript_name": font.fontName, "family_name": font.familyName as Any? ?? NSNull(), "size": font.pointSize, "variations": variations as Any? ?? NSNull()],
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
-                "foreground": ElementCapture.rgba(attributes[.foregroundColor] as? NSColor),
+                "foreground": foreground,
                 "bitmap_width": context.width, "bitmap_height": context.height])
         }
         super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
