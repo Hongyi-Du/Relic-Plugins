@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (new macOS ownership request under implementation): the
+owner added appkit-current-field-editor-v3 for ordinary native text fields, with
+actual base-class/currentEditor/controlView identities. Shared reader support is
+being implemented with the existing strict value/window/focus/unique-owner checks;
+until then v3 is not accepted. The new opaque-candidate diagnostics do not remove
+elements or establish visibility in the shared gate; unknown occlusion still fails.
+
+Changes for the clients (one producer-buffer hypothesis control): paint-only
+diagnostics accept an optional 16MiB producer SMB request, with default zero
+preserving the original launch. This uses the fixed Chromium feature parameter,
+preserves its observed screenshot feature, and records the actual trace command
+line. Actual SMB capacity and lost-packet content identity remain unmeasured.
+The central 200MiB buffer, three diagnostic scenes, trace categories and all loss/
+attribution failures stay unchanged. This is one causal experiment, not a repair
+claim or a new acceptance path; no further parameter sweep is authorized here.
+
 Changes for the clients (observer DPI contract): the out-of-process UIA observer
 now explicitly declares PerMonitorV2/asInvoker in its executable manifest. Six
 actual native thread-context readings bracket early UIA construction and window

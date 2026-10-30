@@ -23,6 +23,11 @@ on:
         description: In paint mode only, decode an existing browser SKP artifact without starting any app or browser
         type: string
         default: ''
+      paint_producer_smb_mib:
+        description: In paint mode only, producer SMB hypothesis; 0 unchanged or one 16 MiB comparison
+        type: choice
+        options: ['0', '16']
+        default: '0'
 permissions:
   contents: read
 concurrency:
@@ -47,6 +52,7 @@ jobs:
       language: en-US
       theme: light
       archive_run_id: ${{ inputs.paint_archive_run_id || '' }}
+      producer_smb_mib: ${{ inputs.paint_producer_smb_mib || '0' }}
   element-checker:
     if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     uses: ./.github/workflows/native-element-checks.yml

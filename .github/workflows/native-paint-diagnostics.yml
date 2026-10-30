@@ -1,5 +1,5 @@
 name: Native paint diagnostics
-run-name: Paint diagnostics ${{ github.ref_name }} ${{ inputs.language }} ${{ inputs.theme }}
+run-name: Paint diagnostics ${{ github.ref_name }} ${{ inputs.language }} ${{ inputs.theme }} producer-SMB-${{ inputs.producer_smb_mib || '0' }}MiB
 
 # Diagnostic-only: no push/PR trigger, native application, acceptance scene
 # filtering, or dependency on the full visual-review workflow.
@@ -21,6 +21,10 @@ on:
         description: Optional original browser diagnostic run to decode without new capture
         type: string
         default: ''
+      producer_smb_mib:
+        description: Diagnostic producer SMB hypothesis only; 0 unchanged or 16 MiB
+        type: string
+        default: '0'
   workflow_dispatch:
     inputs:
       language:
@@ -37,6 +41,11 @@ on:
         description: Optional original browser diagnostic run to decode without new capture
         type: string
         default: ''
+      producer_smb_mib:
+        description: Diagnostic producer SMB hypothesis only; does not change acceptance checks
+        type: choice
+        options: ['0', '16']
+        default: '0'
 
 permissions:
   contents: read
@@ -107,7 +116,10 @@ jobs:
           (directory / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
       - name: Collect original browser paint and post-navigation LayerTree evidence
         timeout-minutes: 5
-        run: python -X utf8 scripts/visual/paint_trace.py --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --scene file-markdown --width 1440 --height 900 --output visual/paint
+        shell: bash
+        env:
+          DIAGNOSTIC_PRODUCER_SMB_MIB: ${{ inputs.producer_smb_mib || '0' }}
+        run: python -X utf8 scripts/visual/paint_trace.py --producer-smb-mib "$DIAGNOSTIC_PRODUCER_SMB_MIB" --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --scene file-markdown --width 1440 --height 900 --output visual/paint
       - name: Retain original diagnostic records even when collection fails
         if: always()
         uses: actions/upload-artifact@v4

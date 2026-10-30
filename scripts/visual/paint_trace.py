@@ -11,6 +11,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -49,9 +50,50 @@ def trace_category_receipt(parameters):
         "final_scene_attribution": None, "canonical_measurements_changed": False}
 
 
-def launch_browser(playwright, channel="headless-shell"):
+def producer_smb_request(mib):
+    if type(mib) is not int or mib not in (0, 16):
+        raise ValueError("Producer SMB diagnostic accepts only 0 (unchanged) or 16 MiB (one control).")
+    # The BASE_FEATURE string is literally "kPerfettoBackendParams" in this
+    # fixed Chromium version. Preserve the other enable-feature observed in
+    # both d59bede Windows browser command lines; replacing that switch with
+    # only the SMB feature would also change screenshot behavior.
+    argument = ("--enable-features=CDPScreenshotNewSurface,"
+                "kPerfettoBackendParams:shared_memory_size_bytes/16777216") if mib else None
+    return {"requested_mib": mib, "requested_bytes": mib * 1024 * 1024 if mib else None,
+        "requested_argument": argument, "mode": "one-hypothesis-control" if mib else "unchanged-default",
+        "preserved_enabled_features": ["CDPScreenshotNewSurface"] if mib else [],
+        "baseline_source": "paint-d59bede Windows chromium and headless-shell trace metadata.command_line",
+        "configuration_source": "https://github.com/chromium/chromium/blob/156.0.8078.4/services/tracing/public/cpp/tracing_features.cc#L25-L67",
+        "hypothesis": "Increasing producer SMB capacity may reduce writer packet loss; this is not an established fix.",
+        "actual_capacity_bytes": None, "actual_capacity_directly_measured": False,
+        "lost_packet_content_attribution": None, "canonical_measurements_changed": False}
+
+
+def producer_smb_receipt(mib, command_line):
+    receipt = producer_smb_request(mib)
+    receipt.update({"command_line_source": "Actual trace metadata.command_line", "actual_command_line": command_line,
+                    "actual_enable_feature_values": None, "requested_argument_observed": None, "errors": []})
+    if isinstance(command_line, str) and command_line:
+        values = re.findall(r'(?:^|\s)--enable-features=("[^"]*"|[^\s]+)', command_line)
+        receipt["actual_enable_feature_values"] = values
+        if mib:
+            # Chromium's final same-name command-line switch is authoritative.
+            # Check its actual contents, not a match in an earlier overridden
+            # switch or in a longer numeric value.
+            features = set(values[-1].strip('"').split(',')) if values else set()
+            receipt["requested_argument_observed"] = {
+                "CDPScreenshotNewSurface", "kPerfettoBackendParams:shared_memory_size_bytes/16777216"} <= features
+    if mib and receipt["requested_argument_observed"] is not True:
+        receipt["errors"].append("Requested producer SMB feature and preserved screenshot feature were not both observed in the actual final enable-features switch.")
+    return receipt
+
+
+def launch_browser(playwright, channel="headless-shell", producer_smb_mib=0):
     # Playwright otherwise hides production scrollbars even in the reference.
     options = {"headless": True, "args": ["--disable-dev-shm-usage"], "ignore_default_args": ["--hide-scrollbars"]}
+    argument = producer_smb_request(producer_smb_mib)["requested_argument"]
+    if argument:
+        options["args"].append(argument)
     if channel == "chromium":
         options["channel"] = "chromium"
     elif channel != "headless-shell":
@@ -477,10 +519,12 @@ def markdown_scene_receipt(page, fixture, output):
     return receipt
 
 
-def collect_scene(browser, context, manifest, case, output, source):
+def collect_scene(browser, context, manifest, case, output, source, producer_smb_mib=0):
     output.mkdir(parents=True)
     report = {"scene_id": case["id"], "status": "failed", "measurement_status": "unresolved",
-              "glyph_bounds": None, "scrollbar_parts": None, "errors": [], "trace_categories": TRACE_CATEGORIES}
+              "glyph_bounds": None, "scrollbar_parts": None, "errors": [], "trace_categories": TRACE_CATEGORIES,
+              "producer_smb_request": producer_smb_request(producer_smb_mib)}
+    write_json(output / "producer-smb-request.json", report["producer_smb_request"])
     page = context.new_page()
     page.set_viewport_size({"width": case["width"], "height": case["height"]})
     page.clock.set_fixed_time(manifest["fixture"]["clock"])
@@ -618,6 +662,11 @@ def collect_scene(browser, context, manifest, case, output, source):
                 diagnostics = trace_diagnostics(trace, index)
                 write_json(output / "trace-diagnostics.json", diagnostics)
                 command_line = diagnostics["command_line"]
+                smb_receipt = producer_smb_receipt(producer_smb_mib, command_line)
+                report["producer_smb_receipt"] = smb_receipt
+                write_json(output / "producer-smb-receipt.json", smb_receipt)
+                report["errors"].extend({"source": "producer_smb_command_line", "reason": reason}
+                                        for reason in smb_receipt["errors"])
                 if not isinstance(command_line, str) or not command_line:
                     report["errors"].append({"source": "browser_command_line",
                         "reason": "Actual trace metadata command line missing; scrollbar launch environment unverified"})
@@ -651,8 +700,7 @@ def collect_scene(browser, context, manifest, case, output, source):
     return report
 
 
-def main(argv=None):
-    require_ci()
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -660,12 +708,20 @@ def main(argv=None):
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument("--channel", choices=["headless-shell", "chromium"], default="headless-shell")
-    args = parser.parse_args(argv)
+    parser.add_argument("--producer-smb-mib", type=int, choices=[0, 16], default=0,
+                        help="Diagnostic-only producer SMB control: 0 unchanged; 16 MiB is the single explicit comparison.")
+    return parser
+
+
+def main(argv=None):
+    require_ci()
+    args = argument_parser().parse_args(argv)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
     cases = select_cases(manifest, args.scene or DEFAULT_SCENES, args.width, args.height)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     summary = {"kind": "CI paint-trace diagnostic", "source_manifest": str(args.manifest), "requested_browser_channel": args.channel,
+        "producer_smb_request": producer_smb_request(args.producer_smb_mib),
         "lang": manifest["lang"], "theme": manifest["theme"], "cases": cases, "results": [],
         "canonical_measurements_changed": False, "measurement_status": "unresolved", "errors": []}
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -686,7 +742,7 @@ def main(argv=None):
             configure(manifest["fixture"], lang=manifest["lang"], theme=manifest["theme"])
             from playwright.sync_api import sync_playwright
             with sync_playwright() as pw:
-                browser = launch_browser(pw, args.channel)
+                browser = launch_browser(pw, args.channel, args.producer_smb_mib)
                 try:
                     context = browser.new_context(device_scale_factor=1, locale=manifest["lang"],
                         color_scheme=manifest["theme"], timezone_id="UTC")
@@ -696,7 +752,8 @@ def main(argv=None):
                         state = prepare_scene(manifest["fixture"], case["scene"])
                         manifest["fixture"]["scene_state"] = state
                         write_json(output / (case["id"] + ".scene-fixture.json"), state)
-                        summary["results"].append(collect_scene(browser, context, manifest, case, output / case["id"], source))
+                        summary["results"].append(collect_scene(browser, context, manifest, case, output / case["id"], source,
+                                                                args.producer_smb_mib))
                     context.close()
                 finally:
                     browser.close()
