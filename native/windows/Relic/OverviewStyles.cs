@@ -107,11 +107,10 @@ public sealed partial class MainWindow
         var foreground = Hsl(.38, .34);
         var initial = OverviewText(organization.Text("name").Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(organization.Text("name")).ToUpperInvariant() : "R", 11, weight: 700);
         initial.Foreground = foreground; initial.HorizontalAlignment = HorizontalAlignment.Center; initial.VerticalAlignment = VerticalAlignment.Center;
-        var row = new Grid { Width = 22, Height = 22 };
-        row.Children.Add(new Border { Background = Hsl(.4, .9), CornerRadius = new CornerRadius(6), Child = initial });
-        if (subgroup || organization.Text("kind") == "subgroup") row.Children.Add(new Rectangle { Stroke = foreground, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 2, 2 }, RadiusX = 6, RadiusY = 6 });
-        if (organization.Flag("cabinet")) row.Children.Insert(0, new Border { BorderBrush = Paint("7058B8", "A894E0"), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9.5), Margin = new Thickness(-3.5), Child = new Border { BorderBrush = Paint("FFFFFF", "252523"), BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8) } });
-        return row;
+        var surface = new Border { Background = Hsl(.4, .9), CornerRadius = new CornerRadius(6), Child = initial };
+        var outline = subgroup || organization.Text("kind") == "subgroup" ? new Rectangle { Stroke = foreground, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 2, 2 }, RadiusX = 6, RadiusY = 6 } : null;
+        var cabinet = organization.Flag("cabinet") ? new Border { BorderBrush = Paint("7058B8", "A894E0"), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9.5), Margin = new Thickness(-3.5), Child = new Border { BorderBrush = Paint("FFFFFF", "252523"), BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8) } } : null;
+        return new NativeOrganizationAvatarPaint(surface, initial, outline, cabinet);
     }
 
     private Grid OverviewRowContent(UIElement? first, string title, string note, UIElement? last = null, bool struck = false, bool noteWrap = false)

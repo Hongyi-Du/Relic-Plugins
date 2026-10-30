@@ -1,5 +1,42 @@
 # Native Relic App contract
 
+Changes for the clients (recipient activation and 21-case diagnostics): read
+the macOS d0d8277 request and append `recipients` after all 20 previous smoke
+cases, without changing the full 56-scene / 672-case matrix. Both reference and
+Windows now activate the retained production button with actual pointer input;
+the reference requires a trusted click, and Windows records its actual Click
+sender, current button, flyout and mounted popup items. The macOS production
+anchor correction is merged. Source state assignments and direct picker calls
+are not substituted for this activation. Fresh captures must verify placement.
+
+Windows settings navigation now draws its seven labels with the existing
+NativeLabel production DWrite metrics/half-leading path. This addresses actual
+14px label baselines about 4.164px below the reference while retaining 400/600
+weights, 22.4px line height and the original SelectorBarItem keyboard/actions.
+Hover recolors the current mounted label; actual selection changes replace it.
+No exported geometry or fixed Y offset supplies the correction.
+
+Avatar decorations now have explicit production object ownership: the subgroup
+outline belongs to its real avatar, and the reply avatar's 24px outer border
+belongs to the inner picture. Actual frame bounds/border fields remain raw;
+the outline's original stroke and unknown offset/contour are retained. Labels,
+images, state dots and cabinet rings are not swallowed by this ownership rule.
+Current runtime/template/parent/full-RuntimeId proof is required. Unknown part
+identity remains failure. Actual names are unchanged. The assembled WinUI code
+builds with zero warnings/errors; new UI effects still require CI capture.
+
+Actual 78c7f6b smoke: Windows 16/20 and macOS 20/20 captures completed. The
+Windows settings hover receipt now has the actual target hit, unselected hover
+and unchanged Appearance selection at all four checkpoints. Actual toggle
+thumbs xaml-866 and xaml-949 have independently bound live originating states;
+the path owner retains the actual three source-bound drawing lines. Four
+Windows captures still fail: file-code/live-tool-output have original zero-height
+COM text rectangles, and both panel resize scenes change state during capture.
+The report is at `S:\Codex\Outputs\Relic-native-visual\parity-78c7f6b\report`.
+No scene has reached acceptance. Archived full-run transport completed all ZIP
+checks in run 41055285619; its one stale workflow-string test assertion is now
+updated to verify all 32 actual capture-artifact routes. Full parity still fails.
+
 Changes for the clients (archived-capture recompare): `native-recompare.yml`
 can verify the bounded-storage path against all immutable artifacts from a
 specified existing capture run without launching new app windows. It still

@@ -81,7 +81,7 @@ window.__relicVisual = async (scene, fixture) => {
     case 'documents': await openDetails('docs'); break;
     case 'trajectory': await openDetails('trace', { member: fixture.member }); break;
     case 'shortcuts': shortcutsDialog(); break;
-    case 'recipients': document.querySelector('#composer .to-picker, #composer .to-btn, #composer .bar button').click(); break;
+    case 'recipients': break; // The capture coordinator sends actual pointer input to the mounted recipient button.
     case 'quote': setQuote(dname(fixture.member), fixture.quote); break;
     case 'mention': { const ta = document.querySelector('#composer textarea'); ta.value = '@'; ta.focus(); ta.setSelectionRange(1, 1); ta.dispatchEvent(new Event('input', { bubbles: true })); break; }
     case 'digest': S.digest = fixture.digest; S.digestOpen = true; renderBanner(); break;

@@ -3,6 +3,7 @@
 No subprocess, UI, application server, network or desktop automation is used.
 """
 from copy import deepcopy
+import ast
 import json
 from pathlib import Path
 import tempfile
@@ -624,12 +625,21 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-panel-resize-hover", cases)
         self.assertIn("zh-CN-light-1280x800-panel-resized", cases)
         smoke = expected_cases(spec, "smoke")
-        self.assertEqual(len(smoke), 20)
+        self.assertEqual(len(smoke), 21)
         original_smoke = ("group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart",
                           "menu-file", "file-code", "live-tool-output", "live-typing")
         added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
-        self.assertEqual(set(smoke), {"zh-CN-light-1440x900-" + scene for scene in original_smoke + added})
+        smoke_scenes = original_smoke + added + ("recipients",)
+        self.assertEqual(list(smoke), ["zh-CN-light-1440x900-" + scene for scene in smoke_scenes])
         self.assertTrue(set(smoke).issubset(cases))
+        # Inspect the CLI's actual selection without importing or running its
+        # process/browser entry point. Both producers must retain the old order.
+        capture_source = ast.parse((Path(__file__).parent / "capture.py").read_text(encoding="utf-8"))
+        capture_main = next(node for node in capture_source.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        capture_scenes = next(node.value for node in capture_main.body if isinstance(node, ast.Assign)
+                              and any(isinstance(target, ast.Name) and target.id == "scenes" for target in node.targets))
+        self.assertIsInstance(capture_scenes, ast.IfExp)
+        self.assertEqual(ast.literal_eval(capture_scenes.orelse), list(smoke_scenes))
 
     def test_missing_native_capture_writes_failure_report_and_html(self):
         spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}

@@ -235,7 +235,7 @@ public sealed partial class MainWindow
         // The close action precedes the pane heading/content in the reference
         // reading and keyboard order, while remaining above its scroll surface.
         Canvas.SetZIndex(close, 1); pane.Children.Add(Scroll(content));
-        var tabs = new Dictionary<string, (SelectorBarItem Item, TextBlock Label, ReferenceVectorIcon Icon)>();
+        var tabs = new Dictionary<string, (SelectorBarItem Item, NativeSettingsNavigationLabel Label, ReferenceVectorIcon Icon)>();
         var hoveredNavigationItems = new HashSet<SelectorBarItem>();
         void PaintNavigation()
         {
@@ -245,8 +245,8 @@ public sealed partial class MainWindow
                 var selected = tab.Item.IsSelected; var hovered = hoveredNavigationItems.Contains(tab.Item);
                 // Like .settings nav button.on, selection takes precedence over hover.
                 tab.Item.Background = selected ? Paint("E7E5DF", "2F2E2B") : hovered ? Paint("EFEEEA", "262624") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                tab.Label.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-                tab.Label.Foreground = tab.Icon.Foreground = selected || hovered ? Ink : Paint("5A5853", "B8B5AE");
+                var foreground = selected || hovered ? Ink : Paint("5A5853", "B8B5AE");
+                tab.Label.ApplyState(selected, foreground); tab.Icon.Foreground = foreground;
             }
         }
         body.ActualThemeChanged += (_, _) => PaintNavigation();
@@ -335,7 +335,7 @@ public sealed partial class MainWindow
         }
         foreach (var (key, label, glyph) in new[] { ("profile", "settings.profile", "\uE77B"), ("appearance", "settings.appearance", "\uE790"), ("language", "settings.language.title", "\uE774"), ("voice", "common.voice_input", "\uE720"), ("notify", "settings.notify", "\uEA8F"), ("harness", "common.harness", "\uE839"), ("about", "settings.about", "\uE946") })
         {
-            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = OverviewText(T(label), 14); text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; labelRow.Children.Add(text);
+            var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = new NativeSettingsNavigationLabel(T(label), words.Language); labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
