@@ -219,8 +219,11 @@ visible text. A shown tooltip and its text are elements.
   target element count. Store the ownership relationship for audit.
 - Record selected/checked/enabled/expanded/focused/hovered/unread states when
   applicable, including false values. Preserve actual wrapping, truncation and
-  measured text-line count. `wrap` is `none`, `word` or `character`; `truncation`
-  is `none`, `clip` or `ellipsis`. Unknown values fail extraction coverage.
+  measured text-line count. `layout.wrap` retains the legacy `none`, `word` or
+  `character` diagnostic, but combined normal/emergency classifications are not
+  compared as one quantity. The additive break-strategy contract below replaces
+  that comparison. `truncation` remains `none`, `clip` or `ellipsis`; its checks,
+  actual text rectangles and measured line count are unchanged.
 - Inapplicability requested by macOS at `61b2740`: an element with **no visible
   text** has null font size/weight and null text wrapping/truncation/line count.
   Non-text backgrounds also have null foreground; icon/edge stroke or fill is
@@ -228,6 +231,75 @@ visible text. A shown tooltip and its text are elements.
   properties in raw evidence. This rule must never null an unmeasured property
   on actual text, input placeholders or control labels. It removes no element
   and does not waive any tolerance or mismatch.
+
+### Independent line-break strategy, version 1
+
+The capture `schema_version` remains 1. Every emitted element additionally records
+`layout.break_strategy_version: 1`, `layout.normal_break_strategy` and
+`layout.emergency_break_strategy`. Text applicability remains exactly
+`bool(element.text) || element.kind == "text"`; no new element exclusion is used.
+
+- `normal_break_strategy`: `none`, `word`, `break-all`, `character`, `keep-all`.
+  `word` means the provider's ordinary language-aware opportunities, not identical
+  Unicode algorithms or proof that the visible lines match. CSS `break-all` is
+  kept distinct from a native character-wrapping mode.
+- `emergency_break_strategy`: `none`, `break-unbreakable`. The latter allows an
+  otherwise unbreakable sequence to be broken when it cannot fit. It does not
+  claim a measured glyph boundary, matching intrinsic width, or a particular
+  Unicode cluster algorithm.
+- `evidence.line_break_configuration` contains `source`, the actual text `owner`,
+  `raw` provider properties and `applicable`. Text with an unknown strategy,
+  missing version/configuration/owner/raw measurement, or unresolved provider
+  errors fails coverage. Unknowns on both sides still fail comparison.
+- For non-text elements both strategies are explicitly null, with
+  `applicable:false` and a nonempty reason. Their inherited but unused properties
+  remain raw evidence. Null never proves a no-wrap strategy for actual text.
+
+Mappings are based on provider semantics and each current control's measured
+configuration, never on a counterpart's expected mode:
+
+| Actual provider configuration | Normal | Emergency |
+| --- | --- | --- |
+| CSS normal word breaking + `overflow-wrap:anywhere` or `break-word` | `word` | `break-unbreakable` |
+| CSS normal word breaking + `overflow-wrap:normal` | `word` | `none` |
+| CSS `word-break:break-all` + normal overflow wrapping | `break-all` | `none` |
+| CSS effective `nowrap` or `pre` | `none` | `none` |
+| WinUI `TextWrapping.Wrap` | `word` | `break-unbreakable` |
+| WinUI `TextWrapping.WrapWholeWords` | `word` | `none` |
+| WinUI `TextWrapping.NoWrap` | `none` | `none` |
+| Current production DirectWrite `DWRITE_WORD_WRAPPING_NO_WRAP` getter | `none` | `none` |
+| TextKit actual `.byWordWrapping` paragraph mode | `word` | `break-unbreakable` |
+
+CSS evidence retains computed `whiteSpace`, `textWrapMode`, `textWrapStyle`,
+`wordBreak`, `overflowWrap`, `lineBreak`, `hyphens`, clamp, direction and writing
+mode. In particular `anywhere` and `break-word` retain their different raw
+min-content behavior. Effective no-wrap disables soft breaks without erasing an
+inherited `overflow-wrap` request. Unsupported values remain unknown. CSS
+`line-break:anywhere` and the `keep-all` relaxation fallback are not claimed to
+fit the version-1 enumerations; unresolved values produce coverage failures.
+Several text nodes folded into one semantic label require a uniform measured
+configuration; otherwise retain all owners and the ambiguity.
+
+WinUI evidence retains the actual enum spelling/value, control type and language.
+The projector carries that actual text-owner configuration to its independent
+rich-text runs with owner identity intact. It never recovers a policy from old
+`wrap:"character"` captures. macOS retains paragraph mode, container mode and
+maximum lines separately: final-line truncation cannot replace the paragraph's
+normal wrapping policy.
+
+Primary API definitions: [CSS overflow wrapping](https://drafts.csswg.org/css-text-3/#overflow-wrap-property),
+[Windows App SDK 1.6 TextWrapping](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.textwrapping?view=windows-app-sdk-1.6),
+[DirectWrite wrapping](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_word_wrapping),
+and [AppKit byWordWrapping](https://developer.apple.com/documentation/appkit/nslinebreakmode/bywordwrapping).
+
+This change does not fabricate a new unified text-fragment index. Existing
+DOMSnapshot layout-text offsets, DOMRange rectangles, WinUI TextPointer offsets
+and TextKit insertion geometry remain available with their original quantities.
+TextPointer content offsets are not presumed UTF-16 indices. Common per-fragment
+text/range binding is still incomplete; no new success flag is emitted for it.
+The existing measured `text_bounds`, `line_count`, geometry and truncation checks
+remain mandatory, including all existing ellipsis and missing-fragment failures.
+Equal normal/emergency policies cannot waive different actual lines or positions.
 
 ## Matching, reports and gate
 

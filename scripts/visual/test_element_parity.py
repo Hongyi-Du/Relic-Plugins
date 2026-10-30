@@ -24,8 +24,13 @@ def element(eid="r0", text="今天 11:00", order=0, kind="text", region="convers
                       "opacity": 1, "background_image": "none", "shadow": [], "outline": "none",
                       "rendered_fonts": [{"family_name": "Fixture Sans", "postscript_name": "FixtureSans-Regular", "glyph_count": 8, "is_custom_font": False}]},
             "state": {key: None for key in STATE_FIELDS},
-            "layout": {"wrap": "none", "truncation": "none", "line_count": 1}, "icon": None,
+            "layout": {"wrap": "none", "truncation": "none", "line_count": 1, "break_strategy_version": 1,
+                       "normal_break_strategy": "none" if text or kind == "text" else None,
+                       "emergency_break_strategy": "none" if text or kind == "text" else None}, "icon": None,
             "evidence": {"source": "test-only fixture", "outline": {"absence_proven": True, "source": "synthetic fixture with no outline"},
+                         "line_break_configuration": {"source": "synthetic independently measured no-wrap fixture", "owner": eid,
+                                                      "raw": {"fixture_policy": "NoWrap"}, "applicable": bool(text) or kind == "text",
+                                                      "reason": "Fixture text ownership follows the unchanged text predicate."},
                          "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}}
 
 
@@ -148,7 +153,8 @@ class ElementComparisonTests(unittest.TestCase):
                 a, b = element(), element("n")
                 a["state"][field], b["state"][field] = False, True
                 self.assertTrue(compare_elements([a], [b])["state_mismatch"])
-        for field, changed in (("wrap", "word"), ("truncation", "ellipsis"), ("line_count", 2)):
+        for field, changed in (("normal_break_strategy", "word"), ("emergency_break_strategy", "break-unbreakable"),
+                               ("truncation", "ellipsis"), ("line_count", 2)):
             a, b = element(), element("n"); b["layout"][field] = changed
             self.assertTrue(compare_elements([a], [b])["layout_mismatch"])
 
@@ -424,7 +430,7 @@ class ExtractionContractTests(unittest.TestCase):
         item["icon"] = vector_image_fixture()
         item["style"]["font_size"] = item["style"]["font_weight"] = None
         item["style"]["rendered_fonts"] = None
-        item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        item["layout"].update(wrap=None, truncation=None, line_count=None)
         self.assertFalse(has_font_glyph(item))
         self.assertEqual([], self.validate(capture(elements=[item])))
         item["icon"] = {"source": "font", "glyph": "E123"}
@@ -519,7 +525,7 @@ class ExtractionContractTests(unittest.TestCase):
     def test_textless_code_container_does_not_require_nonexistent_font_or_lines(self):
         item = element(text="", kind="code")
         item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
-        item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        item["layout"].update(wrap=None, truncation=None, line_count=None)
         item["evidence"].pop("text_bounds")
         self.assertEqual(self.validate(capture(elements=[item])), [])
 
@@ -527,7 +533,7 @@ class ExtractionContractTests(unittest.TestCase):
         for kind in ("scrollbar", "scrollbar-thumb"):
             item = element(text="", kind=kind)
             item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
-            item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+            item["layout"].update(wrap=None, truncation=None, line_count=None)
             item["evidence"].pop("text_bounds")
             item["state"].update(enabled=True, orientation="vertical", scroll_position=.25)
             self.assertEqual(self.validate(capture(elements=[item])), [])

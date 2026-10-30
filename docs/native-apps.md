@@ -1,5 +1,30 @@
 # Native Relic App contract
 
+Changes for the clients (line-break contract implemented): reference and
+Windows now emit the versioned normal/emergency quantities documented in
+`docs/native-elements.md`; the matcher requires both and their real owner/raw
+configuration. Legacy `wrap` stays diagnostic. macOS must emit the same new
+fields from its actual paragraph/container evidence; absent fields keep failing.
+All existing text geometry, line-count and truncation requirements remain.
+
+Windows complete-span font projection now accepts only current production
+fontFace callbacks with exact source UTF-16/cluster coverage, bound Image/SIS,
+readback and frame continuity. In the recorded fcdc0b6 group, four menus and
+four untrimmed previews qualify; two genuinely trimmed previews stay unknown.
+This measures submitted font identity only. Final PNG contribution, visible
+glyph ownership and geometry still retain their independent failures.
+
+The actual 1a016ac Windows diagnostic still completes 15/19 scenes. Its four
+message headers report valid TextBlock baselines but remain 16.25px high, so
+the prior alignment change alone did not remove the measured offset. Header
+labels now use the existing production DirectWrite renderer and its same-layout
+first baseline, retaining text, colors, sizes, weights and full Text peers.
+The headless build passes; actual screen validation is pending. UIA identity
+also remains unproved: 376 existing peers returned E_NOINTERFACE before the
+independent UIA walk (795 objects had no peer). A same-peer before/after probe
+is being added to distinguish the documented native/inner COM outlet from
+provider initialization timing, without guessing IDs or changing metadata.
+
 Changes for the clients (merged macOS actual-font receipt): production
 showCGGlyphs callbacks are now bound to their same complete TextKit span,
 source/view/container/window and layout. Partial rich spans without callback

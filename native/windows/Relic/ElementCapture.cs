@@ -295,7 +295,7 @@ public sealed partial class MainWindow
             for (var index = 0; index < header.Children.Count; index++)
             {
                 var child = header.Children[index];
-                var baseline = child is TextBlock text ? text.BaselineOffset : double.NaN;
+                var baseline = child is NativeLabel label ? label.FirstBaseline : child is TextBlock text ? text.BaselineOffset : double.NaN;
                 var measured = index < header.MeasuredChildren.Count ? header.MeasuredChildren[index] : (MessageHeaderMetric?)null;
                 var sameMetrics = measured is { } prior && prior.Width == child.DesiredSize.Width
                     && prior.Height == child.DesiredSize.Height && prior.Baseline.Equals(baseline);
@@ -308,7 +308,7 @@ public sealed partial class MainWindow
             }
             record["message_header_baseline_evidence"] = new JsonObject
             {
-                ["source"] = "Actual MessageHeaderRow layout with each current TextBlock.BaselineOffset",
+                ["source"] = "Actual MessageHeaderRow layout with each current production label first baseline",
                 ["current_metrics_match"] = current, ["uses_measured_baselines"] = header.LastLayout?.UsesMeasuredBaselines,
                 ["layout_width"] = header.LastLayout?.Width, ["layout_height"] = header.LastLayout?.Height,
                 ["spacing"] = header.Spacing, ["children"] = metrics
@@ -800,8 +800,8 @@ public sealed partial class MainWindow
     }
     private static JsonObject CaptureTextLayout(FrameworkElement element, string id, JsonArray errors, UIElement captureRoot, bool visible)
     {
-        if (element is WorkspaceCodeView code) return CaptureCodeDocument(code, id, errors, captureRoot, visible);
-        if (element is ComposerInput input) return CaptureComposerDocument(input, id, errors, captureRoot, visible);
+        if (element is WorkspaceCodeView code) return CaptureLineBreakStrategies(CaptureCodeDocument(code, id, errors, captureRoot, visible), code, id);
+        if (element is ComposerInput input) return CaptureLineBreakStrategies(CaptureComposerDocument(input, id, errors, captureRoot, visible), input, id);
         if (element is NativeLabel label)
         {
             var production = label.CaptureProductionReceipt(); var current = CurrentNativeLabelSubmission(production);
@@ -811,6 +811,15 @@ public sealed partial class MainWindow
             return new JsonObject
             {
                 ["wrap"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["break_strategy_version"] = 1,
+                ["normal_break_strategy"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["emergency_break_strategy"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["line_break_configuration"] = new JsonObject
+                {
+                    ["source"] = "IDWriteTextLayout.GetWordWrapping on the current production NativeLabel layout", ["owner"] = id,
+                    ["raw"] = new JsonObject { ["word_wrapping"] = draw?["actual_text_format"]?["word_wrapping"]?.DeepClone(),
+                        ["current_production_submission"] = current, ["layout_revision"] = draw?["layout_revision"]?.DeepClone() }
+                },
                 ["truncation"] = !current ? null : trimming?["granularity"]?.GetValue<uint>() == 0 ? "none"
                     : trimming?["granularity"]?.GetValue<uint>() == 1 && trimming?["same_sign_com_identity"]?.GetValue<bool>() == true ? "ellipsis" : null,
                 ["line_count"] = current ? draw?["layout_metrics"]?["line_count"]?.DeepClone() : null,
@@ -909,7 +918,7 @@ public sealed partial class MainWindow
             }
             lines = incomplete ? null : ys.Count;
         }
-        return new JsonObject
+        return CaptureLineBreakStrategies(new JsonObject
         {
             ["wrap"] = wrap.Length == 0 ? null : wrap == "NoWrap" ? "none" : wrap == "WrapWholeWords" ? "word" : "character",
             ["truncation"] = trim.Length == 0 ? null : trim.Contains("Ellipsis") ? "ellipsis" : trim == "Clip" ? "clip" : "none",
@@ -924,7 +933,34 @@ public sealed partial class MainWindow
                 ["ellipsis_bounds"] = null
             } : null,
             ["placeholder"] = element is TextBox text ? text.PlaceholderText : null
+        }, element, id);
+    }
+    private static JsonObject CaptureLineBreakStrategies(JsonObject layout, FrameworkElement element, string id)
+    {
+        TextWrapping? actual = element switch
+        {
+            TextBlock text => text.TextWrapping, RichTextBlock text => text.TextWrapping,
+            TextBox text => text.TextWrapping, RichEditBox text => text.TextWrapping, _ => null
         };
+        // WinUI Wrap uses normal opportunities and breaks an otherwise-unbreakable
+        // word only when necessary. WrapWholeWords allows that word to overflow.
+        // Neither actual enum is a request for unconditional character wrapping.
+        layout["break_strategy_version"] = 1;
+        layout["normal_break_strategy"] = actual switch
+        {
+            TextWrapping.NoWrap => "none", TextWrapping.Wrap or TextWrapping.WrapWholeWords => "word", _ => null
+        };
+        layout["emergency_break_strategy"] = actual switch
+        {
+            TextWrapping.NoWrap or TextWrapping.WrapWholeWords => "none", TextWrapping.Wrap => "break-unbreakable", _ => null
+        };
+        layout["line_break_configuration"] = new JsonObject
+        {
+            ["source"] = "Live WinUI TextWrapping property; Windows App SDK 1.6 enum semantics", ["owner"] = id,
+            ["raw"] = new JsonObject { ["text_wrapping"] = actual?.ToString(), ["text_wrapping_value"] = actual.HasValue ? (int)actual.Value : null,
+                ["control_type"] = element.GetType().FullName, ["language"] = element.Language }
+        };
+        return layout;
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(ref CapturePoint point);
 }

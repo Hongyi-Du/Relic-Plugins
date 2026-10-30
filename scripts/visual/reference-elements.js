@@ -801,6 +801,38 @@
     if (kind === 'image' && el.localName === 'img') return { source: 'image', glyph: el.currentSrc || el.src };
     return null;
   };
+  const cssLineBreakConfiguration = (s, applicable, owner) => {
+    const raw = Object.fromEntries(['whiteSpace', 'textWrapMode', 'textWrapStyle', 'wordBreak', 'overflowWrap', 'lineBreak', 'hyphens',
+      'webkitLineClamp', 'direction', 'writingMode'].map(key => [key, typeof s[key] === 'string' && s[key].length ? s[key] : null]));
+    const evidence = { source: 'getComputedStyle of the actual text style owner', owner, raw, applicable,
+      reason: applicable ? 'Independent normal and emergency policies from actual computed CSS; not observed line placement.'
+        : 'This emitted element has no text under the existing text applicability predicate.', errors: [] };
+    let normal = null, emergency = null;
+    if (applicable) {
+      const wrapping = raw.textWrapMode === 'nowrap' ? false : raw.textWrapMode === 'wrap' ? true
+        : raw.textWrapMode !== null ? null : ['pre', 'nowrap'].includes(raw.whiteSpace) ? false
+        : ['normal', 'pre-wrap', 'pre-line', 'break-spaces'].includes(raw.whiteSpace) ? true : null;
+      if (wrapping === false) { normal = 'none'; emergency = 'none'; }
+      else if (wrapping === null) evidence.errors.push('Actual white-space/text-wrap mode does not establish whether soft wrapping is enabled.');
+      else if (!['auto', 'normal', 'loose', 'strict'].includes(raw.lineBreak))
+        evidence.errors.push('The actual CSS line-break value has no proved mapping in break-strategy version 1.');
+      else if (!['normal', 'break-all', 'keep-all', 'break-word'].includes(raw.wordBreak))
+        evidence.errors.push('The actual CSS word-break value has no proved mapping.');
+      else if (!['normal', 'anywhere', 'break-word'].includes(raw.overflowWrap))
+        evidence.errors.push('The actual CSS overflow-wrap value is unavailable or unsupported.');
+      else {
+        normal = raw.wordBreak === 'break-all' ? 'break-all' : raw.wordBreak === 'keep-all' ? 'keep-all' : 'word';
+        emergency = raw.wordBreak === 'break-word' || ['anywhere', 'break-word'].includes(raw.overflowWrap) ? 'break-unbreakable' : 'none';
+        // CSS overflow-wrap:normal can relax keep-all to normal opportunities;
+        // that is neither no fallback nor arbitrary emergency character breaks.
+        if (raw.wordBreak === 'keep-all' && raw.overflowWrap === 'normal') {
+          emergency = null;
+          evidence.errors.push('The CSS keep-all relaxation fallback is not represented by the version-1 emergency strategies.');
+        }
+      }
+    }
+    return { layout: { break_strategy_version: 1, normal_break_strategy: normal, emergency_break_strategy: emergency }, evidence };
+  };
   const imageResourceEvidence = el => {
     if (el.localName !== 'img') return null;
     const backend = snapshotBackend.get(el) ?? null, r = el.getBoundingClientRect();
@@ -825,6 +857,16 @@
   const emit = (el, kind, text, bounds, parent, suffix = '', options = {}) => {
     const region = regionOf(el), id = nodeIds.get(el) + suffix;
     const s = options.style || styleOf(el), boxes = options.textBoxes || [];
+    const textOwner = options.textNode?.parentElement || options.ownedTextNodes?.[0]?.parentElement || el;
+    const breaks = cssLineBreakConfiguration(s, !!text || kind === 'text', { element: nodeIds.get(textOwner), pseudo: options.pseudo || null });
+    const ownedBreaks = (options.ownedTextNodes || []).map(node => cssLineBreakConfiguration(styleOf(node.parentElement), true,
+      { element: nodeIds.get(node.parentElement), backend_node_id: snapshotBackend.get(node) ?? null }));
+    if (ownedBreaks.length) breaks.evidence.actual_text_owners = ownedBreaks.map(value => value.evidence);
+    if (ownedBreaks.some(value => JSON.stringify(value.evidence.raw) !== JSON.stringify(breaks.evidence.raw) || value.evidence.errors.length)) {
+      breaks.layout.normal_break_strategy = null; breaks.layout.emergency_break_strategy = null;
+      breaks.evidence.errors.push('Owned text nodes do not establish one uniform actual line-break configuration.');
+    }
+    for (const reason of breaks.evidence.errors) unmeasured.push({ element: id, property: 'layout.break_strategy', reason });
     const paintStyle = styleData(el, options.pseudo ? s : styleOf(el), text, options.pseudo || null, options.unclippedBounds);
     let outline = outlineData(el, options.pseudo ? s : styleOf(el), options.pseudo || null, options.unclippedBounds);
     const textStyle = styleData(el, s, text, options.pseudo || null, options.unclippedBounds);
@@ -858,14 +900,14 @@
         reason: 'DOMRange and DOMSnapshot expose layout text advances; AX names identify text fragments but do not locate the generated ellipsis. Actual text geometry is null. The clipped range envelope is diagnostic evidence only, never substituted for painted glyph bounds.' });
     const item = { id, parent, region, order: regionOrders.get(region) || 0, kind, text,
       name: accessibility.name || panelResize?.title || accessibility.name, bounds: geometry.bounds, visible_bounds: geometry.visible_bounds, style: paintStyle,
-      state: stateOf(el), layout: { wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
+      state: stateOf(el), layout: { ...breaks.layout, wrap: !text ? null : ['pre', 'nowrap'].includes(s.whiteSpace) ? 'none' : s.overflowWrap === 'anywhere' || s.wordBreak === 'break-all' ? 'character' : 'word',
         truncation: !text ? null : s.textOverflow === 'ellipsis' || s.webkitLineClamp !== 'none' && Number(s.webkitLineClamp) > 0 ? 'ellipsis' : /hidden|clip/.test(s.overflowX) && el.scrollWidth > el.clientWidth ? 'clip' : 'none', line_count: !text ? null : geometry.line_count },
       icon: iconOf(el, kind), evidence: { source: 'dom', selector: pathOf(el), tag: el.localName,
         class: el.getAttribute('class') || '', raw_node: nodeIds.get(el), unclipped_bounds: rect(el.getBoundingClientRect()),
         text_bounds: geometry.text_bounds, text_layout_bounds: geometry.text_layout_bounds, text_bounds_quantity: geometry.text_bounds_quantity,
         clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
-        font_request: text ? fontRequestEvidence(s) : null,
+        font_request: text ? fontRequestEvidence(s) : null, line_break_configuration: breaks.evidence,
         panel_resize: panelResize, outline: outline.evidence, image_resource: imageResourceEvidence(el), name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
@@ -1178,8 +1220,11 @@
             'border_widths', 'border_colors', 'border_styles', 'corner_radii', 'opacity', 'background_image', 'shadow', 'outline'].map(key => [key, null])),
           state: { enabled: Number.isFinite(extent) ? extent > 0 : null, selected: null, checked: null, expanded: null,
             focused: null, hovered: null, unread: null, orientation: axis, scroll_position: position },
-          layout: { wrap: null, truncation: null, line_count: null }, icon: null,
+          layout: { wrap: null, truncation: null, line_count: null, break_strategy_version: 1,
+            normal_break_strategy: null, emergency_break_strategy: null }, icon: null,
           evidence: { source: 'actual DOM scroll owner; unresolved UA part retained explicitly', raw_node: raw.id, selector: pathOf(el),
+            line_break_configuration: { applicable: false, source: 'actual DOM scrollbar part projection', owner: raw.id, raw: {},
+              reason: 'This scrollbar part has no emitted text under the existing text applicability predicate.' },
             owner_backend_node_id: evidence.owner_backend_node_id, orientation: axis, gutter,
             outer_bounds: bounds, hit_bounds: null, ink_bounds: null, painted_presence: null,
             bounds_quantity: isThumb ? 'actual thumb part border box remains unmeasured' : gutter.quantity,

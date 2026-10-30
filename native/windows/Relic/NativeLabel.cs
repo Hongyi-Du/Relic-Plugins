@@ -58,6 +58,17 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
+    // Read the first baseline from the very layout used by production Draw.
+    // No font fallback estimate or second shaping pass supplies row alignment.
+    internal double FirstBaseline
+    {
+        get
+        {
+            if (layout == IntPtr.Zero) return double.NaN;
+            var lines = ReadLines();
+            return lines.Length > 0 ? lines[0].Baseline : double.NaN;
+        }
+    }
     // An explicit brush is needed for a preview inside a ListViewItem: its
     // muted color must not inherit the row's default text foreground. Menus
     // leave this unset and keep observing their real ContentPresenter states.
