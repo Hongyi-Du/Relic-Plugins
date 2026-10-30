@@ -1,5 +1,18 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The old `testBoxShadowDoesNotCastASecondShadowFromInteriorContent` failure is
+resolved in `afe7f6f`: it now measures the production NSHostingView bitmap,
+because ImageRenderer substitutes unsupported-view paint for the actual AppKit
+outline overlay. All original assertions/tolerances are unchanged. macOS build
+and all 138 tests pass in `41004901785`. The separate new six-position shadow
+edge-profile test and current-font binding tests are still awaiting a runner.
+
+The latest native sidebar probe carries unread from the very same condition
+that constructs its actual count badge, including false for read rows. The bell
+now paints the reference alert color and icon hover paints the reference ink.
+These are production-control changes, not report substitutions; full capture
+verification remains pending. No state mismatch is waived.
+
 Actual-font evidence update: macOS TextKit spans now project `rendered_fonts`
 only from the production `showCGGlyphs` callbacks for the same complete span,
 unchanged attributed source, native view/container/window identity and layout.

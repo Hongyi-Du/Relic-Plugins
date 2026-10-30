@@ -20,6 +20,7 @@ struct RecordedSurface: ViewModifier {
     var selected: Bool? = nil
     var expanded: Bool? = nil
     var current: Bool? = nil
+    var unread: Bool? = nil
     var insetRingWidth: CGFloat = 0
     var insetRingColor: Color = .clear
     var outerRingWidth: CGFloat = 0
@@ -73,7 +74,7 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
+            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
     }
 }
 
@@ -132,6 +133,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
     let selected: Bool?
     let expanded: Bool?
     let current: Bool?
+    let unread: Bool?
     let insetRingWidth: CGFloat, insetRingColor: Color, outerRingWidth: CGFloat, outerRingColor: Color
     let rings: [SurfaceRing]
     let outline: SurfaceOutline?
@@ -145,7 +147,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.cornerRadii = cornerRadii ?? Array(repeating: radius, count: 4)
         view.insetLeadingWidth = insetLeadingWidth; view.insetLeadingColor = NSColor(insetLeadingColor)
         view.borderDash = borderDash
-        view.selected = selected; view.expanded = expanded; view.current = current
+        view.selected = selected; view.expanded = expanded; view.current = current; view.unread = unread
         view.region = region
         view.insetRingWidth = insetRingWidth; view.insetRingColor = NSColor(insetRingColor)
         view.outerRingWidth = outerRingWidth; view.outerRingColor = NSColor(outerRingColor)
@@ -179,6 +181,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "region": view.region,
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(), "current": view.current as Any? ?? NSNull(),
+                    "unread": view.unread as Any? ?? NSNull(),
                     "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.cornerRadii.max() ?? view.radius),
                               "border_widths": view.widths.map { Double($0) },
                               "border_styles": view.widths.map { $0 == 0 ? "none" : view.borderDash.isEmpty ? "solid" : "dashed" },
@@ -199,7 +202,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var insetLeadingWidth: CGFloat = 0
         var insetLeadingColor = NSColor.clear
         var borderDash: [CGFloat] = []
-        var selected: Bool?, expanded: Bool?, current: Bool?
+        var selected: Bool?, expanded: Bool?, current: Bool?, unread: Bool?
         var region = "window"
         var insetRingWidth: CGFloat = 0, outerRingWidth: CGFloat = 0
         var rings: [SurfaceRing] = []

@@ -289,8 +289,9 @@ struct VoiceButton: View {
     @StateObject private var voice = SpeechInput()
     var body: some View {
         if m.preferences["voice"].text != "off" {
-            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, action: toggle)
-                .disabled(voice.starting).tint(voice.recording ? .red : nil).help(m.t("composer.voice_title")).onDisappear { voice.stop() }
+            IconButton(title: m.t("common.voice_input"), icon: voice.recording ? "stop" : "mic", size: 17, height: size, width: size, color: voice.recording ? RelicStyle.red : nil, action: toggle)
+                .disabled(voice.starting).accessibilityLabel(m.t("common.voice_input"))
+                .help(m.t("composer.voice_title")).onDisappear { voice.stop() }
         }
     }
     private func toggle() {
