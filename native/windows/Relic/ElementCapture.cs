@@ -314,6 +314,10 @@ public sealed partial class MainWindow
                 ["spacing"] = header.Spacing, ["children"] = metrics
             };
         }
+        // Retain the original owners/peers across the independent UIA traversal.
+        // This sidecar diagnoses provider initialization/COM aggregation only;
+        // it never supplies or substitutes canonical element identities.
+        using var providerProbe = AutomationProviderProbe.Begin(directory, caseId, renderIds);
         await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes);
         foreach (var (owner, ownerNode, visible) in scrollbarOwners)
         {
@@ -533,6 +537,7 @@ public sealed partial class MainWindow
         }
         var completed = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(receipt))!;
         if (completed["case_id"]?.GetValue<string>() != caseId) throw new InvalidOperationException("Stale element capture acknowledgement");
+        providerProbe.CaptureAfter();
     }
 
     private static Rect IntersectCapture(Rect a, Rect b)
