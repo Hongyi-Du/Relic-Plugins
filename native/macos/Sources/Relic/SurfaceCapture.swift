@@ -24,6 +24,8 @@ struct RecordedSurface: ViewModifier {
     var insetRingColor: Color = .clear
     var outerRingWidth: CGFloat = 0
     var outerRingColor: Color = .clear
+    var rings: [SurfaceRing] = []
+    var outline: SurfaceOutline? = nil
     @Environment(\.captureOpacity) private var opacity
     private var shape: UnevenRoundedRectangle {
         let corners = cornerRadii ?? Array(repeating: radius, count: 4)
@@ -53,13 +55,31 @@ struct RecordedSurface: ViewModifier {
             }
             .overlay { if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) } }
             .overlay { if insetRingWidth > 0 { shape.inset(by: borderWidth).strokeBorder(insetRingColor, lineWidth: insetRingWidth).allowsHitTesting(false) } }
+            .overlay { if let outline { shape.strokeBorder(outline.color, style: StrokeStyle(lineWidth: outline.width, dash: outline.dash)).allowsHitTesting(false) } }
             .background {
                 if outerRingWidth > 0 {
                     RoundedRectangle(cornerRadius: radius + outerRingWidth).strokeBorder(outerRingColor, lineWidth: outerRingWidth).padding(-outerRingWidth).allowsHitTesting(false)
                 }
+                ZStack {
+                    ForEach(Array(rings.enumerated().reversed()), id: \.offset) { _, ring in
+                        RoundedRectangle(cornerRadius: radius + ring.width, style: .circular)
+                            .strokeBorder(ring.color, lineWidth: ring.width).padding(-ring.width)
+                    }
+                }.allowsHitTesting(false)
             }
-            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor))
+            .background(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline))
     }
+}
+
+struct SurfaceRing {
+    let width: CGFloat
+    let color: Color
+}
+
+struct SurfaceOutline {
+    let width: CGFloat
+    let color: Color
+    let dash: [CGFloat]
 }
 
 struct SurfaceShadow {
@@ -106,6 +126,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
     let expanded: Bool?
     let current: Bool?
     let insetRingWidth: CGFloat, insetRingColor: Color, outerRingWidth: CGFloat, outerRingColor: Color
+    let rings: [SurfaceRing]
+    let outline: SurfaceOutline?
     private static let live = NSHashTable<SurfaceView>.weakObjects()
     func makeNSView(context: Context) -> SurfaceView { let view = SurfaceView(); Self.live.add(view); updateNSView(view, context: context); return view }
     func updateNSView(_ view: SurfaceView, context: Context) {
@@ -120,19 +142,27 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.region = region
         view.insetRingWidth = insetRingWidth; view.insetRingColor = NSColor(insetRingColor)
         view.outerRingWidth = outerRingWidth; view.outerRingColor = NSColor(outerRingColor)
+        view.rings = rings
+        view.outline = outline
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return nil }
             let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.bounds, to: nil)), in: content)
             let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content) } ?? .null
-            var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = []
+            var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = [], outline: Any = NSNull()
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 fill = ElementCapture.rgba(view.fill); border = ElementCapture.rgba(view.border)
                 shadows = view.shadows.map { ["inset": false, "offset_x": Double($0.x), "offset_y": Double($0.y), "blur_radius": Double($0.radius * 2), "spread_radius": 0, "color": ElementCapture.rgba(NSColor($0.color))] }
                 if view.insetLeadingWidth > 0 { shadows.insert(["inset": true, "offset_x": Double(view.insetLeadingWidth), "offset_y": 0, "blur_radius": 0, "spread_radius": 0, "color": ElementCapture.rgba(view.insetLeadingColor)], at: 0) }
                 if view.insetRingWidth > 0 { shadows.append(["inset": true, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double(view.insetRingWidth), "color": ElementCapture.rgba(view.insetRingColor)]) }
                 if view.outerRingWidth > 0 { shadows.append(["inset": false, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double(view.outerRingWidth), "color": ElementCapture.rgba(view.outerRingColor)]) }
+                shadows.append(contentsOf: view.rings.map { ["inset": false, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double($0.width), "color": ElementCapture.rgba(NSColor($0.color))] })
+                if let value = view.outline {
+                    outline = ["width": Double(value.width), "color": ElementCapture.rgba(NSColor(value.color)),
+                        "dash": value.dash.map(Double.init), "offset": -Double(value.width),
+                        "renderer": "Separate inward outline stroke; not a layout border"]
+                }
             }
             // SwiftUI materializes its opacity on the representable's native
             // ancestry. The environment value describes that SAME operation;
@@ -145,7 +175,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
                               "border_widths": view.widths.map { Double($0) },
                               "border_styles": view.widths.map { $0 == 0 ? "none" : view.borderDash.isEmpty ? "solid" : "dashed" },
                               "border_colors": Array(repeating: border, count: 4), "corner_radii": view.cornerRadii.map { Double($0) },
-                              "opacity": opacity, "background_image": "none", "shadow": shadows],
+                              "opacity": opacity, "background_image": "none", "shadow": shadows, "native_outline": outline],
                     "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius"]]
         }
     }
@@ -164,6 +194,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var selected: Bool?, expanded: Bool?, current: Bool?
         var region = "window"
         var insetRingWidth: CGFloat = 0, outerRingWidth: CGFloat = 0
+        var rings: [SurfaceRing] = []
+        var outline: SurfaceOutline?
         var insetRingColor = NSColor.clear, outerRingColor = NSColor.clear
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }

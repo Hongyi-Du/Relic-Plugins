@@ -9,6 +9,7 @@ struct Avatar: View {
     var secretaryStyle = false
     var showState = false
     var stateBorder: Color = RelicStyle.background
+    var imageVisibility: ((Bool) -> Void)? = nil
     @State private var image: NSImage?
     @State private var identity = "relic-avatar/" + UUID().uuidString
     @Environment(\.colorScheme) private var scheme
@@ -22,8 +23,8 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius))
             .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark), radius: radius, kind: "avatar", owner: identity))
             .overlay(alignment: .bottomTrailing) {
@@ -33,7 +34,8 @@ struct Avatar: View {
                 guard !member.isEmpty else { image = nil; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
-            }.accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
+            }.onChange(of: image != nil) { imageVisibility?(image != nil) }
+            .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
     }
 }
 

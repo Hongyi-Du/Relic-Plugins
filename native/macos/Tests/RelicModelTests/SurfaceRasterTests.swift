@@ -4,6 +4,22 @@ import AppKit
 @testable import Relic
 
 @MainActor final class SurfaceRasterTests: XCTestCase {
+    func testCabinetRingsPreserveTheInnerGapAndOriginalAvatarFill() throws {
+        let sample = Color.clear.frame(width: 22, height: 22)
+            .modifier(RecordedSurface(background: Color(.sRGB, red: 0, green: 0, blue: 1), radius: 6,
+                rings: [SurfaceRing(width: 2, color: .white), SurfaceRing(width: 4, color: Color(.sRGB, red: 1, green: 0, blue: 0))]))
+            .padding(6).background(Color.black)
+        let host = NSHostingView(rootView: sample)
+        host.frame = NSRect(x: 0, y: 0, width: 34, height: 34)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        for (x, expected) in [(3, [255.0, 0, 0, 255]), (5, [255.0, 255, 255, 255]), (8, [0.0, 0, 255, 255])] {
+            let pixel = try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: x, y: 17))
+            for channel in 0..<4 { XCTAssertEqual(pixel[channel], expected[channel], accuracy: 2, "Actual cabinet ring layer at x=\(x)") }
+        }
+    }
+
     func testComposerDisabledOpacityIsAppliedExactlyOnce() throws {
         let model = Model(defaults: UserDefaults(suiteName: "send-paint-" + UUID().uuidString)!)
         for enabled in [true, false] {

@@ -356,29 +356,6 @@ import CoreText
         for (index, child) in NSApp.windows.filter({ $0 !== window && $0.isVisible && $0.contentView != nil }).enumerated() {
             visit(child.contentView!, path: "surface-" + String(index), parent: nil, inheritedRegion: child === window.attachedSheet ? "dialog" : "menu", clip: viewport)
         }
-        // Ownership comes from the production button's identifier passed into its
-        // native label. It is not inferred from an expected string or element count.
-        let ownedLabels = elements.filter { $0["production_owner"] is String }
-        elements.removeAll { $0["production_owner"] is String }
-        for var label in ownedLabels.reversed() {
-            if let owner = elements.firstIndex(where: { $0["identifier"] as? String == label["production_owner"] as? String }) {
-                let identifier = label["production_owner"] as! String
-                let simple = identifier.hasPrefix("relic-text-button/") || identifier.hasPrefix("relic-chip-button/") || identifier.hasPrefix("relic-avatar/") || identifier.hasPrefix("relic-chip/") || identifier.hasPrefix("relic-badge/") || identifier.hasPrefix("relic-tab/")
-                if simple && ownedLabels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
-                    var style = elements[owner]["style"] as! [String: Any]
-                    let textStyle = label["style"] as! [String: Any]
-                    for key in ["fontSize", "fontWeight", "fontFamily", "rendered_fonts", "color"] { style[key] = textStyle[key] ?? NSNull() }
-                    elements[owner]["style"] = style; elements[owner]["text"] = label["text"]!
-                    elements[owner]["layout"] = label["layout"]!
-                    elements[owner]["text_bounds"] = label["text_bounds"]!
-                    elements[owner]["owned_text_id"] = label["id"]!
-                    elements[owner]["projection_reason"] = "A native button's single simple label is owned by its control; raw TextKit node retained"
-                } else {
-                    label["parent"] = elements[owner]["id"]!
-                    elements.insert(label, at: owner + 1)
-                }
-            } else { elements.append(label) }
-        }
         var surfaceGaps: [String] = []
         func bounds(_ node: [String: Any]) -> NSRect {
             guard let rect = node["rect"] as? [String: Double], let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"] else { return .null }
@@ -398,6 +375,9 @@ import CoreText
                     abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
             }
             let style = surface["style"] as! [String: Any]
+            if let outline = style["native_outline"], !(outline is NSNull) {
+                surfaceGaps.append("Actual separate native outline retained in surface style; common outline comparison is not implemented: " + String(describing: surface["bounds"]!))
+            }
             if candidates.count == 1, let index = candidates.first {
                 var existing = elements[index]["style"] as! [String: Any]
                 existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing
@@ -417,6 +397,7 @@ import CoreText
                 var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
                 let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
+                    "identifier": owner as Any? ?? NSNull(),
                     "text": "", "name": "", "region": surface["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                     "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!, "native_visible_bounds": surface["nativeVisibleBounds"]!,
                     "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
@@ -426,6 +407,9 @@ import CoreText
                 surfaceGaps.append("Unresolved production ButtonStyle paint ownership at " + String(describing: surface["bounds"]!) + "; candidates=" + String(candidates.count))
             }
         }
+        // An AX-ignored avatar/badge can still own an actual native label.
+        // Resolve only after its measured paint surface has been collected.
+        surfaceGaps.append(contentsOf: ElementOwnership.attachLabels(to: &elements))
         let paint = ElementPaintProbe.snapshots(in: contentScreen)
         for sample in paint {
             let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(Self.rect(sample["nativeVisibleBounds"])).intersection(viewport)

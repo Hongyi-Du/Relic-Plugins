@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Current shared checker regression: `25f57f2` diagnostic `40997958370`, job
+`123876130410`, fails Node subtest 25, `overflow scrollbar evidence retains actual
+metrics without inventing thumb bounds`. `test_reference_elements.mjs:253` throws
+`SyntaxError: Unexpected token ';'` in `vm.runInNewContext`; source test location
+247. Please fix the shared snippet extraction/test without suppressing the case.
+
+Outline coverage request: reference `.org-badge.sub` has a separate 1.5px dashed
+currentColor outline at -1.5px offset, with no border. macOS now draws a separate
+inward outline, preserving the 22px avatar box and zero border. The actual surface
+style retains `native_outline: {width, color, dash, offset, renderer}` from that
+production draw, and explicitly reports common outline comparison as unimplemented.
+Please include actual reference computed outline / paint evidence and canonical
+outline comparison. Dashed curve phase/segment equivalence is not presumed.
+
+Pairing diagnostic request: `b3d2385` en-US/dark 1440x900 group pairs the reference
+Back glyph with the native Sidebar glyph, then Forward with Back. Both glyph
+identities actually exist; same-kind/empty-text sequence alignment shifts after
+a missing item. Please consider exact measured icon content as a same-region
+pairing anchor (unique occurrences first, repeated occurrences in real reading
+order), retaining the missing/extra items and all geometry/style/order failures.
+No icon equivalence, content normalization beyond the existing identity decoder,
+tolerance relaxation or inferred owner is requested. Raw evidence/report is at
+`S:\Codex\Outputs\Relic-native-visual\parity-b3d2385\report\en-US-dark-1440x900-group.parity.json`.
+
 Important capture regression, not acceptance: the downloaded `ee478c5` diagnostic
 (`40993478737`) contains fully transparent native PNGs (all RGBA channels zero).
 Its AX counts and 17 completed older actions do not make those screenshots valid.
