@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (actual modal backdrop and chat-header elements): the
+e5f092b settings capture measures the detached SmokeLayerBackground as black
+RGBA (0,0,0,77), despite the dialog-local reference brush. NativeContentDialog
+now applies that real brush to its retained template rectangle after opening:
+rgba(15,14,12,.32). All Windows ContentDialogs use the same native subclass;
+modal focus, commands and dismissal remain the SDK implementation. The actual
+live private headers also lacked the reference's 10px state dot and used a
+20px/11pt leader badge instead of the 18px/10.5pt tag. Those production controls
+now use the same state/colour mapping and tag style as their reference counterparts.
+Headless Windows build passes; rendering and element parity still require CI.
+
+Both native builds and native tests at 7bf2bab passed in run 41026270452. Its
+static vocabulary gate still fails on the four previously documented macOS-only
+harness keys, and the visual matrix remains failing. Merging native-macos through
+72cf551 adds its actual font-cascade and native-control accessibility corrections;
+REQUESTS.md has no new shared request. No acceptance exception was added.
+
 Changes for the clients (actual private-chat spacing): a37467a keeps the date
 line at y190 with 18.4px height, but starts its first message at y230.4 instead
 of reference y222.390625. The adjacent day bottom (8px) and message top (14px)

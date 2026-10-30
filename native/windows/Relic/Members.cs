@@ -239,7 +239,7 @@ public sealed partial class MainWindow
         try { info = await api!.Get(Client.Org(target, "/waiting") + "?member=" + Client.Segment(who)); }
         catch { info = new JsonObject(); }
         var first = info.Rows("waiting").FirstOrDefault();
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var panel = new StackPanel();
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot }; var panel = new StackPanel();
         panel.Children.Add(OverviewText(T("forward.title", ("name", Display(who))), 17, weight: 650));
         panel.Children.Add(OverviewText(first == null ? T("forward.how", ("name", Display(who))) : T("forward.waiting", ("name", Display(who)), ("n", info.Rows("waiting").Count), ("ids", string.Join(",", first.Rows("ids").Select(x => x.Text())))), 12.5, true));
         var form = new StackPanel { Spacing = 12 };
@@ -265,7 +265,7 @@ public sealed partial class MainWindow
     }
     private async Task SecretarySetup()
     {
-        var target = org; var dialog = new ContentDialog { XamlRoot = root.XamlRoot };
+        var target = org; var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot };
         var body = new StackPanel(); body.Children.Add(OverviewText(T("secretary.setup_title"), 17, weight: 650));
         body.Children.Add(OverviewText(T("secretary.setup_intro"), 12.5, true));
         var choices = new StackPanel { Spacing = 6 };
@@ -387,7 +387,7 @@ public sealed partial class MainWindow
             try { sessions = await api.Get("/api/sessions"); } catch (Exception error) { sessions = new JsonObject { ["sessions"] = new JsonArray(), ["problems"] = new JsonArray(error.Message) }; } DrawSessions();
         }
         find.TextChanged += (_, _) => DrawSessions(); DrawSessions();
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel(); body.Children.Add(OverviewText(edit != null ? T("member.edit_title", ("name", card.Text("display").Length > 0 ? card.Text("display") : edit)) : secretary ? T("secretary.new_embedded") : T("common.add_member"), 17, weight: 650));
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel(); body.Children.Add(OverviewText(edit != null ? T("member.edit_title", ("name", card.Text("display").Length > 0 ? card.Text("display") : edit)) : secretary ? T("secretary.new_embedded") : T("common.add_member"), 17, weight: 650));
         var tabs = new Border(); body.Children.Add(tabs); var note = OverviewText("", 12.5, true); body.Children.Add(note); var fields = new StackPanel { Spacing = 12 }; body.Children.Add(fields);
         var errorLabel = OverviewText("", 12.5); errorLabel.Foreground = Paint("C2412D", "EE8A78"); var errorBox = new Border { Child = errorLabel, Height = 0 }; body.Children.Add(errorBox);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right }; body.Children.Add(footer);

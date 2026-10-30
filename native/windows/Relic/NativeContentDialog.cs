@@ -26,6 +26,17 @@ internal sealed class NativeContentDialog : ContentDialog
     }
 
     internal DependencyObject? CurrentPart(string name) => GetTemplateChild(name);
+
+    internal void ApplySurfaceBrushes()
+    {
+        // ContentDialog reparents its smoke rectangle into a separate popup.
+        // That popup resolves the SDK theme brush instead of the dialog-local
+        // resource. Apply our actual production brush to the retained part
+        // after opening; this keeps the native modal/focus behavior intact.
+        if (GetTemplateChild("SmokeLayerBackground") is Microsoft.UI.Xaml.Shapes.Rectangle smoke
+            && Resources.TryGetValue("ContentDialogSmokeFill", out var value) && value is Brush brush)
+            smoke.Fill = brush;
+    }
 }
 
 public sealed partial class MainWindow

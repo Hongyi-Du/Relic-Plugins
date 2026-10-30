@@ -293,7 +293,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task Show(string title, UIElement content, double width = 720)
     {
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot };
         var requested = content is FrameworkElement element && !double.IsNaN(element.Width) ? element.Width : width;
         var layout = new Grid { RowSpacing = 20, Width = Math.Min(requested, Math.Max(400, root.ActualWidth - 96)) }; layout.RowDefinitions.Add(new() { Height = GridLength.Auto }); layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         layout.Children.Add(TwoColumns(Heading(title, 18), IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; })));
@@ -305,7 +305,7 @@ public sealed partial class MainWindow : Window
         form.Width = Math.Max(0, Math.Min(width, root.ActualWidth - 32) - 44);
         form.Padding = new Thickness(0); form.Spacing = 12;
         var message = Text("", 12.5); message.Foreground = Paint("C2412D", "EE8A78"); message.Visibility = Visibility.Collapsed; form.Children.Add(message);
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel"), DefaultButton = ContentDialogButton.Primary };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Title = title, Content = Scroll(form), PrimaryButtonText = submitText ?? T("common.save"), CloseButtonText = T("common.cancel"), DefaultButton = ContentDialogButton.Primary };
         dialog.PrimaryButtonClick += async (_, e) =>
         {
             var hold = e.GetDeferral();
@@ -338,7 +338,7 @@ public sealed partial class MainWindow : Window
     private static string Value(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
     private async Task CreateOrg()
     {
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel();
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel();
         body.Children.Add(OverviewText(T("common.new_org"), 17, weight: 650));
         var form = new StackPanel { Spacing = 12 };
         var name = FormInput("", T("neworg.name_placeholder")); var purpose = FormInput("", T("neworg.purpose_placeholder"), "new-org-purpose", multiline: true);

@@ -59,6 +59,7 @@ public sealed partial class MainWindow
     }
     private void StyleDialogParts(ContentDialog dialog)
     {
+        if (dialog is NativeContentDialog native) native.ApplySurfaceBrushes();
         // Retain ContentDialog's native modal focus, validation deferrals and
         // button commands; restyle the actual template parts after realization.
         if (DialogPart<ContentControl>(dialog, "Title") is { } title)
@@ -87,7 +88,7 @@ public sealed partial class MainWindow
     }
     private async Task<bool> Confirm(string message)
     {
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = "Relic", Content = Text(message), PrimaryButtonText = T("common.save"), CloseButtonText = T("common.cancel") };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Title = "Relic", Content = Text(message), PrimaryButtonText = T("common.save"), CloseButtonText = T("common.cancel") };
         await Dialog(dialog);
         return confirmedDialogs.Remove(dialog);
     }
