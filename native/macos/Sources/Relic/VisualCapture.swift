@@ -204,11 +204,16 @@ import RelicAX
                     }
                     try evidence(["provider": "production NSAnimation clocks", "clocks": clocks], suffix: ".animations.json", item: item, output: output)
                 }
+                hosting.layoutSubtreeIfNeeded(); hosting.displayIfNeeded(); CATransaction.flush()
+                let geometry = GeometryCaptureSession(path: output.appendingPathComponent(item["id"].text + ".native-geometry.json"))
+                try geometry.observe("before-screenshot", window: window)
                 try messageCapture?.observe("before-screenshot", window: window)
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try messageCapture?.observe("after-screenshot", window: window)
+                try geometry.observe("after-screenshot", window: window)
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 try messageCapture?.observe("after-native-source-and-element-extraction", window: window)
+                try geometry.observe("after-native-source-and-element-extraction", window: window)
                 try messageCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
@@ -224,6 +229,9 @@ import RelicAX
                     if sceneMounted {
                         do {
                             let png = output.appendingPathComponent(item["file"].text)
+                            if FileManager.default.fileExists(atPath: png.path) {
+                                try FileManager.default.copyItem(at: png, to: output.appendingPathComponent(item["id"].text + ".before-capture-error.png"))
+                            }
                             try capture(window, to: png, width: item["width"].integer, height: item["height"].integer)
                             try ElementCapture.write(window: window, png: png, item: item, language: language, theme: theme, captureErrors: [detail])
                             results.append(["id": item["id"].text, "file": item["file"].text, "status": "failed-state-captured", "error": detail])
