@@ -1,3 +1,19 @@
+## 2026-10-30: opaque coverage diagnostics preserve all elements
+
+New `capture_evidence.native_opaque_candidates` and the same raw AX field record
+per-text-run candidates against actual NativeSurfaceFillView instances. Each
+candidate requires the current exact owned CGImage in the presentation layer,
+same native window, distinct front sibling branch, identical model/presentation
+geometry and child order, no unmeasured transforms, masks, effects or animations,
+opaque unclipped ancestry, and exact opaque source-image/final-PNG pixel equality
+across the entire rectangle. Rounded transparent pixels, alpha fills, reverse
+order, stale presentation and altered final pixels reject a candidate.
+
+This is diagnostic only: `changes_visibility: false` and no emitted element is
+removed or marked occluded. The mounted positive/negative tests and real SwiftUI
+captures are pending CI. The shared checker must keep failing unknown occlusion;
+no tolerance, exception or accepted proof shape is being changed by this work.
+
 ## 2026-10-30 shared request: current editor ownership for ordinary native fields
 
 Actual `7ce27b4` new-org has the same visible input represented twice: the
