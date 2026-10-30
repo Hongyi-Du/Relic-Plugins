@@ -44,6 +44,9 @@ struct RecordedSurface: ViewModifier {
         let corners = cornerRadii ?? Array(repeating: radius, count: 4)
         return UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3], bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
     }
+    private var shadowOutset: CGFloat {
+        shadows.map { $0.radius * 3 + max(abs($0.x), abs($0.y)) }.max() ?? 0
+    }
     func body(content: Content) -> some View {
         ownedContent(content).background {
             // CSS box shadows belong to the surface outline. Applying SwiftUI
@@ -60,7 +63,12 @@ struct RecordedSurface: ViewModifier {
                 // Keep translucent shadow layers in the reference's non-linear
                 // sRGB blending space. AppKit controls remain outside this
                 // shape-only raster group and retain their actual native draws.
+                // A drawingGroup raster is limited to its layout bounds. Give
+                // the actual blur kernel/offset room, then restore the original
+                // surface layout size; otherwise every outside shadow is clipped.
+                .padding(shadowOutset)
                 .drawingGroup(opaque: false, colorMode: .nonLinear)
+                .padding(-shadowOutset)
             }
         }
             .overlay {

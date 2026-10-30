@@ -1,5 +1,15 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+`edb98f3` smoke `41005480198` completes all 19 macOS captures; its actual new
+PNG reveals a shadow regression: the non-linear drawingGroup clips all paint
+outside its layout bounds. At the member-card left edge the native samples at
+offsets 1/4/8/16/24/40 are all white; reference red channels are 234/240/244/250/
+253/255. The shape-only raster group now receives padding derived from its own
+blur radii and offsets, followed by equal negative layout padding, so the card
+retains its original size and the actual shadow has room to render. The strict
+reference edge-profile test remains unchanged and must pass in CI. The failed
+edb98f3 images/report are retained under `parity-edb98f3`; no evidence is replaced.
+
 The overview toggle previously exposed its entire 257px switch-and-label row
 as one checkbox while the reference has a 32px control, separate visible text
 and a 14px knob. The production SwiftUI style now scopes its native checkbox
