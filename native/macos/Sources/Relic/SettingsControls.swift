@@ -101,6 +101,7 @@ struct ReferenceInput: View {
     @Environment(\.nativeControlColor) private var textColor
     @Environment(\.nativeFieldLabel) private var fieldLabel
     @Environment(\.captureRegion) private var region
+    @Environment(\.nativeInputFocusBorder) private var drawsFocusBorder
     let placeholder: String
     @Binding var text: String
     var commit: () -> Void = {}
@@ -125,7 +126,7 @@ struct ReferenceInput: View {
             .onChange(of: focused) { old, new in if old && !new { closeSuggestions(); commit() } }
             .onChange(of: text) { if m.inputSuggestions?.id == inputIdentity { openSuggestions() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused && drawsFocusBorder ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
             .background(GeometryReader { proxy in Color.clear.preference(key: InputSuggestionAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
             .onPreferenceChange(InputSuggestionAnchor.self) { suggestionAnchor = $0 }
