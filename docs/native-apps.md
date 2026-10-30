@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (macOS evidence-shape request consumed): the latest
+native-macos merge includes `raw`/`applicable` line-break evidence and explicit
+non-text values required by the shared schema. Unknown text modes remain
+unknown. The owner's new rename capture waits for the fetched member's actual
+AX card before the single real action, fixing an observed pre-load click.
+Their 597e113 diagnostic captured 18/19 scenes and still failed parity;
+these newly merged fixes require a fresh capture. The reported paragraph ink
+measurement is a local paragraph result, not whole-matrix font equivalence.
+
+Changes for the clients (Windows provider timing diagnostic): the Windows
+capture now retains its actual owner/peer/EventsSource objects across the
+normal independent UIA traversal. `*.provider-probe.json` and its auto-flushed
+progress file record both public COM pointer outlets, exact QI HRESULTs and
+release outcomes before and after that traversal. This sidecar supplies no
+canonical identities and does not change metadata or any failing checks.
+The headless build passes. In `74b14eb`, the shared CI checker passes 87 Node
+and 443 Python tests; this is checker validation, not element parity.
+
 Changes for the clients (macOS integration follow-up): the new native TextKit
 strategy fields, real popup-cell/card/status-dot ownership and composer viewport
 fix are merged. The shared checker requires a small evidence-shape follow-up:
