@@ -60,7 +60,7 @@ struct OverviewChip: View {
         ReferenceLabel(text, size: 11.5, color: foreground, lineHeight: 20, owner: identity).fixedSize()
             .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
             .modifier(RecordedSurface(background: background, radius: 10, kind: "chip", owner: identity))
-            .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity)
+            .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
     }
 }
 

@@ -225,6 +225,8 @@ import CoreText
             let drawnFonts = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view)
                 ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
             let breaks = NativeLineBreaks.inspect(view, range: range)
+            let accessibleSpan = RelicAXText(view, range)
+            let accessibleText = accessibleSpan.map { NativeInlineCode.source($0) }
             var measuredLayout: [String: Any] = ["wrap": wrap, "truncation": truncation, "line_count": lines.count]
             measuredLayout.merge(breaks.layout, uniquingKeysWith: { _, actual in actual })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
@@ -237,6 +239,8 @@ import CoreText
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
+                "native_accessible_range": ["source": "actual AX attributed string for the rendered source range",
+                    "value": accessibleText as Any? ?? NSNull(), "matches_rendered_text": accessibleText == text],
                 "native_font_weight_configuration": ["value": attributes[.relicConfiguredFontWeight] ?? NSNull(),
                     "source": "actual native attributed text style input", "quantity": "configured weight, not resolved font weight or synthetic paint"],
                 "native_structure": NativeElementStructure.evidence(view, parent: (view as? ReferenceLabelView)?.productionParent),
@@ -293,7 +297,7 @@ import CoreText
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
             let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-state-dot/") ? "state-dot" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text.hasPrefix("relic-toggle/") ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
-            if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle", "toggle"].contains(elementKind) { text = "" }
+            if isIcon || ax["identifier"].text == "relic-profile-button" || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle", "toggle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else if elementKind == "dropdown" { text = valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
@@ -364,6 +368,11 @@ import CoreText
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
                     projected["native_structure"] = run["native_structure"]
+                    if let accessible = run["native_accessible_range"] as? [String: Any],
+                       accessible["matches_rendered_text"] as? Bool == true, let value = accessible["value"] as? String {
+                        projected["name"] = value
+                        projected["native_name_source"] = "AX attributed range value of the read-only text fragment"
+                    }
                     projected["native_name_evidence"] = ["owner_role": role, "owner_label": label, "owner_value": valueText, "complete_owner_text_matches_run": run["text"] as? String == accessibleName]
                     projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
                         let local = NSRect(x: line["x"]!, y: line["y"]!, width: line["width"]!, height: line["height"]!)
