@@ -1,5 +1,13 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+`1d3a643` Native apps run `41016580612` is fully green; macOS job
+`123934169316` built the production app and passed **151 tests**. The corrected
+real checkbox role/value/frame/press assertions and real rich-text AX range
+reads all pass. The next `4086e2f` capture build caught main-actor isolation
+on the new surface helper; `666b2bf` fixes it. Current queued build `0a1d569`
+includes that correction, inspector note/row text, shared organization badges,
+chart chip ownership and the shared font-weight quantity contract.
+
 **Full macOS capture recovered, `2cb073c` / run `41011131381`:** downloaded
 all four native artifacts to `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`.
 Each language/theme manifest records 165/165 cases, with `errors: []`;
