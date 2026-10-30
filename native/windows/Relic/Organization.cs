@@ -26,6 +26,9 @@ public sealed partial class MainWindow
         intro.Children.Add(OverviewHeading(OverviewText(T("org.heading"), 12, true), modeGroup));
         intro.Children.Add(OverviewText(o.Text("name"), 16, weight: 700, lineHeight: 21.6));
         var purpose = OverviewText(o.Text("purpose").Length > 0 ? o.Text("purpose") : T("org.no_purpose")); purpose.Foreground = Paint("5A5853", "B8B5AE");
+        // .purpose keeps CSS white-space/word-break/overflow-wrap: normal;
+        // long unbreakable words must not acquire WinUI Wrap's emergency split.
+        purpose.TextWrapping = TextWrapping.WrapWholeWords;
         purpose.MaxLines = 3; purpose.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(purpose, T("org.click_expand"));
         purpose.Tapped += (_, _) => purpose.MaxLines = purpose.MaxLines == 0 ? 3 : 0; intro.Children.Add(purpose);
         var metadata = new ActionRow { Spacing = 6 };

@@ -1055,7 +1055,7 @@ test('CSS border styles preserve each side and do not invent dashed paint length
   assert.equal(result.stroke_dash, null);
 });
 
-function outlineFixture(changes = {}) {
+function outlineFixture(changes = {}, globals = {}) {
   const style = { outlineStyle: 'dashed', outlineWidth: '1.5px', outlineOffset: '-1.5px', outlineColor: 'rgb(143, 140, 134)',
     transform: 'none', perspective: 'none', zoom: '1', scale: 'none', rotate: 'none', translate: 'none', ...changes };
   const bounds = { x: 22, y: 84, width: 22, height: 22 };
@@ -1064,6 +1064,13 @@ function outlineFixture(changes = {}) {
   const read = vm.runInNewContext('(' + expression('outlineData', 'styleData') + ')', {
     pathOf: () => '#actual-outline-owner', rect: box => ({ ...box }), styleOf: el => el.style, SVGElement: SVGElementFixture,
     color: value => computed(value).rgba,
+    DOMMatrixReadOnly: class {
+      constructor(value) {
+        const parts = /^matrix\(([^)]+)\)$/.exec(value)?.[1].split(',').map(Number);
+        if (!parts || parts.length !== 6 || !parts.every(Number.isFinite)) throw new TypeError('Fixture matrix is unreadable');
+        [this.a, this.b, this.c, this.d, this.e, this.f] = parts; this.is2D = true;
+      }
+    }, ...globals,
   });
   return { owner, style, bounds, read };
 }
@@ -1124,6 +1131,49 @@ test('transformed or unresolved outline units preserve local evidence without gu
   assert.equal(result.evidence.computed.offset, 'calc(1px + 2%)');
   assert.ok(result.problems.some(problem => problem.property === 'style.outline.width'));
   assert.ok(result.problems.some(problem => problem.property === 'style.outline.offset'));
+});
+
+test('recorded chart ancestor translation preserves measured outline lengths but not unresolved paint', () => {
+  // 3a924e7 reference zh-CN-light-1440x900-chart, dom-558:
+  // the actual chart ancestor matrix and computed outline values below are
+  // retained in elements/reference/*chart.elements.json, evidence.outline.
+  const f = outlineFixture({ outlineWidth: '1px', outlineOffset: '-1px', outlineColor: 'rgb(120, 54, 65)' });
+  f.owner.parentElement = { style: { ...f.style, transform: 'matrix(1, 0, 0, 1, 542, 125)' }, parentElement: null };
+  const result = normalize(f.read(f.owner, f.style));
+  assert.equal(result.value.width, 1); assert.equal(result.value.offset, -1);
+  assert.equal(result.evidence.outline_to_window_scale, 1);
+  assert.deepEqual(result.evidence.axis_mappings[1].matrix, { is2D: true, a: 1, b: 0, c: 0, d: 1, e: 542, f: 125 });
+  assert.equal(result.evidence.ancestry[1].transform, 'matrix(1, 0, 0, 1, 542, 125)');
+  assert.equal(result.value.dash, null); assert.equal(result.value.dash_offset, null); assert.equal(result.value.contour, null);
+  assert.deepEqual(result.problems.map(p => p.property), ['style.outline.dash', 'style.outline.dash_offset', 'style.outline.contour']);
+});
+
+test('outline translation rejects any nonidentity linear component and unresolved dimensionality', () => {
+  for (const transform of ['matrix(1.0000001, 0, 0, 1, 542, 125)', 'matrix(1, 0.01, 0, 1, 542, 125)',
+    'matrix(1, 0, 0.01, 1, 542, 125)', 'matrix(1, 0, 0, 0.9999999, 542, 125)',
+    'matrix(0, 1, -1, 0, 542, 125)', 'matrix(-1, 0, 0, -1, 542, 125)',
+    'matrix(1, 0, 0, 1, Infinity, 125)', 'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 542, 125, 0, 1)']) {
+    const f = outlineFixture({ transform }), result = normalize(f.read(f.owner, f.style));
+    assert.equal(result.value.width, null, transform); assert.equal(result.value.offset, null, transform);
+    assert.equal(result.evidence.outline_to_window_scale, null);
+    assert.ok(result.problems.some(p => p.property === 'style.outline.coordinate_space'));
+  }
+});
+
+test('outline translation cannot conceal another transformed ancestor or a failed actual matrix read', () => {
+  for (const ancestor of [{ zoom: '1.1' }, { perspective: '500px' }, { scale: '1.01' },
+    { rotate: '1deg' }, { translate: '1px 0px' }]) {
+    const f = outlineFixture({ transform: 'matrix(1, 0, 0, 1, 542, 125)' });
+    f.owner.parentElement = { style: { ...f.style, transform: 'none', ...ancestor }, parentElement: null };
+    const result = normalize(f.read(f.owner, f.style));
+    assert.equal(result.value.width, null); assert.equal(result.value.offset, null);
+    assert.ok(result.problems.some(p => p.property === 'style.outline.coordinate_space'));
+  }
+  const f = outlineFixture({ transform: 'matrix(1, 0, 0, 1, 542, 125)' }, { DOMMatrixReadOnly: undefined });
+  const result = normalize(f.read(f.owner, f.style));
+  assert.equal(result.value.width, null); assert.equal(result.value.offset, null);
+  assert.ok(result.evidence.axis_mappings[0].error);
+  assert.ok(result.problems.some(p => p.property === 'style.outline.coordinate_space'));
 });
 
 test('style extraction keeps outline separate from an actual zero border', () => {

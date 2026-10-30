@@ -816,9 +816,27 @@
     }
     if (pseudo) evidence.ancestry.unshift({ selector: pathOf(el), pseudo, transform: s.transform, perspective: s.perspective,
       zoom: s.zoom, scale: s.scale, rotate: s.rotate, translate: s.translate });
-    const unchangedAxes = !(el instanceof SVGElement) && evidence.ancestry.length > 0 && evidence.ancestry.every(p =>
-      p.transform === 'none' && p.perspective === 'none' && ['1', 'normal'].includes(p.zoom) &&
-      p.scale === 'none' && p.rotate === 'none' && p.translate === 'none');
+    evidence.axis_mappings = evidence.ancestry.map(p => {
+      const mapping = { selector: p.selector, pseudo: p.pseudo ?? null, transform: p.transform,
+        matrix: null, preserves_lengths: false, source: 'actual computed CSS transform and independent axis properties', error: null };
+      if (p.perspective !== 'none' || !['1', 'normal'].includes(p.zoom) ||
+          p.scale !== 'none' || p.rotate !== 'none' || p.translate !== 'none') return mapping;
+      if (p.transform === 'none') { mapping.preserves_lengths = true; return mapping; }
+      // A genuine 2D translation does not change CSS lengths. Do not infer a
+      // scale from the owner's enclosing rectangle or accept near-identity axes.
+      if (typeof p.transform !== 'string' || !p.transform.startsWith('matrix(')) return mapping;
+      try {
+        const actual = new DOMMatrixReadOnly(p.transform);
+        mapping.source = 'DOMMatrixReadOnly of actual computed CSS matrix plus independent axis properties';
+        mapping.matrix = { is2D: actual.is2D, a: actual.a, b: actual.b, c: actual.c, d: actual.d, e: actual.e, f: actual.f };
+        mapping.preserves_lengths = actual.is2D === true &&
+          [actual.a, actual.b, actual.c, actual.d, actual.e, actual.f].every(Number.isFinite) &&
+          actual.a === 1 && actual.b === 0 && actual.c === 0 && actual.d === 1;
+      } catch (error) { mapping.error = String(error); }
+      return mapping;
+    });
+    const unchangedAxes = !(el instanceof SVGElement) && evidence.axis_mappings.length > 0 &&
+      evidence.axis_mappings.every(p => p.preserves_lengths);
     if (unchangedAxes) evidence.outline_to_window_scale = 1;
     else problems.push({ property: 'style.outline.coordinate_space', reason: 'Actual transform/zoom/SVG coordinate mapping does not prove computed outline px equal window px.' });
     const automatic = raw.style === 'auto';

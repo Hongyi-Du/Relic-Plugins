@@ -1,5 +1,25 @@
 # Native Relic App contract
 
+Changes for the clients (measured outline coordinate correction): the reference
+chart's actual ancestor matrix(1,0,0,1,542,125) was incorrectly treated as changing
+outline lengths. The extractor now parses actual computed 2D matrices and accepts
+only an exactly identity linear part with finite translation and unchanged other
+axis properties. Raw matrices remain recorded. Three Node regression cases cover
+translation and rejected scales, rotations, perspective and unavailable APIs.
+Unmeasured outline contour/dashes and reference scrollbar properties still fail.
+
+Changes for the clients (organization purpose wrapping): Windows purpose uses
+WrapWholeWords to preserve the reference's normal word-break/overflow-wrap rules.
+The three-line clamp, ellipsis and click-to-expand behavior are retained.
+
+Changes for the clients (macOS follow-up consumed at 2283588): REQUESTS.md records
+that actual 63fc431 still shifted the expanded tool row by 97px. The client now
+preserves its real pre-click clip origin after disclosure layout and cancels that
+pending restoration on navigation/content changes. Its new native scroll-view
+test and label-layer candidate changes are merged; no shared payload is required.
+02df6a9 macOS CI still reports seven label-candidate assertions failing. This is
+not acceptance evidence and the next capture must verify the newer implementation.
+
 Changes for the clients (actual secretary bubble inset): Windows now paints the
 reference's zero-blur inner shadow with a retained native Path produced by D2D
 EXCLUDE on the actual rounded padding edge. The former 3px left border is removed;
