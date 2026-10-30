@@ -1,3 +1,30 @@
+## 2026-10-30: verified input measurements and current diagnostic report
+
+bcb9387 release compiled; 207/208 tests passed. The explicit per-line input
+rectangle array now passes finite geometry, one actual line, current glyph
+binding and no measurement-error assertions. Rename caret and IME tests pass.
+Its sole failure: AppKit alignment outsets enlarged the styled rename field
+from 195 to 199. b71af12 makes the borderless control's alignment insets zero,
+preserving the original 195-width assertion. Fresh capture remains required.
+1ffe201's macOS build, all 206 tests and packaging passed; its hosted AX test
+now works after the real AppKit launch lifecycle, without weakening the test.
+
+2ffd371 draws nonselectable ReferenceLabelView labels directly through their
+existing TextKit manager, without NSTextView's second content drawing path.
+Glyph callbacks, shaping and truncation remain the real production pipeline.
+e2c5d3a adds a mounted/layer-backed test requiring actual glyph pixels and zero
+extra child paint layers. No layer class is allowlisted, and TextOutlineCapture
+still rejects unmeasured children/effects. Actual CI results are pending.
+
+The dc2d96a formal diagnostic report (41053483797) is downloaded at
+`S:\Codex\Outputs\Relic-native-visual\parity-dc2d96a\report\`.
+All 20 Mac captures completed, still zero accepted of 672 required cases:
+5039 native / 4480 valid reference / 4420 paired, missing60 extra619 text0
+geometry1030 style8333 state1346 kind0 region2 order654 layout2236 icon0
+extraction30381. Exceptions remain empty. Newer shared matcher direct pairing
+has zero state differences for group/private; it is not a new formal full run.
+The 21-case diagnostic extension and shared downloader test fix are merged.
+
 ## 2026-10-30: shared contract stale assertion after bounded downloader
 
 Run 41055829988 job 124064563039 fails
