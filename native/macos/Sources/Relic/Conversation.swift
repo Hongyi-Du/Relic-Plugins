@@ -307,13 +307,13 @@ struct MessageView: View {
                 if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
                 else { Spacer(minLength: 0) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
-                    if !continued { HStack(spacing: 6) {
-                        Text(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text).font(RelicStyle.font(12.5, weight: 600)).foregroundStyle(RelicStyle.secondary).lineLimit(1)
-                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { Text(item["from"].text).font(.system(size: 11, design: .monospaced)).foregroundStyle(RelicStyle.muted) }
-                        if item["type"].text == "receipt" { Text(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })])).foregroundStyle(RelicStyle.muted) }
-                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { Text(recipientLabel).foregroundStyle(RelicStyle.muted).lineLimit(1).help(recipientLabel) }
-                        Text(m.clock(item["at"])).foregroundStyle(RelicStyle.muted).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
-                    }.font(RelicStyle.font(12, weight: 400)) }
+                    if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
+                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
+                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true) }
+                        if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0) }
+                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
+                        ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
+                    } }
                     if item["type"].text == "receipt" {
                         MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
                     } else if wantsPlain, let plain = m.plain[item["id"].text] {
