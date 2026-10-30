@@ -99,7 +99,10 @@ public sealed partial class MainWindow
         var disclosure = DetailsDisclosure(header, inner);
         disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => chevron.RenderTransform = new RotateTransform { Angle = disclosure.IsExpanded ? 90 : 0 });
         disclosure.Expanding += (_, _) => { if (rows.Children.Count == 0) foreach (var (call, result) in pairs) rows.Children.Add(ConversationStep(targetOrg, targetMember, call, result)); };
-        var card = new Border { Child = disclosure, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10) };
-        return ConversationRow(card, null, continued: true);
+        var card = new Border { Child = disclosure, Background = Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10) };
+        // A capped Stretch child centers itself in a wider Grid column. The
+        // reference action block instead fills up to 720px from the body's left.
+        var width = new LiveWidthLimit { Limit = 720 }; width.Children.Add(card);
+        return ConversationRow(width, null, continued: true);
     }
 }

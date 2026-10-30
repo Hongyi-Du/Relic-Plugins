@@ -1226,6 +1226,67 @@ def transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs=None):
 DIALOG_SURFACE_SOURCE = "Actual NativeContentDialog protected GetTemplateChild objects from its applied native ControlTemplate"
 
 
+def project_ellipse_border(element, node, unmeasured):
+    """Classify a measured Ellipse boundary stroke without inventing its contour.
+
+    Shape.Stroke is captured as foreground, whereas a closed state-dot boundary
+    uses the border paint fields. This is not a rule for Paths, Lines or glyphs.
+    Actual Shape.Stretch/outline geometry is not in the current receipt, so the
+    native default CornerRadius(0) cannot become a measured CSS corner radius.
+    """
+    if node.get("type") != "Ellipse":
+        return
+    raw_style = node.get("style") or {}
+    brushes = raw_style.get("brush_evidence")
+    brush = brushes.get("foreground") if isinstance(brushes, dict) else None
+    if isinstance(brush, dict) and "type" in brush and brush["type"] is None:
+        return  # A measured absent Stroke does not create a boundary paint.
+    stroke = node.get("stroke_evidence")
+    style = element["style"]
+    proof = {"source": "Actual Ellipse Shape.Stroke brush and measured stroke-axis receipt",
+             "runtime_type": (node.get("outline_owner_evidence") or {}).get("runtime_type"),
+             "raw_style": copy.deepcopy(raw_style), "stroke_evidence": copy.deepcopy(stroke),
+             "transform": copy.deepcopy(node.get("transform")),
+             "bounds": copy.deepcopy(node.get("bounds")), "stroke_fields_measured": False,
+             "contour_measured": False,
+             "contour_reason": "Actual Shape.Stretch and current rendered Ellipse contour are not captured; layout extents do not establish a CSS radius"}
+    element["evidence"]["ellipse_border"] = proof
+    style["corner_radius"] = style["corner_radii"] = None
+    unmeasured.append({"id": node["id"], "property": "style.corner_radius", "reason": proof["contour_reason"]})
+    color, width = raw_style.get("foreground"), raw_style.get("stroke_width")
+    pattern = stroke.get("raw_pattern") if isinstance(stroke, dict) else None
+    matrix = node.get("transform")
+    supported = (
+        measured_runtime_type(node, "is_shape") is True and node.get("paint_kind") == "ellipse"
+        and proof["runtime_type"] == "Microsoft.UI.Xaml.Shapes.Ellipse"
+        and isinstance(brush, dict) and brush.get("type") == "Microsoft.UI.Xaml.Media.SolidColorBrush"
+        and isinstance(color, list) and len(color) == 4 and all(finite(c) and 0 <= c <= 255 for c in color)
+        and brush.get("solid_rgba") == color and finite(brush.get("opacity")) and 0 <= brush["opacity"] <= 1
+        and finite(width) and width >= 0 and isinstance(stroke, dict)
+        and stroke.get("source") == "Shape.StrokeThickness and full actual Shape.TransformToVisual(content-root) layout-axis endpoints; unit-difference diagnostics retained"
+        and finite(stroke.get("raw_width")) and stroke["raw_width"] >= 0
+        and stroke.get("scale_x") == stroke.get("scale_y") == 1
+        and stroke.get("basis_x") == {"x": 1, "y": 0} and stroke.get("basis_y") == {"x": 0, "y": 1}
+        and width == stroke["raw_width"]
+        and isinstance(matrix, dict) and all(finite(matrix.get(k)) for k in ("m11", "m12", "m21", "m22", "offset_x", "offset_y"))
+        and [matrix[k] for k in ("m11", "m12", "m21", "m22")] == [1, 0, 0, 1]
+        and isinstance(pattern, dict) and pattern.get("dash_array") == []
+        and raw_style.get("stroke_dash") == [])
+    fields = ("border_color", "border_width", "border_widths", "border_colors", "border_styles")
+    if not supported:
+        for field in fields:
+            style[field] = None
+        unmeasured.append({"id": node["id"], "property": "style.ellipse_border",
+                           "reason": "Ellipse boundary lacks a bound solid undashed stroke with a measured translation-only width; no CSS border is inferred"})
+        return
+    style.update(border_color=copy.deepcopy(color), border_width=width, border_widths=[width] * 4,
+                 border_colors=[copy.deepcopy(color) for _ in range(4)],
+                 border_styles=["solid" if width > 0 else "none"] * 4)
+    proof["stroke_fields_measured"] = True
+    proof["projected_fields"] = list(fields)
+    proof["quantity"] = "Closed Ellipse boundary stroke color/thickness only; no outline placement, radius or raster equivalence asserted"
+
+
 def measured_dialog_surfaces(raw, by_id, unmeasured):
     """Bind an actual modal surface, not a same-sized/name-matched descendant.
 
@@ -1933,6 +1994,7 @@ def project(xaml_path, uia_path, png_path):
                 "other_template_paint_and_authored_content_merged": False,
                 "smoke_layer_merged": False,
             }
+        project_ellipse_border(element, node, unmeasured)
         element["evidence"]["font_weight_quantities"] = project_font_weights(element)
         for issue in font_weight_issues(element):
             unmeasured.append({"id": node["id"], "property": "style." + issue["field"], "reason": issue["reason"]})

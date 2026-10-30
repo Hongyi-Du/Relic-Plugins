@@ -220,21 +220,58 @@ public class NativeShadowPanel : Grid
     private NativeShadowLayer[] layers = [];
     private ContainerVisual? shadows;
     private readonly List<DropShadow> renderedShadows = new();
+    private Size renderedSize;
+    private double renderedRadius;
+    private long layerRevision, renderedLayerRevision = -1;
+    private long loadCount, unloadCount, arrangeCount, renderCount, zeroExtentCount;
     public Border Surface { get; }
     public IReadOnlyList<DropShadow> RenderedShadows => renderedShadows;
     public NativeShadowPanel(Border surface)
     {
         Surface = surface; Children.Add(shadowHost); Children.Add(surface);
-        Loaded += (_, _) => DrawShadows(); SizeChanged += (_, _) => DrawShadows();
-        Unloaded += (_, _) => { ElementCompositionPreview.SetElementChildVisual(shadowHost, null); shadows = null; renderedShadows.Clear(); };
+        Loaded += (_, _) => { loadCount++; DrawShadows(new Size(ActualWidth, ActualHeight)); };
+        SizeChanged += (_, args) => DrawShadows(args.NewSize);
+        Unloaded += (_, _) =>
+        {
+            unloadCount++; ElementCompositionPreview.SetElementChildVisual(shadowHost, null);
+            shadows = null; renderedShadows.Clear(); renderedLayerRevision = -1;
+        };
     }
-    public void SetShadows(NativeShadowLayer[] values) { layers = values; if (IsLoaded) DrawShadows(); }
-    private void DrawShadows()
+    public void SetShadows(NativeShadowLayer[] values)
     {
-        if (ActualWidth <= 0 || ActualHeight <= 0) return;
+        if (layers.SequenceEqual(values)) return;
+        layers = values.ToArray(); layerRevision++;
+        if (IsLoaded) DrawShadows(new Size(ActualWidth, ActualHeight));
+    }
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var arranged = base.ArrangeOverride(finalSize); arrangeCount++;
+        // A template/popup can arrange this panel after its Loaded notification.
+        // Use the production layout result, not the previous ActualWidth value.
+        DrawShadows(arranged);
+        return arranged;
+    }
+    internal JsonObject ShadowLifecycleEvidence() => new()
+    {
+        ["source"] = "Actual NativeShadowPanel production lifecycle and retained compositor object identity",
+        ["is_loaded"] = IsLoaded, ["load_count"] = loadCount, ["unload_count"] = unloadCount,
+        ["arrange_count"] = arrangeCount, ["render_count"] = renderCount, ["zero_extent_count"] = zeroExtentCount,
+        ["requested_layer_count"] = layers.Length, ["rendered_layer_count"] = renderedShadows.Count,
+        ["layer_revision"] = layerRevision, ["rendered_layer_revision"] = renderedLayerRevision,
+        ["actual_width"] = ActualWidth, ["actual_height"] = ActualHeight,
+        ["rendered_width"] = renderedSize.Width, ["rendered_height"] = renderedSize.Height,
+        ["rendered_radius"] = renderedRadius, ["retained_visual_present"] = shadows != null,
+        ["same_actual_child_visual"] = shadows != null && ReferenceEquals(shadows, ElementCompositionPreview.GetElementChildVisual(shadowHost))
+    };
+    private void DrawShadows(Size arranged)
+    {
+        if (arranged.Width <= 0 || arranged.Height <= 0) { zeroExtentCount++; return; }
+        if (shadows != null && renderedLayerRevision == layerRevision && renderedSize == arranged
+            && renderedRadius == Surface.CornerRadius.TopLeft
+            && ReferenceEquals(shadows, ElementCompositionPreview.GetElementChildVisual(shadowHost))) return;
         var compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
         shadows = compositor.CreateContainerVisual(); renderedShadows.Clear();
-        var size = new Vector2((float)ActualWidth, (float)ActualHeight);
+        var size = new Vector2((float)arranged.Width, (float)arranged.Height);
         // CSS lists its foremost shadow first; compositor children paint in order.
         foreach (var layer in layers.Reverse())
         {
@@ -250,6 +287,8 @@ public class NativeShadowPanel : Grid
             shadows.Children.InsertAtTop(visual); renderedShadows.Add(shadow);
         }
         ElementCompositionPreview.SetElementChildVisual(shadowHost, shadows);
+        renderedSize = arranged; renderedRadius = Surface.CornerRadius.TopLeft;
+        renderedLayerRevision = layerRevision; renderCount++;
     }
 }
 

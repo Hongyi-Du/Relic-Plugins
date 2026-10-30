@@ -199,6 +199,7 @@ public sealed partial class MainWindow
                                 ["color"] = new JsonArray(shadow.Color.R, shadow.Color.G, shadow.Color.B, shadow.Color.A),
                                 ["mask_type"] = shadow.Mask?.GetType().FullName, ["source_policy"] = shadow.SourcePolicy.ToString() });
                         node["composition_shadow_evidence"] = new JsonObject { ["source"] = "Actual production Composition DropShadow objects", ["layers"] = actual,
+                            ["lifecycle"] = nativeShadows.ShadowLifecycleEvidence(),
                             ["quantity"] = "Live Composition properties; CSS blur equivalence, clipping and final raster coverage remain unmeasured" };
                     }
                     node["paint_kind"] = element switch
@@ -749,6 +750,16 @@ public sealed partial class MainWindow
     }
     private static void CaptureStrokeEvidence(Shape shape, UIElement captureRoot, JsonObject node, string id, JsonArray errors)
     {
+        if (shape.GetType() == typeof(Ellipse))
+            node["shape_geometry_evidence"] = new JsonObject
+            {
+                ["source"] = "actual Ellipse layout and Shape inputs", ["owner_id"] = id,
+                ["runtime_type"] = shape.GetType().FullName,
+                ["stretch"] = shape.Stretch.ToString(), ["stretch_value"] = (int)shape.Stretch,
+                ["actual_width"] = shape.ActualWidth, ["actual_height"] = shape.ActualHeight,
+                ["stroke_is_null"] = shape.Stroke == null, ["stroke_thickness"] = shape.StrokeThickness,
+                ["scope"] = "Actual native geometry inputs only; no reference contour or screenshot-frame equivalence is supplied"
+            };
         var rawDashes = shape.StrokeDashArray?.ToArray() ?? [];
         string Cap(PenLineCap cap) => cap == PenLineCap.Flat ? "butt" : cap.ToString().ToLowerInvariant();
         var startCap = Cap(shape.StrokeStartLineCap); var endCap = Cap(shape.StrokeEndLineCap); var dashCap = Cap(shape.StrokeDashCap);
