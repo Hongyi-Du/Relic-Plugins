@@ -27,13 +27,25 @@ struct RecordedSurface: ViewModifier {
     var outerRingColor: Color = .clear
     var rings: [SurfaceRing] = []
     var outline: SurfaceOutline? = nil
+    @State private var cardIdentity = "relic-card/" + UUID().uuidString
     @Environment(\.captureOpacity) private var opacity
+    private var surfaceOwner: String? { owner ?? (kind == "card" ? cardIdentity : nil) }
+    @ViewBuilder private func ownedContent(_ content: Content) -> some View {
+        if kind == "card" && owner == nil {
+            // The painted production card owns a real native accessibility
+            // container at this exact position in the view hierarchy. Keep
+            // its controls/text as children, so order is measured from AX
+            // rather than appending an anonymous paint surface after the tree.
+            content.accessibilityElement(children: .contain)
+                .accessibilityIdentifier(cardIdentity).accessibilityLabel("")
+        } else { content }
+    }
     private var shape: UnevenRoundedRectangle {
         let corners = cornerRadii ?? Array(repeating: radius, count: 4)
         return UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3], bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
     }
     func body(content: Content) -> some View {
-        content.background {
+        ownedContent(content).background {
             // CSS box shadows belong to the surface outline. Applying SwiftUI
             // shadow to the content hierarchy also shadows fields/text inside
             // dialogs. Paint each shadow from the same background shape instead.
@@ -74,7 +86,7 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: owner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
+            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
     }
 }
 

@@ -1,5 +1,19 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Additional actual-capture fixes: the `fcdc0b6` group composer exposed a 1158px
+native editor inside its 758px viewport. The initial 400px document width was
+being added by native autoresizing. The production scroll view now explicitly
+lays out the editor to its real clip-view width and assigns the localized
+placeholder/name directly to that NSTextView. A real AppKit resize regression
+checks three viewport widths and return-to-original while preserving text/caret.
+
+Unowned production card surfaces now create their real AX container at the
+same point in the SwiftUI hierarchy and bind their paint probe to that identity.
+The previous anonymous paint-only cards were appended after the AX tree, which
+made actual message/event cards appear missing and extra despite near-identical
+bounds. Native children stay inside the actual container; no matcher order or
+reference values are used to fabricate ownership. New captures must validate it.
+
 Consumed the line-break contract announced in `f7341de`. macOS TextKit spans now
 emit `layout.break_strategy_version: 1`, `normal_break_strategy` and
 `emergency_break_strategy`, keeping legacy wrap, actual line rectangles/count

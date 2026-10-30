@@ -19,17 +19,19 @@ struct MentionEditor: NSViewRepresentable {
     let send: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        let scroll = ComposerScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        scroll.hasHorizontalScroller = false
         let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 26.4))
         editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor(RelicStyle.ink); editor.insertionPointColor = NSColor(RelicStyle.ink)
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false; editor.isVerticallyResizable = true
-        editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
+        editor.isHorizontallyResizable = false; editor.minSize.width = 0
+        editor.autoresizingMask = []; editor.textContainer?.widthTracksTextView = true
         editor.textContainerInset = NSSize(width: 0, height: 2); editor.textContainer?.lineFragmentPadding = 0; editor.font = RelicStyle.nativeFont(14, weight: 400)
         editor.delegate = context.coordinator; editor.string = text; editor.send = send
         editor.members = members; editor.onMention = onMention
         editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
-        editor.placeholder = placeholder; editor.focusChanged = focusChanged
+        editor.placeholder = placeholder; editor.setAccessibilityLabel(placeholder); editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
@@ -41,7 +43,7 @@ struct MentionEditor: NSViewRepresentable {
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
         editor.presentationModel = m; editor.composerID = contextID
-        editor.placeholder = placeholder; editor.focusChanged = focusChanged
+        editor.placeholder = placeholder; editor.setAccessibilityLabel(placeholder); editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
         editor.textColor = NSColor(textColor)
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
@@ -65,6 +67,25 @@ struct MentionEditor: NSViewRepresentable {
         var parent: MentionEditor
         init(_ parent: MentionEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) { if let editor = notification.object as? NSTextView { parent.text = editor.string } }
+    }
+}
+
+final class ComposerScrollView: NSScrollView {
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+    override func layout() {
+        super.layout()
+        guard let editor = documentView as? ComposerTextView else { return }
+        let width = contentView.bounds.width
+        guard width > 0 else { return }
+        // A document created at 400px inside an initially zero-width scroll
+        // view inherited that 400px as extra width under autoresizing. Pin the
+        // actual editor to its real clip view, including subsequent resizes.
+        if abs(editor.frame.width - width) > 0.01 {
+            editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
+        }
     }
 }
 

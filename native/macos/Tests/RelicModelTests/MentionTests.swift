@@ -4,6 +4,27 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
+    func testComposerDocumentTracksTheActualViewportAcrossWindowSizes() throws {
+        let scroll = ComposerScrollView()
+        scroll.hasHorizontalScroller = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 50))
+        editor.isHorizontallyResizable = false; editor.minSize.width = 0; editor.autoresizingMask = []
+        editor.textContainer?.widthTracksTextView = true
+        editor.string = "A draft with @engineer that must survive resize"
+        editor.setSelectedRange(NSRange(location: 8, length: 0))
+        let original = editor.string
+        scroll.documentView = editor
+        for width in [758.0, 598, 342, 758] {
+            scroll.setFrameSize(NSSize(width: width, height: 50))
+            scroll.layoutSubtreeIfNeeded()
+            XCTAssertEqual(editor.frame.width, scroll.contentView.bounds.width, accuracy: 0.01)
+            XCTAssertLessThanOrEqual(editor.frame.maxX, scroll.contentView.bounds.maxX + 0.01,
+                                     "The editor must not keep its initial 400px in addition to the viewport")
+            XCTAssertEqual(editor.string, original)
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: 8, length: 0))
+        }
+    }
+
     func testCompletionUsesPrefixAndWrapsKeyboardSelection() {
         let editor = ComposerTextView()
         editor.members = [Node(["name": "engineer", "display": "Engineer"]), Node(["name": "reviewer", "display": "Engineering review"])]
