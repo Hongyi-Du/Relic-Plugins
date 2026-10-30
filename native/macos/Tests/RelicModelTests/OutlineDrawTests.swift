@@ -122,6 +122,31 @@ import SwiftUI
         XCTAssertNotEqual(rasters[0], rasters[1], "The receipt's changed phase must change the real native paint")
     }
 
+    func testOutwardFocusOutlineRetainsItsActualOwnerBoundsAndPaintsTheOutsideMargin() throws {
+        _ = NSApplication.shared
+        let view = SurfacePaintProbe.SurfaceView(frame: NSRect(x: 0, y: 0, width: 201, height: 39))
+        view.recordDraws = true
+        view.configureOutline(SurfaceOutline(width: 2, color: .black.opacity(0.6), dash: [], offset: 1), corners: [8, 8, 8, 8])
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let draw = try XCTUnwrap(view.lastOutlineDraw)
+        XCTAssertEqual(view.surfaceBounds, NSRect(x: 3, y: 3, width: 195, height: 33))
+        XCTAssertEqual(draw.ownerBounds, view.surfaceBounds)
+        XCTAssertEqual(draw.path.boundingBoxOfPath, NSRect(x: 1, y: 1, width: 199, height: 37))
+        XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 100, y: 0))[3], 153, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 100, y: 3))[3], 0)
+        XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 0, y: 0))[3], 0)
+        let content = window.convertToScreen(view.convert(view.bounds, to: nil))
+        let result = view.outlineReceipt(in: content)
+        let paint = try XCTUnwrap(result.paint as? [String: Any])
+        XCTAssertEqual(paint["offset"] as? Double, 1)
+        XCTAssertEqual(paint["width"] as? Double, 2)
+        XCTAssertEqual(ElementCapture.rect(result.evidence["owner_bounds"]), view.surfaceBounds)
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draw.raw))
+    }
+
     func testClearingOutlineDoesNotReuseTheEarlierDrawOrClaimOwnerAbsence() throws {
         let view = SurfacePaintProbe.SurfaceView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         view.recordDraws = true

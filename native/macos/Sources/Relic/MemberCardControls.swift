@@ -24,10 +24,8 @@ struct MemberNameInput: View {
     var body: some View {
         MemberRenameField(placeholder: placeholder, identifier: identity, hint: m.t("card.rename_hint"), text: $text, focused: $focused, save: save, cancel: cancel)
             .frame(width: 195, height: 32.4)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 8, owner: identity))
-            .overlay {
-                if focused { RoundedRectangle(cornerRadius: 11).strokeBorder(RelicStyle.accent.opacity(0.6), lineWidth: 2).padding(-3).allowsHitTesting(false) }
-            }
+            .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 8, owner: identity,
+                outline: focused ? SurfaceOutline(width: 2, color: RelicStyle.accent.opacity(0.6), dash: [], offset: 1) : nil))
             .overlay(alignment: .trailing) { VoiceButton(text: $text).padding(.trailing, 4) }
     }
 }

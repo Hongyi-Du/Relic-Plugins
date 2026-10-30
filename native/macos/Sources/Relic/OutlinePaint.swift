@@ -6,7 +6,9 @@ import SwiftUI
 @MainActor struct OutlineDrawReceipt {
     let path: CGPath
     let bounds: CGRect
+    let ownerBounds: CGRect
     let width: CGFloat
+    let offset: CGFloat
     let dash: [CGFloat]
     let phase: CGFloat
     let color: [Double]
@@ -42,7 +44,8 @@ import SwiftUI
         ["source": "production SurfacePaintProbe.SurfaceView.draw",
          "sequence": sequence, "revision": revision,
          "view_identity": viewIdentity, "window_identity": windowIdentity as Any? ?? NSNull(),
-         "local_bounds": ElementCapture.box(bounds), "local_stroke_path": Self.pathString(path, map: { $0 }),
+         "local_bounds": ElementCapture.box(bounds), "local_owner_bounds": ElementCapture.box(ownerBounds), "local_stroke_path": Self.pathString(path, map: { $0 }),
+         "outline_offset": Double(offset),
          "stroke_width": Double(width), "stroke_dash": dash.map(Double.init), "stroke_phase": Double(phase),
          "stroke_color": color, "line_cap": "butt", "line_join": "miter",
          "context_transform": [contextTransform.a, contextTransform.b, contextTransform.c, contextTransform.d, contextTransform.tx, contextTransform.ty],
@@ -69,11 +72,11 @@ import SwiftUI
         let sx = hypot(a, b), sy = hypot(c, d)
         let uniform = sx > 0 && abs(sx - sy) < 0.000001 && abs(a * c + b * d) < 0.000001
         evidence["local_to_window"] = [a, b, c, d, origin.x, origin.y]
-        evidence["owner_bounds"] = ElementCapture.box(ElementCapture.topLeft(window.convertToScreen(view.convert(bounds, to: nil)), in: content))
+        evidence["owner_bounds"] = ElementCapture.box(ElementCapture.topLeft(window.convertToScreen(view.convert(ownerBounds, to: nil)), in: content))
         evidence["errors"] = uniform ? [] : ["Nonuniform outline transform leaves width, dash and offset unmeasured"]
         let paint: [String: Any] = ["style": dash.isEmpty ? "solid" : "dashed", "color": color,
             "width": uniform ? Double(width * sx) as Any : NSNull(),
-            "offset": uniform ? -Double(width * sx) as Any : NSNull(),
+            "offset": uniform ? Double(offset * sx) as Any : NSNull(),
             "dash": uniform ? dash.map { Double($0 * sx) } as Any : NSNull(),
             "dash_offset": !dash.isEmpty && uniform ? Double(phase * sx) as Any : NSNull(),
             "contour": ["coordinate_space": "window", "paths": [["d": Self.pathString(path, map: point)]]]]

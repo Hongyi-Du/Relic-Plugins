@@ -1,5 +1,24 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Actual d74684f capture 41061971141 is downloaded under
+`S:\Codex\Outputs\Relic-native-visual\parity-d74684f\report\`.
+The rename element is now a single actual PaddedCell / AXTextField, named
+秘书处负责人, bounds (1177,51,195,33), focused=true, selection=(0,0).
+Its paired text, geometry and state mismatch lists are empty. Full matrix
+acceptance is still zero and label paint still has the known regression.
+
+The rename focus outline now uses the existing actual SurfaceView.draw
+receipt instead of an unobserved SwiftUI overlay. SurfaceOutline accepts an
+explicit offset; default remains -width for existing inset avatar outlines.
+For a 2px outline with offset1, the actual drawing view gets 3px outside space
+while the owner's surface stays unchanged. Receipts retain both actual
+`local_bounds` and `local_owner_bounds`, `outline_offset`, current revision,
+native transform/clip and submitted CGPath. Surface snapshots also retain
+`probe_local_bounds`, `surface_local_bounds`, `outline_draw_outset`.
+The native counterpart can therefore provide its actual contour; the missing
+reference focus contour must remain a separate extraction failure. Tests
+check actual outside ink, transparent corner/interior and unchanged owner size.
+
 Production labels/placeholders now retain the working AppKit glyph primitive
 while the alternate direct primitive is tested. This restores visible text;
 the actual extra ContentLayer remains an extraction failure and the strict
