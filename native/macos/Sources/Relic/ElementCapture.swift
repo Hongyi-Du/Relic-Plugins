@@ -352,8 +352,9 @@ import CoreText
             let textView = (object as? NSTextView).flatMap { $0.isEditable || $0.textLayoutManager != nil ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
             if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }
+            if object is ChartEdgeProbe.EdgeView { node["projection_reason"] = "Raw path AX retained; the same native path's measured stroke projection supplies its visible geometry" }
             raw.append(node)
-            if visible && ax["element"].flag && textView == nil && !suppressElements { elements.append(node) }
+            if visible && ax["element"].flag && textView == nil && !suppressElements && !(object is ChartEdgeProbe.EdgeView) { elements.append(node) }
             if let textView, !suppressElements, let textWindow = textView.window {
                 for (index, run) in textRuns(textView).enumerated() {
                     let screen = textWindow.convertToScreen(textView.convert((run["local_rect"] as! NSValue).rectValue, to: nil))
@@ -489,8 +490,9 @@ import CoreText
             let evidence = sample["evidence"] as! [String: Any]
             let sx = evidence["scale_x"] as! Double, sy = evidence["scale_y"] as! Double
             if abs(sx - sy) > 0.0001 { surfaceGaps.append("Nonuniform chart edge transform needs directional stroke geometry: " + (sample["id"] as! String)) }
+            if !(sample["name"] is String) { surfaceGaps.append("Actual chart edge AX label unavailable: " + (sample["id"] as! String)) }
             let clipped = rect.intersection(nativeClip)
-            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
+            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": sample["name"]!, "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
                 "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any,
