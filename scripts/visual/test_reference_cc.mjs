@@ -11,7 +11,11 @@ const end = app.indexOf('  function drawCopies() {', start);
 assert.ok(start >= 0 && end > start);
 const ccFunctions = app.slice(start, end);
 const hook = readFileSync(new URL('./reference-hook.js', import.meta.url), 'utf8');
+const capture = readFileSync(new URL('./capture.py', import.meta.url), 'utf8');
+const bootReadiness = capture.match(/REFERENCE_BOOT_READY = """([\s\S]*?)"""/)?.[1];
+assert.ok(bootReadiness, 'The actual shared capture readiness expression is available');
 const plain = value => JSON.parse(JSON.stringify(value));
+const bootReady = env => vm.runInContext('(' + bootReadiness + ')()', env.context);
 
 function environment() {
   const requests = [], events = [], search = {};
@@ -116,4 +120,56 @@ test('load failures remain failures and cannot write loaded or unread fixture va
   await rejected;
   assert.deepEqual(plain(env.S.cc), {items: [], unread: 0, loaded: false});
   assert.equal(env.context.window.__relicVisualCcState.loads[0].status, 'failed');
+});
+
+test('rendered stream cannot start scene controls before the real startup CC response', async () => {
+  const env = environment();
+  env.context.document.querySelector = () => ({children: [{}]});
+  assert.equal(bootReady(env), false); // openOrg has rendered, boot loadCc has not started.
+  const startup = env.context.loadCc();
+  assert.equal(bootReady(env), false); // the real request is still pending.
+  assert.equal(env.requests.length, 1);
+  assert.equal(env.context.window.__relicVisualCcState.loads.length, 0);
+  env.requests[0].resolve({items: [{id: 17, read: false}], unread: 5});
+  await startup;
+  assert.equal(bootReady(env), true);
+  const scene = env.context.window.__relicVisual('menu-file', {org: 'fixture-org'});
+  await untilRequests(env, 2);
+  assert.deepEqual(env.events, ['appbar']);
+  env.requests[1].resolve({items: [{id: 17, read: false}], unread: 5});
+  await scene;
+  assert.deepEqual(env.events, ['appbar', 'appbar', 'menu']);
+  const load = env.context.window.__relicVisualCcState.loads[0];
+  assert.equal(load.before.asked, 1);
+  assert.equal(load.request_asked, 2);
+  assert.equal(load.status, 'ready');
+});
+
+test('startup CC failure cannot satisfy readiness or trigger a replacement request', async () => {
+  const env = environment();
+  env.context.document.querySelector = () => ({children: [{}]});
+  const startup = env.context.loadCc();
+  const rejected = assert.rejects(startup, /actual startup failure/);
+  env.requests[0].reject(new Error('actual startup failure'));
+  await rejected;
+  assert.equal(bootReady(env), false);
+  assert.equal(env.requests.length, 1);
+  assert.deepEqual(env.events, []);
+  assert.equal(env.context.window.__relicVisualCcState.loads.length, 0);
+});
+
+test('boot readiness still requires the real rendered stream and valid measured CC total', async () => {
+  for (const unread of [2, true, -1]) {
+    const env = environment();
+    let children = [];
+    env.context.document.querySelector = () => ({children});
+    const startup = env.context.loadCc();
+    env.requests[0].resolve({items: [], unread});
+    await startup;
+    assert.equal(bootReady(env), false);
+    children = [{}];
+    assert.equal(bootReady(env), unread === 2);
+    assert.equal(env.requests.length, 1);
+    assert.deepEqual(plain(env.S.cc), {items: [], unread, loaded: true});
+  }
 });

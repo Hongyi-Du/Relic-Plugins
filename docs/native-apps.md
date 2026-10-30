@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (actual text-provider coordinate repair): f6220c9 binds
+the same NativePathText/range through WinRT and COM, but exposes a production
+double-clipping offset: y=96+(96-77.6499939), instead of the actual clip y=96.
+The provider now uses the un-clipped owner-to-root transform, real local clip
+and actual rasterization scale. Its WinRT quantity is RasterizedClient; the SDK
+owns screen translation. RangeFromPoint uses the inverse transform. The original
+fractional extent is preserved, with no rounding or invented minimum size.
+Fifteen pure coordinate cases run in CI; external COM precision loss still fails.
+
+Changes for the clients (reference startup sequencing): capture and paint tracing
+share one bounded read-only boot wait. The original stream-populated condition
+could precede the production startup loadCc and race the scene hook's request.
+The same 30-second wait now also checks actual loaded/items/unread state through
+the existing observation hook. It sends no extra requests, retries no load and
+retains the existing superseded-request failure. Production reference UI and
+loadCc are unchanged. Two Python and three Node regression cases run in CI.
+
 Changes for the clients (actual side-panel region): Windows had attached the
 localized Side panel name to its inner scrolling StackPanel, excluding the tabs
 and extending below the viewport. The reference names the full aside. The actual

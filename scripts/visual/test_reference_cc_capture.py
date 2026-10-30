@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from capture import ReferenceCcCapture, validate_reference_cc
+from capture import REFERENCE_BOOT_READY, ReferenceCcCapture, validate_reference_cc, wait_reference_boot
 
 
 def ready(unread=5):
@@ -27,6 +27,27 @@ def ready(unread=5):
 
 
 class ReferenceCcCaptureTests(unittest.TestCase):
+    def test_boot_wait_uses_existing_read_only_closure_and_single_original_deadline(self):
+        page = Mock()
+        wait_reference_boot(page)
+        page.wait_for_function.assert_called_once_with(REFERENCE_BOOT_READY, timeout=30_000)
+        page.evaluate.assert_not_called()
+        page.request.get.assert_not_called()
+        page.route.assert_not_called()
+        self.assertIn("window.__relicVisualCcState", REFERENCE_BOOT_READY)
+        self.assertNotIn("loadCc(", REFERENCE_BOOT_READY)
+
+    def test_boot_timeout_propagates_without_retry_or_scene_action(self):
+        page = Mock()
+        failure = TimeoutError("Actual startup CC did not complete within the existing deadline")
+        page.wait_for_function.side_effect = failure
+        with self.assertRaises(TimeoutError) as caught:
+            wait_reference_boot(page)
+        self.assertIs(caught.exception, failure)
+        page.wait_for_function.assert_called_once_with(REFERENCE_BOOT_READY, timeout=30_000)
+        page.evaluate.assert_not_called()
+        page.request.get.assert_not_called()
+
     def test_real_server_total_is_not_recomputed_from_returned_unread_items(self):
         state, row, _ = ready()
         before = deepcopy((state, row))

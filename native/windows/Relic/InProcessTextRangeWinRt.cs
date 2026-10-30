@@ -20,7 +20,7 @@ internal static partial class InProcessTextRangeProviderProbe
             ["source"] = "Actual retained NativePathText and its existing AutomationPeer WinRT ITextProvider",
             ["status"] = "unavailable", ["started_qpc"] = Stopwatch.GetTimestamp(),
             ["calls"] = calls, ["errors"] = errors,
-            ["coordinate_space"] = "Unmodified actual NativePathText ITextRangeProvider.GetBoundingRectangles values; this production provider returns screen-coordinate doubles",
+            ["coordinate_space"] = "Unmodified actual NativePathText ITextRangeProvider.GetBoundingRectangles values in WinUI RasterizedClient coordinates; the public COM wrapper performs client-to-screen conversion",
             ["canonical_geometry_supplied"] = false, ["provider_errors_resolved"] = false,
             ["frame_continuity_proven"] = false,
             ["frame_unavailable_reason"] = "NativePathText is not registered with the existing TextBlock frame observer"

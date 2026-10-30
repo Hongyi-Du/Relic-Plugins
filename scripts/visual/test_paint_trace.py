@@ -205,6 +205,10 @@ class PaintTraceTests(unittest.TestCase):
                         patch.object(paint_trace, "font_evidence", return_value={"errors": []}):
                     result = paint_trace.collect_scene(browser, context, manifest, case, Path(folder) / "scene", "fixture source")
                 self.assertEqual(result["status"], fixture["expected"])
+                from capture import REFERENCE_BOOT_READY
+                page.wait_for_function.assert_called_once_with(REFERENCE_BOOT_READY, timeout=30_000)
+                page_calls = [call[0] for call in page.method_calls]
+                self.assertLess(page_calls.index("wait_for_function"), page_calls.index("evaluate"))
                 self.assertEqual(result["measurement_status"], "unresolved")
                 self.assertIsNone(result["glyph_bounds"])
                 self.assertIsNone(result["scrollbar_parts"])

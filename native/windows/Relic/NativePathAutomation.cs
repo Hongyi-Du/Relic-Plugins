@@ -27,20 +27,35 @@ public sealed partial class NativePathText
         public ITextRangeProvider DocumentRange => new PathRange(this, 0, owner.SourceText.Length);
         public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Single;
         public ITextRangeProvider[] GetSelection() => [new PathRange(this, owner.SelectionStart, owner.SelectionEnd)];
-        public ITextRangeProvider[] GetVisibleRanges() => owner.lines.Where(line => ScreenRanges(line.Start, line.End).Count > 0)
+        public ITextRangeProvider[] GetVisibleRanges() => owner.lines.Where(line => RasterizedClientRanges(line.Start, line.End).Count > 0)
             .Select(line => (ITextRangeProvider)new PathRange(this, line.Start, line.End)).ToArray();
         public ITextRangeProvider RangeFromChild(IRawElementProviderSimple child) =>
             throw new ArgumentException("Path text has no embedded automation child", nameof(child));
         public ITextRangeProvider RangeFromPoint(Point screenLocation)
         {
-            var box = GetBoundingRectangle(); var scale = owner.XamlRoot?.RasterizationScale ?? 1;
-            var position = owner.PositionAt(new Point((screenLocation.X - box.X) / scale, (screenLocation.Y - box.Y) / scale));
+            // WinUI's public COM wrapper has already removed the window origin
+            // before invoking this WinRT provider. Reverse the real un-clipped
+            // root transform, not the peer's clipped accessibility rectangle.
+            var (transform, scale) = CoordinateSpace();
+            var inverse = transform.Inverse ?? throw new InvalidOperationException("The actual owner-to-root transform has no inverse");
+            var local = NativePathCoordinates.ToOwner(new(screenLocation.X, screenLocation.Y), point =>
+            {
+                var actual = inverse.TransformPoint(new Point(point.X, point.Y));
+                return new NativePathCoordinates.Point(actual.X, actual.Y);
+            }, scale);
+            var position = owner.PositionAt(new Point(local.X, local.Y));
             return new PathRange(this, position, position);
         }
-        internal IReadOnlyList<Rect> ScreenRanges(int start, int end)
+        private (GeneralTransform Transform, double Scale) CoordinateSpace()
+        {
+            var root = owner.XamlRoot ?? throw new InvalidOperationException("The actual text owner has no XamlRoot");
+            var content = root.Content ?? throw new InvalidOperationException("The actual XamlRoot has no content");
+            return (owner.TransformToVisual(content), root.RasterizationScale);
+        }
+        internal IReadOnlyList<Rect> RasterizedClientRanges(int start, int end)
         {
             if (!owner.IsLoaded || IsOffscreen()) return [];
-            var host = GetBoundingRectangle(); var scale = owner.XamlRoot?.RasterizationScale ?? 1;
+            var (transform, scale) = CoordinateSpace();
             var localRanges = owner.LocalRanges(start, end);
             if (localRanges.Count == 0) return [];
             var clip = new Rect(0, 0, owner.ActualWidth, owner.ActualHeight);
@@ -63,11 +78,23 @@ public sealed partial class NativePathText
                     clip.Intersect(element.TransformToVisual(owner).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight)));
             }
             var result = new List<Rect>();
+            if (clip.IsEmpty) return result;
             foreach (var local in localRanges)
             {
-                var actual = local; actual.Intersect(clip);
-                if (actual.Width <= 0 || actual.Height <= 0 || actual.IsEmpty) continue;
-                result.Add(new Rect(host.X + actual.X * scale, host.Y + actual.Y * scale, actual.Width * scale, actual.Height * scale));
+                // Fixed SDK contract: the actual text adapter transforms/clips
+                // into world space, then produces RasterizedClient. The COM
+                // wrapper owns the later client-to-screen conversion.
+                // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/text/common/textrangeadapter.cpp#L618
+                // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/win/shared/UIAWrapper.cpp#L1181
+                var actual = NativePathCoordinates.ToRasterizedClient(
+                    new(local.X, local.Y, local.Width, local.Height),
+                    new(clip.X, clip.Y, clip.Width, clip.Height), bounds =>
+                    {
+                        var root = transform.TransformBounds(new Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+                        return new NativePathCoordinates.Bounds(root.X, root.Y, root.Width, root.Height);
+                    }, scale);
+                if (actual is { } range)
+                    result.Add(new Rect(range.X, range.Y, range.Width, range.Height));
             }
             return result;
         }
@@ -125,7 +152,7 @@ public sealed partial class NativePathText
             // Never return a fabricated value for an unsupported attribute.
             _ => throw new NotSupportedException("The path text provider does not measure attribute " + attributeId)
         };
-        public void GetBoundingRectangles(out double[] returnValue) => returnValue = peer.ScreenRanges(start, end)
+        public void GetBoundingRectangles(out double[] returnValue) => returnValue = peer.RasterizedClientRanges(start, end)
             .SelectMany(rect => new[] { rect.X, rect.Y, rect.Width, rect.Height }).ToArray();
         public IRawElementProviderSimple[] GetChildren() => [];
         public IRawElementProviderSimple GetEnclosingElement() => peer.Provider;

@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, prepare_scene, wait_file
+from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, prepare_scene, wait_file, wait_reference_boot
 
 TRACE_CATEGORIES = [
     # Keep Paint/frame attribution and every picture export category. General
@@ -525,7 +525,9 @@ def collect_scene(browser, context, manifest, case, output, source):
         marker("before_navigation")
         checkpoint("page/navigation-and-real-scene", "started")
         page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
-        page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
+        checkpoint("page/production-boot-cc", "started")
+        wait_reference_boot(page)
+        checkpoint("page/production-boot-cc", "completed")
         page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], manifest["fixture"]])
         if case["scene"] == "documents":
             page.locator(".details .left .chat-row").first.click()

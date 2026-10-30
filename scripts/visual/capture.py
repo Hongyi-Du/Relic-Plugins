@@ -35,6 +35,26 @@ PANEL_RESIZE_SCENES = frozenset(("panel-resize-hover", "panel-resized"))
 SETTINGS_NAVIGATION_SCENES = frozenset(("settings-navigation-hover",))
 
 
+REFERENCE_BOOT_READY = """() => {
+    const state = window.__relicVisualCcState;
+    return typeof window.__relicVisual === 'function' &&
+        document.querySelector('#stream-inner')?.children.length > 0 &&
+        state?.source === 'actual production closure S.cc and ccAsked; detached read-only snapshot' &&
+        Number.isSafeInteger(state.asked) && state.asked > 0 &&
+        state.cc?.loaded === true && Array.isArray(state.cc.items) &&
+        Number.isSafeInteger(state.cc.unread) && state.cc.unread >= 0;
+}"""
+
+
+def wait_reference_boot(page):
+    # openOrg renders the stream before its awaited loadChat returns. The boot
+    # IIFE starts loadCc only afterwards, so DOM presence alone races the hook's
+    # own loadCc. Wait for the actual startup response through the existing
+    # detached getter; do not issue a replacement request or assign readiness.
+    # This replaces the existing 30-second DOM wait, rather than adding a wait.
+    page.wait_for_function(REFERENCE_BOOT_READY, timeout=30_000)
+
+
 def validate_reference_cc(state, responses):
     """Bind ready closure values to the observed production GET sequence.
 
@@ -1331,10 +1351,11 @@ def reference_browser(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             progress("loading production page")
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
-            page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
             navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES | PANEL_RESIZE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
-            progress("opening actual scene controls")
             try:
+                progress("waiting for actual production startup CC")
+                wait_reference_boot(page)
+                progress("opening actual scene controls")
                 page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
                 cc_capture.checkpoint("after_scene_controls")
             except Exception as error:
