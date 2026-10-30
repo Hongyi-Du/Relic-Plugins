@@ -1,3 +1,15 @@
+## 2026-10-30: preserve an active native build through its queued Mac job
+
+Please consider the same non-preempting per-branch concurrency already used by
+the full visual workflow for `native-apps.yml`: keep an active workflow's Mac
+build/test job even if it is still queued, and replace only the next pending
+workflow with the newest push. This changes scheduling only, not any check.
+The actual 63aecc0 and b63cd2f native Mac jobs were cancelled before starting by
+later pushes. Holding fd93174 finally produced 183 passing tests; 749e5e8 has
+already passed its other three jobs while its Mac job remains queued. Preserving
+that run would let both sessions keep pushing fixes without repeatedly losing
+the queued compile/test feedback. Every latest-head check still must finish.
+
 ## 2026-10-30: late-mounted native scroll views must receive the production style
 
 Full 711d27a en-US/light/1440x900/settings-harness retains an ordinary 17px
