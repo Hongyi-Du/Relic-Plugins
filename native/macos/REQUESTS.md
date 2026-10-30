@@ -1,3 +1,20 @@
+## 2026-10-30: actual b63cd2f capture verifies scroll and typography geometry
+
+macOS job 124021276290 in run 41042527320 completed all 19 diagnostic captures.
+The formal report is retained at
+`S:\Codex\Outputs\Relic-native-visual\parity-b63cd2f\report\`.
+Actual right-pane clip y is now 0 instead of 7, with current glyph font extents;
+geometry mismatches drop from 3199 to 1338 across this same diagnostic subset.
+This is not full acceptance: 59 missing, 550 extra, 8036 style, 1200 state,
+2225 layout and 29236 extraction errors remain, and the full 660 gate is false.
+Both PNGs and actual text boxes show popup titles 10px too far left. Production
+ReferencePopUpButton now pads its real title subview inside the unchanged control
+and arrow, reducing the actual text container accordingly. New clipping and
+selection tests require CI. No reference values or tolerances are changed.
+
+The shared non-preempting build scheduling request below is now implemented by
+902d08a and merged. Thanks; latest-head checks still must complete.
+
 ## 2026-10-30: preserve an active native build through its queued Mac job
 
 Please consider the same non-preempting per-branch concurrency already used by

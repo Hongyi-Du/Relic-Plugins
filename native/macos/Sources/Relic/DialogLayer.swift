@@ -37,7 +37,10 @@ struct DialogLayer: View {
                 SheetContent(sheet: sheet).frame(width: layout.width, height: height)
             } else {
                 FittingScroll(maxHeight: layout.maximumHeight) {
-                    SheetContent(sheet: sheet).padding(sheet == .card ? 18 : 22)
+                    // The reference card's 18px padding sits inside its 1px
+                    // border. RecordedSurface draws that border inside the
+                    // outer frame, so reserve it in the real content layout.
+                    SheetContent(sheet: sheet).padding(sheet == .card ? 19 : 22)
                 }.frame(width: layout.width)
             }
         }
