@@ -121,7 +121,9 @@ import RelicCore
     }
     func annotateElements(_ path: URL) throws {
         var document = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
-        document["capture_evidence"] = ["message_action": receipt]
+        var evidence = document["capture_evidence"] as? [String: Any] ?? [:]
+        evidence["message_action"] = receipt
+        document["capture_evidence"] = evidence
         try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted]).write(to: path)
     }
     func finish() {

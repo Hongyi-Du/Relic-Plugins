@@ -97,7 +97,7 @@ private struct LiveToolRow: View {
                     .padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: hovering ? RelicStyle.sidebar : .clear, owner: identity, hovered: hovering, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity)
-                .focused($disclosureFocused)
+                .focusable().focused($disclosureFocused).focusEffectDisabled()
                 .accessibilityLabel(ReferenceText.clip(item["title"].text, to: 60) + " " + LivePresentation.toolState(item["status"].text, words: m.words))
                 .onHover { hovering = $0 }
             if expanded && !item["text"].text.isEmpty {

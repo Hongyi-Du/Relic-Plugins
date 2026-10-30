@@ -557,7 +557,7 @@ struct ComposerView: View {
                         }.padding(.horizontal, 12).frame(height: 28)
                             .modifier(RecordedSurface(background: recipientHovered ? RelicStyle.hover : RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 14, owner: recipientIdentity, hovered: recipientHovered))
                     }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
-                        .focused($recipientFocused)
+                        .focusable().focused($recipientFocused).focusEffectDisabled()
                         .onHover { recipientHovered = $0 }
                         .background(NativeControlAnchorMount(anchor: recipientAnchor))
                 }
