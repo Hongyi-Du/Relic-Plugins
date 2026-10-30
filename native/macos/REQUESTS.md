@@ -1,3 +1,15 @@
+## 2026-10-30: editable native measurement serialization failure
+
+dc2d96a release compiled; 201/203 tests passed. Its actual editable TextKit draw
+produced a nonfinite nested native measurement, which JSONSerialization rejects.
+The exporter now retains each exact native numeric spelling and JSON path in
+`native_measurement_errors`, puts null in that numeric slot, and adds every such
+failure to `coverage.unmeasured`. This prevents a whole capture crash without
+asserting a finite measurement or accepting unknown evidence. The next test log
+prints the actual failing paths for diagnosis. The other failure was the hosted
+AX tree still being unmaterialized; 8c2609e adds the real capture's public AX
+self-client initialization, retaining the same button box assertion.
+
 ## 2026-10-30: actual 5d4f8ea interaction and geometry verification
 
 All 20 diagnostic Mac captures completed, downloaded with their reference files

@@ -5,6 +5,11 @@ import AppKit
     /// raw draw; do not add another visible text element for the same glyphs.
     static func attach(to node: inout [String: Any], view: ComposerTextView, canvas: NSRect) {
         guard view.isEditable, !view.string.isEmpty, view.textLayoutManager == nil, let window = view.window else { return }
+        defer {
+            var errors: [[String: String]] = []
+            node = CaptureMeasurements.jsonValue(node, errors: &errors) as! [String: Any]
+            if !errors.isEmpty { node["native_measurement_errors"] = errors }
+        }
         let runs = ElementCapture.textRuns(view)
         node["native_editable_text_runs"] = runs.map { run in
             var value = run; value["local_rect"] = ElementCapture.box((run["local_rect"] as? NSValue)?.rectValue ?? .null)

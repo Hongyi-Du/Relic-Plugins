@@ -3,6 +3,13 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ComposerDrawingTests: XCTestCase {
+    func testUnrepresentableNativeMeasurementRetainsItsFailureAndPath() throws {
+        var errors: [[String: String]] = []
+        let actual = CaptureMeasurements.jsonValue(["nested": ["bounds": ["x": Double.infinity, "y": Double.nan, "width": 20.0]]], errors: &errors)
+        XCTAssertEqual(Set(errors.compactMap { $0["path"] }), ["$.nested.bounds.x", "$.nested.bounds.y"])
+        XCTAssertTrue(errors.allSatisfy { !$0["native_value", default: ""].isEmpty })
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: actual))
+    }
     func testPlaceholderUsesActualMountedGlyphSourceAndNeverChangesInputText() throws {
         _ = NSApplication.shared
         let editor = ComposerTextView.makeObserved(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
@@ -47,5 +54,6 @@ import AppKit
         let projection = try XCTUnwrap(node["projection"] as? [String: Any])
         XCTAssertEqual((projection["native_font_drawing"] as? [String: Any])?["status"] as? String, "measured-current-draw")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: node))
+        if let failures = node["native_measurement_errors"] { print("Actual editable native measurement failures: \(failures)") }
     }
 }
