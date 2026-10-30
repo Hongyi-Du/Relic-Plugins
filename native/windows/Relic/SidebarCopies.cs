@@ -146,7 +146,15 @@ public sealed partial class MainWindow
             if (tag != null) { heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); Grid.SetColumn(tag, 1); heading.Children.Add(tag); }
             text.SizeChanged += (_, args) => heading.MaxWidth = args.NewSize.Width;
             text.Children.Add(heading);
-            if (subtitle.Length > 0) { var sub = SidebarText(subtitle, 12, true, lineHeight: 16.2); sub.IsTextSelectionEnabled = false; sub.TextWrapping = TextWrapping.NoWrap; sub.TextTrimming = TextTrimming.CharacterEllipsis; text.Children.Add(sub); }
+            if (subtitle.Length > 0)
+            {
+                // Both group and private previews use this actual single-line
+                // production renderer. Keep full text in its native Text peer;
+                // the existing row tooltip and row selection remain unchanged.
+                var sub = new NativeLabel(subtitle, FontFamilies.UI, 12, 400, words.Language, 16.2,
+                    characterEllipsis: true, accessibleText: true) { Foreground = Muted };
+                text.Children.Add(sub);
+            }
             Grid.SetColumn(text, 1); row.Children.Add(text);
             if (!secretary && who.Length > 0) { var record = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who); ToolTipService.SetToolTip(row, who + (record.Text("role").Length > 0 ? " · " + record.Text("role") : "")); }
             var info = new StackPanel { Spacing = 3, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Padding = new Thickness(0, 1, 0, 0), UseLayoutRounding = false };
@@ -223,6 +231,12 @@ public sealed partial class MainWindow
                 if (node is TextBlock text)
                 {
                     var value = System.Text.RegularExpressions.Regex.Replace(text.Text, @"\s+", " ").Trim();
+                    if (value.Length > 0) parts.Add(value);
+                    return;
+                }
+                if (node is NativeLabel label)
+                {
+                    var value = System.Text.RegularExpressions.Regex.Replace(label.Text, @"\s+", " ").Trim();
                     if (value.Length > 0) parts.Add(value);
                     return;
                 }

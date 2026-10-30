@@ -70,6 +70,8 @@ internal static class NativeLabelInterop
     { public IntPtr LocaleName, Text; public uint TextLength; public IntPtr ClusterMap; public uint TextPosition; }
     [StructLayout(LayoutKind.Sequential)] internal struct FontAxis { public uint Tag; public float Value; }
     [StructLayout(LayoutKind.Sequential)] internal struct Trimming { public uint Granularity, Delimiter, DelimiterCount; }
+    [StructLayout(LayoutKind.Sequential)] internal struct InlineMetrics
+    { public float Width, Height, Baseline; public int SupportsSideways; }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int InterfaceResult(IntPtr self, out IntPtr result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate uint GetUInt(IntPtr self);
@@ -102,6 +104,8 @@ internal static class NativeLabelInterop
         [MarshalAs(UnmanagedType.LPWStr)] string text, uint length, IntPtr format, float width, float height, out IntPtr layout);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int CreateEllipsis(IntPtr self, IntPtr format, out IntPtr sign);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetTrimming(IntPtr self, ref Trimming options, IntPtr sign);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetTrimming(IntPtr self, out Trimming options, out IntPtr sign);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetInlineMetrics(IntPtr self, out InlineMetrics metrics);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetLineSpacing(IntPtr self, uint method, float height, float baseline);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetTextMetrics(IntPtr self, out TextMetrics metrics);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetArray(IntPtr self, IntPtr items, uint capacity, out uint count);
@@ -126,6 +130,30 @@ internal static class NativeLabelInterop
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetInfoNames(IntPtr self, uint id, out IntPtr names, out int exists);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetPathLength(IntPtr self, IntPtr key, uint keySize, out uint length);
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)] internal delegate int GetPath(IntPtr self, IntPtr key, uint keySize, StringBuilder path, uint size);
+
+    // dwrite.h: Factory::CreateEllipsisTrimmingSign is slot 20;
+    // TextFormat::SetTrimming/GetTrimming are slots 9/17 and return HRESULTs.
+    // TextLayout inherits those methods. The object is attached to the actual
+    // production layout, not to a separate measurement layout.
+    internal static IntPtr ApplyCharacterEllipsis(IntPtr factory, IntPtr actualLayout)
+    {
+        IntPtr sign = IntPtr.Zero;
+        try
+        {
+            Check(Method<CreateEllipsis>(factory, 20)(factory, actualLayout, out sign));
+            var options = new Trimming { Granularity = 1 }; // DWRITE_TRIMMING_GRANULARITY_CHARACTER.
+            Check(Method<SetTrimming>(actualLayout, 9)(actualLayout, ref options, sign));
+            return sign;
+        }
+        catch { Release(ref sign); throw; }
+    }
+
+    internal static string ComIdentity(IntPtr value)
+    {
+        var identity = Query(value, new Guid("00000000-0000-0000-c000-000000000046"));
+        try { return identity.ToString("x"); }
+        finally { Release(ref identity); }
+    }
 
     internal static JsonObject Box(RectF value) => new() { ["left"] = value.Left, ["top"] = value.Top, ["right"] = value.Right, ["bottom"] = value.Bottom };
     internal static JsonObject Transform(Matrix value) => new() { ["m11"] = value.M11, ["m12"] = value.M12, ["m21"] = value.M21, ["m22"] = value.M22, ["dx"] = value.Dx, ["dy"] = value.Dy };

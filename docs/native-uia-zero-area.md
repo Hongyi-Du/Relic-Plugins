@@ -96,3 +96,33 @@ XAML 的 character rectangle 是约 140.795×15.240 的文本范围框，也不�
 
 回归必须包括完整未截断文字、截断后正面积省略符、原文末尾句号、零面积但未证实截断、
 以及未知 inline object / 绘制失败。几何与颜色容差、场景数量和矩阵均不变。
+
+## 已实现、等待 CI 的有限生产改动
+
+侧栏 `Chat` 的同一个 subtitle 入口现在使用实际 `NativeLabel`，覆盖群聊和私聊预览。
+名称、组织名称、页脚及 logo 未迁移。默认四个菜单标签仍不启用省略选项。
+预览的显式 foreground 仍为原先 `Muted`，完整原文由真正的 Text automation peer 提供；
+其唯一 Image 子对象仍是实际文字绘图 surface，不成为独立可访问图片。
+父行的名称拼接也读取完整 `NativeLabel.Text`，原有行工具提示和点击行为保留。
+
+`ApplyCharacterEllipsis` 在实际生产 layout 上调用 `CreateEllipsisTrimmingSign` 和
+`SetTrimming(CHARACTER)`；没有创建替代测量 layout。每次真实 Draw 的 receipt 增加：
+
+- `trimming`：同一个 layout 的 `GetTrimming` 返回值、配置及实际返回省略对象的 COM 身份、
+  `same_sign_com_identity`，以及真正 `IDWriteInlineObject.GetMetrics` 的布局尺寸。
+- `inline_object_draws`：实际 `DrawInlineObject` 回调、对象身份、是否是配置的省略对象、
+  父 inline 调用、绘制原点、真实转发 `IDWriteInlineObject.Draw` 的 HRESULT、对应 glyph-run ordinal。
+- 每个真实 glyph run 保留原始 `DrawGlyphRun`/font-face/ink bounds，并增加实际 inline 调用 ordinal。
+  原有 line metrics、`HitTestTextRange.isTrimmed`、EndDraw、SIS readback 及 frame 关联机制继续使用。
+
+新增 ABI 已按本机 Windows SDK `10.0.26100.0/um/dwrite.h` 核对：
+factory slot 20、TextFormat/Layout slots 9/17、InlineObject slots 3/4；
+`GetTrimming` 与 `GetMetrics` 都是 HRESULT 加显式输出指针，结构分别为 12 与 16 字节，
+没有使用 COM 的结构返回值 ABI。相关声明和调用有 CI 专用回归；真实 DirectWrite 测试验证
+同一 layout 在宽度缩小/恢复后改变实际 trim state，原文长度和省略对象身份保留。
+测试不会启动 WinUI 应用或窗口，本机未执行。
+
+这批代码**尚不声称省略符匹配通过**。没有修改 projector，也没有把 UIA 零面积范围分类为隐藏。
+新的 receipt 提供可进一步验证的实际绘制来源；省略对象与 trim interval 的严格对应、
+最终截图可见字形的规范化几何、未知或失败 inline 绘制的完整覆盖仍需在 CI 实际证据中验证。
+`coverage_complete=false` 保留，因此相关未知不会被这批生产替换自动清除。

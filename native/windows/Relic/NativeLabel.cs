@@ -16,14 +16,16 @@ namespace Relic;
 // A genuine production label: DirectWrite shapes the one layout used for XAML
 // measure/arrange, and that layout draws directly into the visible XAML image.
 // This first control deliberately has no editing/selection or vertical-text API.
-// Its containing native Button remains the accessible/interactive control.
+// Menu labels keep their containing native Button as the accessible control;
+// standalone preview labels expose a real, read-only Text automation peer.
 public sealed class NativeLabel : Panel
 {
     private readonly Image image;
     private readonly string text, familyList, locale;
     private readonly float fontSize, lineHeight;
     private readonly uint weight;
-    private IntPtr format, layout, surfaceInterop;
+    private readonly bool characterEllipsis, accessibleText;
+    private IntPtr format, layout, surfaceInterop, trimmingSign;
     private SurfaceImageSource? surface;
     private ContentPresenter? presenter;
     private SolidColorBrush? foreground;
@@ -39,12 +41,15 @@ public sealed class NativeLabel : Panel
     private JsonObject? fallbackConfiguration;
     private string? failure;
 
-    public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight)
+    public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
+        bool characterEllipsis = false, bool accessibleText = false)
     {
         this.text = text; this.familyList = familyList; this.fontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; this.lineHeight = checked((float)lineHeight);
-        UseLayoutRounding = false; IsHitTestVisible = false;
-        AutomationProperties.SetAccessibilityView(this, AccessibilityView.Raw);
+        this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
+        UseLayoutRounding = false; IsHitTestVisible = accessibleText;
+        AutomationProperties.SetAccessibilityView(this, accessibleText ? AccessibilityView.Content : AccessibilityView.Raw);
+        if (accessibleText) AutomationProperties.SetName(this, text);
         image = new Image { Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch, IsHitTestVisible = false, UseLayoutRounding = false };
         AutomationProperties.SetAccessibilityView(image, AccessibilityView.Raw);
@@ -53,6 +58,23 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
+    // An explicit brush is needed for a preview inside a ListViewItem: its
+    // muted color must not inherit the row's default text foreground. Menus
+    // leave this unset and keep observing their real ContentPresenter states.
+    public static readonly DependencyProperty ForegroundProperty = DependencyProperty.Register(nameof(Foreground),
+        typeof(Brush), typeof(NativeLabel), new PropertyMetadata(null, (owner, _) => ((NativeLabel)owner).ObserveForeground()));
+    public Brush? Foreground { get => (Brush?)GetValue(ForegroundProperty); set => SetValue(ForegroundProperty, value); }
+    protected override AutomationPeer OnCreateAutomationPeer() => accessibleText ? new TextPeer(this) : base.OnCreateAutomationPeer();
+    private sealed class TextPeer(NativeLabel owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Text;
+        protected override string GetClassNameCore() => nameof(NativeLabel);
+        protected override string GetNameCore() => owner.Text;
+        protected override bool IsControlElementCore() => true;
+        protected override bool IsContentElementCore() => true;
+        // The child Image is this peer's paint surface, never separate content.
+        protected override IList<AutomationPeer> GetChildrenCore() => new List<AutomationPeer>();
+    }
     // The CI caller guards this request. It invokes the same production paint
     // path, with unchanged text/style/layout inputs; no synthetic frame is made.
     internal void RequestCaptureRedraw() { InvalidateDraw(); InvalidateArrange(); QueueDraw(); }
@@ -156,6 +178,7 @@ public sealed class NativeLabel : Panel
         ["source"] = "NativeLabel production SurfaceImageSource / DirectWrite renderer",
         ["text"] = text, ["requested_family_list"] = familyList, ["requested_size"] = fontSize,
         ["requested_weight"] = weight, ["requested_locale"] = locale, ["requested_line_height"] = lineHeight,
+        ["requested_character_ellipsis"] = characterEllipsis, ["accessible_full_text"] = accessibleText,
         ["applied_font_fallback"] = fallbackConfiguration?.DeepClone(),
         ["current_layout_revision"] = layoutRevision, ["current_surface_revision"] = surfaceRevision,
         ["last_failure"] = failure, ["draw"] = receipt?.DeepClone(),
@@ -190,7 +213,7 @@ public sealed class NativeLabel : Panel
             foreground.UnregisterPropertyChangedCallback(SolidColorBrush.ColorProperty, brushColorToken);
             foreground.UnregisterPropertyChangedCallback(Brush.OpacityProperty, brushOpacityToken);
         }
-        foreground = presenter?.Foreground as SolidColorBrush;
+        foreground = (Foreground ?? presenter?.Foreground) as SolidColorBrush;
         if (foreground != null)
         {
             brushColorToken = foreground.RegisterPropertyChangedCallback(SolidColorBrush.ColorProperty, (_, _) => { InvalidateDraw(); QueueDraw(); });
@@ -211,7 +234,7 @@ public sealed class NativeLabel : Panel
     private void Detach()
     {
         DetachSubscriptions(); Release(ref surfaceInterop); surface = null; image.Source = null;
-        Release(ref layout); Release(ref format); layoutWidth = layoutHeight = -1;
+        Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; InvalidateDraw();
     }
     private void InvalidateDraw() { receipt = null; }
@@ -241,11 +264,12 @@ public sealed class NativeLabel : Panel
                     var baseline = lines[0].Baseline + (lineHeight - lines[0].Height) / 2;
                     Check(Method<SetLineSpacing>(layout, 10)(layout, 1, lineHeight, baseline));
                 }
+                if (characterEllipsis) trimmingSign = ApplyCharacterEllipsis(factory, layout);
                 layoutWidth = width; layoutHeight = Math.Max(height, 1000); layoutRevision++; InvalidateDraw();
             }
             catch
             {
-                Release(ref layout); Release(ref format); fallbackConfiguration = null;
+                Release(ref layout); Release(ref trimmingSign); Release(ref format); fallbackConfiguration = null;
                 layoutWidth = layoutHeight = -1; throw;
             }
         }
@@ -287,13 +311,45 @@ public sealed class NativeLabel : Panel
         finally { Marshal.FreeHGlobal(pointer); }
         return result;
     }
+    private JsonObject ReadTrimming()
+    {
+        Check(Method<GetTrimming>(layout, 17)(layout, out var options, out var actualSign));
+        try
+        {
+            var configuredIdentity = trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
+            var actualIdentity = actualSign == IntPtr.Zero ? null : ComIdentity(actualSign);
+            JsonObject? metrics = null;
+            if (actualSign != IntPtr.Zero)
+            {
+                // IDWriteInlineObject::GetMetrics slot 4 returns HRESULT and
+                // writes an explicit 16-byte output, never a struct return.
+                Check(Method<GetInlineMetrics>(actualSign, 4)(actualSign, out var value));
+                metrics = new JsonObject { ["width"] = value.Width, ["height"] = value.Height,
+                    ["baseline"] = value.Baseline, ["supports_sideways"] = value.SupportsSideways != 0,
+                    ["quantity"] = "Actual inline object layout metrics; not glyph ink bounds" };
+            }
+            return new JsonObject
+            {
+                ["source"] = "GetTrimming on the same IDWriteTextLayout used for the production Draw",
+                ["requested_character_ellipsis"] = characterEllipsis, ["granularity"] = options.Granularity,
+                ["delimiter"] = options.Delimiter, ["delimiter_count"] = options.DelimiterCount,
+                ["configured_sign_com_identity"] = configuredIdentity, ["layout_sign_com_identity"] = actualIdentity,
+                ["same_sign_com_identity"] = actualIdentity != null && actualIdentity == configuredIdentity,
+                ["inline_metrics"] = metrics
+            };
+        }
+        finally { Release(ref actualSign); }
+    }
     protected override LayoutSize MeasureOverride(LayoutSize availableSize)
     {
         try
         {
             EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), lineHeight);
-            Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics)); image.Measure(new LayoutSize(metrics.WidthIncludingTrailingWhitespace, lineHeight));
-            return new LayoutSize(metrics.WidthIncludingTrailingWhitespace, lineHeight);
+            Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics));
+            var desiredWidth = (double)metrics.WidthIncludingTrailingWhitespace;
+            if (characterEllipsis && double.IsFinite(availableSize.Width)) desiredWidth = Math.Min(desiredWidth, Math.Max(0, availableSize.Width));
+            image.Measure(new LayoutSize(desiredWidth, lineHeight));
+            return new LayoutSize(desiredWidth, lineHeight);
         }
         catch (Exception ex) { failure = ex.ToString(); InvalidateDraw(); return new LayoutSize(0, lineHeight); }
     }
@@ -338,7 +394,7 @@ public sealed class NativeLabel : Panel
         var began = false; var clipped = false;
         try
         {
-            if (foreground == null) throw new NotSupportedException("NativeLabel requires the real ContentPresenter SolidColorBrush foreground");
+            if (foreground == null) throw new NotSupportedException("NativeLabel requires an actual explicit or ContentPresenter SolidColorBrush foreground");
             scale = XamlRoot?.RasterizationScale ?? 1;
             EnsureLayout((float)arrangedWidth, (float)arrangedHeight);
             EnsureSurface(checked((int)Math.Ceiling(arrangedWidth * scale)), checked((int)Math.Ceiling(arrangedHeight * scale)));
@@ -357,7 +413,8 @@ public sealed class NativeLabel : Panel
             var color = foreground.Color;
             var paint = new ColorF { R = color.R / 255f, G = color.G / 255f, B = color.B / 255f, A = (float)(color.A / 255d * foreground.Opacity) };
             Check(Method<CreateBrush>(context, 8)(context, ref paint, IntPtr.Zero, out brush));
-            using var renderer = new NativeLabelRenderer(context, brush, (float)scale, transform);
+            var trimming = ReadTrimming();
+            using var renderer = new NativeLabelRenderer(context, brush, (float)scale, transform, trimmingSign);
             drawOrdinal++;
             var drawResult = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
             if (renderer.CallbackFailure != null) throw new InvalidOperationException(renderer.CallbackFailure);
@@ -393,10 +450,12 @@ public sealed class NativeLabel : Panel
                 ["brush_srgb_unpremultiplied_0_1"] = new JsonArray(paint.R, paint.G, paint.B, paint.A),
                 ["presenter_brush_color_rgba8"] = new JsonArray(color.R, color.G, color.B, color.A),
                 ["presenter_brush_opacity"] = foreground.Opacity,
+                ["foreground_source"] = Foreground != null ? "NativeLabel.Foreground" : "ContentPresenter.Foreground",
                 ["layout_metrics"] = new JsonObject { ["left"] = metrics.Left, ["top"] = metrics.Top, ["width"] = metrics.Width,
                     ["width_including_trailing_whitespace"] = metrics.WidthIncludingTrailingWhitespace, ["height"] = metrics.Height,
                     ["layout_width"] = metrics.LayoutWidth, ["layout_height"] = metrics.LayoutHeight, ["line_count"] = metrics.LineCount },
                 ["line_metrics"] = lines, ["hit_test_range_metrics"] = hitTest,
+                ["trimming"] = trimming, ["inline_object_draws"] = renderer.InlineDraws.DeepClone(),
                 ["hit_test_quantity"] = "DirectWrite HitTestTextRange advance/selection rectangles, not DOM Range ink/font bounds",
                 ["glyph_runs"] = renderer.Runs.DeepClone(), ["limitations"] = renderer.Limitations.DeepClone()
             };
