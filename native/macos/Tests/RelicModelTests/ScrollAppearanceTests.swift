@@ -4,6 +4,17 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class ScrollAppearanceTests: XCTestCase {
+    func testRoleOnlyReaderDoesNotEnumerateTheQueriedElementsChildren() {
+        final class Part: NSAccessibilityElement {
+            var childReads = 0
+            override func accessibilityRole() -> NSAccessibility.Role? { .valueIndicator }
+            override func accessibilityChildren() -> [Any]? { childReads += 1; return [] }
+        }
+        let part = Part()
+        XCTAssertEqual(RelicAXRole(part), "AXValueIndicator")
+        XCTAssertEqual(part.childReads, 0)
+    }
+
     func testThumbOnlyScrollerDoesNotExposeUnpaintedLegacyButtons() throws {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         scroll.hasVerticalScroller = true; scroll.verticalScroller = ReferenceScroller()
