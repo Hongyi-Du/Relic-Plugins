@@ -58,17 +58,28 @@ struct NativeFormField<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0)
-            content().environment(\.nativeControlColor, RelicStyle.secondary)
+            content().environment(\.nativeControlColor, RelicStyle.secondary).environment(\.nativeFieldLabel, title)
         }
     }
 }
 
 private struct NativeControlColorKey: EnvironmentKey { static var defaultValue = RelicStyle.ink }
+private struct NativeFieldLabelKey: EnvironmentKey { static let defaultValue: String? = nil }
 extension EnvironmentValues {
     var nativeControlColor: Color { get { self[NativeControlColorKey.self] } set { self[NativeControlColorKey.self] = newValue } }
+    var nativeFieldLabel: String? { get { self[NativeFieldLabelKey.self] } set { self[NativeFieldLabelKey.self] = newValue } }
+}
+
+struct FieldAccessibilityLabel: ViewModifier {
+    let label: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let label { content.accessibilityLabel(label) } else { content }
+    }
 }
 
 struct NativeTextArea: View {
+    @EnvironmentObject var m: Model
+    @Environment(\.nativeFieldLabel) private var fieldLabel
     let placeholder: String
     @Binding var text: String
     var rows = 3
@@ -79,7 +90,7 @@ struct NativeTextArea: View {
     @State private var resized: CGSize?
     private var editorHeight: CGFloat { max(pointSize * 1.6, (resized?.height ?? (CGFloat(rows) * pointSize * 1.6 + 16)) - 16) }
     var body: some View {
-        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, viewportHeight: editorHeight, members: [], onMention: { _ in }, send: {})
+        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, accessibleName: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") }, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, viewportHeight: editorHeight, members: [], onMention: { _ in }, send: {})
             .frame(height: editorHeight).padding(.horizontal, 11).padding(.vertical, 8)
             .frame(width: resized?.width)
             .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-composer/" + identity))
@@ -130,7 +141,7 @@ struct CopiesView: View {
             HStack(spacing: 8) {
                 ReferenceIcon(name: "cc", size: 18).foregroundStyle(RelicStyle.secondary)
                 ReferenceLabel(m.t("cc.title"), size: 17, weight: 650)
-                if unread > 0 { ReferenceLabel(String(unread), size: 11, weight: 700, color: .white, alignment: .center).padding(.horizontal, 5).frame(minWidth: 18).frame(height: 18).modifier(RecordedSurface(background: RelicStyle.accent, radius: 9, kind: "badge")) }
+                if unread > 0 { NativeCountBadge(text: String(unread)) }
                 Spacer(minLength: 0)
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }
             }
@@ -171,7 +182,10 @@ struct CopyCard: View {
                 OrganizationBadge(node: organization).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 0) {
                     ReferenceLabel(copy["org_name"].text, size: 12, color: RelicStyle.muted, lineHeight: 16.8).help(copy["org_name"].text)
-                    (Text(copy["protocol_id"].text).font(Font(RelicStyle.monoFont(14))).foregroundColor(RelicStyle.secondary) + Text(" " + copy["title"].text).font(RelicStyle.font(14, weight: 650))).lineSpacing(0).fixedSize(horizontal: false, vertical: true)
+                    FlowLayout(spacing: 4, centerRows: true) {
+                        ReferenceLabel(copy["protocol_id"].text, size: 12.88, weight: 600, color: RelicStyle.secondary, lineHeight: 18.032, monospaced: true)
+                        ReferenceLabel(copy["title"].text, size: 14, weight: 650, lineHeight: 19.6, lines: 0, pathWrapping: true)
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 FlowLayout(spacing: 4) {
                     if !copy["read"].flag { OverviewChip(text: m.t("cc.unread"), tone: "accent") }

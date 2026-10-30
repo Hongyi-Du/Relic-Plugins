@@ -9,7 +9,7 @@ struct MemberTag: View {
     var body: some View {
         ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18, owner: identity).padding(.horizontal, 6).frame(height: 18)
             .modifier(RecordedSurface(background: background, radius: 5, kind: "badge", owner: identity))
-            .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity)
+            .accessibilityElement(children: .ignore).accessibilityLabel("").accessibilityIdentifier(identity)
     }
 }
 
@@ -32,7 +32,7 @@ struct MemberNameInput: View {
                 if focused { RoundedRectangle(cornerRadius: 11).strokeBorder(RelicStyle.accent.opacity(0.6), lineWidth: 2).padding(-3).allowsHitTesting(false) }
             }
             .overlay(alignment: .trailing) { VoiceButton(text: $text).padding(.trailing, 4) }
-            .accessibilityIdentifier(identity).help(m.t("card.rename_hint"))
+            .accessibilityIdentifier(identity).accessibilityLabel(placeholder).help(m.t("card.rename_hint"))
             .task { focused = true }
     }
 }

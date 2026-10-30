@@ -26,6 +26,7 @@ struct MemberCard: View {
         }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain).accessibilityLabel(m.t("card.aria", ["name": card.display]))
         .accessibilityIdentifier("relic-member-card/" + card["name"].text)
+        .preference(key: DialogTitlePreference.self, value: card["name"].text.isEmpty ? "" : m.t("card.aria", ["name": card.display]))
         .task(id: who) { m.run { try await load() } }
         .confirmationDialog(m.t(confirmation == "fresh" ? "card.new_session_confirm" : "card.leave_seat_confirm", ["name": card.display]), isPresented: Binding(get: { !confirmation.isEmpty }, set: { if !$0 { confirmation = "" } })) {
             Button(m.t(confirmation == "fresh" ? "card.new_session" : "card.leave_seat"), role: .destructive) { let action = confirmation; m.run { try await seatAction(action) } }
@@ -133,7 +134,7 @@ struct MemberCard: View {
         }
     }
     private func cardSelect(_ title: String, value: Binding<String>, options: [(String, String)]) -> some View {
-        ReferenceSelect(title: title, selection: value, options: options, pointSize: 12.5).padding(.leading, 9).padding(.trailing, 1).frame(height: 30)
+        ReferenceSelect(title: title, selection: value, options: options, pointSize: 12.5, accessibleName: "").padding(.leading, 9).padding(.trailing, 1).frame(height: 30)
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 8, owner: "relic-dropdown/" + title))
     }
     private var actions: some View {

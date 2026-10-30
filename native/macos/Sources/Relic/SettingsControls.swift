@@ -90,6 +90,7 @@ struct SettingsSwatch: View {
 
 struct ReferenceInput: View {
     @Environment(\.nativeControlColor) private var textColor
+    @Environment(\.nativeFieldLabel) private var fieldLabel
     let placeholder: String
     @Binding var text: String
     var commit: () -> Void = {}
@@ -107,6 +108,7 @@ struct ReferenceInput: View {
     var body: some View {
         TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400)).foregroundStyle(textColor)
             .accessibilityIdentifier(inputIdentity)
+            .modifier(FieldAccessibilityLabel(label: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") }))
             .focused($focused).onSubmit { focused = false }
             .onKeyPress(.downArrow) {
                 guard !suggestions.isEmpty else { return .ignored }
