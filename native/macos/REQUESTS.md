@@ -1,3 +1,14 @@
+## 2026-10-30: successful-test draw diagnostics upload
+
+`be51e7f` / Native apps 41141825696 passes release and all 240 tests, including
+the actual Avatar/container ordering regression. Please change the existing
+native-macos-draw-diagnostics upload step from `if: failure()` to `if: always()`:
+successful tests now retain the small surface-render-contexts.json needed to
+characterize the original shadowed renderer. The bitmap fixtures are still only
+written when their exact comparison fails. Until this shared CI change arrives,
+the test also prints just the four actual context-format records in its log.
+The real message snapshot still must verify the production ordering change.
+
 ## 2026-10-30: preserve exact call boundaries for the actual native stall
 
 The full zh-CN-light 1280x800 artifact includes the original

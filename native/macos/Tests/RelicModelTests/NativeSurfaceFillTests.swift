@@ -120,5 +120,13 @@ import SwiftUI
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: nativeContexts, options: [.sortedKeys])
             .write(to: directory.appendingPathComponent("surface-render-contexts.json"))
+        let formats: [[String: Any]] = nativeContexts.map { fixture in
+            ["fixture": fixture["fixture"]!, "shadowed": fixture["shadowed"]!,
+             "contexts": (fixture["fills"] as? [[String: Any]] ?? []).map {
+                ($0["current_draw"] as? [String: Any])?["context_bitmap"] ?? NSNull()
+             }]
+        }
+        let summary = try JSONSerialization.data(withJSONObject: formats, options: [.sortedKeys])
+        print("Actual native fill context formats: " + String(decoding: summary, as: UTF8.self))
     }
 }
