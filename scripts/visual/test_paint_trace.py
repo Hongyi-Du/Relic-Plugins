@@ -190,6 +190,13 @@ class PaintTraceTests(unittest.TestCase):
                 self.assertEqual(diagnostics["command_line"], trace["metadata"]["command_line"])
                 page.screenshot.assert_called_once()
                 page.close.assert_called_once()
+                progress = json.loads((Path(folder) / "scene" / "progress.json").read_text())
+                self.assertEqual(progress[-1]["operation"], "page/protocol-cleanup")
+                self.assertEqual(progress[-1]["state"], "completed")
+                starts = [row["operation"] for row in progress if row["state"] == "started"]
+                self.assertIn("Tracing.start", starts)
+                self.assertIn("Tracing.end", starts)
+                self.assertIn("trace-stream", starts)
                 if not has_picture:
                     self.assertTrue(any("No actual skp64" in row["reason"] for row in result["errors"]))
                 if data_loss:

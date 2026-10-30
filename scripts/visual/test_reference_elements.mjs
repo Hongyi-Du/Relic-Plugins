@@ -196,6 +196,63 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
   assert.equal(read(owner), null, 'An explicitly hidden scrollbar has no painted element');
 });
 
+test('textarea resize evidence exists without scroll overflow and never promotes the owner box to a grip box', () => {
+  // Actual 1e3b7c5 en-US/light/1440x900 new-org owner dom-505 has this
+  // border box and AX owner 766; the old record had no scrollbar or grip.
+  const owner = element({ x: 482, y: 416.09375, width: 476, height: 76 }, {
+    localName: 'textarea', value: '', disabled: false, readOnly: false,
+    getAttribute: name => name === 'placeholder' ? 'What this organization should accomplish' : null,
+  });
+  owner.style = { ...owner.style, resize: 'both', direction: 'ltr', writingMode: 'horizontal-tb', overflowX: 'auto', overflowY: 'auto' };
+  const ax = { nodeId: '766', backendDOMNodeId: 766, role: { value: 'textbox' }, childIds: [] };
+  const read = vm.runInNewContext('(' + expression('resizeHandleEvidence', 'scrollbarEvidence') + ')', {
+    styleOf: context.styleOf, rect: box => ({ ...box }), pseudoByOwner: new WeakMap(),
+    accessibilityOf: () => ({ node_ids: ['766'] }), axById: new Map([['766', ax]]),
+    getComputedStyle: () => ({ display: 'inline', visibility: 'visible', opacity: '1', width: 'auto', height: 'auto' }),
+  });
+  const evidence = normalize(read(owner));
+  assert.equal(evidence.kind, 'resize-handle');
+  assert.equal(evidence.owner_scroll_height, evidence.owner_client_height, 'No overflow is required to expose a textarea resize affordance');
+  assert.deepEqual(evidence.owner_bounds, owner.getBoundingClientRect());
+  assert.equal(evidence.owner_resize, 'both');
+  assert.deepEqual(evidence.ax_subtree, [ax]);
+  assert.deepEqual(evidence.dom_snapshot_parts, []);
+  for (const quantity of ['painted_presence', 'bounds', 'style', 'state']) assert.equal(evidence[quantity], null);
+  assert.match(evidence.computed_pseudo.quantity, /not measured/);
+});
+
+test('actual resize pseudo and AX child records remain raw evidence until independent grip paint is measured', () => {
+  const owner = element({ x: 40, y: 50, width: 200, height: 100 }, {
+    localName: 'textarea', value: 'untouched', disabled: false, readOnly: false, getAttribute: () => null,
+  });
+  owner.style.resize = 'vertical';
+  const pseudo = { type: 'resizer', bounds: { x: 225, y: 135, width: 15, height: 15 }, source: 'fixture CDP layout record' };
+  const axOwner = { nodeId: 'owner', childIds: ['child'], role: { value: 'textbox' } };
+  const axChild = { nodeId: 'child', childIds: [], role: { value: 'generic' } };
+  const read = vm.runInNewContext('(' + expression('resizeHandleEvidence', 'scrollbarEvidence') + ')', {
+    styleOf: context.styleOf, rect: box => ({ ...box }), pseudoByOwner: new WeakMap([[owner, [pseudo]]]),
+    accessibilityOf: () => ({ node_ids: ['owner'] }), axById: new Map([['owner', axOwner], ['child', axChild]]),
+    getComputedStyle: () => ({ display: 'inline', backgroundColor: 'rgb(20, 30, 40)', width: '15px', height: '15px' }),
+  });
+  const evidence = normalize(read(owner));
+  assert.deepEqual(evidence.dom_snapshot_parts, [pseudo]);
+  assert.deepEqual(evidence.ax_subtree, [axOwner, axChild]);
+  assert.equal(evidence.computed_pseudo.background, 'rgb(20, 30, 40)');
+  assert.equal(evidence.bounds, null, 'A layout record is not silently certified as painted grip bounds');
+  assert.equal(evidence.style, null, 'Computed pseudo style does not prove a painted grip or its pixel colors');
+});
+
+test('resize none keeps the nonresizable composer out of resize capability evidence', () => {
+  const owner = element({ x: 311, y: 811, width: 758, height: 26 }, { localName: 'textarea' });
+  owner.style.resize = 'none';
+  const read = vm.runInNewContext('(' + expression('resizeHandleEvidence', 'scrollbarEvidence') + ')', {
+    styleOf: context.styleOf,
+  });
+  assert.equal(read(owner), null);
+  owner.localName = 'input'; owner.style.resize = 'both';
+  assert.equal(read(owner), null, 'This evidence route claims only actual textarea capabilities');
+});
+
 test('actual PostScript identity preserves localized family evidence without aliasing', () => {
   const identity = vm.runInNewContext('(' + expression('platformFontIdentity', 'fontRequestEvidence') + ')');
   const actual = normalize(identity({ familyName: '蘋方-簡', postScriptName: 'PingFangSC-Semibold', isCustomFont: false, glyphCount: 10 }));
