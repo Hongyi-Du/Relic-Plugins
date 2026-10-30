@@ -1,5 +1,5 @@
 name: Native visual review
-run-name: ${{ inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.matrix || 'full' }}
+run-name: ${{ inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.capture_run_id || inputs.matrix || 'full' }}
 on:
   push:
     branches: [native-apps, native-macos]
@@ -15,23 +15,35 @@ on:
         type: choice
         options: [smoke, full, paint]
         default: full
+      capture_run_id:
+        description: Optional existing capture run to recompare; leaves every original measurement unchanged
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
-  group: visual-${{ github.ref_name }}-${{ inputs.matrix || 'full' }}
+  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.matrix || 'full' }}
   cancel-in-progress: false
 jobs:
+  archive-compare:
+    if: ${{ inputs.capture_run_id != '' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/native-recompare.yml
+    with:
+      capture_run_id: ${{ inputs.capture_run_id }}
   paint-diagnostics:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.matrix == 'paint' }}
+    if: ${{ !inputs.capture_run_id && github.event_name == 'workflow_dispatch' && inputs.matrix == 'paint' }}
     uses: ./.github/workflows/native-paint-diagnostics.yml
     with:
       language: en-US
       theme: light
   element-checker:
-    if: ${{ inputs.matrix != 'paint' }}
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     uses: ./.github/workflows/native-element-checks.yml
   windows:
-    if: ${{ inputs.matrix != 'paint' }}
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     runs-on: windows-2025
     timeout-minutes: 45
     strategy:
@@ -87,7 +99,7 @@ jobs:
           name: paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
           path: visual/paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
   macos:
-    if: ${{ inputs.matrix != 'paint' }}
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     runs-on: macos-15
     timeout-minutes: 45
     strategy:
@@ -150,38 +162,21 @@ jobs:
           path: visual/paint-trace-full-chromium-macos-en-US-light
   compare:
     needs: [windows, macos, element-checker]
-    if: always() && inputs.matrix != 'paint'
+    if: always() && inputs.matrix != 'paint' && !inputs.capture_run_id
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install pillow
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: reference-windows-*
-          merge-multiple: true
-          path: visual/reference
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: reference-macos-*
-          merge-multiple: true
-          path: visual/reference-macos
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: visual-windows-*
-          merge-multiple: true
-          path: visual/windows
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: visual-macos-*
-          merge-multiple: true
-          path: visual/macos
+      - name: Download every capture artifact with bounded local storage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/visual/download_comparison_inputs.py --output visual --report-output visual/parity --report-output visual/comparisons
       - name: Record actual comparison storage before reports
         if: always()
         run: |

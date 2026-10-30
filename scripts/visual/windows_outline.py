@@ -44,6 +44,9 @@ LOCAL_LAYOUT_CONTRACTS = {
     "Relic.NativeRegionGrid": ("relic-region-grid-peer-only", "Microsoft.UI.Xaml.Controls.Grid", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid"),
 }
 TEMPLATE_CONTROL_CONTRACT = "native-core-control-template-children-only"
+TOGGLE_RUNTIME = "Relic.NativeOverviewToggle"
+TOGGLE_CONTRACT = "relic-overview-toggle-template-parts-only"
+TOGGLE_SOURCE = "actual sealed NativeOverviewToggle base type, retained parts and applied template"
 # Exact SDK 1.6.9 core types. HWWalk.cpp's pre/post-child switches do not
 # render these controls themselves. They do render ContentControl, item
 # presenters and TextBoxView; none of those is covered by this list. Applied
@@ -121,6 +124,7 @@ def native_outline(node, by_id):
     contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME
                 else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
                 else DOT_CONTRACT if runtime == DOT_RUNTIME else SCROLL_PRESENTER_CONTRACT if runtime == SCROLL_PRESENTER_RUNTIME
+                else TOGGLE_CONTRACT if runtime == TOGGLE_RUNTIME
                 else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
@@ -133,6 +137,21 @@ def native_outline(node, by_id):
                 or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
                 or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
             gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
+    if runtime == TOGGLE_RUNTIME:
+        toggle = raw.get("local_toggle")
+        render_type = node.get("render_type_evidence")
+        if (not isinstance(toggle, dict) or toggle.get("source") != TOGGLE_SOURCE
+                or toggle.get("owner_id") != node.get("id") or toggle.get("is_sealed") is not True
+                or toggle.get("base_type") != "Microsoft.UI.Xaml.Controls.Primitives.ToggleButton"
+                or toggle.get("audited_source") != "native/windows/Relic/NativeOverviewToggle.cs#NativeOverviewToggle"
+                or toggle.get("current_parts_same_objects") is not True
+                or toggle.get("template_present") is not True
+                or toggle.get("template_type") != "Microsoft.UI.Xaml.Controls.ControlTemplate"
+                or not isinstance(render_type, dict) or render_type.get("is_control") is not True
+                or render_type.get("control_template_present") is not True):
+            gap("Exact retained-part ToggleButton subclass lacks its sealed runtime/base-type/current-template receipt")
+        evidence["scope"] = ("Exact NativeOverviewToggle own container only; applied template parts, "
+                             "their paint, live focus and hand-in Composition retain independent obligations")
     if runtime == SCROLL_PRESENTER_RUNTIME:
         # The exact SDK class is sealed, and its native CContentPresenter base
         # draws its own fill/border. This proof is not template-only, does not
