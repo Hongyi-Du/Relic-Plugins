@@ -5,12 +5,12 @@ struct Sidebar: View {
     @EnvironmentObject var m: Model
     @FocusState private var focused: Bool
     @State private var profileImageVisible = false
-    private let newOrganizationOwner = "relic-sidebar-new-organization"
+    private let newOrganizationOwner = "relic-text-button/sidebar-new-organization"
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 2) {
                 Button { m.sheet = .create } label: {
-                    HStack(spacing: 10) { ReferenceIcon(name: "neworg", size: 17, owner: newOrganizationOwner); ReferenceLabel(m.t("common.new_org"), lines: 0); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
+                    HStack(spacing: 10) { ReferenceIcon(name: "neworg", size: 17, owner: newOrganizationOwner); ReferenceLabel(m.t("common.new_org"), lines: 0, owner: newOrganizationOwner); Spacer(minLength: 0) }.padding(.horizontal, 10).frame(height: 34)
                 }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier(newOrganizationOwner)
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted)
@@ -97,8 +97,8 @@ struct OrgTree: View {
                         }
                         Rows(memberHits.filter { !$0["secretary"].flag }) { MemberRow(who: $0) }
                         Button { m.openMemberForm() } label: {
-                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted, owner: "relic-add-member/" + id); ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0); Spacer(minLength: 0) }.padding(.horizontal, 8).padding(.vertical, 6)
-                        }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-add-member/" + id)
+                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted, owner: "relic-text-button/add-member/" + id); ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0, owner: "relic-text-button/add-member/" + id); Spacer(minLength: 0) }.padding(.horizontal, 8).padding(.vertical, 6)
+                        }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-text-button/add-member/" + id)
                     }.padding(.leading, 15).padding(.top, 2).padding(.bottom, 8)
                         .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "card")).padding(.leading, 10)
                 }
