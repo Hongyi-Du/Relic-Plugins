@@ -16,6 +16,7 @@ struct ReferenceLabel: NSViewRepresentable {
     var pathWrapping = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
+    @Environment(\.nativeElementParent) private var nativeParent
     init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
@@ -60,6 +61,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner
+        view.productionParent = nativeParent
         view.productionRegion = region
         if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
         view.setAccessibilityLabel(text)
@@ -82,6 +84,7 @@ final class ReferenceLabelView: NSTextView {
     let pathLineBreaks = PathLineBreaks()
     var measuredOpacity: Double = 1
     var productionOwner: String?
+    var productionParent: String?
     var productionRegion = "window"
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }

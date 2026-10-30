@@ -15,7 +15,7 @@ struct Sidebar: View {
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted, owner: "relic-card/sidebar-search")
                     TextField(m.t("page.search"), text: $m.search).textFieldStyle(.plain).focused($focused)
-                    VoiceButton(text: $m.search).labelStyle(.iconOnly)
+                    VoiceButton(text: $m.search, size: 32).labelStyle(.iconOnly)
                 }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/sidebar-search"))
                     .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
@@ -40,6 +40,7 @@ struct Sidebar: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(.vertical, 6).padding(.horizontal, 8)
+                        .environment(\.nativeElementParent, "relic-profile-button")
                 }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-profile-button")
                     .accessibilityLabel([profileImageVisible ? "" : String(m.name("human").prefix(1)).uppercased(), m.name("human"), m.t("side.profile")].filter { !$0.isEmpty }.joined(separator: " "))
                     .help(m.t("page.me"))
@@ -85,6 +86,7 @@ struct OrgTree: View {
                         if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
+                        .environment(\.nativeElementParent, owner)
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: active || !children.isEmpty ? !folded : nil)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
@@ -167,6 +169,7 @@ struct SidebarChatRow: View {
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
+                .environment(\.nativeElementParent, owner)
         }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true, radius: 8, unread: unread > 0)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }

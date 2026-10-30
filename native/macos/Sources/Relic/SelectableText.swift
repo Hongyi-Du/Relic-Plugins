@@ -129,8 +129,8 @@ enum NativeTextStyle {
             let nsRange = NSRange(location: (prefix as NSString).length, length: (text as NSString).length)
             var font = RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
             if intent.contains(.code) { font = RelicStyle.monoFont(baseSize * 0.9); codeRanges.append(nsRange) }
-            if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
-            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            if intent.contains(.stronglyEmphasized) { font = RelicStyle.convertedFont(font, trait: .boldFontMask) }
+            if intent.contains(.emphasized) { font = RelicStyle.convertedFont(font, trait: .italicFontMask) }
             rendered.addAttribute(.font, value: font, range: nsRange)
         }
         NativeInlineCode.decorate(rendered, ranges: codeRanges)

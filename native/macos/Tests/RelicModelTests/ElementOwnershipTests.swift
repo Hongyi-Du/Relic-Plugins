@@ -2,6 +2,28 @@ import XCTest
 @testable import Relic
 
 final class ElementOwnershipTests: XCTestCase {
+    func testMeasuredNativeAncestryOrdersIgnoredAvatarAndDotInsideTheirActualRow() {
+        func measured(_ id: String, _ path: [Int], parent: String = "row-owner") -> [String: Any] {
+            ["id": id, "native_structure": ["parent_identifier": parent, "native_subview_path": path]]
+        }
+        var nodes: [[String: Any]] = [
+            ["id": "row", "identifier": "row-owner"], measured("title", [0, 12]),
+            ["id": "following-row"], measured("dot", [0, 9]),
+            measured("avatar", [0, 8]), ["id": "avatar-icon", "parent": "avatar"],
+            measured("time", [0, 13])]
+        XCTAssertTrue(ElementOwnership.attachMeasuredChildren(to: &nodes).isEmpty)
+        XCTAssertEqual(nodes.compactMap { $0["id"] as? String }, ["row", "avatar", "avatar-icon", "dot", "title", "time", "following-row"])
+        XCTAssertEqual(nodes[3]["parent"] as? String, "row")
+        XCTAssertEqual(nodes[2]["parent"] as? String, "avatar")
+    }
+    func testUnknownNativeParentDoesNotGuessFromTextOrGeometry() {
+        var nodes: [[String: Any]] = [["id": "before"],
+            ["id": "unowned", "native_structure": ["parent_identifier": "missing", "native_subview_path": [0, 1]]],
+            ["id": "after"]]
+        XCTAssertEqual(ElementOwnership.attachMeasuredChildren(to: &nodes).count, 1)
+        XCTAssertEqual(nodes.compactMap { $0["id"] as? String }, ["before", "unowned", "after"])
+        XCTAssertNil(nodes[1]["parent"])
+    }
     // Regression: SwiftUI exposes a row Button but ignores its nested avatar;
     // the real TextKit label arrives before the separately measured surface.
     func testLaterPaintSurfaceOwnsItsActualLabelWithoutDiscardingRawEvidence() {

@@ -136,6 +136,7 @@ extension View {
 
 struct SurfacePaintProbe: NSViewRepresentable {
     @Environment(\.captureRegion) private var region
+    @Environment(\.nativeElementParent) private var nativeParent
     let background: Color
     let border: Color
     let borderWidth: CGFloat
@@ -169,6 +170,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.borderDash = borderDash
         view.selected = selected; view.expanded = expanded; view.current = current; view.unread = unread
         view.region = region
+        view.productionParent = nativeParent
         view.insetRingWidth = insetRingWidth; view.insetRingColor = NSColor(insetRingColor)
         view.outerRingWidth = outerRingWidth; view.outerRingColor = NSColor(outerRingColor)
         view.rings = rings
@@ -200,6 +202,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             let opacity = NativeVisibility.opacity(view)
             return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "region": view.region,
                     "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
+                    "native_structure": NativeElementStructure.evidence(view, parent: view.productionParent),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(), "current": view.current as Any? ?? NSNull(),
                     "unread": view.unread as Any? ?? NSNull(),
                     "style": ["backgroundColor": fill, "borderColor": border, "borderWidth": Double(view.widths.max() ?? view.width), "borderRadius": Double(view.cornerRadii.max() ?? view.radius),
@@ -216,6 +219,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var width: CGFloat = 0, radius: CGFloat = 0, opacity: Double = 1
         var widths: [CGFloat] = [0,0,0,0]
         var kind: String?, owner: String?, hovered: Bool?
+        var productionParent: String?
         var separateEdges = false
         var shadows: [SurfaceShadow] = []
         var cornerRadii: [CGFloat] = [0,0,0,0]

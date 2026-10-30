@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**bbe04a3 diagnostic results, 2026-10-30:** all 19 native cases captured,
+including the loaded member-card rename action and Copy continuity. The group
+composer's actual native AX bounds now equal the reference's 758x26 viewport.
+Artifacts and failed HTML/JSON reports are at
+`S:\Codex\Outputs\Relic-native-visual\parity-bbe04a3\`. This is diagnostic only;
+the 660-case gate still accepts zero scenes. The macOS input contains 4827
+native elements / 4327 raw reference elements; missing 219, extra 787, text 455,
+geometry 3674, style 8120, state 1264, kind 9, region 28, order 2257, layout 2887,
+icon 0, extraction errors 31175. No exception or tolerance change.
+
+Actual ignored avatar/dot/card surfaces still arrive in weak-registry order
+after the AX tree. The macOS inspector now retains their production parent
+environment and mounted `NSView.subviews` ancestry. It restores children only
+for a unique real parent with measured paths; it preserves the raw extraction,
+unknown/ambiguous ownership and all measured geometry. This does not sort by
+reference coordinates/text or manufacture missing controls. Sidebar rows,
+organization rows and the profile own their actual child records; native
+ancestry/reordering regressions run in CI. New full capture is still required.
+
+The `129ad45` production release compiled; test compilation exposed one stale
+font-diagnostic API reference. `055a8fa` corrects the test without changing
+assertions. Consumed shared `38d6cff` startup sampling and `27e39b3` diagnostics.
+
+
 **Actual full-shard startup failure, `afe7f6f` / `41004901717`:** zh-CN/light
 job `123897519335` completes the first 55-case viewport, then the 1280x800
 process (PID 29604) writes no client log/progress and times out at 1200 seconds;
