@@ -52,6 +52,9 @@ final class ReferencePopUpButton: NSPopUpButton {
     var arrowColor: NSColor = .labelColor { didSet { needsDisplay = true } }
     private(set) var arrowDraw: [String: Any]?
     override func draw(_ dirtyRect: NSRect) {
+        let context = NSGraphicsContext.current?.cgContext
+        if let context { NativeTextRasterization.begin(context) }
+        defer { context?.restoreGState() }
         super.draw(dirtyRect)
         let center = CGPoint(x: bounds.maxX - 8, y: floor(bounds.midY))
         let direction: CGFloat = isFlipped ? 1 : -1

@@ -3,6 +3,25 @@ import AppKit
 @testable import Relic
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
+    func testActualProductionTextPaintDoesNotDependOnAmbientFontSmoothing() throws {
+        let storage = NSTextStorage(attributedString: ReferenceLabel("Relic 组织 11:00", size: 14).attributedText)
+        let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: CGSize(width: 220, height: 50))
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        let glyphs = layout.glyphRange(for: container)
+        var images: [Data] = []
+        for inheritedSmoothing in [false, true] {
+            let bitmap = try XCTUnwrap(CaptureRaster.composite(width: 240, height: 60) { canvas in
+                NSColor.white.setFill(); canvas.fill()
+                let context = NSGraphicsContext.current!.cgContext
+                context.setShouldSmoothFonts(inheritedSmoothing)
+                layout.drawGlyphs(forGlyphRange: glyphs, at: NSPoint(x: 8, y: 8))
+            })
+            images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+        }
+        XCTAssertEqual(images[0], images[1], "The actual label bitmap must use the app's explicit antialiased mode in either incoming context")
+    }
+
     func testEvidenceComesFromAnActualTextKitBitmapDraw() throws {
         let storage = NSTextStorage(attributedString: ReferenceLabel("Actual 绘制", size: 14).attributedText)
         let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: CGSize(width: 220, height: 100))

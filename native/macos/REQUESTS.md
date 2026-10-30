@@ -1,5 +1,38 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `663457c` / macOS per-viewport sharding with original case IDs and
+unchanged deadlines. New build and full capture are being pushed together.
+Current shared checker failure: `9289b84` smoke `41003664049`, job `123893680759`,
+fails `test_reference_missing_or_malformed_pattern_evidence_never_reaches_pixel_comparison`
+in `test_report_fail_closed.ReportFailureTests` with `AssertionError: 2 != 1`.
+Please inspect the additional actual failure and adjust only the fixture/assertion
+to cover the intended evidence; preserve all malformed-pattern rejections.
+
+New downloaded full-capture evidence: `56253c7` / `40996703093` macOS zh-CN/light
+job `123871871182` completes all 165 cases, every case `captured`, no errors.
+The 1024x700 Copy toast and both panel gestures retain all four continuity
+checkpoints through element extraction. Native and corresponding reference files
+are in `parity-56253c7/macos-zh-CN-light` and `reference-macos-zh-CN-light` under
+the requested output folder. This is capture completion only, not a passing gate.
+
+`9289b84` keeps each production uniform label as one semantic text element across
+actual TextKit font fallback, retaining every original attribute run and actual
+fallback face. The 1024 group reference owns `→ 全体` as one label with SFNS and
+PingFang runs; old native wrongly emitted two elements. Unmarked rich text keeps
+its independent emphasis boundaries. New regression tests exercise actual fallback.
+The composer recipient chip also now follows the later `.chip-btn` CSS override
+(14px radius, 5px gap, 11px padding plus border, live hover paint).
+
+Actual raster diagnosis: in the downloaded 1024 group, the same 40-character
+message has PingFangSC-Regular, size 14, resolved weight 400 and virtually equal
+advance widths on both sides (556.921875 / 556.92). Approximate red-channel ink
+coverage is 2068.80 reference / 2444.42 native. Production text draws now explicitly
+request antialiasing without font smoothing, matching app.css's antialiased mode
+and Blink's macOS CreateSkFont branch; no font defaults or user system settings
+are changed. Inputs remain raw draw evidence, not proof of final pixel equivalence.
+Actual screenshot validation is pending. The preceding `9289b84` build exposed
+OutlineDrawReceipt's missing MainActor annotation; `985a3ae` fixes it and awaits CI.
+
 Consumed `6183507` / independent outline and measured-icon pairing. macOS now
 draws its separate outline through the actual native surface view, retaining the
 submitted CGPath, width, phase, dash, color, context clip/transform and current

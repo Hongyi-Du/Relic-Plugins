@@ -25,6 +25,8 @@ class NativeGlyphLayoutManager: NSLayoutManager {
     }
     override func showCGGlyphs(_ glyphs: UnsafePointer<CGGlyph>, positions: UnsafePointer<CGPoint>, count glyphCount: Int,
                               font: NSFont, textMatrix: CGAffineTransform, attributes: [NSAttributedString.Key: Any] = [:], in context: CGContext) {
+        NativeTextRasterization.begin(context)
+        defer { context.restoreGState() }
         if recordDraws, activeRange != nil {
             func transform(_ t: CGAffineTransform) -> [String: Double] { ["a": t.a, "b": t.b, "c": t.c, "d": t.d, "tx": t.tx, "ty": t.ty] }
             func box(_ rect: CGRect) -> Any {
@@ -45,7 +47,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "clip_user_space": box(context.boundingBoxOfClipPath),
                 "actual_font": ["postscript_name": font.fontName, "family_name": font.familyName as Any? ?? NSNull(), "size": font.pointSize, "variations": variations as Any? ?? NSNull()],
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
-                "foreground": foreground,
+                "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
                 "bitmap_width": context.width, "bitmap_height": context.height])
         }
         super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
