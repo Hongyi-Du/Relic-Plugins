@@ -207,9 +207,12 @@ public sealed partial class MainWindow
         var navTitle = OverviewText(T("common.settings"), 16, weight: 650); navTitle.Margin = new Thickness(10, 4, 10, 12); navigation.Children.Add(navTitle);
         var navigationSurface = new Border { Child = navigation, Background = Paint("F8F7F5", "191918"), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 0), CornerRadius = new CornerRadius(16, 0, 0, 16) }; body.Children.Add(navigationSurface);
         var pane = new Grid(); Grid.SetColumn(pane, 1); body.Children.Add(pane);
-        var content = new StackPanel { Spacing = 6, Padding = new Thickness(28, 22, 28, 28) }; pane.Children.Add(Scroll(content));
+        var content = new StackPanel { Spacing = 6, Padding = new Thickness(28, 22, 28, 28) };
         var close = IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; }); close.Content = ReferenceIcon("x", 18); close.Padding = new Thickness(0);
         close.HorizontalAlignment = HorizontalAlignment.Right; close.VerticalAlignment = VerticalAlignment.Top; close.Margin = new Thickness(0, 14, 14, 0); pane.Children.Add(close);
+        // The close action precedes the pane heading/content in the reference
+        // reading and keyboard order, while remaining above its scroll surface.
+        Canvas.SetZIndex(close, 1); pane.Children.Add(Scroll(content));
         var tabs = new Dictionary<string, (SelectorBarItem Item, TextBlock Label, ReferenceVectorIcon Icon)>();
         var navigationBar = new SelectorBar
         {

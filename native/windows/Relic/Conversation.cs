@@ -275,7 +275,28 @@ public sealed partial class MainWindow
             actions.Children.Add(IconButton("\uE81C", "common.context_trace", () => Details("trace", member)));
             if (m.Text("surface") != "chat") actions.Children.Add(IconButton("\uE8B7", "chat.workspace", () => SetPane("workspace")));
             var banner = m.Flag("embedded") ? T("banner.embedded", ("harness", m.Text("harness_label"))) : m.Text("surface") == "subagent" ? m.Text("parent").Length > 0 ? T("banner.subagent_in", ("parent", Display(m.Text("parent")))) : T("banner.subagent") : !Delivery(m.Text("harness"), m.Text("surface")) ? m.Text("harness") == "chatgpt" ? T("member.chatgpt_unavailable") : T("member.desktop_manual") : m.Text("state") == "vacant" ? T("banner.vacant") : m.Flag("has_transcript") ? T("banner.transcript") : T("banner.inbox");
-            conversationBanner.Padding = new Thickness(20, 0, 20, 10); conversationBanner.Child = Quiet(banner, 11); conversationBanner.Visibility = Visibility.Visible;
+            var amberBanner = !m.Flag("embedded") && (m.Text("surface") == "subagent"
+                || !Delivery(m.Text("harness"), m.Text("surface")) || m.Text("state") == "vacant");
+            // renderBanner uses the same centered 880px content width as the
+            // stream, with a real information icon and wrapping text inside
+            // the card. Keeping this as a small, bare caption removed both
+            // visible elements and the banner's contribution to chat layout.
+            var bannerContent = new Grid { ColumnSpacing = 8, UseLayoutRounding = false };
+            bannerContent.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            bannerContent.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var bannerInk = Paint("5A5853", "B8B5AE");
+            var bannerIcon = (ReferenceVectorIcon)ReferenceIcon("info", 15);
+            bannerIcon.Foreground = bannerInk; bannerIcon.VerticalAlignment = VerticalAlignment.Top;
+            bannerContent.Children.Add(bannerIcon);
+            var bannerText = OverviewText(banner, 12.5, lineHeight: 20);
+            bannerText.Foreground = bannerInk; bannerText.TextWrapping = TextWrapping.WrapWholeWords;
+            bannerText.UseLayoutRounding = false; Grid.SetColumn(bannerText, 1); bannerContent.Children.Add(bannerText);
+            conversationBanner.Padding = new Thickness(20, 10, 20, 0); conversationBanner.MaxWidth = 920;
+            conversationBanner.Child = new Border { Child = bannerContent, Padding = new Thickness(12, 8, 12, 8),
+                CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), UseLayoutRounding = false,
+                Background = amberBanner ? Paint("FBF3E2", "3A3020") : Paint("F8F7F5", "191918"),
+                BorderBrush = amberBanner ? OverviewAlpha(Paint("B7791F", "E2B15A"), .3) : Line };
+            conversationBanner.Visibility = Visibility.Visible;
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
         if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));

@@ -1,5 +1,18 @@
 # Native Relic App contract
 
+Changes for the clients (measured 2e42376 product gaps): Windows private/live
+session banners now have the reference's native card, information icon, 12.5px
+wrapping text and 20px line height instead of a single 11px muted caption.
+Settings close is now before pane content in the actual child/keyboard order,
+with its overlay z-order retained. The headless build passes; runtime geometry
+must be measured by CI. No mismatch is waived by either product change.
+
+The 2e42376 panel hover/resized capture failures have a specific retained cause:
+the production WinUI ToolTip opens between checkpoints. Pane/Thumb/pointer
+geometry did not change in those receipts. The reference also has a title on
+the resize handle; browser-native tooltip evidence is unresolved. The failed
+continuity checks are retained, not suppressed or reclassified as passing.
+
 Changes for the clients (TextBlock frame diagnostics): the Windows capture now
 retains the actual TextBlock owners before PNG readback, their observable source,
 layout, ancestor clip/scroll/transform inputs and dependency-property revisions,
