@@ -162,6 +162,7 @@ struct CopyCard: View {
     let copy: Node
     let retire: () -> Void
     @State private var acknowledging = false
+    @State private var acknowledgeIdentity = "relic-text-button/acknowledge-copy/" + UUID().uuidString
     private var live: Bool { copy["status"].text == "active" && ["", "active"].contains(copy["org_status"].text) }
     private var organization: Node { m.organizations.first { $0["id"].text == copy["org"].text } ?? Node(["id": copy["org"].text, "name": copy["org_name"].text]) }
     private var tone: String { !["", "active"].contains(copy["org_status"].text) ? "" : copy["status"].text == "active" ? "ok" : copy["status"].text == "retired" && copy["retired_by"].text == "human" ? "bad" : "" }
@@ -202,8 +203,12 @@ struct CopyCard: View {
                 FlowLayout(spacing: 6) {
                     if !copy["read"].flag {
                         Button { acknowledging = true; m.run { defer { acknowledging = false }; try await m.post("/api/cc/" + Client.segment(copy["id"].text) + "/read", [:]); try await m.refresh() } } label: {
-                            HStack(spacing: 6) { ReferenceIcon(name: "check", size: 14); ReferenceLabel(m.t("cc.ack"), size: 12, weight: 600) }
+                            HStack(spacing: 6) {
+                                ReferenceIcon(name: "check", size: 14, owner: acknowledgeIdentity)
+                                ReferenceLabel(m.t("cc.ack"), size: 12, weight: 600, owner: acknowledgeIdentity)
+                            }.environment(\.nativeElementParent, acknowledgeIdentity)
                         }.buttonStyle(ReferenceButtonStyle(small: true)).disabled(acknowledging)
+                            .accessibilityIdentifier(acknowledgeIdentity).accessibilityLabel(m.t("cc.ack"))
                     }
                     if live { TextButton(m.t("cc.retire"), size: 12, color: RelicStyle.red, action: retire).buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
                 }
