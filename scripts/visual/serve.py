@@ -211,8 +211,11 @@ def seed(folder, lang):
     workspace.mkdir(parents=True)
     (workspace / "README.md").write_text(word(
         "# 原生应用验收\n\n保留熟悉的三栏布局，使用系统原生控件。\n\n## 本周交付\n\n- 紧凑的组织树\n- 清晰的聊天与输入区\n- 浅色与深色主题\n\n| 项目 | 状态 |\n| --- | --- |\n| Windows | 审阅中 |\n| macOS | 审阅中 |\n",
-        "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n\n## This week\n\n- Compact organization tree\n- Clear conversation and composer\n- Light and dark themes\n\n| Project | Status |\n| --- | --- |\n| Windows | In review |\n| macOS | In review |\n"), encoding="utf-8")
-    (workspace / "review.py").write_text('def review(platform: str) -> str:\n    """Keep evidence next to each decision."""\n    return f"Ready to review: {platform}"\n', encoding="utf-8")
+        "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n\n## This week\n\n- Compact organization tree\n- Clear conversation and composer\n- Light and dark themes\n\n| Project | Status |\n| --- | --- |\n| Windows | In review |\n| macOS | In review |\n"), encoding="utf-8", newline="\n")
+    # The file API returns original bytes. Platform-default CRLF previously
+    # changed Windows's actual reference list parsing and byte-size label.
+    # Both clients and both reference browsers must receive the same fixture.
+    (workspace / "review.py").write_text('def review(platform: str) -> str:\n    """Keep evidence next to each decision."""\n    return f"Ready to review: {platform}"\n', encoding="utf-8", newline="\n")
     image = Image.new("RGB", (560, 300), "#f4f3f0")
     draw = ImageDraw.Draw(image)
     for xy, color in [((24, 24, 145, 276), "#e7e5df"), ((161, 24, 375, 276), "#ffffff"), ((391, 24, 536, 276), "#ffffff")]:

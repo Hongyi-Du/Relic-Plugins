@@ -6,6 +6,7 @@ pixel contribution does not erase independently measured layout/paint bounds.
 """
 import copy
 import math
+import struct
 
 
 def number(value):
@@ -54,6 +55,65 @@ def intersect(a, b):
     right, bottom = min(a["x"] + a["width"], b["x"] + b["width"]), min(a["y"] + a["height"], b["y"] + b["height"])
     if right < x or bottom < y: return None
     return {"x": x, "y": y, "width": right - x, "height": bottom - y}
+
+
+def empty_native_glyph_outline(run):
+    """Validate a same-callback empty base outline, not an empty advance box."""
+    evidence = run.get("ink_bounds_evidence")
+    if not isinstance(evidence, dict): return False
+    outline = evidence.get("outline")
+    if (evidence.get("source") != "Actual GetGlyphRunWorldBounds result and same-callback glyph outline observation"
+            or run.get("source") != "IDWriteTextLayout.Draw -> IDWriteTextRenderer.DrawGlyphRun -> ID2D1RenderTarget.DrawGlyphRun"
+            or run.get("submitted_to_d2d") is not True
+            or evidence.get("classification") != "outline-empty" or evidence.get("failure") is not None
+            or type(evidence.get("bounds_hresult")) is not int or evidence["bounds_hresult"] < 0
+            or run.get("ink_bounds_world_dip") is not None or not isinstance(outline, dict)
+            or outline.get("source") != "Actual same-run IDWriteFontFace.GetGlyphRunOutline into ID2D1PathGeometry"
+            or outline.get("failure") is not None or outline.get("cleanup_failure") is not None
+            or outline.get("color_font") is not False or not isinstance(run.get("face"), dict)
+            or run["face"].get("source") != "DWRITE_GLYPH_RUN.fontFace passed to the actual D2D DrawGlyphRun"
+            or run["face"].get("color_font") is not False
+            or any(type(outline.get(key)) is not int or outline[key] < 0 for key in
+                   ("create_path_hresult", "open_hresult", "outline_hresult", "close_hresult", "segment_count_hresult", "figure_count_hresult"))
+            or any(type(outline.get(key)) is not int or outline[key] != 0 for key in ("figure_count", "segment_count"))): return False
+    raw = evidence.get("raw_bounds")
+    if not isinstance(raw, dict): return False
+    coordinates = []
+    for key in ("left", "top", "right", "bottom"):
+        value = raw.get(key)
+        if not isinstance(value, dict) or value.get("ieee754_format") != "binary32": return False
+        bits = value.get("ieee754_bits")
+        if not isinstance(bits, str) or len(bits) != 8: return False
+        try:
+            data = bytes.fromhex(bits)
+            coordinate = struct.unpack("!f", data)[0]
+            if math.isfinite(coordinate):
+                if not number(value.get("value")) or struct.pack("!f", value["value"]) != data: return False
+            elif (value.get("value") is not None or value.get("raw_value") !=
+                  ("NaN" if math.isnan(coordinate) else "Infinity" if coordinate > 0 else "-Infinity")): return False
+        except (ValueError, OverflowError, struct.error): return False
+        coordinates.append(coordinate)
+    expected = ("nonfinite" if any(not math.isfinite(v) for v in coordinates) else
+                "finite-ordered" if coordinates[0] <= coordinates[2] and coordinates[1] <= coordinates[3] else "reversed")
+    if expected == "finite-ordered" or evidence.get("raw_bounds_classification") != expected: return False
+    binding = outline.get("binding")
+    if not isinstance(binding, dict): return False
+    for key in ("callback_run_pointer", "font_face_process_pointer"):
+        pointer = run.get(key)
+        if not isinstance(pointer, str): return False
+        try:
+            if int(pointer, 16) <= 0: return False
+        except ValueError: return False
+        owner = outline if key == "callback_run_pointer" else binding
+        if owner.get(key) != pointer: return False
+    return (type(run.get("ordinal")) is int and type(outline.get("glyph_run_ordinal")) is int and outline["glyph_run_ordinal"] == run["ordinal"]
+            and isinstance(run.get("glyph_indices"), list) and type(binding.get("glyph_count")) is int
+            and binding["glyph_count"] == len(run["glyph_indices"])
+            and all(type(glyph) is int and 0 <= glyph <= 65535 for glyph in run["glyph_indices"])
+            and number(run.get("em_size")) and run["em_size"] > 0 and type(run.get("sideways")) is bool
+            and all(binding.get(key) == run.get(key) for key in ("em_size", "glyph_indices", "glyph_advances", "glyph_offsets", "sideways", "bidi_level"))
+            and type(run.get("bidi_level")) is int and type(binding.get("right_to_left")) is bool
+            and binding["right_to_left"] == bool(run["bidi_level"] & 1))
 
 
 def native_label_geometry(node, surface_node=None):
@@ -167,14 +227,17 @@ def native_label_geometry(node, surface_node=None):
         ordinal = run.get("ordinal")
         mapped = mapping(run.get("actual_d2d_context"))
         ink = run.get("ink_bounds_world_dip")
+        empty_outline = empty_native_glyph_outline(run)
         ink_rect = ({"x": ink.get("left"), "y": ink.get("top"), "width": ink["right"] - ink["left"], "height": ink["bottom"] - ink["top"]}
                     if isinstance(ink, dict) and all(number(ink.get(k)) for k in ("left", "top", "right", "bottom")) else None)
         output["glyph_ink"].append({"glyph_run_ordinal": ordinal, "inline_draw_ordinal": run.get("inline_draw_ordinal"),
                                     "submitted_to_d2d": run.get("submitted_to_d2d"),
-                                    "quantity": "Actual D2D GetGlyphRunWorldBounds ink envelope; not selected text or exact raster coverage",
+                                    "quantity": ("Actual same-run empty base outline; no rectangle is invented and advance is unchanged" if empty_outline else
+                                                 "Actual D2D GetGlyphRunWorldBounds ink envelope; not selected text or exact raster coverage"),
+                                    "outline_empty": empty_outline, "bounds_evidence": copy.deepcopy(run.get("ink_bounds_evidence")),
                                     "world_bounds": ink_rect, "window": mapped(ink_rect, True) if mapped and rect(ink_rect) else None})
         if not mapped: gap("run_transform", "Actual finite invertible D2D context and Image placement are required for window ink/advance geometry", glyph_run_ordinal=ordinal)
-        if not rect(ink_rect): gap("glyph_ink", "Actual glyph ink bounds are unavailable", glyph_run_ordinal=ordinal)
+        if not rect(ink_rect) and not empty_outline: gap("glyph_ink", "Actual glyph ink bounds are unavailable", glyph_run_ordinal=ordinal)
         face, description = run.get("face"), run.get("description")
         metrics = face.get("metrics_design_units") if isinstance(face, dict) else None
         glyphs, advances = run.get("glyph_indices"), run.get("glyph_advances")

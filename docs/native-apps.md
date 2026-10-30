@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (actual range and empty-outline observations): Windows
+now records the successful GetText BSTR pointer/length and verifies a collapsed
+prefix before interpreting a null BSTR as offset zero. The existing NativePathText
+peer is measured independently through its WinRT and public COM providers;
+its frame continuity remains unproved, so no external zero-height error is
+suppressed. Abnormal actual glyph bounds retain their original binary32 bits
+and HRESULT. Only the same callback run's successful, non-color, zero-figure,
+zero-segment outline can establish empty ink; no zero rectangle is substituted.
+Pure regression cases run in CI. The application headless build passes locally.
+The merged macOS outline/color drawing change and opt-in surface-fill candidate
+still require their actual CI bitmap results; neither grants an exception.
+
+Changes for the clients (same real fixture bytes): the 9f11a82 paint capture
+found the Windows README contained 14 CRLF pairs while macOS used LF. The file
+API preserves those original bytes; the unchanged reference list parser then
+created an empty UL on Windows, so there were no actual list-marker candidates.
+The shared fixture now writes README.md and review.py with explicit LF on both
+platforms. This corrects unequal inputs and the resulting byte-size labels;
+it does not edit reference markup, parser, styles or any comparison tolerance.
+The actual file bytes are asserted in the existing CI fixture test. Earlier
+captures retain their original CRLF files and remain labeled by their commit.
+
 Changes for the clients (independent observer launch): the CI UIA observer now
 uses `relic_core.process.creation_flags()` for its existing Popen, with the
 actual flags/arguments retained in observer-launch.json. Redirected standard

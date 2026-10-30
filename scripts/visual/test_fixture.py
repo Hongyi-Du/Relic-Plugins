@@ -29,6 +29,11 @@ class FixtureTests(unittest.TestCase):
                 with patch.dict(os.environ, environment), patch.object(stores, "now", stores.now), \
                         patch.object(stores, "short_id", stores.short_id), patch.object(views, "time", views.time):
                     store, _ = seed(folder, language)
+                    for filename in ("README.md", "review.py"):
+                        raw = (folder / "workspace" / filename).read_bytes()
+                        self.assertNotIn(b"\r", raw, "Actual fixture file bytes must be identical on Windows and macOS")
+                        self.assertIn(b"\n", raw)
+                    self.assertEqual((folder / "workspace" / "README.md").read_bytes().count(b"\n- "), 3)
                     with store.db() as database:
                         rows = database.execute("SELECT summary,at,paths FROM activity ORDER BY summary").fetchall()
                     self.assertEqual([summary for summary, _, _ in rows], ["README.md", "layout.png"])

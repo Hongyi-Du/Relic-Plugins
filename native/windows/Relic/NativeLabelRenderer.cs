@@ -181,7 +181,10 @@ internal sealed class NativeLabelRenderer : IDisposable
         var baseline = new PointF(x, y);
         var actualContext = ReadActualContext();
         var boundsHr = Method<GlyphBounds>(context, 72)(context, baseline, originalRun, mode, out var inkBounds);
-        if (boundsHr < 0) Limitations.Add("GetGlyphRunWorldBounds failed: 0x" + boundsHr.ToString("x8"));
+        var boundsEvidence = NativeGlyphBounds.Classify(boundsHr,
+            new NativeGlyphBounds.Bounds(inkBounds.Left, inkBounds.Top, inkBounds.Right, inkBounds.Bottom),
+            () => NativeGlyphBounds.ObserveOutline(context, originalRun, Runs.Count, face["color_font"]?.GetValue<bool>()));
+        if (boundsEvidence["failure"] is not null) Limitations.Add(boundsEvidence["failure"]!.GetValue<string>());
         // This exact native pointer received from layout.Draw is what is painted.
         // No copied/reconstructed run, substitute face, or capture-only layout.
         Method<NativeLabelInterop.DrawGlyph>(context, 29)(context, baseline, originalRun, brush, mode);
@@ -193,9 +196,11 @@ internal sealed class NativeLabelRenderer : IDisposable
             ["inline_draw_ordinal"] = inlineStack.Count == 0 ? null : inlineStack.Peek(), ["description"] = description,
             ["glyph_indices"] = glyphs, ["glyph_advances"] = run.GlyphAdvances == IntPtr.Zero ? null : advances,
             ["glyph_offsets"] = run.GlyphOffsets == IntPtr.Zero ? null : offsets,
-            ["face"] = face, ["ink_bounds_world_dip"] = boundsHr >= 0 ? Box(inkBounds) : null,
+            ["callback_run_pointer"] = originalRun.ToString("x"), ["font_face_process_pointer"] = run.FontFace.ToString("x"),
+            ["face"] = face, ["ink_bounds_world_dip"] = boundsEvidence["classification"]?.GetValue<string>() == "finite" ? Box(inkBounds) : null,
+            ["ink_bounds_evidence"] = boundsEvidence,
             ["actual_d2d_context"] = actualContext,
-            ["ink_bounds_quantity"] = "D2D GetGlyphRunWorldBounds; not DOM Range or text selection bounds" });
+            ["ink_bounds_quantity"] = "Actual D2D world bounds or separately observed empty base outline; see ink_bounds_evidence. Not DOM Range or text selection bounds" });
         return 0;
     }
     private JsonObject ReadActualContext()
