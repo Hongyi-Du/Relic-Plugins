@@ -270,7 +270,9 @@ public sealed partial class MainWindow
             if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } scroll) { scroll.Padding = new Thickness(0); scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.MaxHeight = box.Height; }
             if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
         };
-        try { await Draw(tab); await Dialog(dialog); } finally { root.SizeChanged -= Resize; }
+        // The details surface owns its header/body padding and viewport-sized box.
+        // Apply zero template padding before realization so it is not shifted or clipped.
+        try { await Draw(tab); await Dialog(dialog, contentOwnsPadding: true); } finally { root.SizeChanged -= Resize; }
     }
     private void DrawTasks(StackPanel box, string? focus)
     {

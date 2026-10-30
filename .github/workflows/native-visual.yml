@@ -91,6 +91,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Retain every shard while leaving runner capacity for native builds
+      # and focused diagnostics during concurrent client development.
+      max-parallel: 2
       matrix:
         include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
