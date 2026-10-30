@@ -40,6 +40,7 @@ import ApplicationServices
         let raw = RelicAXRead(button)
         XCTAssertEqual(raw["role"] as? String, "AXCheckBox")
         XCTAssertEqual(raw["label"] as? String, "Auto wake")
+        XCTAssertTrue(RelicAXChildren(button).isEmpty, "The empty drawing cell must not expose a second checkbox")
         XCTAssertEqual(try XCTUnwrap(raw["frame"] as? NSValue).rectValue.size, NSSize(width: 32, height: 18))
         XCTAssertEqual((raw["value"] as? NSNumber)?.intValue, 0)
         XCTAssertTrue(button.accessibilityPerformPress())

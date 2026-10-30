@@ -1,5 +1,22 @@
 ## 2026-10-30: live matrix consumption and shared extraction failures
 
+`682034a` smoke run `41022654907` now has all 19 native captures with
+`errors: []`, downloaded to `S:\Codex\Outputs\Relic-native-visual\parity-682034a\`.
+Comparing its retained group JSON with the current matcher (diagnosis only,
+not the full capture validation) confirms text mismatches **6 -> 0**, missing
+**3 -> 2**, geometry **235 -> 162**. The remaining two missing elements are
+the already-requested Install control/icon. No acceptance conclusion follows.
+Its actual NSButton cell also appeared as a second checkbox; the production
+cell is now excluded from AX and the actual parent owns the single checkbox.
+Current shared scrollbar unknown geometry still makes the real native
+track/thumb appear extra; native capture must not hide those painted elements.
+
+The next native chart fixes use the reference's actually computed 1px border
+(CSS requested 1.5px), expose the real native path AX name, record all legend
+surfaces, and preserve the node's separately measured paint and AX extents.
+The actual production checkbox owner now supplies its knob's checked/enabled
+state; absent, ambiguous or cross-window ownership remains an extraction failure.
+
 **Shared CI scheduling request:** set `jobs.macos.strategy.max-parallel: 2`
 in `native-visual.yml`, retaining all four language/theme entries, all three
 sizes, 55 scenes and the exact same 660-case acceptance gate. The four long
