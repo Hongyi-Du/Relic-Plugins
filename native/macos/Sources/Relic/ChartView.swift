@@ -30,7 +30,7 @@ struct ChartView: View {
                 chartToggle("chart.show_closed", value: $showEnded)
                 chartToggle("chart.show_links", value: $showShared)
             }.padding(.leading, 16).padding(.trailing, 54).padding(.vertical, 12).padding(.bottom, 1)
-                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
             ChartLegend()
             let graph = layout
             ZStack(alignment: .topLeading) {
@@ -44,7 +44,7 @@ struct ChartView: View {
                     }
                 }.frame(width: graph.size.width, height: graph.size.height).scaleEffect(zoom, anchor: .topLeading).offset(x: offset.width.rounded(), y: offset.height.rounded())
                 if graph.nodes.isEmpty { Text(m.t("chart.empty")).padding(30) }
-            }.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity).clipped().modifier(RecordedSurface(background: RelicStyle.sidebar, kind: "region")).background(GeometryReader { proxy in Color.clear.onAppear { viewport = proxy.size; if autoFit { fit() } }.onChange(of: proxy.size) { viewport = proxy.size; if autoFit { fit() } } })
+            }.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity).clipped().modifier(RecordedSurface(background: RelicStyle.sidebar, kind: "card")).background(GeometryReader { proxy in Color.clear.onAppear { viewport = proxy.size; if autoFit { fit() } }.onChange(of: proxy.size) { viewport = proxy.size; if autoFit { fit() } } })
                 .background(WheelZoomCapture { delta, point in zoomAt(zoom * exp(-delta * 0.0015), at: point) })
                 .focusable().onMoveCommand { direction in
                     switch direction { case .left: offset.width += 60; case .right: offset.width -= 60; case .up: offset.height += 60; case .down: offset.height -= 60; default: break }
@@ -90,17 +90,26 @@ struct ChartView: View {
                     ChartChip(text: m.t("chart.decisions", ["n": node["decisions"].text]), tone: node["decisions"].integer > 0 ? "warn" : "")
                     if sharedCount(node) > 0 { ChartChip(text: m.t("chart.shared", ["n": String(sharedCount(node))]), tone: "sec").help(sharedTip(node)) }
                 }
-            }.padding(.horizontal, 12.5).padding(.vertical, 9.5).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
+            }.padding(.horizontal, 12).padding(.vertical, 9).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
                 .environment(\.nativeElementParent, identity)
                 .modifier(RecordedSurface(background: node["cabinet"].flag ? RelicStyle.mix(RelicStyle.violetSoft, RelicStyle.card, fraction: 0.75) : RelicStyle.card,
-                    border: hovered == node["id"].text ? RelicStyle.muted : node["cabinet"].flag || node["governance"].text == "peer" ? RelicStyle.violet : RelicStyle.border, borderWidth: 1.5, radius: 12, kind: "chart-node", owner: identity, hovered: hovered == node["id"].text,
+                    border: hovered == node["id"].text ? RelicStyle.muted : node["cabinet"].flag || node["governance"].text == "peer" ? RelicStyle.violet : RelicStyle.border, borderWidth: 1, radius: 12, kind: "chart-node", owner: identity, hovered: hovered == node["id"].text,
                     shadows: node["id"].text == m.organization ? [] : hovered == node["id"].text ? SurfaceShadow.dialog : SurfaceShadow.small,
                     borderDash: node["kind"].text == "subgroup" ? [4,3] : [], current: node["id"].text == m.organization, outerRingWidth: node["id"].text == m.organization ? 3 : 0, outerRingColor: RelicStyle.accent.opacity(0.4)))
-        }.buttonStyle(.plain).accessibilityIdentifier(identity)
+        }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(cardName(node, leader: leader))
             .help(([m.t("chart.open_hint", ["name": node["name"].text]), leader, node["purpose"].text, sharedTip(node)]).filter { !$0.isEmpty }.joined(separator: "\n"))
             .recordedOpacity(node["status"].text == "active" ? 1 : 0.5)
             .saturation(node["status"].text == "active" ? 1 : 0)
             .onHover { hovered = $0 ? node["id"].text : "" }
+    }
+    private func cardName(_ node: Node, leader: String) -> String {
+        var parts = [OrganizationAvatar.initial(for: node), node["name"].text]
+        if node["cabinet"].flag { parts.append(m.t("org.cabinet_chip")) }
+        if node["kind"].text == "subgroup" { parts.append(m.t("org.kind_subgroup")) }
+        if node["status"].text != "active" { parts.append(m.t(node["status"].text == "closed" ? "org.status_closed" : "org.status_dissolved")) }
+        parts += [leader, m.t("common.members", ["n": node["members"].text]), m.t("chart.decisions", ["n": node["decisions"].text])]
+        if sharedCount(node) > 0 { parts.append(m.t("chart.shared", ["n": String(sharedCount(node))])) }
+        return parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
     private func edges(_ graph: OrganizationLayout) -> [ChartEdge] {
         func n(_ value: CGFloat) -> String { String(format: "%g", Double(value)) }

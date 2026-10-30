@@ -352,8 +352,9 @@ import CoreText
             let textView = (object as? NSTextView).flatMap { $0.isEditable || $0.textLayoutManager != nil ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
             if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }
+            if object is ChartEdgeProbe.EdgeView { node["projection_reason"] = "Raw path AX retained; the same native path's measured stroke projection supplies its visible geometry" }
             raw.append(node)
-            if visible && ax["element"].flag && textView == nil && !suppressElements { elements.append(node) }
+            if visible && ax["element"].flag && textView == nil && !suppressElements && !(object is ChartEdgeProbe.EdgeView) { elements.append(node) }
             if let textView, !suppressElements, let textWindow = textView.window {
                 for (index, run) in textRuns(textView).enumerated() {
                     let screen = textWindow.convertToScreen(textView.convert((run["local_rect"] as! NSValue).rectValue, to: nil))
@@ -383,6 +384,7 @@ import CoreText
                         return box(topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen))
                     }
                     if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
+                    if let label = textView as? ReferenceLabelView, let owner = label.productionControlLabelOwner { projected["native_control_label_owner"] = owner }
                     raw.append(projected)
                     if projected["visible"] as? Bool == true { elements.append(projected) }
                 }
@@ -489,8 +491,9 @@ import CoreText
             let evidence = sample["evidence"] as! [String: Any]
             let sx = evidence["scale_x"] as! Double, sy = evidence["scale_y"] as! Double
             if abs(sx - sy) > 0.0001 { surfaceGaps.append("Nonuniform chart edge transform needs directional stroke geometry: " + (sample["id"] as! String)) }
+            if !(sample["name"] is String) { surfaceGaps.append("Actual chart edge AX label unavailable: " + (sample["id"] as! String)) }
             let clipped = rect.intersection(nativeClip)
-            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": "", "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
+            let node: [String: Any] = ["id": sample["id"]!, "parent": NSNull(), "kind": "chart-edge", "text": "", "name": sample["name"]!, "region": sample["region"] ?? region(rect, fallback: "dialog"), "rect": box(rect), "visibleRect": clipped.isNull ? NSNull() : box(clipped), "visible": true,
                 "source": "live-native-chart-path", "projection": evidence, "icon": sample["icon"]!, "hovered": false, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["color"]!, "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0], "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_width": abs(sx - sy) > 0.0001 ? NSNull() : width as Any,
@@ -502,6 +505,7 @@ import CoreText
         // that production layer order when supplementing AX with path paint.
         elements.insert(contentsOf: chartEdges, at: elements.firstIndex { $0["kind"] as? String == "chart-node" } ?? elements.count)
         surfaceGaps.append(contentsOf: ElementOwnership.attachMeasuredChildren(to: &elements))
+        surfaceGaps.append(contentsOf: NativeControlState.attach(to: &elements))
 
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
@@ -548,6 +552,9 @@ import CoreText
             if ["scrollbar", "scrollbar-thumb"].contains(kind) {
                 state["orientation"] = sourceState["orientation"] ?? NSNull()
                 state["scroll_position"] = sourceState["scroll_position"] ?? NSNull()
+            }
+            if let actualControl = node["native_control_state"] as? [String: Any] {
+                state.merge(actualControl, uniquingKeysWith: { _, measured in measured })
             }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }

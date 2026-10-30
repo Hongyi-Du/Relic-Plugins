@@ -6,6 +6,21 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testChartEdgeAXNameTracksItsActualSharedSeatsAndPath() throws {
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 50, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        let view = ChartEdgeProbe.EdgeView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        window.contentView = view
+        let path = CGMutablePath(); path.move(to: CGPoint(x: 30, y: 40)); path.addLine(to: CGPoint(x: 30, y: 120))
+        let edge = ChartEdge(path: "M30,40V120", color: .purple, width: 1.2, dash: [4,3], opacity: 0.5, tip: "engineer: Alpha / Beta\ndesigner: Alpha / Beta")
+        view.configure(edge: edge, path: path)
+        let actual = RelicAXRead(view)
+        XCTAssertEqual(actual["role"] as? String, "AXImage")
+        XCTAssertEqual(actual["label"] as? String, "engineer: Alpha / Beta designer: Alpha / Beta")
+        XCTAssertEqual(try XCTUnwrap(actual["frame"] as? NSValue).rectValue, window.convertToScreen(view.convert(path.boundingBoxOfPath, to: nil)))
+        view.configure(edge: ChartEdge(path: edge.path, color: .gray, width: 1.4, dash: [], opacity: 1), path: path)
+        XCTAssertEqual(RelicAXRead(view)["label"] as? String, "", "A reused hierarchy edge must not retain the old shared-seat name")
+    }
+
     func testSeparateCheckboxLabelKeepsVisibleAXValueWithoutRepeatingControlName() throws {
         let label = ReferenceLabel("Auto wake", size: 12.5, accessibleName: "").makeLabelView()
         label.frame = NSRect(x: 0, y: 0, width: 100, height: 20)

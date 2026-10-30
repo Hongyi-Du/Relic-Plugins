@@ -73,12 +73,23 @@ struct RecordedSurface: ViewModifier {
         }
             .overlay {
                 if let edges {
-                    ZStack {
-                        border.frame(height: edges.top).frame(maxHeight: .infinity, alignment: .top)
-                        border.frame(width: edges.trailing).frame(maxWidth: .infinity, alignment: .trailing)
-                        border.frame(height: edges.bottom).frame(maxHeight: .infinity, alignment: .bottom)
-                        border.frame(width: edges.leading).frame(maxWidth: .infinity, alignment: .leading)
-                    }.allowsHitTesting(false)
+                    if borderDash.isEmpty {
+                        ZStack {
+                            border.frame(height: edges.top).frame(maxHeight: .infinity, alignment: .top)
+                            border.frame(width: edges.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                            border.frame(height: edges.bottom).frame(maxHeight: .infinity, alignment: .bottom)
+                            border.frame(width: edges.leading).frame(maxWidth: .infinity, alignment: .leading)
+                        }.allowsHitTesting(false)
+                    } else {
+                        GeometryReader { proxy in
+                            ZStack {
+                                if edges.top > 0 { Path { p in p.move(to: CGPoint(x: 0, y: edges.top / 2)); p.addLine(to: CGPoint(x: proxy.size.width, y: edges.top / 2)) }.stroke(border, style: StrokeStyle(lineWidth: edges.top, dash: borderDash)) }
+                                if edges.trailing > 0 { Path { p in p.move(to: CGPoint(x: proxy.size.width - edges.trailing / 2, y: 0)); p.addLine(to: CGPoint(x: proxy.size.width - edges.trailing / 2, y: proxy.size.height)) }.stroke(border, style: StrokeStyle(lineWidth: edges.trailing, dash: borderDash)) }
+                                if edges.bottom > 0 { Path { p in p.move(to: CGPoint(x: 0, y: proxy.size.height - edges.bottom / 2)); p.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height - edges.bottom / 2)) }.stroke(border, style: StrokeStyle(lineWidth: edges.bottom, dash: borderDash)) }
+                                if edges.leading > 0 { Path { p in p.move(to: CGPoint(x: edges.leading / 2, y: 0)); p.addLine(to: CGPoint(x: edges.leading / 2, y: proxy.size.height)) }.stroke(border, style: StrokeStyle(lineWidth: edges.leading, dash: borderDash)) }
+                            }
+                        }.allowsHitTesting(false)
+                    }
                 } else { shape.strokeBorder(border, style: StrokeStyle(lineWidth: borderWidth, dash: borderDash)).allowsHitTesting(false) }
             }
             .overlay { if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) } }

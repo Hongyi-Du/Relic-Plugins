@@ -4,6 +4,20 @@ import AppKit
 @testable import Relic
 
 @MainActor final class SurfaceRasterTests: XCTestCase {
+    func testDashedLegendEdgePaintsBothDashesAndGaps() throws {
+        let sample = Color.clear.frame(width: 18, height: 1)
+            .modifier(RecordedSurface(background: .clear, border: .black,
+                edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "divider", borderDash: [3,3]))
+            .padding(4).background(Color.white)
+        let host = NSHostingView(rootView: sample)
+        host.frame = NSRect(x: 0, y: 0, width: 26, height: 9)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        for x in [5, 11, 17] { XCTAssertLessThan(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: x, y: 4))[0], 2) }
+        for x in [8, 14, 20] { XCTAssertGreaterThan(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: x, y: 4))[0], 253) }
+    }
+
     func testDialogShadowMatchesTheActualReferenceEdgeProfile() throws {
         // Actual 56253c7 macOS reference, zh-CN/light/1024x700/member-card.
         // Sample the middle of the straight bottom edge, away from corner and

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import RelicCore
+import RelicAX
 
 struct ChartEdge {
     let path: String
@@ -30,7 +31,7 @@ struct ChartEdgeProbe: NSViewRepresentable {
     let index: Int
     private static let live = NSHashTable<EdgeView>.weakObjects()
     func makeNSView(context: Context) -> EdgeView { let view = EdgeView(); Self.live.add(view); updateNSView(view, context: context); return view }
-    func updateNSView(_ view: EdgeView, context: Context) { view.edge = edge; view.path = path; view.index = index; view.region = region }
+    func updateNSView(_ view: EdgeView, context: Context) { view.configure(edge: edge, path: path); view.index = index; view.region = region }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.sorted { $0.index < $1.index }.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor, let edge = view.edge, let path = view.path else { return nil }
@@ -42,8 +43,10 @@ struct ChartEdgeProbe: NSViewRepresentable {
             view.effectiveAppearance.performAsCurrentDrawingAppearance { color = ElementCapture.rgba(NSColor(edge.color)) }
             let glyph: [String: Any] = ["tag": "path", "attributes": ["d": edge.path], "children": []]
             let encoded = String(data: try! JSONSerialization.data(withJSONObject: glyph, options: [.sortedKeys, .withoutEscapingSlashes]), encoding: .utf8)!
-            return ["id": "chart-edge/" + view.identity, "rectValue": NSValue(rect: rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "color": color, "opacity": edge.opacity * NativeVisibility.opacity(view), "width": Double(edge.width * sx), "region": view.region, "icon": ["source": "svg", "glyph": encoded],
-                    "evidence": ["source": "live-native-chart-path", "renderer": "SwiftUI.Path/CoreGraphics", "path": edge.path, "source_width": Double(edge.width), "scale_x": Double(sx), "scale_y": Double(sy), "stroke_dash": edge.dash.map { Double($0) }, "stroke_dash_offset": 0, "stroke_linecap": "butt", "stroke_linejoin": "miter", "native_layer_order": view.index]]
+            let actualAX = RelicAXRead(view)
+            return ["id": "chart-edge/" + view.identity, "name": actualAX["label"] ?? NSNull(), "rectValue": NSValue(rect: rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "color": color, "opacity": edge.opacity * NativeVisibility.opacity(view), "width": Double(edge.width * sx), "region": view.region, "icon": ["source": "svg", "glyph": encoded],
+                    "evidence": ["source": "live-native-chart-path", "renderer": "SwiftUI.Path/CoreGraphics", "path": edge.path, "source_width": Double(edge.width), "scale_x": Double(sx), "scale_y": Double(sy), "stroke_dash": edge.dash.map { Double($0) }, "stroke_dash_offset": 0, "stroke_linecap": "butt", "stroke_linejoin": "miter", "native_layer_order": view.index,
+                        "native_accessibility": ["role": actualAX["role"] ?? NSNull(), "label": actualAX["label"] ?? NSNull(), "identifier": actualAX["identifier"] ?? NSNull(), "view_identity": String(describing: ObjectIdentifier(view))]]]
         }
     }
     final class EdgeView: NSView {
@@ -51,8 +54,18 @@ struct ChartEdgeProbe: NSViewRepresentable {
         var edge: ChartEdge?, path: CGPath?
         var index = 0
         var region = "window"
+        func configure(edge: ChartEdge, path: CGPath) {
+            self.edge = edge; self.path = path
+            setAccessibilityRole(.image)
+            setAccessibilityIdentifier("relic-chart-edge/" + identity)
+            setAccessibilityLabel(edge.tip.split(whereSeparator: \.isNewline).joined(separator: " "))
+        }
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func isAccessibilityElement() -> Bool { false }
+        override func isAccessibilityElement() -> Bool { true }
+        override func accessibilityFrame() -> NSRect {
+            guard let window, let path else { return super.accessibilityFrame() }
+            return window.convertToScreen(convert(path.boundingBoxOfPath, to: nil))
+        }
     }
 }

@@ -354,7 +354,7 @@ struct MessageView: View {
                                         if visible { threadAvatarImages.insert(person.text) } else { threadAvatarImages.remove(person.text) }
                                     }).padding(2).background(RelicStyle.background, in: RoundedRectangle(cornerRadius: 8))
                                 } }
-                                ReferenceLabel(m.t("thread.replies", ["n": item["thread"]["count"].text]), size: 12.5, weight: 600, color: RelicStyle.accent, lines: 0, owner: threadIdentity)
+                                ReferenceLabel(m.t("thread.replies", ["n": item["thread"]["count"].text]), size: 12.5, weight: 600, color: RelicStyle.accent, lines: 0, owner: threadIdentity, controlLabel: true)
                                 ReferenceLabel(m.t("thread.last_reply", ["when": m.shortWhen(item["thread"]["last_at"])]), size: 12.5, color: RelicStyle.muted, lines: 0, owner: threadIdentity)
                             }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity).accessibilityLabel(threadAccessibilityName)

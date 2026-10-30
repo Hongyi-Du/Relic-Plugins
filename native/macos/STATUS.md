@@ -10,6 +10,11 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+`682034a` 的 [Native apps 41022652153](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41022652153)
+已全部通过：macOS release 编译和 **158 个测试通过**，包括实际 SwiftUI 容器中的开关尺寸、
+卡片类型转换、独立可见标签的 AX 名称、消息滚动策略和说明文字换行测试。
+对应诊断捕获 `41022654907` 仍在等待 macOS runner；上述修改尚不能视为逐元素捕获通过。
+
 诊断产物 [41019075828 / 0a1d569](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41019075828)
 的 19 个 macOS 场景及完整对照报告已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\`。
 该子集 macOS 缺失 104、多余 717、文字 130、几何 4440、样式 8572、状态 1316、
