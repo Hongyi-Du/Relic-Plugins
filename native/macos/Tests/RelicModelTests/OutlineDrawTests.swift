@@ -41,7 +41,7 @@ import SwiftUI
         window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
         view.layoutSubtreeIfNeeded(); view.display(); CATransaction.flush()
         let contents = try XCTUnwrap(view.layer?.contents)
-        guard CFGetTypeID(contents as CFTypeRef) == CGImageGetTypeID() else {
+        guard CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else {
             XCTFail("The submitted backing store is not the owned CGImage"); return
         }
         let image = contents as! CGImage
