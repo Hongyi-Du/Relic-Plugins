@@ -262,15 +262,20 @@ struct ConversationStream: View {
                         // offscreen row heights and revises the document when
                         // accessibility subsequently materializes those rows.
                         VStack(alignment: .leading, spacing: 0) {
-                            if m.moreChat { Button(m.t("trace.load_older")) { following.followsBottom = false; m.run { try await m.loadOlder() } } }
+                            let rows = m.conversationRows(m.displayMessages)
+                            if m.moreChat { Button(m.t("trace.load_older")) { following.followsBottom = false; m.run { try await m.loadOlder() } }
+                                .accessibilitySortPriority(Double(rows.count * 2 + 2)) }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
-                            ForEach(m.conversationRows(m.displayMessages)) { row in
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                                let priority = Double((rows.count - index) * 2)
                                 if let separator = row.separator {
                                     ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
                                         .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
+                                        .accessibilitySortPriority(priority + 1)
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
+                                    .accessibilitySortPriority(priority)
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in
@@ -341,8 +346,8 @@ struct MessageView: View {
         } else {
             MessageColumns(mine: mine) {
                 if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) }
-                else if mine { Avatar(member: "human", size: inThread ? 30 : 36) }
-                else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("") }
+                else if mine { Avatar(member: "human", size: inThread ? 30 : 36).accessibilitySortPriority(1) }
+                else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("").accessibilitySortPriority(1) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
                         ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
@@ -596,12 +601,16 @@ struct ThreadView: View {
                 if !m.threadData["error"].text.isEmpty || m.threadData["root"].isNull {
                     OverviewBlock { ReferenceLabel(m.threadData["error"].text.isEmpty ? m.t("common.loading") : m.t("common.load_failed", ["error": m.threadData["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) }
                 } else {
+                    let rows = m.conversationRows(m.threadData["replies"].rows, separators: false)
                     MessageView(item: m.threadData["root"], inThread: true).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
                         .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+                        .accessibilitySortPriority(Double(rows.count * 2 + 4))
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
+                        .accessibilitySortPriority(Double(rows.count * 2 + 3))
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(m.conversationRows(m.threadData["replies"].rows, separators: false)) { row in
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                             MessageView(item: row.item, inThread: true, continued: row.continued).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
+                                .accessibilitySortPriority(Double((rows.count - index) * 2))
                         }
                     }.padding(.horizontal, 16).padding(.bottom, 16)
                     ThreadComposer().padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 14)
