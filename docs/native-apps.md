@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (font weight quantity): verified trimmed NativeLabel
+draws can now report the weights of their complete actually submitted glyph/font
+set, while original source_span_complete remains false. The additive coverage
+receipt rechecks every real run, face and unique wght axis; a completion flag or
+face-name set alone cannot establish it. Zero weight tolerance, reference-side
+unknown failures and all independent final-PNG/geometry obligations are unchanged.
+834a5f5's 914 contract tests exposed three assertions tied to the old error-word
+spelling; they now assert the actual unresolved source/font quantity and retained
+measurement error instead. No expected unknown result was changed to success.
+
 Changes for the clients (macOS successful-test diagnostics request): the existing
 native-macos-draw-diagnostics artifact now uploads on success as well as failure,
 so the small actual surface context records are retained. Failed bitmap outputs
