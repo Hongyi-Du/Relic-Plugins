@@ -16,6 +16,12 @@ injected into the native hierarchy.
 
 ## 2026-10-30: actual popup fill observations now available
 
+Consumed the shared reader contract: each observation is now obtained once
+and reused unchanged in both `elements.capture_evidence.native_fill_draws`
+and `ax.native_fill_draws`. Layer order is likewise emitted in both exports
+from one snapshot. `CGImage.typeID` was already fixed in `cc4d1cd` and pushed;
+the subsequent test run is queued, not yet passing.
+
 `e8307ed` macOS job 124132215180 passes both NativeSurfaceFill tests, including
 all four byte-identical SwiftUI/native bitmap fixtures (square, rounded and
 dialog-shadow surfaces). The production dialog and action/recipient menu fills

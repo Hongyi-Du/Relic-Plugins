@@ -640,14 +640,17 @@ import CoreText
             }
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": measuredLayout, "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
-        let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
+        let fillDraws = NativeSurfaceFill.observations(in: window)
+        let layerOrder = NativeLayerOrder.capture(in: window)
+        let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent,
+            "capture_evidence": ["native_fill_draws": fillDraws, "native_layer_order": layerOrder]]
         // Preserve every measurement while avoiding multi-megabyte indentation
         // in each of the 660 cases. Presentation belongs to the HTML report.
         try JSONSerialization.data(withJSONObject: normalized, options: [.sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
         var audit = metadata; audit["nodes"] = raw; audit["regions"] = regions.map { ["name": $0.name, "rect": box($0.rect)] }
         audit["surface_probes"] = surfaces.map { surface in var value = surface; value.removeValue(forKey: "rectValue"); return value }
-        audit["native_fill_draws"] = NativeSurfaceFill.observations(in: window)
-        audit["native_layer_order"] = NativeLayerOrder.capture(in: window)
+        audit["native_fill_draws"] = fillDraws
+        audit["native_layer_order"] = layerOrder
         audit["icon_probes"] = paint.map { sample in var value = sample; value.removeValue(forKey: "screenRect"); return value }
         audit["edge_probes"] = edgeSamples.map { sample in var value = sample; value.removeValue(forKey: "rectValue"); return value }
         try JSONSerialization.data(withJSONObject: audit, options: [.sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))
