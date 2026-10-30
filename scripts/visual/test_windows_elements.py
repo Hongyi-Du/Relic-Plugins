@@ -39,7 +39,10 @@ def xaml_node(eid, typ="TextBlock", text="", parent=None, bounds=None, **changes
                                  "is_tab_stop": typ in {"Button", "TextBox", "SelectorBarItem", "ToggleButton"},
                                  "is_hit_test_visible": True},
         "render_type_evidence": {"is_control": control, "control_template_present": True if control else None},
-        "layout": {"wrap": "none", "truncation": "none", "line_count": 1},
+        "layout": {"wrap": "none", "truncation": "none", "line_count": 1, "break_strategy_version": 1,
+                   "normal_break_strategy": "none", "emergency_break_strategy": "none",
+                   "line_break_configuration": {"source": "synthetic live WinUI enum fixture", "owner": eid,
+                                                "raw": {"text_wrapping": "NoWrap", "text_wrapping_value": 1}}},
         "icon": None, "font_family": "Fixture Sans",
     }
     node.update(changes)
@@ -566,7 +569,10 @@ class ProjectionTests(unittest.TestCase):
                    "geometry_complete": True, "font_family": "Declared family"},
                   {"type": "RichEditTextRange", "text": "Second", "bounds": [box(30, 622, 50, 22)],
                    "geometry_complete": True, "font_family": "Declared family"}]
-        node["layout"].update(wrap="character", line_count=2, rich_text_runs=ranges,
+        node["layout"].update(wrap="character", normal_break_strategy="word", emergency_break_strategy="break-unbreakable",
+                              line_break_configuration={"source": "synthetic live ComposerInput.TextWrapping fixture", "owner": "composer",
+                                                        "raw": {"text_wrapping": "Wrap", "text_wrapping_value": 2}},
+                              line_count=2, rich_text_runs=ranges,
                               character_boxes=[box(30, 600, 40, 22), box(30, 622, 50, 22)],
                               character_boxes_coordinate_space="content-window", placeholder="Message")
         provider = uia_node("editor-uia", "Edit", bounds=bounds, class_name="ComposerInput", value="First\nSecond",
@@ -578,6 +584,9 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(elements["composer"]["text"], "First\nSecond")
         self.assertEqual(elements["composer"]["evidence"]["uia_id"], "editor-uia")
         self.assertEqual(elements["composer"]["layout"]["line_count"], 2)
+        self.assertEqual(elements["composer"]["layout"]["normal_break_strategy"], "word")
+        self.assertEqual(elements["composer"]["layout"]["emergency_break_strategy"], "break-unbreakable")
+        self.assertEqual(elements["composer"]["evidence"]["line_break_configuration"]["raw"]["text_wrapping"], "Wrap")
         self.assertEqual(elements["composer"]["evidence"]["rich_text_runs"], ranges)
         self.assertIsNone(elements["composer"]["style"]["rendered_fonts"])
 
@@ -1371,6 +1380,24 @@ class ProjectionTests(unittest.TestCase):
         self.assertIsNone(elements["rich"]["style"]["font_weight"])
         self.assertEqual(elements["rich:run:0"]["parent"], "rich")
         self.assertEqual(elements["rich:run:0"]["style"]["background"], [0, 0, 0, 0])
+
+    def test_rich_runs_retain_the_actual_text_owners_independent_break_policies(self):
+        owner, witness = self.rich_fixture()
+        owner["layout"].update(wrap="character", normal_break_strategy="word", emergency_break_strategy="break-unbreakable",
+                               line_break_configuration={"source": "synthetic live RichTextBlock.TextWrapping fixture", "owner": "rich",
+                                                         "raw": {"text_wrapping": "Wrap", "text_wrapping_value": 2}})
+        result = self.by_id(self.capture(measured([owner]), [witness]))
+        for rid in ("rich:run:0", "rich:run:1"):
+            self.assertEqual(result[rid]["layout"]["normal_break_strategy"], "word")
+            self.assertEqual(result[rid]["layout"]["emergency_break_strategy"], "break-unbreakable")
+            self.assertEqual(result[rid]["evidence"]["line_break_configuration"]["owner"], "rich")
+            self.assertEqual(result[rid]["evidence"]["text_run_source"]["owner"], "rich")
+        for key in ("normal_break_strategy", "emergency_break_strategy", "line_break_configuration"):
+            owner["layout"].pop(key)
+        unknown = self.capture(measured([owner]), [witness])
+        self.assertTrue(any(row["id"] == "rich:run:0" and row["property"] == "layout.break_strategy"
+                            for row in unknown["coverage"]["unmeasured"]))
+        self.assertIsNone(self.by_id(unknown)["rich:run:0"]["layout"]["normal_break_strategy"])
 
     def test_missing_rich_run_font_does_not_borrow_adjacent_run_font(self):
         owner, witness = self.rich_fixture()

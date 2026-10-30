@@ -25,6 +25,71 @@ const readingOrderIds = vm.runInNewContext('(' + expression('readingOrderIds', '
 const assignReadingOrder = vm.runInNewContext('(' + expression('assignReadingOrder', 'all') + ')');
 const readingElement = (...children) => ({ nodeType: 1, childNodes: children });
 const readingText = () => ({ nodeType: 3 });
+const cssLineBreakConfiguration = vm.runInNewContext('(' + expression('cssLineBreakConfiguration', 'imageResourceEvidence') + ')');
+const cssBreakStyle = changes => ({ whiteSpace: 'normal', textWrapMode: 'wrap', textWrapStyle: 'wrap', wordBreak: 'normal',
+  overflowWrap: 'normal', lineBreak: 'auto', hyphens: 'manual', direction: 'ltr', writingMode: 'horizontal-tb', ...changes });
+
+test('normal CSS wrapping and emergency anywhere wrapping are independent actual policies', () => {
+  const normal = normalize(cssLineBreakConfiguration(cssBreakStyle(), true, 'actual-text-parent'));
+  const emergency = normalize(cssLineBreakConfiguration(cssBreakStyle({ overflowWrap: 'anywhere' }), true, 'actual-text-parent'));
+  assert.equal(normal.layout.normal_break_strategy, 'word');
+  assert.equal(normal.layout.emergency_break_strategy, 'none');
+  assert.equal(emergency.layout.normal_break_strategy, 'word');
+  assert.equal(emergency.layout.emergency_break_strategy, 'break-unbreakable');
+  assert.equal(emergency.evidence.raw.overflowWrap, 'anywhere');
+  assert.equal(emergency.evidence.owner, 'actual-text-parent');
+  assert.deepEqual(emergency.evidence.errors, []);
+});
+
+test('CSS break-all is not conflated with emergency wrapping or native byCharWrapping', () => {
+  const result = normalize(cssLineBreakConfiguration(cssBreakStyle({ wordBreak: 'break-all' }), true, 'path'));
+  assert.equal(result.layout.normal_break_strategy, 'break-all');
+  assert.equal(result.layout.emergency_break_strategy, 'none');
+  assert.notEqual(result.layout.normal_break_strategy, 'character');
+});
+
+test('nowrap and pre disable soft breaks while retaining the inherited emergency request', () => {
+  for (const whiteSpace of ['nowrap', 'pre']) {
+    const result = normalize(cssLineBreakConfiguration(cssBreakStyle({ whiteSpace, textWrapMode: 'nowrap', overflowWrap: 'anywhere' }), true, 'label'));
+    assert.equal(result.layout.normal_break_strategy, 'none');
+    assert.equal(result.layout.emergency_break_strategy, 'none');
+    assert.equal(result.evidence.raw.overflowWrap, 'anywhere');
+  }
+});
+
+test('CSS break-word original spelling and min-content distinction remain in raw evidence', () => {
+  const result = normalize(cssLineBreakConfiguration(cssBreakStyle({ overflowWrap: 'break-word' }), true, 'label'));
+  assert.equal(result.layout.normal_break_strategy, 'word');
+  assert.equal(result.layout.emergency_break_strategy, 'break-unbreakable');
+  assert.equal(result.evidence.raw.overflowWrap, 'break-word');
+  const legacy = normalize(cssLineBreakConfiguration(cssBreakStyle({ wordBreak: 'break-word' }), true, 'label'));
+  assert.equal(legacy.layout.normal_break_strategy, 'word');
+  assert.equal(legacy.layout.emergency_break_strategy, 'break-unbreakable');
+  assert.equal(legacy.evidence.raw.wordBreak, 'break-word');
+});
+
+test('missing CSS measurements and unrepresented break rules stay unknown', () => {
+  for (const changes of [{ wordBreak: undefined }, { overflowWrap: undefined }, { lineBreak: 'anywhere' }, { textWrapMode: 'unsupported' }]) {
+    const result = normalize(cssLineBreakConfiguration(cssBreakStyle(changes), true, 'label'));
+    assert.equal(result.layout.normal_break_strategy, null);
+    assert.equal(result.layout.emergency_break_strategy, null);
+    assert.ok(result.evidence.errors.length);
+  }
+  const keep = normalize(cssLineBreakConfiguration(cssBreakStyle({ wordBreak: 'keep-all' }), true, 'label'));
+  assert.equal(keep.layout.normal_break_strategy, 'keep-all');
+  assert.equal(keep.layout.emergency_break_strategy, null);
+  assert.ok(keep.evidence.errors.length);
+});
+
+test('non-text CSS properties are explicitly inapplicable, not an inferred no-wrap policy', () => {
+  const result = normalize(cssLineBreakConfiguration(cssBreakStyle({ overflowWrap: 'anywhere' }), false, 'paint-region'));
+  assert.equal(result.layout.break_strategy_version, 1);
+  assert.equal(result.layout.normal_break_strategy, null);
+  assert.equal(result.layout.emergency_break_strategy, null);
+  assert.equal(result.evidence.applicable, false);
+  assert.ok(result.evidence.reason);
+  assert.equal(result.evidence.raw.overflowWrap, 'anywhere');
+});
 
 test('recorded file-code line number precedes source text without changing either measurement', () => {
   // Actual en-US/light/1440x900 file-code evidence from 1e3b7c5. The number's

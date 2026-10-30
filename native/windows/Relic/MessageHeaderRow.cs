@@ -88,7 +88,7 @@ public sealed class MessageHeaderRow : Panel
         {
             var child = Children[i];
             metrics[i] = new(child.DesiredSize.Width, child.DesiredSize.Height,
-                child is TextBlock text ? text.BaselineOffset : double.NaN);
+                child is NativeLabel label ? label.FirstBaseline : child is TextBlock text ? text.BaselineOffset : double.NaN);
         }
         MeasuredChildren = metrics;
         return LastLayout = MessageHeaderLayoutEngine.Calculate(metrics, width, Spacing);

@@ -20,6 +20,7 @@ from typing import Any
 
 from image_paint import ImagePaintError, validate_vector_paint
 from outline_paint import outline_measurement, compare_outlines
+from line_breaks import BREAK_FIELDS, break_strategy_issues
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -34,7 +35,7 @@ STYLE_FIELDS = ("font_size", "font_weight", "foreground", "background", "border_
 PAINT_FIELDS = ("border_widths", "border_colors", "border_styles", "corner_radii", "opacity", "background_image", "shadow")
 STROKE_FIELDS = ("stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin")
 STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
-LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
+LAYOUT_FIELDS = (*BREAK_FIELDS, "truncation", "line_count")
 INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link", "resize-handle"} | SCROLL_KINDS
 CATEGORIES = ("missing", "extra", "text_mismatch", "geometry_out_of_tolerance", "style_out_of_tolerance", "state_mismatch", "kind_mismatch", "region_mismatch", "order_mismatch", "layout_mismatch", "icon_mismatch", "extraction_errors")
 SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
@@ -334,8 +335,6 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                     error("State must be boolean or null: " + field, eid)
                 if group == "layout" and value is not None and not (isinstance(value, int) and not isinstance(value, bool) and value >= 0 if field == "line_count" else isinstance(value, str)):
                     error("Invalid layout: " + field, eid)
-                if group == "layout" and field == "wrap" and value is not None and value not in ("none", "word", "character"):
-                    error("Unknown wrapping measurement", eid)
                 if group == "layout" and field == "truncation" and value is not None and value not in ("none", "clip", "ellipsis"):
                     error("Unknown truncation measurement", eid)
         # Explicit null means inapplicable, not an invitation to skip a missing
@@ -343,6 +342,7 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         style = element.get("style") if isinstance(element.get("style"), dict) else {}
         state = element.get("state") if isinstance(element.get("state"), dict) else {}
         layout = element.get("layout") if isinstance(element.get("layout"), dict) else {}
+        for issue in break_strategy_issues(element): error(issue, eid)
         for issue in paint_issues(style): error(issue, eid)
         _, outline_issues = outline_measurement(element)
         for issue in outline_issues: error("Unmeasured outline: " + issue, eid)
@@ -678,7 +678,9 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
             if group == "layout" and not has_text(a) and not has_text(b): continue
             for field in fields:
                 av, bv = a.get(group, {}).get(field), b.get(group, {}).get(field)
-                if av != bv: mismatch(category, field, av, bv)
+                if group == "layout" and field in BREAK_FIELDS and (av is None or bv is None):
+                    mismatch(category, field, av, bv, reason="Actual normal/emergency break strategy is unknown")
+                elif av != bv: mismatch(category, field, av, bv)
         if any(e.get("kind") in ("checkbox", "toggle") for e in (a, b)):
             av, bv = a.get("state", {}).get("indeterminate"), b.get("state", {}).get("indeterminate")
             if not isinstance(av, bool) or not isinstance(bv, bool) or av != bv:

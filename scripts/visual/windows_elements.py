@@ -16,7 +16,28 @@ from paint_patterns import MeasurementError, captured_pattern, pattern_measureme
 from image_projection import project_windows_image
 from windows_outline import native_outline
 from native_label_geometry import native_label_geometry
+from native_label_fonts import native_label_fonts
 from windows_automation_identity import bind_automation_identities
+from line_breaks import BREAK_FIELDS, break_strategy_issues
+
+
+def project_line_break_strategies(layout, text, kind, owner):
+    """Retain the actual text-owner policy, never derive it from legacy wrap."""
+    applicable = bool(text) or kind == "text"
+    original = copy.deepcopy(layout.get("line_break_configuration"))
+    if not applicable:
+        fields = {"break_strategy_version": 1, **{key: None for key in BREAK_FIELDS}}
+        evidence = {"applicable": False, "source": "Actual XAML emitted text ownership", "owner": owner,
+                    "raw": {"unused_text_owner_configuration": original},
+                    "reason": "This emitted element has no text under the existing text applicability predicate."}
+    else:
+        fields = {key: copy.deepcopy(layout.get(key)) for key in ("break_strategy_version", *BREAK_FIELDS)}
+        evidence = original if isinstance(original, dict) else {
+            "source": "Actual XAML text owner; line-break policy unmeasured", "owner": owner, "raw": {},
+            "errors": ["No live TextWrapping or current production text-layout configuration was captured."]}
+        evidence["applicable"] = True
+        evidence["projected_text_owner"] = owner
+    return fields, evidence
 
 
 CONTROL_KINDS = {
@@ -700,6 +721,8 @@ def project_text_leaves(raw, unmeasured, pointer):
                         text_run_source={"owner": node["id"], "index": index, "start_offset": run.get("start_offset"),
                                          "end_offset": run.get("end_offset")},
                         layout={"wrap": node["layout"].get("wrap"), "truncation": node["layout"].get("truncation"),
+                                **{key: copy.deepcopy(node["layout"].get(key)) for key in
+                                   ("break_strategy_version", *BREAK_FIELDS, "line_break_configuration")},
                                 "line_count": len(text_line_boxes(boxes)) if boxes else None,
                                 "actual_trimming": copy.deepcopy(node["layout"].get("actual_trimming")),
                                 "character_boxes": boxes, "character_boxes_coordinate_space": "content-window",
@@ -1530,6 +1553,7 @@ def project(xaml_path, uia_path, png_path):
         text_source = label or node
         submitted_label = None
         submitted_label_geometry = None
+        submitted_label_fonts = None
         if text_source.get("type") == "NativeLabel":
             captured_frame = xaml.get("capture_evidence")
             frame = captured_frame.get("native_label_frame") if isinstance(captured_frame, dict) else None
@@ -1541,6 +1565,9 @@ def project(xaml_path, uia_path, png_path):
             submitted_label_geometry, geometry_issues = native_label_geometry(
                 text_source, actual_surfaces[0] if len(actual_surfaces) == 1 else None)
             unmeasured.extend(geometry_issues)
+            submitted_label_fonts, font_issues = native_label_fonts(
+                text_source, actual_surfaces[0] if len(actual_surfaces) == 1 else None, frame)
+            unmeasured.extend(font_issues)
             for key in ("font_size", "font_weight", "foreground"):
                 style[key] = submitted_label["style"].get(key) if submitted_label["style"] is not None else None
         run_source = text_source.get("text_run_source")
@@ -1598,10 +1625,13 @@ def project(xaml_path, uia_path, png_path):
         # WinUI's UIA adapter reads TextElement.FontFamily.Source, not the
         # physical fallback face. Never put that requested family into the
         # canonical actual-font field, even when a cmap supports the text.
-        style["rendered_fonts"] = None
+        # Independently measured current production glyph faces are distinct
+        # from UIA's configured family and from final PNG/glyph visibility.
+        # Filling this field does not clear any presentation/geometry failure.
+        style["rendered_fonts"] = submitted_label_fonts.get("fonts") if submitted_label_fonts else None
         if text and not actual_text_boxes:
             unmeasured.append({"id": node["id"], "property": "evidence.text_bounds", "reason": "Actual window-relative text rectangles are unavailable"})
-        if text and not provider_fonts:
+        if text and not provider_fonts and style["rendered_fonts"] is None:
             reason = ("Actual NativeLabel submitted glyph callbacks are retained, but the visible glyph subset/final PNG contribution is not established"
                       if submitted_label is not None and submitted_label["submitted_glyph_runs"] is not None
                       else "UIA did not measure the rendered font; declared XAML family is not substituted")
@@ -1642,7 +1672,12 @@ def project(xaml_path, uia_path, png_path):
         bounds = scrollbar_bounds or node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
-        for key in ("wrap", "truncation", "line_count"):
+        break_fields, break_evidence = project_line_break_strategies(layout, text, kind, (label or node)["id"])
+        layout.update(break_fields)
+        for issue in break_strategy_issues({"text": text, "kind": kind, "layout": layout,
+                                           "evidence": {"line_break_configuration": break_evidence}}):
+            unmeasured.append({"id": node["id"], "property": "layout.break_strategy", "reason": issue})
+        for key in (*BREAK_FIELDS, "truncation", "line_count"):
             if text and layout.get(key) is None:
                 unmeasured.append({"id": node["id"], "property": "layout." + key, "reason": "No rendered text measurement"})
         if state["hovered"] is None:
@@ -1655,10 +1690,12 @@ def project(xaml_path, uia_path, png_path):
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or node["visible_bounds"], "style": style, "state": state,
-                   "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count")}, "icon": node.get("icon"),
+                   "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
+                                "line_break_configuration": break_evidence,
                                 "outline": outline_evidence,
                                 "native_label_geometry": submitted_label_geometry,
+                                "native_label_fonts": submitted_label_fonts,
                                 "label_source": label["id"] if label else None,
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,

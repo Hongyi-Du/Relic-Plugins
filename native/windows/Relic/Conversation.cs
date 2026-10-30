@@ -326,15 +326,15 @@ public sealed partial class MainWindow
         {
             var time = DateTimeOffset.TryParse(item.Text("at"), out var at) ? at.ToLocalTime().ToString("HH:mm") : "";
             var label = new MessageHeaderRow { Spacing = 6, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-            TextBlock Who(string value, double size, bool bold = false)
+            NativeLabel Who(string value, double size, bool bold = false, bool mono = false)
             {
-                return new TextBlock { Text = value, FontSize = size, Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted,
-                    FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
-                    LineHeight = size * 1.3, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, VerticalAlignment = VerticalAlignment.Bottom };
+                return new NativeLabel(value, mono ? "Cascadia Code" : FontFamilies.UI,
+                    size, (ushort)(bold ? 600 : 400), words.Language, size * 1.3, accessibleText: true)
+                { Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted, VerticalAlignment = VerticalAlignment.Bottom };
             }
             label.Children.Add(Who(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), 12.5, true));
             if (!inThread && member.Length == 0 && snap.Rows("members").Any(m => m.Text("name") == from))
-            { var identifier = Who(from, 11); identifier.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); label.Children.Add(identifier); }
+                label.Children.Add(Who(from, 11, mono: true));
             var names = item.Rows("to").Select(x => x.Text()).ToArray(); var everyone = names.Contains("all") || snap.Rows("members").Where(m => m.Text("name") != from).All(m => names.Contains(m.Text("name")));
             if (!inThread && member.Length == 0) label.Children.Add(Who(T("msg.to", ("names", everyone ? T("msg.everyone") : words.List(names.Select(Display)))), 12));
             label.Children.Add(Who(time, 12)); column.Children.Add(label);
