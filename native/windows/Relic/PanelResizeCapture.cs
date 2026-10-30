@@ -450,7 +450,25 @@ public sealed partial class MainWindow
         ((JsonArray)capturedPanelResizeEvidence["checkpoints"]!).Add(current);
         if (!IsObservedPanelResizeHover(state) || PanelResizeToolTipReadiness.Observe(state) == null)
             throw new InvalidOperationException("Actual panel resize capture lacks idle hover or a measured owned ToolTip state: " + stage);
-        if (capturedPanelResizeBaseline == null) capturedPanelResizeBaseline = current.DeepClone().AsObject();
+        // The completed input gesture precedes the actual NativeLabel render /
+        // compositor preparation. In 06b914e that preparation delivered another
+        // real PointerMoved and opened an owned ToolTip before any screenshot.
+        // Retain and validate the action observation, but bind frame stability
+        // to the state immediately before desktop readback, after preparation.
+        // The resulting actual tooltip is captured and compared, not hidden.
+        if (stage == "after_action")
+        {
+            current["phase"] = "input-preparation";
+            return;
+        }
+        if (capturedPanelResizeBaseline == null)
+        {
+            if (stage != "before_screenshot")
+                throw new InvalidOperationException("Panel resize capture has no pre-readback baseline: " + stage);
+            current["phase"] = "capture-baseline";
+            capturedPanelResizeBaseline = current.DeepClone().AsObject();
+            capturedPanelResizeEvidence["baseline_established_qpc"] = current["qpc"]!.DeepClone();
+        }
         else if (!JsonNode.DeepEquals(state, capturedPanelResizeBaseline["state"])
             || current["pointer_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["pointer_event_count"]!.GetValue<int>()
             || current["drag_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["drag_event_count"]!.GetValue<int>()

@@ -28,6 +28,7 @@ from macos_icon_draw import icon_draw_issues
 from macos_list_marker import list_marker_issues
 from windows_list_marker import windows_list_marker_issues
 from macos_field_editor import field_editor_aliases
+from macos_surface_fill import read_fill_observations
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -886,6 +887,13 @@ def read_capture(path: Path, client: str, scene: str, viewport: dict) -> tuple[d
     except (OSError, ValueError) as exc:
         return {}, [{"client": client, "reason": f"Cannot read {path.name}: {exc}"}]
     errors = validate_capture(data, client, scene, viewport)
+    if client == "macos" and isinstance(data, dict):
+        # This audit describes submitted production paint only. It never changes
+        # canonical elements, existing unknowns, or an alleged occlusion result.
+        audit = read_fill_observations(data, path, scene, viewport)
+        data["_native_fill_audit"] = audit
+        errors += [{"client": client, "reason": "Native surface fill evidence: " + issue}
+                   for issue in audit["issues"]]
     return data if isinstance(data, dict) else {}, errors
 
 
@@ -1153,6 +1161,8 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             result = compare_elements(valid_elements(reference), valid_elements(captures[platform]))
             result["reference_platform"] = platform
             result["reference_artifact_client"] = reference_client
+            if platform == "macos" and "_native_fill_audit" in captures[platform]:
+                result["native_fill_observations"] = captures[platform]["_native_fill_audit"]
             environment = reference.get("reference_environment") if isinstance(reference.get("reference_environment"), dict) else {}
             result["reference_environment"] = {
                 "platform": environment.get("platform"), "browser": environment.get("browser"),

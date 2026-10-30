@@ -13,17 +13,15 @@ public sealed partial class MainWindow
         detail.Padding = new Thickness(0); detail.Spacing = 0;
         var o = snap["org"]; var members = snap.Rows("members"); var tasks = snap.Rows("tasks");
         var intro = OverviewBlock();
-        var modes = new SelectorBar { Padding = new Thickness(0) }; var modeKeys = new Dictionary<SelectorBarItem, string>();
-        foreach (var (id, key) in new[] { ("direct", "org.mode_direct"), ("transparent", "org.mode_transparent"), ("liaison", "org.mode_liaison") })
+        // The shared .seg renderer keeps the real SelectorBar and its mounted
+        // selected surface, including shadow-1, in sync with native selection.
+        var modeGroup = DetailsTabs(new[] { ("direct", T("org.mode_direct")), ("transparent", T("org.mode_transparent")), ("liaison", T("org.mode_liaison")) }, viewMode, async id =>
         {
-            var label = OverviewText(T(key), 12); label.Foreground = viewMode == id ? Ink : Paint("5A5853", "B8B5AE"); label.TextWrapping = TextWrapping.NoWrap;
-            var pick = new SelectorBarItem { Text = T(key), Tag = label, IsSelected = viewMode == id, Padding = new Thickness(9, 2, 9, 2), MinHeight = 0, CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(0, 0, id == "liaison" ? 0 : 2, 0), Background = viewMode == id ? Paint("FFFFFF", "252523") : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='SelectorBarItem'><Border Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Border></ControlTemplate>") };
-            modeKeys.Add(pick, id); modes.Items.Add(pick);
-        }
-        modes.SelectionChanged += async (_, _) => { if (modes.SelectedItem == null || !modeKeys.TryGetValue(modes.SelectedItem, out var id) || viewMode == id) return; viewMode = id; SaveViewState(); if (id == "liaison" && o.Text("secretary").Length > 0) await Run(() => Select(org, o.Text("secretary"))); else DrawDetail(); };
-        var modeGroup = new Border { Child = modes, Background = Paint("EFEEEA", "262624"), Padding = new Thickness(2), CornerRadius = new CornerRadius(8) };
+            if (viewMode == id) return;
+            viewMode = id; SaveViewState();
+            if (id == "liaison" && o.Text("secretary").Length > 0) await Select(org, o.Text("secretary"));
+            else DrawDetail();
+        });
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(modeGroup, T("org.view_mode"));
         intro.Children.Add(OverviewHeading(OverviewText(T("org.heading"), 12, true), modeGroup));
         intro.Children.Add(OverviewText(o.Text("name"), 16, weight: 700, lineHeight: 21.6));
@@ -143,7 +141,11 @@ public sealed partial class MainWindow
     {
         box.Children.Remove(choice); choice.Header = null;
         var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        choice.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI); choice.FontSize = 14; choice.MinHeight = 0; choice.Height = 37; choice.Padding = new Thickness(10, 7, 10, 7); choice.CornerRadius = new CornerRadius(9); choice.BorderThickness = new Thickness(1); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.Background = Paint("FFFFFF", "1F1F1E");
+        // Like FormSelect: the native reference select's text starts after its
+        // 1px border + 10px CSS padding + 4px UA inline-start content margin
+        // (Chromium 156 MenuListInnerElement / PopupInternalPaddingStart).
+        // WinUI's ContentPresenter takes this inset directly from Padding.
+        choice.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI); choice.FontSize = 14; choice.MinHeight = 0; choice.Height = 37; choice.Padding = new Thickness(15, 7, 10, 7); choice.CornerRadius = new CornerRadius(9); choice.BorderThickness = new Thickness(1); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.Background = Paint("FFFFFF", "1F1F1E");
         foreach (var item in choice.Items.OfType<ComboBoxItem>()) if (item.Content is TextBlock text) { text.FontSize = 14; text.FontFamily = choice.FontFamily; text.Foreground = Ink; }
         var title = OverviewText(T(label)); title.Foreground = Paint("5A5853", "B8B5AE"); title.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(title); Grid.SetColumn(choice, 1); row.Children.Add(choice); box.Children.Add(row);
         // The header now lives beside the ComboBox; retain its actual label relationship.
