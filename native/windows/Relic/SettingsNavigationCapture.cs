@@ -4,6 +4,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Text.Json.Nodes;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Relic;
 
@@ -21,9 +24,15 @@ public sealed partial class MainWindow
         settingsHoverSelected = CaptureCardControl("settings-nav-appearance") as SelectorBarItem
             ?? throw new InvalidOperationException("The production appearance navigation item is missing");
         settingsHoverEvidence = new JsonObject { ["action"] = "actual pointer hover on unselected notification navigation",
-            ["checkpoints"] = new JsonArray(), ["errors"] = new JsonArray() };
-        settingsHoverEntered = (_, _) => settingsHoverObserved = true;
-        settingsHoverExited = (_, _) => settingsHoverObserved = false;
+            ["checkpoints"] = new JsonArray(), ["pointer_events"] = new JsonArray(), ["errors"] = new JsonArray() };
+        void PointerEvent(string kind, bool hovered)
+        {
+            settingsHoverObserved = hovered;
+            ((JsonArray)settingsHoverEvidence["pointer_events"]!).Add(new JsonObject
+            { ["kind"] = kind, ["qpc"] = Stopwatch.GetTimestamp(), ["input_host"] = ObserveSettingsInputHost() });
+        }
+        settingsHoverEntered = (_, _) => PointerEvent("PointerEntered", true);
+        settingsHoverExited = (_, _) => PointerEvent("PointerExited", false);
         settingsHoverTarget.PointerEntered += settingsHoverEntered;
         settingsHoverTarget.PointerExited += settingsHoverExited;
         await CaptureHover(settingsHoverTarget);
@@ -58,13 +67,55 @@ public sealed partial class MainWindow
             ["bounds"] = new JsonObject { ["x"] = bounds.X, ["y"] = bounds.Y, ["width"] = bounds.Width, ["height"] = bounds.Height },
             ["background"] = (target.Background as SolidColorBrush)?.Color.ToString()
         };
-        ((JsonArray)settingsHoverEvidence["checkpoints"]!).Add(new JsonObject { ["stage"] = stage, ["state"] = state });
+        ((JsonArray)settingsHoverEvidence["checkpoints"]!).Add(new JsonObject { ["stage"] = stage,
+            ["qpc"] = Stopwatch.GetTimestamp(), ["state"] = state, ["input_host"] = ObserveSettingsInputHost() });
         if (!settingsHoverObserved || !hit || !target.IsLoaded || target.IsSelected || !settingsHoverSelected.IsSelected)
             throw new InvalidOperationException("The actual unselected settings navigation hover was not retained: " + stage);
         if (settingsHoverBaseline == null) settingsHoverBaseline = state.DeepClone().AsObject();
         else if (!JsonNode.DeepEquals(settingsHoverBaseline, state))
             throw new InvalidOperationException("Actual settings navigation hover changed during " + stage);
     }
+
+    // Existing hover capture loses its hit target with an unchanged pointer and
+    // unchanged XAML bounds during UIA reads. Record the actual receiving HWND
+    // at the event/checkpoint; do not infer focus, move the pointer or reactivate
+    // a window to repair the scene. These diagnostics do not alter state checks.
+    private JsonObject ObserveSettingsInputHost()
+    {
+        JsonObject Window(IntPtr handle)
+        {
+            var title = new StringBuilder(256);
+            var length = SettingsGetClassName(handle, title, title.Capacity);
+            var thread = SettingsGetWindowThreadProcessId(handle, out var process);
+            return new JsonObject { ["hwnd"] = handle.ToString("x"), ["process_id"] = process,
+                ["thread_id"] = thread, ["class_name"] = length > 0 ? title.ToString() : null,
+                ["root_owner_hwnd"] = SettingsGetAncestor(handle, 3).ToString("x") };
+        }
+        var cursor = new CapturePoint(); var observed = GetCursorPos(ref cursor);
+        return new JsonObject
+        {
+            ["source"] = "Actual Win32 foreground/window-at-cursor and retained XAML input state",
+            ["window"] = Window(WinRT.Interop.WindowNative.GetWindowHandle(this)),
+            ["foreground"] = Window(SettingsGetForegroundWindow()),
+            ["cursor_observed"] = observed, ["screen_x"] = observed ? cursor.x : null,
+            ["screen_y"] = observed ? cursor.y : null,
+            ["window_at_cursor"] = observed ? Window(SettingsWindowFromPoint(cursor)) : null,
+            ["activation_state_active"] = active, ["root_hit_test_visible"] = root.IsHitTestVisible,
+            ["target_hit_test_visible"] = settingsHoverTarget?.IsHitTestVisible,
+            ["target_enabled"] = settingsHoverTarget?.IsEnabled,
+            ["open_popup_count"] = VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count
+        };
+    }
+    [DllImport("user32.dll", EntryPoint = "GetForegroundWindow", ExactSpelling = true)]
+    private static extern IntPtr SettingsGetForegroundWindow();
+    [DllImport("user32.dll", EntryPoint = "WindowFromPoint", ExactSpelling = true)]
+    private static extern IntPtr SettingsWindowFromPoint(CapturePoint point);
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId", ExactSpelling = true)]
+    private static extern uint SettingsGetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", EntryPoint = "GetAncestor", ExactSpelling = true)]
+    private static extern IntPtr SettingsGetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern int SettingsGetClassName(IntPtr window, StringBuilder text, int count);
 
     private void EndSettingsNavigationCapture()
     {

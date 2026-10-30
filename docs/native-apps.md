@@ -1,5 +1,26 @@
 # Native Relic App contract
 
+Changes for the clients (macOS actual hosted-render regression): native-macos
+reports that 0d3d681's actual smoke PNGs have blank ReferenceLabel text and null
+glyph receipts. It restores the prior production draw path in f538c9d and keeps
+the owned-layer approach behind an explicit test-only candidate. Mounted
+NSHostingView/cacheDisplay tests now exercise that lifecycle; the prior direct
+bitmap tests did not prove it. The original ContentLayer uncertainty remains.
+The shared fill contract is also consumed: the same observed fill and layer
+arrays are copied into both raw AX and elements.capture_evidence. The live-tool
+disclosure scroll guard now survives consecutive layout passes until real content
+revision, with actual status-dot ancestry retained. All require new CI captures.
+
+Changes for the clients (remaining hover diagnosis): the existing Windows
+settings-hover journal now retains actual receiving/foreground HWNDs, process
+and class identities, activation, hit-test flags and popup count at pointer
+events/checkpoints. f6220c9 still loses hover with identical cursor coordinates
+and XAML bounds; the cause is not established. The observer never changes focus
+or restores hover, and the original state gate remains unchanged.
+The macOS `CGImage.typeID` compile correction was merged from cc4d1cd, together
+with actual model/presentation layer ancestry observations from 238836d.
+Layer metadata alone still does not prove final-frame occlusion.
+
 Changes for the clients (measured Windows production layout fixes): message
 headers now apply the fixed reference engine's primary-font integer ascent /
 descent and floored upper leading to their actual production DirectWrite layout.
@@ -13,8 +34,8 @@ The application headless build passes; new layout tests and captures run in CI.
 9b34ccf Windows CI now passes both suites: 48 core and 165 capture tests.
 f6220c9 macOS job 124139217709 instead fails test compilation at
 `OutlineDrawTests.swift:44`: `CGImageGetTypeID()` must use `CGImage.typeID`
-under the current Swift SDK. The macOS owner must apply that source correction;
-this is a compiler failure, not a passed bitmap/layer assertion.
+under the current Swift SDK. The correction is now merged from cc4d1cd and awaits
+CI; the earlier compiler failure is not a passed bitmap/layer assertion.
 
 Changes for the clients (pane-capture preparation boundary): 06b914e retains
 an additional actual PointerMoved and an owned ToolTip opening during render /
