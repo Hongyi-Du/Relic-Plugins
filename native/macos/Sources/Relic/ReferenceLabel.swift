@@ -123,6 +123,17 @@ final class ReferenceLabelView: ReadOnlyTextView {
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override var wantsUpdateLayer: Bool { true }
     override func makeBackingLayer() -> CALayer { CALayer() }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance(); needsDisplay = true
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties(); needsDisplay = true
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { needsDisplay = true }
+    }
     override func updateLayer() {
         guard let layer else { return }
         let scale = window?.backingScaleFactor ?? 1

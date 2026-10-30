@@ -41,7 +41,9 @@ import SwiftUI
         window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
         view.layoutSubtreeIfNeeded(); view.display(); CATransaction.flush()
         let contents = try XCTUnwrap(view.layer?.contents)
-        XCTAssertEqual(CFGetTypeID(contents as CFTypeRef), CGImageGetTypeID())
+        guard CFGetTypeID(contents as CFTypeRef) == CGImageGetTypeID() else {
+            XCTFail("The submitted backing store is not the owned CGImage"); return
+        }
         let image = contents as! CGImage
         let actual = NSBitmapImageRep(cgImage: image)
         XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, true)
@@ -63,6 +65,13 @@ import SwiftUI
         for y in 0..<actual.pixelsHigh { for x in 0..<actual.pixelsWide {
             if CaptureRaster.sRGBPixel(actual, x: x, y: y) != CaptureRaster.sRGBPixel(expected, x: x, y: y) { different += 1 }
         } }
+        if different != 0 {
+            let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try actual.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("label-layer-actual.png"))
+            try expected.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("label-layer-appkit.png"))
+        }
         XCTAssertEqual(different, 0, "The submitted production layer image must retain every native glyph pixel")
     }
 
