@@ -41,7 +41,7 @@ struct NativeSwitchControl: NSViewRepresentable {
     @Environment(\.isEnabled) private var enabled
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     @MainActor static func makeButton() -> NSButton {
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 32, height: 18))
+        let button = ReferenceSwitchButton(frame: NSRect(x: 0, y: 0, width: 32, height: 18))
         button.cell = NativeSwitchCell(textCell: "")
         button.setButtonType(.switch); button.title = ""; button.isBordered = false
         button.focusRingType = .none
@@ -62,6 +62,23 @@ struct NativeSwitchControl: NSViewRepresentable {
         var parent: NativeSwitchControl
         init(_ parent: NativeSwitchControl) { self.parent = parent }
         @objc func changed(_ sender: NSButton) { parent.isOn = sender.state == .on }
+    }
+}
+
+final class ReferenceSwitchButton: NSButton {
+    // A custom painted cell has no built-in bezel/glyph AX provider. The real
+    // control exposes its own role, current native state and full hit frame.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .checkBox }
+    override func accessibilityValue() -> Any? { NSNumber(value: state.rawValue) }
+    override func isAccessibilityEnabled() -> Bool { isEnabled }
+    override func accessibilityFrame() -> NSRect {
+        guard let window else { return super.accessibilityFrame() }
+        return window.convertToScreen(convert(bounds, to: nil))
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        performClick(nil); return true
     }
 }
 

@@ -17,10 +17,11 @@ import ApplicationServices
         XCTAssertEqual(raw["label"] as? String, "Auto wake")
         XCTAssertEqual(try XCTUnwrap(raw["frame"] as? NSValue).rectValue.size, NSSize(width: 32, height: 18))
         XCTAssertEqual((raw["value"] as? NSNumber)?.intValue, 0)
-        button.performClick(nil)
+        XCTAssertTrue(button.accessibilityPerformPress())
         XCTAssertEqual(button.state, .on)
         XCTAssertEqual((RelicAXRead(button)["value"] as? NSNumber)?.intValue, 1)
-        button.isEnabled = false; button.performClick(nil)
+        button.isEnabled = false
+        XCTAssertFalse(button.accessibilityPerformPress())
         XCTAssertEqual(button.state, .on, "The disabled native control must not toggle")
         XCTAssertEqual(RelicAXRead(button)["enabled"] as? Bool, false)
     }
