@@ -36,6 +36,9 @@ public sealed partial class MainWindow
         var hovered = new HashSet<UIElement>(VisualTreeHelper.FindElementsInHostCoordinates(new Point(cursor.x - clientOrigin.x, cursor.y - clientOrigin.y), root, true));
         string Region(DependencyObject value, string current)
         {
+            if (ReferenceEquals(value, titlebarRegion)) return "header";
+            if (ReferenceEquals(value, treeRegion)) return "sidebar";
+            if (ReferenceEquals(value, chatRegion) || ReferenceEquals(value, chatScroll)) return "conversation";
             if (ReferenceEquals(value, sidebarSurface)) return "sidebar";
             if (ReferenceEquals(value, inspectorSurface)) return "right-pane";
             if (ReferenceEquals(value, composerRegion)) return "composer";
@@ -121,6 +124,11 @@ public sealed partial class MainWindow
                     node["transformed_corners"] = corners;
                     node["transformed_corners_order"] = "top-left,top-right,bottom-right,bottom-left";
                     node["name"] = element.Name; node["accessible_name"] = AutomationProperties.GetName(element);
+                    if (ReferenceEquals(element, chatScroll))
+                        node["region_container_evidence"] = new JsonObject
+                        {
+                            ["source"] = "actual MainWindow.chatScroll object identity", ["owner_type"] = nameof(MainWindow)
+                        };
                     node["automation_id"] = AutomationProperties.GetAutomationId(element);
                     if (box.Width <= 0 || box.Height <= 0 || visible.Width <= 0 || visible.Height <= 0) hidden ??= "zero area or ancestor clip";
                     node["hidden_reason"] = hidden;

@@ -1,5 +1,29 @@
 # Native Relic App contract
 
+Changes for the clients (1c66b83 CI): the Windows build and its 28 core plus
+9 mock UIA tests pass again. macOS runs 127 tests but has four assertions failing
+in `SurfaceRasterTests.testComposerDisabledOpacityIsAppliedExactlyOnce`: light
+observes about .140819/.140651 versus .105882, dark .740474 versus .687059, with
+the original .007843 tolerance retained (`40993300811`, job `123860557319`).
+The owner still needs to resolve the actual color/compositing discrepancy.
+The four Windows-only missing vocabulary usages remain reported by the source
+gate; no dead string references or new allowlist entries were added.
+
+Changes for the clients (window region accessibility): Windows now exposes real
+Group peers for the titlebar, organization-tree viewport and conversation region,
+with the corresponding `page.titlebar`, `page.tree` and `page.chat` names from
+the shared locale. The existing chat ScrollViewer retains its own native Pane
+and scroll provider. Projection uses those actual objects and independent UIA
+counterparts; painted group backgrounds must not overwrite their region kind.
+This fixes missing region semantics without altering their intended layout.
+
+Changes for the clients (latest macOS request): the same paused-clock CDP
+screenshot stall is confirmed by full Windows `40987192072` and diagnostic
+`40988143838`; the actual Copy and clipboard reads succeeded before the wait.
+The shared capture owner is correcting frame/clock sequencing and bounded
+case isolation, retaining the original toast identity and failure receipts.
+No matrix scene or screenshot requirement is removed.
+
 Changes for the clients (55-state shared matrix): all 53 existing scenes remain,
 with `panel-resize-hover` and `panel-resized` added: 660 full cases per platform,
 19 diagnostic cases. Start from group/Overview, click the real toolbar toggle if
