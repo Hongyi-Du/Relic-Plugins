@@ -6,8 +6,9 @@ import SwiftUI
 struct ReferenceSwitch: View {
     let title: String
     @Binding var isOn: Bool
+    var accessibleName: String? = nil
     @State private var identity = "relic-toggle/" + UUID().uuidString
-    init(_ title: String, isOn: Binding<Bool>) { self.title = title; _isOn = isOn }
+    init(_ title: String, isOn: Binding<Bool>, accessibleName: String? = nil) { self.title = title; _isOn = isOn; self.accessibleName = accessibleName }
     var body: some View {
         Color.clear.frame(width: 14, height: 14)
             .modifier(RecordedSurface(background: .white, radius: 7, kind: "card",
@@ -15,7 +16,7 @@ struct ReferenceSwitch: View {
             .environment(\.nativeElementParent, identity)
             .frame(width: 28, alignment: isOn ? .trailing : .leading).padding(2)
             .modifier(RecordedSurface(background: isOn ? RelicStyle.accent : RelicStyle.border, radius: 9, owner: identity))
-            .overlay { NativeSwitchControl(title: title, isOn: $isOn, identity: identity).frame(width: 32, height: 18) }
+            .overlay { NativeSwitchControl(title: accessibleName ?? title, isOn: $isOn, identity: identity).frame(width: 32, height: 18) }
     }
 }
 

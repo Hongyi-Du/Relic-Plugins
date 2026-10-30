@@ -116,8 +116,9 @@ struct ReferenceSelectField: View {
     @Binding var selection: String
     let options: [(String, String)]
     var pointSize: CGFloat = 14
+    var accessibleName: String? = nil
     var body: some View {
-        ReferenceSelect(title: title, selection: $selection, options: options, pointSize: pointSize).padding(.leading, 10).padding(.trailing, 1).frame(height: pointSize * 1.6 + 16)
+        ReferenceSelect(title: title, selection: $selection, options: options, pointSize: pointSize, accessibleName: accessibleName).padding(.leading, 10).padding(.trailing, 1).frame(height: pointSize * 1.6 + 16)
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-dropdown/" + title))
     }
 }

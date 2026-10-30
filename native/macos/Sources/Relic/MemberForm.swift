@@ -104,6 +104,7 @@ struct MemberForm: View {
                 if !loading && !sessionsLoading && sessions.isEmpty { ReferenceLabel(m.t("member.no_sessions"), size: 14, color: RelicStyle.muted, lines: 0) }
                 if !search.isEmpty && !sessions.contains(where: { [$0["title"].text, $0["cwd"].text, $0["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }) { ReferenceLabel(m.t("member.no_match"), size: 14, color: RelicStyle.muted, lines: 0) }
                 ForEach(Array(sessions.enumerated().filter { search.isEmpty || [$0.element["title"].text, $0.element["cwd"].text, $0.element["id"].text].joined(separator: " ").localizedCaseInsensitiveContains(search) }.prefix(80)), id: \.offset) { index, session in
+                    let identity = "relic-list-row/session/" + String(index)
                     Button { sessionIndex = String(index) } label: {
                         HStack(spacing: 8) {
                             OverviewChip(text: sessionHarnessLabel(session))
@@ -112,8 +113,10 @@ struct MemberForm: View {
                             if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) { OverviewChip(text: m.t("member.manual_delivery")).help(m.t("member.desktop_manual")) }
                             if session["updated"].integer > 0 { ReferenceLabel(m.ago(Node(session["updated"].integer)), size: 12.5, color: RelicStyle.muted) }
                         }.padding(.horizontal, 8).padding(.vertical, 6)
-                            .modifier(RecordedSurface(background: sessionIndex == String(index) ? RelicStyle.accent.opacity(0.14) : .clear, radius: 8, kind: "list-row", selected: sessionIndex == String(index)))
+                            .modifier(RecordedSurface(background: sessionIndex == String(index) ? RelicStyle.accent.opacity(0.14) : .clear, radius: 8, kind: "list-row", owner: identity, selected: sessionIndex == String(index)))
                     }.buttonStyle(.plain).help(sessionLabel(session))
+                        .accessibilityIdentifier(identity).accessibilityLabel("")
+                        .environment(\.nativeElementParent, identity)
                 }
                 if !problems.isEmpty { ReferenceLabel(problems.map(\.text).joined(separator: m.t("member.problem_sep")), size: 11.5, color: RelicStyle.muted, lines: 0) }
             }.frame(maxWidth: .infinity, alignment: .leading)
