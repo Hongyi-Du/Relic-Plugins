@@ -67,6 +67,14 @@ struct MemberRenameField: NSViewRepresentable {
             observedEditor.focusChanged = { [weak controlView] value in (controlView as? Control)?.focusChanged?(value) }
             return observedEditor
         }
+        override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
+            let result = super.setUpFieldEditorAttributes(textObj)
+            if let editor = result as? NSTextView {
+                editor.insertionPointColor = NSColor(RelicStyle.ink)
+                editor.selectedTextAttributes = [.backgroundColor: NSColor(RelicStyle.accent).withAlphaComponent(0.26)]
+            }
+            return result
+        }
         override func accessibilityFrame() -> NSRect {
             guard let field = controlView, let window = field.window else { return .zero }
             return window.convertToScreen(field.convert(field.bounds, to: nil))

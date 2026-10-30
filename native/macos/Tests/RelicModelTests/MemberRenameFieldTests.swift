@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import RelicAX
 @testable import Relic
 
 @MainActor final class MemberRenameFieldTests: XCTestCase {
@@ -33,11 +34,14 @@ import SwiftUI
         XCTAssertEqual(cell.accessibilityLabel(), "Member")
         XCTAssertEqual(cell.accessibilityIdentifier(), "relic-input/member-rename")
         XCTAssertEqual(cell.accessibilityFrame(), field.accessibilityFrame())
+        XCTAssertEqual(RelicAXRead(cell)["role"] as? String, "AXTextField")
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         XCTAssertTrue(editor is ObservedFieldEditor)
         XCTAssertTrue(editor.isFieldEditor)
+        XCTAssertEqual(ElementCapture.rgba(editor.insertionPointColor) as? [Double], ElementCapture.rgba(NSColor(RelicStyle.ink)) as? [Double])
+        XCTAssertEqual((editor.selectedTextAttributes[.backgroundColor] as? NSColor)?.alphaComponent, 0.26)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
         XCTAssertTrue(focused)
         let receipts = FieldEditorCapture.receipts(in: window)
@@ -48,6 +52,13 @@ import SwiftUI
         XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
         XCTAssertEqual(receipt["first_responder_is_editor"] as? Bool, true)
         XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
+        let ownerFrame = try XCTUnwrap(receipt["owner_ax_frame"] as? [String: Any])
+        XCTAssertEqual(ElementCapture.rect(ownerFrame["bounds"]), cell.accessibilityFrame())
+        XCTAssertEqual(ownerFrame["owner_identity"] as? String, receipt["owner_identity"] as? String)
+        XCTAssertEqual(ownerFrame["coordinate_space"] as? String, "AppKit screen coordinates (bottom-left)")
+        let contentFrame = try XCTUnwrap(receipt["content_screen_frame"] as? [String: Any])
+        XCTAssertEqual(contentFrame["window_identity"] as? String, receipt["window_identity"] as? String)
+        XCTAssertEqual(ElementCapture.rect(contentFrame["bounds"]), window.convertToScreen(host.convert(host.bounds, to: nil)))
         let manager = try XCTUnwrap(editor.layoutManager as? NativeGlyphLayoutManager)
         manager.recordDraws = true
         let bitmap = try XCTUnwrap(CaptureRaster.forView(editor))

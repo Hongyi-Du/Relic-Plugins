@@ -5,6 +5,8 @@ import AppKit
     /// draws the same input's current value; it is not another visible input.
     /// Record the actual currentEditor relationship before any projection.
     static func receipts(in window: NSWindow) -> [[String: Any]] {
+        guard let root = window.contentView else { return [] }
+        let contentScreen = window.convertToScreen(root.convert(root.bounds, to: nil))
         var rows: [[String: Any]] = []
         func walk(_ view: NSView) {
             if let field = view as? MemberRenameField.Control,
@@ -27,12 +29,19 @@ import AppKit
                     "first_responder_is_editor": window.firstResponder === editor,
                     "owner_value": field.stringValue, "editor_value": editor.string,
                     "selection": ["location": editor.selectedRange().location, "length": editor.selectedRange().length],
+                    "owner_ax_frame": ["source": "actual NSTextFieldCell.accessibilityFrame()",
+                        "owner_identity": String(describing: ObjectIdentifier(cell)),
+                        "coordinate_space": "AppKit screen coordinates (bottom-left)",
+                        "bounds": ElementCapture.box(cell.accessibilityFrame())],
+                    "content_screen_frame": ["source": "actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen",
+                        "window_identity": String(describing: ObjectIdentifier(window)),
+                        "bounds": ElementCapture.box(contentScreen)],
                     "owner_screen_bounds": ElementCapture.box(window.convertToScreen(field.convert(field.bounds, to: nil))),
                     "editor_screen_bounds": ElementCapture.box(window.convertToScreen(editor.convert(editor.bounds, to: nil)))])
             }
             for child in view.subviews { walk(child) }
         }
-        if let root = window.contentView { walk(root) }
+        walk(root)
         return rows
     }
 
