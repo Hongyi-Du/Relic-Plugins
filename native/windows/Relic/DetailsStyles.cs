@@ -35,9 +35,15 @@ public sealed partial class MainWindow
             values.Add(item, (id, label, raised)); tabs.Items.Add(item);
         }
         if (tabs.Items.Count > 0) tabs.Items[^1].Margin = new Thickness(0);
+        var currentSelection = selected;
         tabs.SelectionChanged += async (_, _) =>
         {
             if (tabs.SelectedItem == null || !values.TryGetValue(tabs.SelectedItem, out var value)) return;
+            // ItemsView can publish the initially selected item while its
+            // container is being realized. That is not a user mode change:
+            // rebuilding the parent's children here re-enters active layout.
+            if (value.Id == currentSelection) return;
+            currentSelection = value.Id;
             foreach (var (id, label, raised) in values.Values)
                 SelectSurface(label, raised, id == value.Id);
             await Run(() => change(value.Id));

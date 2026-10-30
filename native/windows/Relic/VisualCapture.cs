@@ -21,7 +21,12 @@ public sealed partial class MainWindow
     }
     private void VisualStartupFailed(Exception error)
     {
-        if (!VisualCaptureEnabled || visualCaptureStarted) return;
+        if (!VisualCaptureEnabled) return;
+        // Run still shows the original InfoBar. Keep its full caught stack in
+        // the existing redirected client log after startup as well, so a scene
+        // with a visible application error cannot lose the production cause.
+        Console.Error.WriteLine("Relic native action failed: " + error);
+        if (visualCaptureStarted) return;
         System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!, "complete.json"), System.Text.Json.JsonSerializer.Serialize(new { errors = new[] { error.ToString() }, count = 0 }));
     }
 
