@@ -57,7 +57,7 @@ public sealed partial class MainWindow
         void Fill()
         {
             box.Children.Clear();
-            var face = new Grid { Width = 60, Height = 60 }; face.Children.Add(Avatar(c.Text("avatar"), Display(name), 60));
+            var face = new Grid { Width = 60, Height = 60, IsHitTestVisible = false }; face.Children.Add(Avatar(c.Text("avatar"), Display(name), 60));
             if (c.Text("state") is not ("" or "idle"))
             {
                 var state = c.Text("state"); var color = state switch { "working" or "running" => Paint("3E9B5E", "6CC287"), "waiting" or "starting" => Paint("B7791F", "E2B15A"), "error" => Paint("C2412D", "EE8A78"), "active" => Paint("75A782", "669572"), _ => Paint("B8B5AF", "5F5D58") };
@@ -65,7 +65,7 @@ public sealed partial class MainWindow
                     HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -2, -2) };
                 if (state == "vacant") dot.Child = new Microsoft.UI.Xaml.Shapes.Ellipse { Stroke = color, StrokeThickness = 1.5 }; face.Children.Add(dot);
             }
-            var changeLabel = OverviewText(T("card.change_avatar"), 11); changeLabel.Foreground = Paint("FFFFFF"); changeLabel.TextAlignment = TextAlignment.Center; changeLabel.VerticalAlignment = VerticalAlignment.Center;
+            var changeLabel = OverviewText(T("card.change_avatar"), 11); changeLabel.IsTextSelectionEnabled = false; changeLabel.Foreground = Paint("FFFFFF"); changeLabel.TextAlignment = TextAlignment.Center; changeLabel.VerticalAlignment = VerticalAlignment.Center;
             var changeCover = new Border { Child = changeLabel, Background = OverviewAlpha(Paint("000000"), .45), CornerRadius = new CornerRadius(14), Opacity = 0 };
             face.Children.Add(changeCover);
             var avatar = QuietButton("", async () => { transientFlyout?.Hide(); await ChangeAvatar(name); await MemberCard(name, anchor); }); avatar.Content = face; avatar.Padding = new Thickness(0); avatar.Width = avatar.Height = 60; avatar.CornerRadius = new CornerRadius(14); ToolTipService.SetToolTip(avatar, T("card.change_avatar"));
@@ -291,10 +291,10 @@ public sealed partial class MainWindow
         var choices = new StackPanel { Spacing = 6 };
         foreach (var m in snap.Rows("members").Where(m => m.Text("state") != "vacant" && m.Text("surface") is not ("subagent" or "chat")))
         {
-            var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var row = new Grid { ColumnSpacing = 10, IsHitTestVisible = false }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             var face = Avatar(m.Text("avatar"), Display(m.Text("name")), 28); ((FrameworkElement)face).VerticalAlignment = VerticalAlignment.Center; row.Children.Add(face);
-            var labels = new StackPanel(); labels.Children.Add(OverviewText(T("secretary.make", ("name", Display(m.Text("name")))), 13, weight: 700));
-            labels.Children.Add(OverviewText(string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label") }.Where(value => value.Length > 0)), 12, true)); Grid.SetColumn(labels, 1); row.Children.Add(labels);
+            var labels = new StackPanel(); var title = OverviewText(T("secretary.make", ("name", Display(m.Text("name")))), 13, weight: 700); title.IsTextSelectionEnabled = false; labels.Children.Add(title);
+            var hint = OverviewText(string.Join(" · ", new[] { m.Text("harness_label"), m.Text("surface_label") }.Where(value => value.Length > 0)), 12, true); hint.IsTextSelectionEnabled = false; labels.Children.Add(hint); Grid.SetColumn(labels, 1); row.Children.Add(labels);
             var choice = Button("", async () => { await api!.Post(Client.Org(target, "/secretary"), new { member = m.Text("name") }); dialog.Hide(); await Select(target, m.Text("name")); });
             choice.Content = row; choice.HorizontalAlignment = HorizontalAlignment.Stretch; choice.HorizontalContentAlignment = HorizontalAlignment.Stretch; choice.Padding = new Thickness(11, 9, 11, 9); choice.CornerRadius = new CornerRadius(10); choice.MinHeight = 0;
             choice.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.BorderThickness = new Thickness(1); choices.Children.Add(choice);
@@ -322,10 +322,10 @@ public sealed partial class MainWindow
         var appRadios = new StackPanel { Spacing = 6 }; var appGroup = "member-app-" + Guid.NewGuid().ToString("N");
         foreach (var harness in harnesses.Rows().Where(h => !h.Flag("later")))
         {
-            var labels = new StackPanel(); var heading = FormLabelText("");
+            var labels = new StackPanel(); var heading = FormLabelText(""); heading.IsTextSelectionEnabled = false;
             heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = harness.Text("title"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
             heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + harness.Text("vendor"), Foreground = Muted }); labels.Children.Add(heading);
-            labels.Children.Add(OverviewText(harness.Flag("available") ? T("member.connected", ("program", OverviewClip(harness.Text("program"), 48))) : harness.Text("problem"), 12, true, lineHeight: 19.2));
+            var description = OverviewText(harness.Flag("available") ? T("member.connected", ("program", OverviewClip(harness.Text("program"), 48))) : harness.Text("problem"), 12, true, lineHeight: 19.2); description.IsTextSelectionEnabled = false; labels.Children.Add(description);
             appRadios.Children.Add(FormRadio(appGroup, harness.Text("title"), labels, harness.Text("id") == picked, harness.Flag("available"), () => picked = harness.Text("id")));
         }
         harnessChoice.Children.Add(appRadios);
@@ -357,7 +357,7 @@ public sealed partial class MainWindow
         {
             if (!Delivery(harness, surface)) continue;
             var key = harness + "/" + surface; var label = T(surface == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", HarnessTitle(harness)));
-            var title = FormLabelText(label); title.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+            var title = FormLabelText(label); title.IsTextSelectionEnabled = false; title.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
             var choice = FormRadio(hostGroup, label, title, key == hostKind, true, () => { hostKind = key; FillPermissions(); });
             if (hostIndex % 2 == 0) kinds.RowDefinitions.Add(new() { Height = GridLength.Auto }); Grid.SetRow(choice, hostIndex / 2); Grid.SetColumn(choice, hostIndex % 2); kinds.Children.Add(choice); hostIndex++;
         }
@@ -385,13 +385,15 @@ public sealed partial class MainWindow
             foreach (var session in rows)
             {
                 var row = new Grid { ColumnSpacing = 8 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(150), MaxWidth = 150 }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-                var label = HarnessTitle(session.Text("harness")); if (session.Text("surface") is "gui" or "cli") label = T(session.Text("surface") == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", label)); row.Children.Add(OverviewChip(label));
-                var title = OverviewText(session.Text("title").Length > 0 ? session.Text("title") : session.Text("id"), 12.5); title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis; title.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(title, 1); row.Children.Add(title);
-                var cwd = OverviewText(OverviewClip(session.Text("cwd"), 40), 11.5, true); cwd.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); cwd.TextWrapping = TextWrapping.NoWrap; cwd.TextTrimming = TextTrimming.CharacterEllipsis; cwd.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(cwd, 2); row.Children.Add(cwd);
-                var updated = OverviewText(session.Text("updated").Length > 0 ? Ago(session.Text("updated")) : "", 12.5, true); updated.VerticalAlignment = VerticalAlignment.Center;
+                var label = HarnessTitle(session.Text("harness")); if (session.Text("surface") is "gui" or "cli") label = T(session.Text("surface") == "gui" ? "member.harness_gui" : "member.harness_cli", ("harness", label));
+                var harnessChip = OverviewChip(label); ((TextBlock)harnessChip.Content).IsTextSelectionEnabled = false; row.Children.Add(harnessChip);
+                var title = OverviewText(session.Text("title").Length > 0 ? session.Text("title") : session.Text("id"), 12.5); title.IsTextSelectionEnabled = false; title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis; title.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(title, 1); row.Children.Add(title);
+                var cwd = OverviewText(OverviewClip(session.Text("cwd"), 40), 11.5, true); cwd.IsTextSelectionEnabled = false; cwd.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code"); cwd.TextWrapping = TextWrapping.NoWrap; cwd.TextTrimming = TextTrimming.CharacterEllipsis; cwd.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(cwd, 2); row.Children.Add(cwd);
+                var updated = OverviewText(session.Text("updated").Length > 0 ? Ago(session.Text("updated")) : "", 12.5, true); updated.IsTextSelectionEnabled = false; updated.VerticalAlignment = VerticalAlignment.Center;
                 if (!Delivery(session.Text("harness"), session.Text("surface")))
                 {
-                    var manual = OverviewChip(T("member.manual_delivery")); ToolTipService.SetToolTip(manual, T("member.desktop_manual")); Grid.SetColumn(manual, 3); row.Children.Add(manual);
+                    // Keep this chip hit-testable for its own tooltip; only the label is non-selectable.
+                    var manual = OverviewChip(T("member.manual_delivery")); ((TextBlock)manual.Content).IsTextSelectionEnabled = false; ToolTipService.SetToolTip(manual, T("member.desktop_manual")); Grid.SetColumn(manual, 3); row.Children.Add(manual);
                     row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowSpacing = 8; Grid.SetRow(updated, 1);
                 }
                 else Grid.SetColumn(updated, 3);

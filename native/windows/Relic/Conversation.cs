@@ -471,7 +471,7 @@ public sealed partial class MainWindow
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "message-copy/" + item.Text("id"));
         if (!inThread && item["thread"] != null)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
             var faces = new StackPanel { Orientation = Orientation.Horizontal };
             var replyNameParts = new List<string>();
             foreach (var person in item["thread"].Rows("people").Take(3))
@@ -488,8 +488,8 @@ public sealed partial class MainWindow
                 faces.Children.Add(WrapReplyAvatar(replyLayout, Paint("FFFFFF", "1F1F1E")));
             }
             row.Children.Add(faces);
-            var count = Text(T("thread.replies", ("n", item["thread"].Text("count"))), 12.5); count.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; count.Foreground = Accent; row.Children.Add(count);
-            var lastReply = Quiet(T("thread.last_reply", ("when", ShortWhen(item["thread"].Text("last_at")))), 12.5); row.Children.Add(lastReply);
+            var count = Text(T("thread.replies", ("n", item["thread"].Text("count"))), 12.5); count.IsTextSelectionEnabled = false; count.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; count.Foreground = Accent; row.Children.Add(count);
+            var lastReply = Quiet(T("thread.last_reply", ("when", ShortWhen(item["thread"].Text("last_at")))), 12.5); lastReply.IsTextSelectionEnabled = false; row.Children.Add(lastReply);
             var replies = QuietButton("", () => OpenThread(item.Text("id"))); replies.Content = row; replies.Padding = new Thickness(4, 3, 8, 3); replies.CornerRadius = new CornerRadius(8); after.Children.Add(replies);
             replyNameParts.Add(count.Text); replyNameParts.Add(lastReply.Text);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(replies, string.Join(" ", replyNameParts.Where(part => part.Length > 0)));
