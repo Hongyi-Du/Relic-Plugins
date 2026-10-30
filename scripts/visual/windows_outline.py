@@ -8,6 +8,9 @@ from copy import deepcopy
 
 SOURCE = "winui-own-outline-v1"
 RUN_SOURCE = "actual TextElement runtime type and owner ContentStart/ContentEnd range"
+VECTOR_RUNTIME = "Relic.MainWindow+ReferenceVectorIcon"
+VECTOR_CONTRACT = "relic-reference-vector-usercontrol-child-only"
+VECTOR_SOURCE = "actual ReferenceVectorIcon Content/VectorCanvas/VectorPath object identities"
 CONTRACTS = {
     "Microsoft.UI.Xaml.Controls.Border": "native-border-fill-and-border",
     "Microsoft.UI.Xaml.Controls.ContentPresenter": "native-presenter-fill-border-and-content",
@@ -15,6 +18,9 @@ CONTRACTS = {
     **{"Microsoft.UI.Xaml.Shapes." + name: "native-shape-fill-and-stroke" for name in ("Rectangle", "Ellipse", "Line", "Path", "Polygon", "Polyline")},
     **{"Microsoft.UI.Xaml.Controls." + name: "native-text-glyphs" for name in ("TextBlock", "RichTextBlock")},
     "Microsoft.UI.Xaml.Controls.Image": "native-image-content",
+    # Exact SDK 1.6.9 CViewbox has only its scale/arrange operation. Its internal
+    # CBorder and public Child are independently captured visual descendants.
+    "Microsoft.UI.Xaml.Controls.Viewbox": "native-viewbox-child-transform",
 }
 
 
@@ -66,10 +72,41 @@ def native_outline(node, by_id):
         gap("Current primitive outline-owner receipt is missing or failed")
         return None, evidence, issues
     runtime = raw.get("runtime_type")
-    if (not isinstance(runtime, str) or runtime not in CONTRACTS
-            or raw.get("own_paint_contract") != CONTRACTS.get(runtime)
-            or runtime.rsplit(".", 1)[-1] != node.get("type") or raw.get("owner_id") != node.get("id")):
+    contract = VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else CONTRACTS.get(runtime) if isinstance(runtime, str) else None
+    expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
+    if (contract is None or raw.get("own_paint_contract") != contract
+            or expected_type != node.get("type") or raw.get("owner_id") != node.get("id")):
         gap("No exact known native primitive own-paint contract; derived and compound renderers remain unmeasured")
+    if runtime == VECTOR_RUNTIME:
+        vector = raw.get("vector_content")
+        valid_vector = (isinstance(vector, dict) and vector.get("source") == VECTOR_SOURCE
+                        and vector.get("status") == "measured" and vector.get("owner_id") == node.get("id")
+                        and vector.get("template_is_null") is True
+                        and vector.get("content_is_current_visual_child") is True
+                        and vector.get("viewbox_child_is_vector_canvas") is True
+                        and vector.get("canvas_children_are_vector_path") is True)
+        if valid_vector:
+            ids = [vector.get(key) for key in ("content_id", "canvas_id", "path_id")]
+            valid_vector = (all(isinstance(value, str) and value in by_id for value in ids)
+                            and len(set(ids + [node["id"]])) == 4)
+        if valid_vector:
+            content, canvas, path = (by_id[value] for value in ids)
+            canvas_ancestors = ancestry(canvas["id"], by_id)
+            measured_path = vector.get("canvas_visual_path")
+            valid_vector = (content.get("type") == "Viewbox" and content.get("parent") == node["id"]
+                            and canvas.get("type") == "Canvas" and path.get("type") == "Path"
+                            and path.get("parent") == canvas["id"]
+                            and vector.get("canvas_visual_path_complete") is True
+                            and isinstance(measured_path, list) and canvas_ancestors is not None
+                            and node["id"] in canvas_ancestors
+                            and measured_path == canvas_ancestors[:canvas_ancestors.index(node["id"]) + 1]
+                            and content["id"] in measured_path
+                            and [item["id"] for item in by_id.values()
+                                 if item.get("parent") == node["id"] and not item.get("text_run_source")] == [content["id"]]
+                            and [item["id"] for item in by_id.values()
+                                 if item.get("parent") == canvas["id"] and not item.get("text_run_source")] == [path["id"]])
+        if not valid_vector:
+            gap("Exact ReferenceVectorIcon production Content, Canvas and Path identities are not completely bound to the current visual tree")
     composition = raw.get("composition")
     if (not isinstance(composition, dict) or composition.get("status") != "measured"
             or not {"child_visual_present", "child_visual_type", "shadow_present", "shadow_type"}.issubset(composition)

@@ -1,5 +1,25 @@
 # Native Relic App contract
 
+Changes for the clients (separate line-break quantities, implementation in progress):
+the shared layout contract will retain legacy `wrap` and separately require
+`normal_break_strategy` (`none`, `word`, `break-all`, `character`, `keep-all`) and
+`emergency_break_strategy` (`none`, `break-unbreakable`), with
+`break_strategy_version: 1`. `evidence.line_break_configuration` must retain the
+actual API/CSS source, owner and raw configuration. macOS should project its
+actual paragraph/container modes into these independent quantities; unknowns
+stay null. Normal word wrapping with emergency long-word breaks is not
+character-first wrapping. Existing line count, actual text bounds, truncation
+and missing-measurement checks remain; matching strategy names never proves
+matching actual line fragments. The implementation is being reviewed and new
+captures will be required; older artifacts are not retroactively certified.
+
+The `1a016ac` shared checker now passes 81 Node and 416 Python tests in CI;
+the Windows native job passes 28 core and 47 capture/layout/ABI tests. Actual
+capture remains pending. Exact Viewbox and ReferenceVectorIcon own-paint
+contracts now retain their real child identities; all existing focus, shadow,
+Composition and child completeness requirements remain in force. Other runtime
+types and active outline paint remain unknown until independently measured.
+
 Changes for the clients (merged macOS wrap-strategy request): native-macos now
 retains paragraph and text-container line-break modes separately. Its request
 to separate normal wrapping, emergency word breaks and observed line fragments
