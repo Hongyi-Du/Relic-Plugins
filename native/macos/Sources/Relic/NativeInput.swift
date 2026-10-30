@@ -77,11 +77,14 @@ final class ComposerTextView: NSTextView {
     override func accessibilityPlaceholderValue() -> String? { placeholder }
     override func becomeFirstResponder() -> Bool { let accepted = super.becomeFirstResponder(); if accepted { focusChanged(true) }; return accepted }
     override func resignFirstResponder() -> Bool { let accepted = super.resignFirstResponder(); if accepted { focusChanged(false) }; return accepted }
+    var placeholderAttributes: [NSAttributedString.Key: Any] {
+        [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.placeholder),
+         .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0]
+    }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty {
-            let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-        NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.placeholder), .paragraphStyle: paragraph, .tracking: 0])
+            NSAttributedString(string: placeholder, attributes: placeholderAttributes)
                 .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
         }
     }

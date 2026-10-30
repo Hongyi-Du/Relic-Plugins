@@ -92,7 +92,13 @@ import CoreText
     private static func style(_ object: AnyObject, text: String) -> [String: Any] {
         var result: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(), "borderWidth": NSNull(), "borderRadius": NSNull()]
         var font: NSFont?, foreground: NSColor?, background: NSColor?
-        if let textView = object as? NSTextView { font = textView.font; foreground = textView.textColor; if textView.drawsBackground { background = textView.backgroundColor } }
+        if let textView = object as? NSTextView {
+            font = textView.font; foreground = textView.textColor; if textView.drawsBackground { background = textView.backgroundColor }
+            if let editor = textView as? ComposerTextView, editor.string.isEmpty {
+                font = editor.placeholderAttributes[.font] as? NSFont
+                foreground = editor.placeholderAttributes[.foregroundColor] as? NSColor
+            }
+        }
         else if let field = object as? NSTextField { font = field.font; foreground = field.textColor; if field.drawsBackground { background = field.backgroundColor } }
         else if let popup = object as? NSPopUpButton {
             font = popup.font
