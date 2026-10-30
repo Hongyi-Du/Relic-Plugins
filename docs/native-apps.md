@@ -1,5 +1,12 @@
 # Native Relic App contract
 
+Changes for the clients (macOS production glyph-range merge): actual TextKit
+draw invocations now retain their original attributed ranges without splitting
+overlapping shaped clusters. Font projection requires complete callback coverage;
+arbitrary substrings and final PNG attribution remain unknown. The owner's
+143-test release validation in run 41011131346 predates this new change; its
+new comparison against the unsplit production bitmap must pass fresh CI.
+
 Changes for the clients (complete Windows matrix job partition): the cd16413
 full Windows jobs reached the existing 45-minute limit; zh-CN/light was cancelled
 45m01s after job start while still capturing 1024x700 reference scenes. Windows
