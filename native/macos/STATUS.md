@@ -10,6 +10,25 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+最新完整失败报告及全部 HTML／热图已下载到
+`S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\report\`，
+来源为 [41011131381](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41011131381)。
+报告要求每平台 660 case；两平台 `scenes_checked`、`scenes_passed`、`matched_elements` 均为 0，`exceptions: []`。
+macOS 原始原生元素 152916（有效 152833，无效 83），有效参考元素 126540，配对 118753；
+Windows 原始原生元素 123231（均有效），有效参考元素 69189，配对 64084。
+
+| 平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 7787 | 34080 | 12880 | 125674 | 233000 | 16778 | 528 | 898 | 65230 | 79374 | 12 | 808805 |
+| Windows | 5105 | 59147 | 10437 | 53369 | 221285 | 20111 | 197 | 229 | 14189 | 26722 | 362 | 753691 |
+
+`0a1d569` 的 [Native apps 41019034175](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41019034175)
+全绿，macOS release 和 152 个测试通过；但随后 19/19 的真实诊断捕获仍发现：
+SwiftUI 中开关的实际点击框为 36×22，卡片的 AXGroup 类型转换又使范围修正未生效。
+这两处已在 `caaa834` 修复并补测试，尚待新截图确认。
+`e5eae1d` 同时修复消息行多出的 10 px 间距及右栏宽度变化时的强制滚动；
+说明文字测试的输入宽度现按参考实际 297 px 内容框计算，原宽度断言及容差保留。
+
 最新已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
 整个 Native apps 工作流通过；macOS release 编译和 **151 个测试通过**。
 真实原生开关的 AX 角色、32×18 点击范围、勾选和禁用行为，以及富文本逐段 AX 读取均已通过。
