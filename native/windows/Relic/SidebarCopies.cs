@@ -300,7 +300,7 @@ public sealed partial class MainWindow
         copiesBody = new StackPanel { Spacing = 12, Padding = new Thickness(22), Width = Math.Min(760, root.ActualWidth - 32) };
         var body = copiesBody; DrawCopies();
         var scroll = Scroll(body); scroll.MaxHeight = root.ActualHeight - 56;
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Content = scroll };
+        var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = scroll };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("cc.title"));
         dialog.Opened += (_, _) =>
         {

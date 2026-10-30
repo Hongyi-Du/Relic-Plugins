@@ -287,6 +287,7 @@ public sealed partial class MainWindow
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
         }
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
+        CaptureNativeDialogSurfaces(renderIds, renderNodes);
         BindTextRangeFrameOwners(renderIds);
         foreach (var (value, record) in renderNodes)
         {

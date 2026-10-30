@@ -7,7 +7,9 @@ import unittest
 
 from PIL import Image
 
-from windows_elements import host_container_ownership, project, transformed_box_edges, transparent_uia_ownership
+from windows_elements import (host_container_ownership, project, transformed_box_edges,
+                              transparent_uia_ownership, uia_identity_rejection)
+from windows_automation_identity import bind_automation_identities
 
 
 SCENE = "zh-CN-light-1024x700-group"
@@ -101,6 +103,91 @@ class ProjectionTests(unittest.TestCase):
     @staticmethod
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
+
+    @staticmethod
+    def recorded_dialog_identity():
+        return json.loads((Path(__file__).parent / "fixtures" / "dialog_identity_recorded_2e42376.json").read_text(encoding="utf-8"))
+
+    def test_recorded_dialog_no_peer_cannot_borrow_scrollviewer_provider(self):
+        fixture = self.recorded_dialog_identity()
+        xaml, uia = fixture["xaml"], fixture["uia"]
+        result = self.capture(xaml["raw_nodes"], uia["raw_nodes"], xaml_changes=xaml,
+                              uia_changes=uia, image_size=(1440, 900))
+        elements = self.by_id(result)
+        # The new identity constraint does not fix the separate dialog paint/
+        # geometry problem, remove authored content, or invent a replacement peer.
+        self.assertEqual(elements["xaml-1192"]["bounds"], box(0, 0, 1440, 900))
+        self.assertEqual(elements["xaml-1192"]["kind"], "card")
+        self.assertEqual(elements["xaml-1192"]["evidence"]["uia_id"], "uia-6")
+        self.assertEqual(elements["xaml-1205"]["bounds"], box(260, 130, 920, 640))
+        self.assertIsNone(elements["xaml-1205"]["evidence"]["uia_id"])
+        pairs = result["capture_evidence"]["automation_identity_bindings"]["pairs"]
+        self.assertIn(("xaml-1197", "uia-7"), [(p["xaml_id"], p["uia_id"]) for p in pairs])
+        rejected = result["capture_evidence"]["uia_pairing_rejections"]
+        self.assertTrue(any(p["xaml_id"] == "xaml-1205" and p["uia_id"] == "uia-7" for p in rejected))
+        self.assertTrue(any(p["id"] == "uia-7" and p["property"] == "render correspondence"
+                            for p in result["coverage"]["unmeasured"]))
+        for error in xaml["extraction_errors"]:
+            self.assertIn(error, result["extraction_errors"])
+        # The independently observed no-peer receipt is still unresolved by the
+        # positive RuntimeId binder; rejecting a false match does not erase it.
+        self.assertTrue(any(p["xaml_id"] == "xaml-1205" for p in
+                            result["capture_evidence"]["automation_identity_bindings"]["unresolved"]))
+
+    def test_recorded_unique_provider_is_reserved_even_when_other_owner_identity_is_unknown(self):
+        fixture = self.recorded_dialog_identity()
+        raw, uia = fixture["xaml"]["raw_nodes"], fixture["uia"]
+        bindings = bind_automation_identities(raw, uia)
+        owner_by_provider = {p["uia_id"]: p["xaml_id"] for p in bindings["pairs"]}
+        provider_by_owner = {p["xaml_id"]: p["uia_id"] for p in bindings["pairs"]}
+        nodes = {n["id"]: n for n in raw}
+        # Counterfactual variants are explicit: the recorded input remains intact.
+        unknown = deepcopy(nodes["xaml-1205"])
+        unknown.pop("automation_identity_evidence")
+        self.assertIn("another actual XAML owner: xaml-1197",
+                      uia_identity_rejection(unknown, "uia-7", owner_by_provider, provider_by_owner))
+        # Exercise the actual projector as well: losing this Grid's negative
+        # receipt cannot make an already-owned ScrollViewer provider borrowable.
+        fixture["xaml"]["raw_nodes"] = [unknown if n["id"] == unknown["id"] else n for n in raw]
+        result = self.capture(fixture["xaml"]["raw_nodes"], uia["raw_nodes"],
+                              xaml_changes=fixture["xaml"], uia_changes=uia, image_size=(1440, 900))
+        self.assertIsNone(self.by_id(result)["xaml-1205"]["evidence"]["uia_id"])
+        self.assertTrue(any(p["xaml_id"] == "xaml-1205" and p["uia_id"] == "uia-7"
+                            and "another actual XAML owner: xaml-1197" in p["reason"]
+                            for p in result["capture_evidence"]["uia_pairing_rejections"]))
+        self.assertIsNone(uia_identity_rejection(nodes["xaml-1197"], "uia-7", owner_by_provider, provider_by_owner))
+        self.assertIsNone(uia_identity_rejection(nodes["xaml-1192"], "uia-6", owner_by_provider, provider_by_owner))
+        for eid in ("xaml-1195", "xaml-1205"):
+            self.assertIn("no AutomationPeer", uia_identity_rejection(nodes[eid], "uia-7", {}, {}))
+        # An actual known owner cannot borrow an otherwise-unclaimed provider,
+        # even when its name and layout rectangle are a perfect heuristic match.
+        self.assertIn("another independent provider: uia-7",
+                      uia_identity_rejection(nodes["xaml-1197"], "unclaimed", owner_by_provider, provider_by_owner))
+        self.assertIsNone(uia_identity_rejection(unknown, "unclaimed", {}, {}))
+
+    def test_no_peer_rejection_keeps_provider_errors_and_unknown_owner_fallback(self):
+        receipt = deepcopy(next(n for n in self.recorded_dialog_identity()["xaml"]["raw_nodes"]
+                                if n["id"] == "xaml-1205")["automation_identity_evidence"])
+        receipt["owner_id"] = "synthetic-button"
+        button = xaml_node("synthetic-button", "Button", automation_identity_evidence=receipt)
+        provider = uia_node("provider", "Button")
+        error = "Original independently observed provider transport failure"
+        rejected = self.capture(measured([button]), [provider], uia_changes={"extraction_errors": [error]})
+        self.assertIsNone(self.by_id(rejected)["synthetic-button"]["evidence"]["uia_id"])
+        self.assertIn(error, rejected["extraction_errors"])
+        self.assertTrue(any(p["id"] == "provider" and p["property"] == "render correspondence"
+                            for p in rejected["coverage"]["unmeasured"]))
+        button.pop("automation_identity_evidence")
+        unknown = self.capture(measured([button]), [provider])
+        self.assertEqual(self.by_id(unknown)["synthetic-button"]["evidence"]["uia_id"], "provider")
+        self.assertEqual(unknown["capture_evidence"]["uia_pairing_rejections"], [])
+
+    def test_native_content_dialog_keeps_existing_card_geometry_until_surface_projection(self):
+        dialog = xaml_node("dialog", "NativeContentDialog", bounds=box(0, 0, 300, 200),
+                           render_type_evidence={"is_control": True, "control_template_present": True})
+        result = self.capture(measured([dialog]), [uia_node("provider", "Group", bounds=dialog["bounds"])])
+        self.assertEqual(self.by_id(result)["dialog"]["kind"], "card")
+        self.assertEqual(self.by_id(result)["dialog"]["bounds"], dialog["bounds"])
 
     def test_precision_diagnostic_does_not_replace_bounds_or_erase_provider_errors(self):
         nodes = measured([xaml_node("text", text="Actual captured source")])

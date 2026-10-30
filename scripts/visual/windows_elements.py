@@ -17,7 +17,7 @@ from image_projection import project_windows_image
 from windows_outline import native_outline
 from native_label_geometry import native_label_geometry
 from native_label_fonts import native_label_fonts
-from windows_automation_identity import bind_automation_identities
+from windows_automation_identity import OWNER_SOURCE, bind_automation_identities
 from windows_text_precision import analyze_text_precision
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
@@ -50,7 +50,7 @@ CONTROL_KINDS = {
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
-    "ContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
+    "ContentDialog": "card", "NativeContentDialog": "card", "MenuFlyoutSeparator": "divider", "ScrollBar": "scrollbar",
     "NativeRegionGrid": "region",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
@@ -1223,6 +1223,27 @@ def transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs=None):
             for provider, rendered in pairs if counts[rendered["id"]] == 1]
 
 
+def uia_identity_rejection(node, provider_id, owner_by_provider, provider_by_owner):
+    """Negative/unique actual identities constrain, never supply, a candidate.
+
+    Missing identity evidence still follows the existing unresolved heuristics.
+    A measured no-peer receipt is not evidence of noninteraction or invisibility;
+    it only prohibits claiming a provider for that particular captured object.
+    """
+    evidence = node.get("automation_identity_evidence")
+    if (isinstance(evidence, dict) and evidence.get("source") == OWNER_SOURCE
+            and evidence.get("owner_id") == node.get("id")
+            and evidence.get("status") == "no-peer" and evidence.get("peer_is_null") is True):
+        return "Actual captured owner has no AutomationPeer; geometry/name cannot supply another object's provider"
+    actual_owner = owner_by_provider.get(provider_id)
+    if actual_owner is not None and actual_owner != node.get("id"):
+        return "Complete RuntimeId binds this provider to another actual XAML owner: " + actual_owner
+    actual_provider = provider_by_owner.get(node.get("id"))
+    if actual_provider is not None and actual_provider != provider_id:
+        return "Complete RuntimeId binds this actual XAML owner to another independent provider: " + actual_provider
+    return None
+
+
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
@@ -1240,6 +1261,22 @@ def project(xaml_path, uia_path, png_path):
     if image.size != (xaml["viewport"]["width"], xaml["viewport"]["height"]):
         errors.append("Screenshot size differs from measured viewport")
     source_raw = xaml["raw_nodes"]
+    identity_bindings = bind_automation_identities(source_raw, uia)
+    owner_by_provider = {pair["uia_id"]: pair["xaml_id"] for pair in identity_bindings["pairs"]}
+    provider_by_owner = {pair["xaml_id"]: pair["uia_id"] for pair in identity_bindings["pairs"]}
+    rejected_identity_pairs = {}
+
+    def identity_allows(node, provider):
+        reason = uia_identity_rejection(node, provider["id"], owner_by_provider, provider_by_owner)
+        if reason is None:
+            return True
+        key = (node["id"], provider["id"])
+        if key not in rejected_identity_pairs:
+            rejected_identity_pairs[key] = {"xaml_id": node["id"], "uia_id": provider["id"], "reason": reason}
+        # Rejecting a wrong candidate is not itself a measurement failure. The
+        # existing no-witness, unresolved-owner and unmatched-provider paths
+        # retain their own errors; no field is filled from this rejected pair.
+        return False
     if not source_raw or not uia.get("raw_nodes"):
         errors.append("Independent UIA and XAML source trees must both be nonempty")
     raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
@@ -1366,7 +1403,8 @@ def project(xaml_path, uia_path, png_path):
     projection.extend(host_ownership)
     used_uia = {record["source"] for record in host_ownership}
     uia_nodes = [n for n in uia.get("raw_nodes", []) if positive(n.get("bounds")) and not n.get("state", {}).get("offscreen")]
-    transparent_ownership = transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs)
+    transparent_ownership = [record for record in transparent_uia_ownership(uia_nodes, raw, scrollbar_thumbs)
+                             if identity_allows(by_id[record["owner"]], {"id": record["source"]})]
     projection.extend(transparent_ownership)
     used_uia.update(record["source"] for record in transparent_ownership)
     for node in uia.get("raw_nodes", []):
@@ -1418,7 +1456,7 @@ def project(xaml_path, uia_path, png_path):
                 providers = [n for n in uia_nodes if n["id"] not in used_uia and n.get("class_name") == "RepeatButton"
                              and uia_kind_matches(n, "button") and owner_provider
                              and uia_scrollbar_owner(n) == owner_provider["id"]
-                             and distance(n["bounds"], node["bounds"]) <= 8]
+                             and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
                 record["ownership_evidence"] = copy.deepcopy(node["scrollbar_page_hit_evidence"])
                 record["actual_input_region"] = copy.deepcopy(node)
                 record["template_layers"] = copy.deepcopy(region_nodes[1:])
@@ -1506,7 +1544,8 @@ def project(xaml_path, uia_path, png_path):
                     style[key] = ps.get(key)
             break
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
-        matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind) and distance(n["bounds"], node["bounds"]) <= 8]
+        matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind)
+                    and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
         if kind == "scrollbar-thumb":
             owner_provider = paired_controls.get(scrollbar_thumbs[node["id"]])
             matching = [n for n in matching if owner_provider and uia_scrollbar_owner(n) == owner_provider["id"]]
@@ -1579,6 +1618,9 @@ def project(xaml_path, uia_path, png_path):
         if run_source:
             text_owner = by_id[run_source["owner"]]
             run_providers, actual_run_font_records = run_font_witnesses(uia_nodes, text_owner, actual_text_boxes)
+            run_candidates = [n for n in run_providers if identity_allows(text_owner, n)]
+            if len(run_candidates) != len(run_providers):
+                run_providers, actual_run_font_records = run_font_witnesses(run_candidates, text_owner, actual_text_boxes)
             # A single Run representing the whole measured text owner can
             # retain that owner's actual UIA Name. A parent name is not copied
             # into individual rich-text fragments or a containing button.
@@ -1598,7 +1640,8 @@ def project(xaml_path, uia_path, png_path):
                                        "run_source": copy.deepcopy(run_source)})
         elif label:
             font_witnesses += [n for n in uia_nodes if n.get("control_type") == "ControlType.Text"
-                               and n.get("name") == text and distance(n["bounds"], label["bounds"]) <= 8]
+                               and n.get("name") == text and distance(n["bounds"], label["bounds"]) <= 8
+                               and identity_allows(label, n)]
         provider_fonts = []
         font_records = list(actual_run_font_records)
         for font_source in font_witnesses:
@@ -1761,14 +1804,15 @@ def project(xaml_path, uia_path, png_path):
         covered = next((r for r in raw if positive(r.get("bounds")) and positive(r.get("visible_bounds"))
                         and not r.get("hidden_reason") and not fragments.get(r["id"])
                         and uia_kind_matches(n, control_kind(r) or ("text" if r["type"] in TEXT_TYPES else ""))
-                        and distance(b, r["bounds"]) <= 8), None)
+                        and distance(b, r["bounds"]) <= 8 and identity_allows(r, n)), None)
         if covered:
             projection.append({"source": n["id"], "owner": covered["id"], "reason": "UIA box corresponds to measured fully occluded render node",
                                "occlusion_masks": occlusion_masks.get(covered["id"], [])})
             continue
         # A UIA text child can already be represented by the owning control's
         # label. Preserve the measured ownership instead of silently losing it.
-        owner = next((e for e in elements if n.get("control_type") == "ControlType.Text" and n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1), None)
+        owner = next((e for e in elements if n.get("control_type") == "ControlType.Text" and n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1
+                      and identity_allows(by_id[e["id"]], n)), None)
         if owner:
             projection.append({"source": n["id"], "owner": owner["id"], "reason": "UIA label owned by corresponding rendered control"})
         elif n.get("is_control_element") or n.get("is_content_element"):
@@ -1781,7 +1825,8 @@ def project(xaml_path, uia_path, png_path):
             parent = by_id.get(parent, {}).get("parent")
         element["parent"] = parent
     capture_evidence = copy.deepcopy(xaml.get("capture_evidence", {}))
-    capture_evidence["automation_identity_bindings"] = bind_automation_identities(source_raw, uia)
+    capture_evidence["automation_identity_bindings"] = identity_bindings
+    capture_evidence["uia_pairing_rejections"] = list(rejected_identity_pairs.values())
     # Optional supplementary diagnostic. Keep the original UIA errors, bounds
     # and canonical element measurements unchanged until actual frame/range
     # continuity is independently established.
