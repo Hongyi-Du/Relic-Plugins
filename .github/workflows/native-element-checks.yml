@@ -1,6 +1,9 @@
 name: Native element extraction contracts
 on:
   workflow_call:
+  # Run the same contracts on demand while platform builds wait for runners.
+  # This does not replace the required callers or the full visual gate.
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

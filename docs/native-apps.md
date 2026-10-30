@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (shared CI): native-element-checks.yml now exposes
+workflow_dispatch as well as its unchanged reusable workflow_call. This runs
+the same full extraction-contract suite while platform jobs wait for runners;
+it does not replace either required native build or the full visual gate.
+c8d6311 ran 944 tests with one provenance assertion failure: the effective
+geometry source should identify the selected actual COM channel, while the
+original source belongs in the immutable audit. The regression now explicitly
+checks both original range records and that distinct effective source.
+
 Changes for the clients (observed UIA range geometry): the Windows reader can
 select actual in-process public COM doubles for an external zero-area range
 only after exact peer/RuntimeId/observer, UTF-16 endpoints/category, HRESULT,
