@@ -398,6 +398,9 @@ import CoreText
                     abs(rect.width - other.width) < 0.5 && abs(rect.height - other.height) < 0.5
             }
             let style = surface["style"] as! [String: Any]
+            if let outline = style["native_outline"], !(outline is NSNull) {
+                surfaceGaps.append("Actual separate native outline retained in surface style; common outline comparison is not implemented: " + String(describing: surface["bounds"]!))
+            }
             if candidates.count == 1, let index = candidates.first {
                 var existing = elements[index]["style"] as! [String: Any]
                 existing.merge(style, uniquingKeysWith: { _, actual in actual }); elements[index]["style"] = existing

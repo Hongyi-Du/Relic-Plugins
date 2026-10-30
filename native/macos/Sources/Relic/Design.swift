@@ -94,18 +94,22 @@ struct ContentButtonStyle: ButtonStyle {
 struct QuietButtonStyle: ButtonStyle {
     var selected = false
     var selectionApplicable = false
+    var radius: CGFloat = 7
+    var expanded: Bool? = nil
     func makeBody(configuration: Configuration) -> some View {
-        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable)
+        QuietBody(configuration: configuration, selected: selected, selectionApplicable: selectionApplicable, radius: radius, expanded: expanded)
     }
     private struct QuietBody: View {
         let configuration: Configuration
         let selected: Bool
         let selectionApplicable: Bool
+        let radius: CGFloat
+        let expanded: Bool?
         @State private var hovering = false
         @Environment(\.isEnabled) private var enabled
         var body: some View {
-            configuration.label.contentShape(RoundedRectangle(cornerRadius: 7))
-                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: 7, hovered: hovering, selected: selectionApplicable ? selected : nil))
+            configuration.label.contentShape(RoundedRectangle(cornerRadius: radius))
+                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovering || configuration.isPressed ? RelicStyle.hover : .clear, radius: radius, hovered: hovering, selected: selectionApplicable ? selected : nil, expanded: expanded))
                 .foregroundStyle(enabled ? RelicStyle.ink : RelicStyle.faint).onHover { hovering = $0 }
         }
     }
@@ -166,7 +170,14 @@ struct ChipButton: View {
 struct SmallBadge: View {
     let text: String
     var color: Color = RelicStyle.secondary
-    var body: some View { Text(text).font(RelicStyle.font(10.5, weight: 600)).lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2).foregroundStyle(color).background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5)).help(text) }
+    var background: Color? = nil
+    @State private var identity = "relic-badge/" + UUID().uuidString
+    var body: some View {
+        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18, owner: identity)
+            .padding(.horizontal, 6).frame(height: 18)
+            .modifier(RecordedSurface(background: background ?? color.opacity(0.13), radius: 5, kind: "badge", owner: identity))
+            .accessibilityElement(children: .ignore).accessibilityLabel(text).accessibilityIdentifier(identity).help(text)
+    }
 }
 
 struct StateDot: View {
