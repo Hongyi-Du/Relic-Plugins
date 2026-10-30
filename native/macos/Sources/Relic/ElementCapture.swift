@@ -479,11 +479,11 @@ import CoreText
             let node: [String: Any] = ["id": sample["id"]!, "parent": parent, "kind": "icon", "text": "", "name": "",
                 "native_structure": sample["native_structure"] ?? NSNull(),
                 "region": sample["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
-                "visible": true, "source": "live-NSView-shape-probe", "projection": evidence, "native_visible_bounds": sample["nativeVisibleBounds"]!,
+                "visible": true, "source": "live-CoreGraphics-icon-draw", "projection": evidence, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
                           "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
-                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_dash": [], "stroke_dash_offset": 0, "stroke_linecap": "round", "stroke_linejoin": "round", "stroke_width": 1.7 * ((sample["rect"] as? [String: Double])?["width"] ?? 0) / 24],
+                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_dash": [], "stroke_dash_offset": 0, "stroke_linecap": "round", "stroke_linejoin": "round", "stroke_width": sample["stroke_width"]!],
                 "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                 "icon": sample["icon"]!, "pixelSamples": samples(visible, bitmap: bitmap)]
             raw.append(node)

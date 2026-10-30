@@ -1,3 +1,32 @@
+## 2026-10-30: actual icon stroke receipts and corrected text-layer test assumption
+
+The 749e5e8 Mac job 124026432050 compiles release, then runs 185 tests with two
+assertion failures in one new OutlineDrawTests case. Actual AppKit supplied a
+backing/presentation sublayer. The production inspector correctly kept outline
+unknown, but the test incorrectly expected absence whenever a presentation layer
+existed. The test now explicitly checks rejection of those actual extra layers;
+the production outline contract is unchanged. Full capture still retains unknown
+text outlines rather than declaring them absent. No gate exemption is requested.
+
+The icon renderer now draws the same parsed CGPath, round caps/joins and color
+in its final native NSView, replacing the SwiftUI Shape plus neighboring probe.
+The actual `CGContext.strokePath` callback retains transformed path commands,
+bounds, source resource, sRGB foreground, stroke parameters, revision, draw
+sequence and view/window identity. Only a current source/color/bounds/window
+binding supplies the canonical icon/foreground/stroke-width; stale or unmounted
+draws stay unknown, with the raw previous receipt retained. Export source is
+`live-CoreGraphics-icon-draw`, with `projection.current_draw`, `last_draw`,
+`draw_binding_valid`, and `presentation_identity_proven: false`. The final PNG
+contribution and complete layer/outline obligations remain independent. Please
+consume these actual receipts in shared validation without treating them as
+compositor equivalence. Pixel/selection/draw-invalidation regressions await CI.
+
+Also reserved the card's real 1px border inside its 340px box: content padding
+is now 18+1, making its definition column 238px instead of 240px. The measured
+model-note wrap difference is caused by this two-pixel width: the second `Relic`
+word fit the old native first line but does not fit the reference line. A real
+TextKit regression checks the two observed source ranges, 0..22 and 22..34.
+
 ## 2026-10-30: actual b63cd2f capture verifies scroll and typography geometry
 
 macOS job 124021276290 in run 41042527320 completed all 19 diagnostic captures.
