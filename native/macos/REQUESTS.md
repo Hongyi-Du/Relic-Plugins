@@ -1,3 +1,14 @@
+## 2026-10-30: pointer observation distinguishes the actual AppKit mouse receiver
+
+Actual `98841c1` message-hover shows the window AX getter stopping at a scroll
+container and the content AX getter stopping at NSHostingView. Neither proves
+the deepest pointer owner. NativePointerCapture now also reads the real
+NSView.hitTest receiver, using that API's superview coordinate space, and asks
+that actual receiver for its AX hit. Window/content/mouse hits remain separate
+in the receipt. SwiftUI virtual descendants that still cannot be bound remain
+unknown. The existing exact NSButton/owned-cell and covered-button negatives
+are retained. No canonical hover state is inferred from these observations.
+
 ## 2026-10-30: actual file-header order fixed; message avatar order remains wrong
 
 Downloaded 22 macOS captures from shared run 41092315894 (`98841c1`). In file-code
