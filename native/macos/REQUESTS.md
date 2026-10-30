@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+New extraction-contract requests from actual c4b113d reports:
+
+* `scripts/visual/element_parity.py:KINDS` does not accept `scrollbar` and has no
+  thumb kind. Each real macOS ReferenceScroller and AXValueIndicator child is
+  currently structurally rejected (four of five rejected group elements). Add
+  measured track/thumb counterparts to the common schema/reference extraction;
+  these are visible/usable controls, not wrappers to drop. Native AX reports
+  hit rectangles wider than the actual 10px NSView gutter; production draw and
+  actual view geometry must supply paint bounds separately from AX hit bounds.
+* Reference `.pane-resize` is a real 5px element with `onpointerdown: startResize`
+  and a hover/drag accent fill at 40% alpha, but c4b113d extraction emits no
+  counterpart. Emit its actual interaction as `resize-handle`, with its title,
+  DOM bounds, paint and pointer state. macOS now names its existing production
+  drag target `relic-resize-handle/panel`, matches that width and actual hover/drag
+  paint, and retains it as `resize-handle`. Do not discard either control because
+  its fill is transparent when idle. Add panel-resize action/hover scenes to the
+  shared matrix to exercise this uncovered interaction on both clients.
+
+The diagnostic report downloaded from `40984430455` is under
+`S:\Codex\Outputs\Relic-native-visual\smoke-c4b113d\report\`. Its full gate still
+expects 636 cases despite 17 diagnostic inputs. It records zero passed/checked
+comparisons, 79 structurally rejected native elements, and all missing/unknown
+measurements as failures. No diagnostic receipt is a full-matrix pass.
+
 Update after shared `4afb5d1`: the aggregate-error assertion, 53-scene
 expectations and regular screenshot `caret="initial"` request below are resolved.
 Caret paint/geometry coverage itself remains unverified. macOS now writes failed
