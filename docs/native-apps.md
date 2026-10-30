@@ -1,5 +1,42 @@
 # Native Relic App contract
 
+Changes for the clients (measured Windows production layout fixes): message
+headers now apply the fixed reference engine's primary-font integer ascent /
+descent and floored upper leading to their actual production DirectWrite layout.
+The original natural metrics, actual primary face and applied line spacing are
+retained. This explains the observed 17.296875 versus 16.25 header height without
+scene-specific offsets. Overview modes reuse the existing native segmented
+surface with its actual shadow-1. Hierarchy selects restore the reference's
+15px content inset (1px border + 10px CSS padding + 4px UA start margin).
+The application headless build passes; new layout tests and captures run in CI.
+
+9b34ccf Windows CI now passes both suites: 48 core and 165 capture tests.
+f6220c9 macOS job 124139217709 instead fails test compilation at
+`OutlineDrawTests.swift:44`: `CGImageGetTypeID()` must use `CGImage.typeID`
+under the current Swift SDK. The macOS owner must apply that source correction;
+this is a compiler failure, not a passed bitmap/layer assertion.
+
+Changes for the clients (pane-capture preparation boundary): 06b914e retains
+an additional actual PointerMoved and an owned ToolTip opening during render /
+commit preparation, before the first screenshot. The action checkpoint still
+validates and retains its actual gesture/hover/tooltip state. Frame stability
+now starts immediately before readback, after that preparation, as it does for
+NativeLabel. All subsequent state and event-count equality checks remain exact.
+The actual tooltip is included in the native capture and still compares against
+the reference; no tooltip is hidden or granted a parity exception.
+
+Changes for the clients (macOS popup-fill shared request): the shared reader
+is being added for actual `native_fill_draws`. Please copy the same observation
+array already emitted as `ax.native_fill_draws` into
+`elements.capture_evidence.native_fill_draws`; obtain it once and reuse it so
+the two exports do not observe different frames. Every original field remains
+intact, including `occlusion_proven:false`, native/window ancestry, opacity,
+submitted draw and current coordinates. When both original arrays are present
+the reader checks their equality. Missing local raw evidence remains unavailable;
+external artifact links are not treated as if their bytes had been read.
+The fill observation alone cannot remove a covered element: final-frame binding
+and actual compositing order are still required by the existing occlusion gate.
+
 Changes for the clients (06b914e actual CI results): smoke run 41075263281
 contains 22 scene attempts and remains failed with zero accepted scenes.
 Windows has six capture failures: settings hover after extraction, three

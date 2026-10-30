@@ -24,14 +24,14 @@ public sealed class NativeLabel : Panel
     private readonly string text, familyList, locale;
     private readonly float fontSize, lineHeight;
     private readonly uint weight;
-    private readonly bool characterEllipsis, accessibleText, wrapWholeWords;
+    private readonly bool characterEllipsis, accessibleText, wrapWholeWords, primaryFontLineSpacing;
     private IntPtr format, layout, surfaceInterop, trimmingSign;
     private SurfaceImageSource? surface;
     private ContentPresenter? presenter;
     private SolidColorBrush? foreground;
     private long foregroundToken, brushColorToken, brushOpacityToken;
     private XamlRoot? observedRoot;
-    private float layoutWidth = -1, layoutHeight = -1;
+    private float layoutWidth = -1, layoutHeight = -1, resolvedLineHeight;
     private double arrangedWidth, arrangedHeight, scale;
     private int pixelWidth, pixelHeight;
     private bool queued, rendering;
@@ -39,15 +39,18 @@ public sealed class NativeLabel : Panel
     private JsonObject? receipt;
     private NativeLabelReadback? readback;
     private JsonObject? fallbackConfiguration;
+    private JsonObject? lineSpacingConfiguration;
     private string? failure;
 
     public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
-        bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false)
+        bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false, bool primaryFontLineSpacing = false)
     {
         this.text = text; this.familyList = familyList; this.fontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; this.lineHeight = checked((float)lineHeight);
+        resolvedLineHeight = this.lineHeight;
         this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
         this.wrapWholeWords = wrapWholeWords;
+        this.primaryFontLineSpacing = primaryFontLineSpacing;
         if (characterEllipsis && wrapWholeWords) throw new ArgumentException("Whole-word labels cannot also request single-line character ellipsis");
         UseLayoutRounding = false; IsHitTestVisible = accessibleText;
         AutomationProperties.SetAccessibilityView(this, accessibleText ? AccessibilityView.Content : AccessibilityView.Raw);
@@ -233,6 +236,7 @@ public sealed class NativeLabel : Panel
         ["requested_weight"] = weight, ["requested_locale"] = locale, ["requested_line_height"] = lineHeight,
         ["requested_character_ellipsis"] = characterEllipsis, ["accessible_full_text"] = accessibleText,
         ["applied_font_fallback"] = fallbackConfiguration?.DeepClone(),
+        ["applied_line_spacing"] = lineSpacingConfiguration?.DeepClone(),
         ["current_layout_revision"] = layoutRevision, ["current_surface_revision"] = surfaceRevision,
         ["current_draw_ordinal"] = drawOrdinal,
         ["current_submission"] = new JsonObject { ["source"] = "Actual NativeLabel state at receipt capture",
@@ -309,7 +313,8 @@ public sealed class NativeLabel : Panel
     {
         DetachSubscriptions(); Release(ref surfaceInterop); surface = null; image.Source = null;
         Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
-        pixelWidth = pixelHeight = 0; fallbackConfiguration = null; InvalidateDraw();
+        pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;
+        resolvedLineHeight = lineHeight; InvalidateDraw();
     }
     private void InvalidateDraw() { receipt = null; }
 
@@ -333,14 +338,39 @@ public sealed class NativeLabel : Panel
                 Check(Method<SetUInt>(format, 5)(format, wrapWholeWords ? 3u : 1u));
                 Check(Method<CreateLayout>(factory, 18)(factory, text, checked((uint)text.Length), format, width, Math.Max(height, 1000), out layout));
                 fallbackConfiguration = NativeLabelFallback.Apply(factory, layout, familyList);
-                // Uniform CSS line height, with the actual natural line's baseline
-                // centered in its leading. This is the production layout's line,
-                // not a second layout or a reference-derived font measurement.
+                // Retain the natural metrics from this exact layout before
+                // applying the requested production line-spacing policy.
                 var lines = ReadLines();
                 if (lines.Length > 0)
                 {
                     var baseline = lines[0].Baseline + (lineHeight - lines[0].Height) / 2;
-                    Check(Method<SetLineSpacing>(layout, 10)(layout, 1, lineHeight, baseline));
+                    var effectiveHeight = lineHeight;
+                    lineSpacingConfiguration = new JsonObject
+                    {
+                        ["source"] = "Actual production IDWriteTextLayout natural line metrics and subsequent SetLineSpacing",
+                        ["policy"] = primaryFontLineSpacing ? "primary-font-integer-metrics-floor-half-leading" : "natural-line-symmetric-half-leading",
+                        ["layout_com_identity"] = ComIdentity(layout),
+                        ["natural_first_line_height"] = lines[0].Height, ["natural_first_line_baseline"] = lines[0].Baseline,
+                        ["requested_line_height"] = lineHeight
+                    };
+                    if (primaryFontLineSpacing)
+                    {
+                        // .msg .who has an explicit line-height:1.3. Its strut
+                        // follows the primary face, not a fallback glyph face.
+                        // Apply it to the very layout used for Draw/FirstBaseline.
+                        var primary = NativeListMarkerFont.ReadForLine(familyList, fontSize, locale, weight);
+                        var spacing = NativePrimaryLineMetrics.FromPrimary(primary.Metrics, lineHeight);
+                        effectiveHeight = (float)spacing.Height; baseline = (float)spacing.Baseline;
+                        lineSpacingConfiguration["primary_font"] = primary.Evidence;
+                        lineSpacingConfiguration["leading_before"] = spacing.LeadingBefore;
+                        lineSpacingConfiguration["leading_after"] = spacing.LeadingAfter;
+                    }
+                    var spacingResult = Method<SetLineSpacing>(layout, 10)(layout, 1, effectiveHeight, baseline);
+                    lineSpacingConfiguration["set_line_spacing_hresult"] = spacingResult;
+                    lineSpacingConfiguration["applied_height"] = effectiveHeight;
+                    lineSpacingConfiguration["applied_baseline"] = baseline;
+                    Check(spacingResult);
+                    resolvedLineHeight = effectiveHeight;
                 }
                 if (characterEllipsis) trimmingSign = ApplyCharacterEllipsis(factory, layout);
                 layoutWidth = width; layoutHeight = Math.Max(height, 1000); layoutRevision++; InvalidateDraw();
@@ -426,7 +456,7 @@ public sealed class NativeLabel : Panel
             Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics));
             var desiredWidth = (double)metrics.WidthIncludingTrailingWhitespace;
             if (characterEllipsis && double.IsFinite(availableSize.Width)) desiredWidth = Math.Min(desiredWidth, Math.Max(0, availableSize.Width));
-            var desiredHeight = wrapWholeWords ? Math.Max(lineHeight, metrics.Height) : lineHeight;
+            var desiredHeight = wrapWholeWords ? Math.Max(resolvedLineHeight, metrics.Height) : resolvedLineHeight;
             image.Measure(new LayoutSize(desiredWidth, desiredHeight));
             return new LayoutSize(desiredWidth, desiredHeight);
         }
