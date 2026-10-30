@@ -5,6 +5,7 @@ import AppKit
 @MainActor final class TextSpanCaptureTests: XCTestCase {
     func testActualFallbackFontsStayInsideTheirProductionLabel() throws {
         let view = ReferenceLabel("→ 全体", size: 12, lineHeight: 15.6, lines: 0).makeLabelView()
+        (view.layoutManager as? NativeGlyphLayoutManager)?.recordDraws = true
         view.frame = NSRect(x: 0, y: 0, width: 120, height: 40)
         view.textContainer?.containerSize = NSSize(width: 120, height: 40)
         let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
@@ -18,6 +19,7 @@ import AppKit
         let style = try XCTUnwrap(row["style"] as? [String: Any])
         let fonts = try XCTUnwrap(style["rendered_fonts"] as? [[String: Any]])
         XCTAssertGreaterThan(Set(fonts.compactMap { $0["postscript_name"] as? String }).count, 1)
+        XCTAssertTrue(fonts.allSatisfy { $0["provider"] as? String == "production NSLayoutManager.showCGGlyphs callback" })
         XCTAssertEqual(style["fontSize"] as? Double, 12)
         XCTAssertEqual(style["fontWeight"] as? Int, 400)
         let range = try XCTUnwrap(row["range"] as? [String: Int])

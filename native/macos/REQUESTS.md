@@ -1,5 +1,20 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Actual-font evidence update: macOS TextKit spans now project `rendered_fonts`
+only from the production `showCGGlyphs` callbacks for the same complete span,
+unchanged attributed source, native view/container/window identity and layout.
+Raw `native_font_drawing` records current binding or an explicit unknown reason;
+independently reshaped `native_reshaped_fonts` stays diagnostic. A callback has
+no per-callback source indices, so assigning its fonts to a partial rich span
+would be unjustified and remains unknown. Please retain that unknown in the
+gate, and do not treat reshaping metadata as actual rendered-font evidence.
+
+`4f67f67` fixes the shared malformed-pattern fixture noted below; consumed via
+`fcdc0b6`. Full `56253c7` report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-56253c7\report\`.
+Both platforms have zero accepted scenes; all category counts are in STATUS.md
+and the actual `parity-report.json`. No exception has been requested or approved.
+
 Layout quantity review: the actual group bubble CSS is `overflow-wrap:anywhere`
 with normal word wrapping (`app.css:233`), but reference canonical `layout.wrap`
 is `character`; native TextKit's `.byWordWrapping` also breaks an overlong word
