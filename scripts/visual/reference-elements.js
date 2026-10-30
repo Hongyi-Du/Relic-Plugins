@@ -828,6 +828,32 @@
     const dy = layout.height === 0 || capped && layout.width === 0 ? strokeWidth * sy / 2 : 0;
     return { x: layout.x - dx, y: layout.y - dy, width: layout.width + 2 * dx, height: layout.height + 2 * dy };
   };
+  const resizeHandleEvidence = el => {
+    const s = styleOf(el);
+    if (el.localName !== 'textarea' || !s.resize || s.resize === 'none') return null;
+    const p = getComputedStyle(el, '::-webkit-resizer'), ownerAX = accessibilityOf(el);
+    const descendants = [], seen = new Set(), pending = [...(ownerAX.node_ids || [])];
+    while (pending.length) {
+      const id = pending.shift();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = axById.get(id);
+      if (node) { descendants.push(node); pending.push(...(node.childIds || [])); }
+    }
+    return { kind: 'resize-handle', source: 'actual textarea metrics, computed resize/pseudo style, DOMSnapshot and AX records',
+      owner_bounds: rect(el.getBoundingClientRect()), owner_value: el.value, owner_placeholder: el.getAttribute('placeholder'),
+      owner_resize: s.resize, owner_direction: s.direction, owner_writing_mode: s.writingMode,
+      owner_overflow_x: s.overflowX, owner_overflow_y: s.overflowY, owner_disabled: el.disabled, owner_readonly: el.readOnly,
+      owner_scroll_width: el.scrollWidth, owner_scroll_height: el.scrollHeight, owner_client_width: el.clientWidth, owner_client_height: el.clientHeight,
+      computed_pseudo: { pseudo: '::-webkit-resizer', quantity: 'computed pseudo request, not measured grip paint or proof of existence',
+        display: p.display, visibility: p.visibility, opacity: p.opacity, width: p.width, height: p.height, background: p.backgroundColor,
+        color: p.color, cursor: p.cursor, border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Width']),
+        border_colors: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Color']),
+        corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => p['border' + corner + 'Radius']) },
+      dom_snapshot_parts: (pseudoByOwner.get(el) || []).filter(part => /resizer/.test(part.type)),
+      ax_subtree: descendants, painted_presence: null, bounds: null, style: null, state: null,
+      measurement_limit: 'Textarea resize capability, owner bounds, pseudo computed values and AX owner/subtree are not independently measured grip paint. Pointer hit success also does not establish its painted geometry. No canonical grip is invented.' };
+  };
   const scrollbarEvidence = el => {
     const s = styleOf(el), axes = [];
     if (s.scrollbarWidth === 'none') return null;
@@ -904,6 +930,14 @@
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue, owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
     if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
+    const resizeHandle = resizeHandleEvidence(el);
+    if (resizeHandle) {
+      raw.resize_handle = resizeHandle;
+      unmeasured.push({ element: id, property: 'resize_handle.rendered_part', evidence: resizeHandle,
+        reason: 'The visible resizable textarea can paint a UA resize-handle. Its independent painted presence, bounds, style and state are unmeasured; the owner box and corner pointer coordinates cannot replace them.' });
+      extraction_errors.push({ type: 'ua_resize_handle_measurement_unavailable', node: id, kind: 'resize-handle',
+        reason: 'Actual UA resize-handle paint has no independently measured canonical counterpart; retained as a coverage failure.' });
+    }
     const scrollbar = scrollbarEvidence(el);
     if (scrollbar) {
       raw.scrollbar = scrollbar;

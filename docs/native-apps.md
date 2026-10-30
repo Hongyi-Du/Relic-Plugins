@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (textarea resize): the macOS request through `b4575f7`
+now has a shared real-input recipe and `new-org-textarea-resized` scene. All
+52 earlier scenes remain, giving 53 / 636 full cases per platform and 17
+diagnostic smoke cases. `native-resize-evidence.md` specifies the actual corner
+drag, unchanged text and stable-state receipts. The UA grip's independently
+measured paint/bounds are still unknown and explicitly fail extraction; the
+gesture coordinate is never used as a measured grip rectangle.
+
+Changes for the clients (bounded paint diagnostic): the actual `3e5f1a9`
+macOS run stalled during the supplementary paint-trace step after canonical
+artifacts had uploaded. Each supplementary trace now has a five-minute CI
+step limit and durable before/after protocol progress receipts. This does not
+limit or remove canonical scenes, change the matcher, or turn missing paint
+evidence into a pass; timed-out diagnostics retain partial artifacts and fail.
+
 Changes for the clients (paint diagnostic channel): the actual `3e5f1a9`
 trace still loses picture packets and exports no LayerTree events. CI now
 retains that diagnostic and additionally captures regular Chromium in new

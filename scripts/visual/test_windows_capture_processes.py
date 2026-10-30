@@ -27,7 +27,7 @@ class WindowsCaptureProcessTests(unittest.TestCase):
 
     def test_all_52_cases_get_fresh_process_inputs_and_continue_after_menu_crash(self):
         scenes = json.loads((Path(capture.HERE) / "scenes.json").read_text(encoding="utf-8"))["scenes"]
-        self.assertEqual(len(scenes), 52)
+        self.assertEqual(len(scenes), 53)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             manifest = self.manifest(root, scenes)
@@ -52,8 +52,8 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                 result = capture.native(root / "manifest.json", manifest, Path("Relic.exe"))
             self.assertEqual(calls, scenes)
             self.assertEqual(calls[-1], "message-copy-toast")
-            self.assertEqual(result["expected_count"], 52)
-            self.assertEqual(result["attempted_count"], 52)
+            self.assertEqual(result["expected_count"], 53)
+            self.assertEqual(result["attempted_count"], 53)
             self.assertEqual(result["count"], 51)
             self.assertEqual(len(result["errors"]), 1)
             failed = next(row for row in result["cases"] if row["status"] == "failed")

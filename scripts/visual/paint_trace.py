@@ -199,6 +199,13 @@ def collect_scene(browser, context, manifest, case, output, source):
     trace_cdp = browser.new_browser_cdp_session()
     complete, layer_events, markers, buffer_usage = [], [], [], []
     phase = {"name": "initial"}
+    progress = []
+    def checkpoint(operation, state):
+        # Persist before potentially blocking protocol calls. A CI step timeout
+        # must retain the operation that stalled, not erase all partial evidence.
+        progress.append({"operation": operation, "state": state,
+                         "phase": phase["name"], "monotonic": time.monotonic()})
+        write_json(output / "progress.json", progress)
     trace_cdp.on("Tracing.tracingComplete", lambda data: complete.append(data))
     trace_cdp.on("Tracing.bufferUsage", lambda data: buffer_usage.append({
         "phase": phase["name"], "received_monotonic": time.monotonic(), "params": data}))
@@ -206,9 +213,13 @@ def collect_scene(browser, context, manifest, case, output, source):
         cdp.on(event, lambda data, method=event: layer_events.append({"method": method,
             "phase": phase["name"], "received_monotonic": time.monotonic(), "params": data}))
     def read(session, method, parameters=None):
+        checkpoint(method, "started")
         try:
-            return session.send(method, parameters or {})
+            result = session.send(method, parameters or {})
+            checkpoint(method, "completed")
+            return result
         except Exception as error:
+            checkpoint(method, "failed")
             report["errors"].append({"source": method, "reason": str(error)})
             return None
     def marker(name):
@@ -225,9 +236,12 @@ def collect_scene(browser, context, manifest, case, output, source):
         read(cdp, "LayerTree.enable")
         parameters = trace_parameters()
         write_json(output / "trace-config.json", parameters)
+        checkpoint("Tracing.start", "started")
         trace_cdp.send("Tracing.start", parameters)
+        checkpoint("Tracing.start", "completed")
         tracing = True
         marker("before_navigation")
+        checkpoint("page/navigation-and-real-scene", "started")
         page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
         page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
         page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [case["scene"], manifest["fixture"]])
@@ -236,8 +250,11 @@ def collect_scene(browser, context, manifest, case, output, source):
             page.locator(".details .doc-body").wait_for(state="visible")
         page.wait_for_timeout(700)
         page.mouse.move(case["width"] + 20, case["height"] + 20)
+        checkpoint("page/navigation-and-real-scene", "completed")
         marker("before_screenshot")
+        checkpoint("page/screenshot", "started")
         page.screenshot(path=output / "scene.png", animations="disabled")
+        checkpoint("page/screenshot", "completed")
         marker("after_screenshot")
         write_json(output / "scene-metrics.json", page.evaluate(SCENE_METRICS))
         write_json(output / "layout-metrics.json", read(cdp, "Page.getLayoutMetrics"))
@@ -245,17 +262,23 @@ def collect_scene(browser, context, manifest, case, output, source):
         snapshot = read(cdp, "DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
         write_json(output / "dom.json", snapshot)
         write_json(output / "ax.json", read(cdp, "Accessibility.getFullAXTree"))
+        checkpoint("input-text-evidence", "started")
         inputs = input_text_evidence(cdp)
+        checkpoint("input-text-evidence", "completed")
         write_json(output / "input-text.json", inputs)
         if snapshot is not None:
+            checkpoint("font-evidence", "started")
             write_json(output / "fonts.json", font_evidence(cdp, snapshot, inputs))
+            checkpoint("font-evidence", "completed")
         marker("after_source_evidence")
     except Exception as error:
         report["errors"].append({"source": "scene_capture", "reason": str(error)})
     finally:
         if tracing:
             try:
+                checkpoint("Tracing.end", "started")
                 trace_cdp.send("Tracing.end")
+                checkpoint("Tracing.end", "completed")
                 deadline = time.monotonic() + 45
                 while not complete and time.monotonic() < deadline:
                     # Playwright must pump the CDP completion event.
@@ -266,7 +289,9 @@ def collect_scene(browser, context, manifest, case, output, source):
                 if complete[0].get("dataLossOccurred"):
                     report["errors"].append({"source": "Tracing", "reason": "Trace data loss occurred"})
                 trace_path = output / "trace.json"
+                checkpoint("trace-stream", "started")
                 report["trace_byte_count"] = read_trace_stream(trace_cdp, complete[0]["stream"], trace_path)
+                checkpoint("trace-stream", "completed")
                 trace = json.loads(trace_path.read_text(encoding="utf-8"))
                 index = extract_pictures(trace, output / "pictures")
                 write_json(output / "pictures.json", index)
@@ -298,9 +323,11 @@ def collect_scene(browser, context, manifest, case, output, source):
                 "reason": "No actual layer events exported; final-scene layer/transform attribution remains unproven"})
         report["status"] = "failed" if report["errors"] else "raw_records_collected"
         write_json(output / "diagnostic.json", report)
+        checkpoint("page/protocol-cleanup", "started")
         cdp.detach()
         trace_cdp.detach()
         page.close()
+        checkpoint("page/protocol-cleanup", "completed")
     return report
 
 

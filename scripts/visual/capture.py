@@ -24,6 +24,132 @@ MEMBER_CARD_SCENES = {
     "member-card-avatar-hover": ".avatar-wrap",
 }
 MESSAGE_SCENES = frozenset(("message-hover", "message-copy-toast"))
+RESIZE_SCENES = frozenset(("new-org-textarea-resized",))
+
+
+class TextareaResizeCapture:
+    """Observe a real textarea corner drag; the action point is not a grip box."""
+    SELECTOR = "#layer .dialog[role='dialog'] .form textarea"
+    READ_FIELD = """(el, selector) => {
+      const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+      return {connected:el.isConnected,same_node:document.querySelector(selector)===el,tag:el.tagName,
+        bounds:{x:r.x,y:r.y,width:r.width,height:r.height},value:el.value,text_content:el.textContent,
+        placeholder:el.getAttribute('placeholder'),rows:el.rows,disabled:el.disabled,readonly:el.readOnly,
+        focused:document.activeElement===el,hovered:el.matches(':hover'),inline_style:el.getAttribute('style'),
+        resize:s.resize,direction:s.direction,writing_mode:s.writingMode,overflow_x:s.overflowX,overflow_y:s.overflowY,
+        display:s.display,visibility:s.visibility,opacity:s.opacity,background:s.backgroundColor,color:s.color,
+        border_colors:['Top','Right','Bottom','Left'].map(side=>s['border'+side+'Color']),
+        client_width:el.clientWidth,client_height:el.clientHeight,scroll_width:el.scrollWidth,scroll_height:el.scrollHeight};
+    }"""
+    SETTLE = """async () => {await document.fonts.ready; await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame); return {status:document.fonts.status,count:document.fonts.size};}"""
+
+    def __init__(self, page, cdp, scene, receipt_path):
+        self.page, self.cdp, self.scene, self.receipt_path = page, cdp, scene, receipt_path
+        self.field = self.observer = None
+        self.baseline = None
+        self.evidence = {"source": "production textarea + actual Playwright mouse move/down/move/up",
+            "scene": scene, "navigation_scene": "new-org", "selector": self.SELECTOR, "checkpoints": [], "errors": [],
+            "resize_handle": {"kind": "resize-handle", "painted_presence": None, "bounds": None, "style": None, "state": None,
+                "measurement_limit": "The corner action point and owner border box do not measure the UA resize grip's painted box, style or state."}}
+
+    def save(self):
+        self.receipt_path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def read_sources(self, stage):
+        evidence = {}
+        for key, method, parameters in (("dom", "DOM.getDocument", {"depth": -1, "pierce": True}),
+                                         ("ax", "Accessibility.getFullAXTree", {})):
+            try:
+                evidence[key] = self.cdp.send(method, parameters)
+            except Exception as error:
+                evidence[key] = None
+                self.evidence["errors"].append({"stage": stage, "method": method, "reason": str(error)})
+        self.evidence[stage + "_sources"] = evidence
+
+    def open(self):
+        self.evidence["fonts_before_action"] = self.page.evaluate(self.SETTLE)
+        if self.evidence["fonts_before_action"].get("status") != "loaded":
+            raise RuntimeError("Textarea resize requires the actual page fonts before measuring the corner")
+        locator = self.page.locator(self.SELECTOR)
+        locator.wait_for(state="visible")
+        if locator.count() != 1:
+            raise RuntimeError("Expected one production new-organization purpose textarea")
+        self.field = locator.element_handle()
+        if self.field is None:
+            raise RuntimeError("Production textarea detached before the resize action")
+        before = self.field.evaluate(self.READ_FIELD, self.SELECTOR)
+        self.evidence["before"] = before
+        self.save()
+        if (not before.get("connected") or not before.get("same_node") or before.get("tag") != "TEXTAREA"
+                or before.get("disabled") or before.get("resize") not in ("both", "vertical", "block")):
+            raise RuntimeError("The actual new-organization textarea does not expose the requested vertical resize mechanism")
+        if before.get("writing_mode") != "horizontal-tb" or before.get("direction") != "ltr":
+            raise RuntimeError("The recorded corner recipe requires actual horizontal-tb/ltr layout; no grip location is inferred for other writing modes")
+        bounds = before["bounds"]
+        if bounds["width"] <= 6 or bounds["height"] <= 6:
+            raise RuntimeError("The actual textarea border box cannot contain the corner action point")
+        self.observer = self.page.evaluate_handle("""selector => {
+          const events=[];
+          const observe=event=>{events.push({type:event.type,trusted:event.isTrusted,x:event.clientX,y:event.clientY,
+            buttons:event.buttons,button:event.button,pointer_id:event.pointerId,timestamp:event.timeStamp,
+            target:{tag:event.target.localName,is_textarea:event.target===document.querySelector(selector)}});};
+          const types=['pointermove','pointerdown','pointerup','pointercancel','mousedown','mouseup'];
+          for(const type of types)document.addEventListener(type,observe,true);
+          return {events,dispose:()=>{for(const type of types)document.removeEventListener(type,observe,true);}};
+        }""", self.SELECTOR)
+        start = {"x": bounds["x"] + bounds["width"] - 3, "y": bounds["y"] + bounds["height"] - 3}
+        end = {"x": start["x"], "y": start["y"] + 64}
+        self.evidence["action"] = {"start": start, "end": end, "delta": {"x": 0, "y": 64}, "steps": 8,
+            "units": "window CSS pixels", "recipe": "actual owner border-box bottom-right inset 3; vertical drag +64",
+            "quantity": "requested pointer path, not measured resize-handle geometry"}
+        self.read_sources("before")
+        self.save()
+        self.page.mouse.move(start["x"], start["y"])
+        self.page.mouse.down(button="left")
+        try:
+            self.page.mouse.move(end["x"], end["y"], steps=8)
+        finally:
+            self.page.mouse.up(button="left")
+        self.evidence["fonts_after_action"] = self.page.evaluate(self.SETTLE)
+        after = self.field.evaluate(self.READ_FIELD, self.SELECTOR)
+        self.evidence["after"] = after
+        self.evidence["pointer_events"] = self.observer.evaluate("capture => capture.events")
+        self.evidence["geometry_delta"] = {key: after["bounds"][key] - before["bounds"][key] for key in ("x", "y", "width", "height")}
+        self.evidence["event_delivery"] = {"observed_types": sorted({event["type"] for event in self.evidence["pointer_events"]}),
+            "quantity": "actual document event receipts; UA resize tracking can consume individual pointer events"}
+        self.read_sources("after")
+        self.save()
+        if self.evidence["fonts_after_action"].get("status") != "loaded":
+            raise RuntimeError("Actual fonts changed or did not settle after the textarea drag")
+        if after["value"] != before["value"] or after["text_content"] != before["text_content"] or after["placeholder"] != before["placeholder"]:
+            raise RuntimeError("The real textarea drag changed text instead of preserving the production field")
+        if self.evidence["geometry_delta"]["height"] <= 0:
+            raise RuntimeError("The real corner drag did not increase the actual textarea height")
+        if any(event.get("trusted") is not True for event in self.evidence["pointer_events"]):
+            raise RuntimeError("Textarea drag receipt contains an untrusted synthetic document event")
+        self.checkpoint("after_action")
+
+    def checkpoint(self, stage):
+        state = self.field.evaluate(self.READ_FIELD, self.SELECTOR)
+        events = self.observer.evaluate("capture => capture.events")
+        record = {"stage": stage, "state": state, "pointer_events": events, "host_monotonic": time.monotonic()}
+        self.evidence["checkpoints"].append(record)
+        self.save()
+        if not state.get("connected") or not state.get("same_node"):
+            raise RuntimeError("The actual resized textarea was replaced during capture at " + stage)
+        if self.baseline is None:
+            self.baseline = {"state": state, "pointer_events": events}
+        elif {"state": state, "pointer_events": events} != self.baseline:
+            raise RuntimeError("The actual resized textarea geometry, text, style, state or pointer receipt changed during capture at " + stage)
+
+    def close(self):
+        self.save()
+        if self.observer is not None:
+            self.observer.evaluate("capture => capture.dispose()")
+            self.observer.dispose()
+        if self.field is not None:
+            self.field.dispose()
 
 
 def read_fixture_json(fixture, path):
@@ -469,16 +595,18 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
+    resize = TextareaResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in RESIZE_SCENES else None
+    actions = [action for action in (message, resize) if action is not None]
     try:
-        if message is not None:
-            message.open()
-            message.checkpoint("before_screenshot")
-        page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES else "disabled")
-        if message is not None:
-            message.checkpoint("after_screenshot")
+        for action in actions:
+            action.open()
+            action.checkpoint("before_screenshot")
+        page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled")
+        for action in actions:
+            action.checkpoint("after_screenshot")
         snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
-        if message is not None:
-            message.checkpoint("after_dom_snapshot")
+        for action in actions:
+            action.checkpoint("after_dom_snapshot")
         ax_tree = cdp.send("Accessibility.getFullAXTree")
         input_text = input_text_evidence(cdp)
         fonts = font_evidence(cdp, snapshot, input_text)
@@ -488,13 +616,16 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
-        if message is not None:
-            message.checkpoint("after_source_evidence")
+        for action in actions:
+            action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
         elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
+        for action in actions:
+            action.checkpoint("after_element_extraction")
         if message is not None:
-            message.checkpoint("after_element_extraction")
             elements.setdefault("capture_evidence", {})["message_action"] = message.evidence
+        if resize is not None:
+            elements.setdefault("capture_evidence", {})["textarea_resize_action"] = resize.evidence
         if member_card is not None:
             elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
         if datalist is not None:
@@ -502,14 +633,14 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             (output / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
     except Exception as error:
-        if message is not None:
-            message.evidence["errors"].append(str(error))
-            message.save()
+        for action in actions:
+            action.evidence["errors"].append(str(error))
+            action.save()
         raise
     finally:
         try:
-            if message is not None:
-                message.close()
+            for action in actions:
+                action.close()
         finally:
             try:
                 cdp.detach()
@@ -547,7 +678,7 @@ def reference(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
-            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES else case["scene"]
+            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
             page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
@@ -836,7 +967,7 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
