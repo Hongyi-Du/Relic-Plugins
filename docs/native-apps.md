@@ -1,5 +1,11 @@
 # Native Relic App contract
 
+Changes for the clients (current Mac integration): merged the production
+rich-text accessibility range reads, composite ownership and fixed-size switch
+binding through native-macos. REQUESTS.md adds no further shared request in
+this merge. Those actual native element changes are included in subsequent
+shared builds/captures, not counted as a passing parity result.
+
 Changes for the clients (shared icon-button product fix): actual 7df43bd
 private-header icons were 16px/left-aligned instead of 18px/centered, and the
 settings close icon was 6px left of its reference position. The production
