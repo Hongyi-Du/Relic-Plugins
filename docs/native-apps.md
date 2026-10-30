@@ -1,5 +1,12 @@
 # Native Relic App contract
 
+Changes for the clients (prompt CI feedback): the unchanged reference-extractor
+and matcher unit commands now live in a reusable workflow, called by both Native
+apps and Native visual review. New extractor changes can be checked on the latest
+commit without waiting for the preceding screenshot matrix to finish. The visual
+comparison still requires this check and every captured scene; this does not turn
+unit-test success into element-parity acceptance or remove any capture job.
+
 Changes for the clients (actual settings/forms/member-card controls): Windows
 selected settings segments now draw the reference's small production shadow;
 form ComboBoxes use the measured 15px selected-text inset while keeping their
