@@ -296,6 +296,17 @@ public sealed partial class MainWindow
         CaptureNativeDialogSurfaces(renderIds, renderNodes);
         CaptureNativeToggleParts(renderIds, renderNodes);
         CaptureNativeAvatarParts(renderIds, renderNodes);
+        foreach (var (value, markerId) in renderIds)
+            if (value is NativeListMarker marker && renderNodes.TryGetValue(value, out var markerNode))
+            {
+                renderIds.TryGetValue(marker.Disc, out var ellipseId);
+                var parent = VisualTreeHelper.GetParent(marker.Disc);
+                var parentId = parent != null && renderIds.TryGetValue(parent, out var knownParent) ? knownParent : null;
+                var markerEvidence = marker.Capture(markerId, ellipseId, parentId, root);
+                markerEvidence["window_content_id"] = renderIds.TryGetValue(root, out var rootId) ? rootId : null;
+                markerEvidence["item_text_id"] = marker.ItemText != null && renderIds.TryGetValue(marker.ItemText, out var textId) ? textId : null;
+                markerNode["native_list_marker_evidence"] = markerEvidence;
+            }
         BindTextRangeFrameOwners(renderIds);
         // Second pass: bind retained production line objects only after every
         // actual popup/visual child has its independent traversal id.
