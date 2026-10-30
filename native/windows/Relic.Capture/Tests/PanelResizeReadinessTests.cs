@@ -105,4 +105,88 @@ public sealed class PanelResizeReadinessTests
         Assert.Equal("closed", PanelResizeToolTipReadiness.Observe(state));
         Assert.Single(state["open_popups"]!.AsArray());
     }
+
+    private static void AddObserver(JsonObject state, int revision = 0, bool initialOpen = false)
+    {
+        var tip = state["owned_tooltip"]!;
+        tip["open_change_observer_active"] = true;
+        tip["initial_is_open"] = initialOpen;
+        tip["last_observed_is_open"] = tip["is_open"]!.DeepClone();
+        tip["open_change_revision"] = revision;
+    }
+
+    private static JsonObject DeliveredEvent(string kind, int revision) => new()
+    {
+        ["kind"] = kind, ["sender_same_tooltip_object"] = true, ["same_thumb_object"] = true,
+        ["production_map_same_tooltip_object"] = true, ["attached_same_tooltip_object"] = true,
+        ["is_open"] = kind == "opened", ["is_loaded"] = kind == "opened", ["open_change_revision"] = revision
+    };
+
+    [Fact]
+    public void ActualOpenLoadedPopupIsNotEvidenceThatOpenedWasDelivered()
+    {
+        // The 2f4bd19 race: these visible properties already agreed at the two
+        // checkpoints; only the real Opened delivery changed between them.
+        // Synthetic receipt, deliberately not described as a recorded capture.
+        var state = Open(); AddObserver(state, 1); var events = new JsonArray();
+        var original = state.DeepClone();
+        Assert.Equal("open", PanelResizeToolTipReadiness.Observe(state));
+        Assert.Equal("waiting-for-owned-tooltip-opened-event", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        events.Add(DeliveredEvent("opened", 1));
+        Assert.Equal("delivered-open", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        Assert.Single(events);
+        Assert.True(JsonNode.DeepEquals(original, state));
+    }
+
+    [Fact]
+    public void InitiallyClosedTipNeedsNoManufacturedOpenedOrClosedEvent()
+    {
+        var state = Closed(); AddObserver(state); var events = new JsonArray();
+        Assert.Equal("delivered-closed-initial", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void ReopenedTipCannotBorrowAnEarlierOpening()
+    {
+        var state = Open(); AddObserver(state, 3);
+        var events = new JsonArray(DeliveredEvent("opened", 1), DeliveredEvent("closed", 2));
+        Assert.Equal("waiting-for-owned-tooltip-opened-event", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        events.Add(DeliveredEvent("opened", 3));
+        Assert.Equal("delivered-open", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        Assert.Equal(3, events.Count);
+    }
+
+    [Fact]
+    public void ActualClosureWaitsForTheCurrentClosedEvent()
+    {
+        var state = Closed(); AddObserver(state, 2);
+        var events = new JsonArray(DeliveredEvent("opened", 1));
+        Assert.Equal("waiting-for-owned-tooltip-closed-event", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        events.Add(DeliveredEvent("closed", 2));
+        Assert.Equal("delivered-closed", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        Assert.Equal(2, events.Count);
+    }
+
+    [Theory]
+    [InlineData("sender_same_tooltip_object")]
+    [InlineData("same_thumb_object")]
+    [InlineData("production_map_same_tooltip_object")]
+    [InlineData("attached_same_tooltip_object")]
+    public void ForeignOrReboundEventCannotSatisfyCurrentDelivery(string flag)
+    {
+        var state = Open(); AddObserver(state, 1); var delivered = DeliveredEvent("opened", 1);
+        delivered[flag] = false; var events = new JsonArray(delivered);
+        Assert.Equal("conflicting-tooltip-event-identity", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        Assert.Single(events);
+    }
+
+    [Fact]
+    public void MissingObserverAndPendingPropertyObservationStayUnknown()
+    {
+        var state = Open(); var events = new JsonArray(DeliveredEvent("opened", 1));
+        Assert.Equal("unknown-tooltip-event-observer", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+        AddObserver(state, 1); state["owned_tooltip"]!["last_observed_is_open"] = false;
+        Assert.Equal("waiting-for-owned-tooltip-property-observation", PanelResizeToolTipReadiness.DeliveryStatus(state, events));
+    }
 }

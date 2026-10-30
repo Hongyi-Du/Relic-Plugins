@@ -318,7 +318,6 @@ public sealed partial class MainWindow
     private PersonPicture SidebarPicture(string label, UIElement paint, int size)
     {
         var composition = new NativeAvatarPicture(label, paint, size);
-        nativeAvatarPictures.Add(composition.Picture, composition);
         return composition.Picture;
     }
     private async Task ShowCopies()

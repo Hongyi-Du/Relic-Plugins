@@ -1,5 +1,33 @@
 # Native Relic App contract
 
+Changes for the clients (avatar object lifetime): the actual PersonPicture now
+owns its composition through a private attached dependency property, preserving
+the existing paint/template. The capture records every lookup, including absent,
+detached or failed values, instead of silently omitting avatars whose managed
+weak-key lookup fails. The 3a924e7 tree had 24 PersonPictures and no part receipts;
+the exact GC/RCW cause was not observed. Native readback and actual owner/part
+identity checks remain mandatory. Headless build passes; CI capture is pending.
+
+Changes for the clients (panel tooltip sequencing): the existing single final
+1000ms settling budget now runs after native label render preparation, before
+the screenshot baseline. Actual current IsOpen transitions must have their own
+Opened/Closed event delivered; an older event cannot prove a reopened tooltip.
+No pointer, popup state, baseline comparison or deadline is changed. The actual
+2f4bd19 event arrived after its former baseline, causing the strict failure.
+Ten synthetic fixture cases cover delivery and timing; CI verifies the capture.
+
+CI status at 55d8eca: both native build/test jobs and shared element contracts
+pass; the all-platform static route/key job still fails. No scene has passed the
+strict element gate. The obsolete 9b34ccf full run 41078767688 was cancelled after
+failed shards, retaining its artifacts; it included the since-repaired macOS
+blank-label candidate. The current full run retains all 672 cases per platform.
+
+Changes for the clients (macOS requests consumed after 55d8eca): hosted label
+bitmap tests now pass and the owner enabled that implementation for production
+capture. Actual visible text-line clipping and passive pointer AX hit-chain
+receipts are merged. The pointer receipt does not yet establish CSS-equivalent
+hover, and native bitmap unit tests do not establish full-scene acceptance.
+
 Changes for the clients (actual sidebar accessibility): NativeSidebarRow retains
 ListViewItem selection/name behavior and implements organization ExpandCollapse
 against the same live folded/search state as the arrow. Leaf rows report LeafNode

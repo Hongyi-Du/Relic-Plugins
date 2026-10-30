@@ -12,11 +12,38 @@ public sealed partial class MainWindow
     {
         foreach (var (value, record) in records)
         {
-            if (value is not PersonPicture picture || !nativeAvatarPictures.TryGetValue(picture, out var owner)) continue;
+            if (value is not PersonPicture picture) continue;
+            var lookup = NativeAvatarLifetimeHolder.Read(picture);
+            var lookupEvidence = lookup.Evidence();
+            lookupEvidence["owner_id"] = ids[picture];
+            lookupEvidence["owner_is_loaded"] = picture.IsLoaded;
+            record["native_avatar_lookup"] = lookupEvidence;
+            if (!lookup.IsBound || lookup.Composition is not { } owner)
+            {
+                // A missing retained composition is an observed failure, not
+                // evidence that its still-visible border/outline has no owner.
+                record["native_avatar_parts"] = new JsonObject
+                {
+                    ["source"] = "Actual retained NativeAvatarPicture production parts and visual parent identities",
+                    ["version"] = 2, ["status"] = "incomplete", ["owner_id"] = ids[picture],
+                    ["owner_runtime_type"] = picture.GetType().FullName,
+                    ["composition_runtime_type"] = lookup.Composition?.GetType().FullName,
+                    ["parts"] = new JsonArray(), ["actual_ancestor_edges"] = new JsonArray(),
+                    ["getters_unchanged"] = false,
+                    ["errors"] = new JsonArray("Actual avatar composition lifetime lookup failed: " + lookup.Status),
+                    ["lifetime_lookup"] = lookupEvidence.DeepClone()
+                };
+                continue;
+            }
             var frame = owner.ReplyFrame;
             var organization = owner.Paint as NativeOrganizationAvatarPaint;
-            if (frame == null && organization?.SubgroupOutline == null) continue;
+            if (frame == null && organization?.SubgroupOutline == null)
+            {
+                lookupEvidence["compound_decoration"] = "none in the current retained production composition";
+                continue;
+            }
             var kind = organization != null ? "organization-outline" : "reply-border";
+            lookupEvidence["compound_decoration"] = kind;
             var parts = new Dictionary<string, DependencyObject> { ["paint"] = owner.Paint };
             if (organization != null)
             {
@@ -24,19 +51,25 @@ public sealed partial class MainWindow
                 if (organization.SubgroupOutline != null) parts["outline"] = organization.SubgroupOutline;
             }
             if (frame != null) { parts["frame"] = frame.Surface; parts["layout"] = frame.Layout; }
-            JsonObject State() => new()
+            var lookupReads = new JsonArray();
+            JsonObject State()
             {
-                ["owner_tag_is_paint"] = ReferenceEquals(picture.Tag, owner.Paint),
-                ["owner_template_is_retained"] = ReferenceEquals(picture.Template, owner.PaintTemplate),
-                ["owner_is_loaded"] = picture.IsLoaded, ["owner_is_tab_stop"] = picture.IsTabStop,
-                ["composition_picture_is_owner"] = ReferenceEquals(owner.Picture, picture),
-                ["retained_composition_same_object"] = nativeAvatarPictures.TryGetValue(picture, out var current) && ReferenceEquals(current, owner),
-                ["organization_current_parts"] = organization?.HasCurrentParts,
-                ["organization_has_cabinet_ring"] = organization == null ? null : organization.CabinetRing != null,
-                ["reply_current_parts"] = frame?.HasCurrentParts,
-                ["reply_frame_count"] = frame == null ? 0 : 1,
-                ["reply_frame_contract_type"] = frame?.GetType().FullName
-            };
+                var current = NativeAvatarLifetimeHolder.Read(picture);
+                lookupReads.Add(current.Evidence());
+                return new()
+                {
+                    ["owner_tag_is_paint"] = ReferenceEquals(picture.Tag, owner.Paint),
+                    ["owner_template_is_retained"] = ReferenceEquals(picture.Template, owner.PaintTemplate),
+                    ["owner_is_loaded"] = picture.IsLoaded, ["owner_is_tab_stop"] = picture.IsTabStop,
+                    ["composition_picture_is_owner"] = ReferenceEquals(owner.Picture, picture),
+                    ["retained_composition_same_object"] = current.IsBound && ReferenceEquals(current.Composition, owner),
+                    ["organization_current_parts"] = organization?.HasCurrentParts,
+                    ["organization_has_cabinet_ring"] = organization == null ? null : organization.CabinetRing != null,
+                    ["reply_current_parts"] = frame?.HasCurrentParts,
+                    ["reply_frame_count"] = frame == null ? 0 : 1,
+                    ["reply_frame_contract_type"] = frame?.GetType().FullName
+                };
+            }
             var before = State(); var errors = new JsonArray(); var partRows = new JsonArray();
             var edges = new JsonArray(); var seenEdges = new HashSet<string>(); var complete = true;
             foreach (var (role, part) in parts)
@@ -75,7 +108,9 @@ public sealed partial class MainWindow
             if (frame != null) { Path(picture, frame.Surface); complete &= frame.HasCurrentParts && organization == null; }
             else if (organization == null) complete = false;
             var after = State(); var stable = JsonNode.DeepEquals(before, after);
-            complete &= owner.HasCurrentPaint && ReferenceEquals(owner.Picture, picture) && stable;
+            complete &= owner.HasCurrentPaint && ReferenceEquals(owner.Picture, picture) && stable
+                && before["retained_composition_same_object"]?.GetValue<bool>() == true
+                && after["retained_composition_same_object"]?.GetValue<bool>() == true;
             if (!complete) errors.Add("Retained avatar parts or their actual parent chain are missing, ambiguous or changed");
             record["native_avatar_parts"] = new JsonObject
             {
@@ -85,6 +120,7 @@ public sealed partial class MainWindow
                 ["composition_runtime_type"] = owner.GetType().FullName,
                 ["parts"] = partRows, ["actual_ancestor_edges"] = edges,
                 ["before"] = before, ["after"] = after, ["getters_unchanged"] = stable,
+                ["lifetime_lookup"] = lookupEvidence.DeepClone(), ["lifetime_lookup_reads"] = lookupReads,
                 ["errors"] = errors, ["observed_at_utc"] = DateTimeOffset.UtcNow.ToString("O"),
                 ["scope"] = "Decorative avatar outline or outer border only; image/icon/label content and status dots retain their own evidence; no final pixel or antialias equivalence"
             };
