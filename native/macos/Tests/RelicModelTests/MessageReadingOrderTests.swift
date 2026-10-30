@@ -2,9 +2,60 @@ import XCTest
 import AppKit
 import SwiftUI
 import RelicAX
+import RelicCore
 @testable import Relic
 
 @MainActor final class MessageReadingOrderTests: XCTestCase {
+    private struct ProductionRows: View {
+        let absoluteAvatarPriority: Bool
+        var body: some View {
+            VStack(spacing: 12) {
+                ForEach(0..<2) { index in
+                    let priority = Double((2 - index) * 2)
+                    MessageColumns(mine: true) {
+                        Avatar(member: "human", size: 36)
+                            .accessibilitySortPriority(absoluteAvatarPriority ? priority + 0.5 : 1)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            ReferenceLabel("Metadata \(index)", size: 12.5, lines: 0)
+                            ReferenceLabel("Body \(index)", size: 14, lines: 0).padding(8)
+                                .modifier(RecordedSurface(background: RelicStyle.bubble, radius: 14, kind: "card"))
+                        }.frame(maxWidth: .infinity, alignment: .trailing)
+                    }.accessibilitySortPriority(priority)
+                }
+            }.frame(width: 320)
+        }
+    }
+    func testProductionAvatarContainerUsesItsSourceRowPriorityWithoutChangingInventory() async throws {
+        _ = NSApplication.shared
+        let model = Model(); model.preferences = Node(["name": "Hongyi Du", "avatar": "initials"])
+        var inventories: [[String]] = [], orders: [[String]] = []
+        for absolute in [false, true] {
+            let host = NSHostingView(rootView: ProductionRows(absoluteAvatarPriority: absolute).environmentObject(model))
+            host.frame = NSRect(x: 0, y: 0, width: 320, height: 150)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); CATransaction.flush()
+            try await Task.sleep(for: .milliseconds(80))
+            var seen = Set<ObjectIdentifier>(), names: [String] = [], inventory: [String] = []
+            func walk(_ object: AnyObject) {
+                guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+                let values = RelicAXRead(object), role = values["role"] as? String ?? ""
+                if values["element"] as? Bool == true {
+                    let label = values["label"] as? String ?? "", value = values["value"] as? String ?? ""
+                    let name = label.isEmpty ? value : label
+                    inventory.append(role + ":" + name)
+                    if name == "H" || name.hasPrefix("Metadata ") || name.hasPrefix("Body ") { names.append(name) }
+                }
+                for child in RelicAXChildren(object) { walk(child as AnyObject) }
+                if let view = object as? NSView { for child in view.subviews { walk(child) } }
+            }
+            walk(host); inventories.append(inventory.sorted()); orders.append(names)
+        }
+        XCTAssertEqual(inventories[1], inventories[0])
+        XCTAssertEqual(orders[1], ["H", "Metadata 0", "Body 0", "H", "Metadata 1", "Body 1"],
+            "Actual Avatar/metadata/card navigation, baseline and candidate: \(orders)")
+    }
     private struct Rows: View {
         let ordered: Bool
         var body: some View {

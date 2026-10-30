@@ -8,7 +8,7 @@ struct LiveTurnView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let prompt = turn.prompt {
                 MessageColumns(mine: true) {
-                    Avatar(member: "human", size: 36).accessibilitySortPriority(1)
+                    Avatar(member: "human", size: 36).accessibilitySortPriority(1.5)
                     liveBubble(prompt["text"].text, mine: true).frame(maxWidth: .infinity, alignment: .trailing)
                 }.padding(.top, messageGap).environment(\.selectedAuthor, "human").accessibilitySortPriority(1)
             }

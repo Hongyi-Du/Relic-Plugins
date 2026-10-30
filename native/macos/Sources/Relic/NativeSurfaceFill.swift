@@ -129,6 +129,11 @@ struct NativeSurfaceFill: NSViewRepresentable {
                 "local_path": OutlineDrawReceipt.pathString(path, map: { $0 }),
                 "fill": ElementCapture.rgba(fill), "fill_rule": "nonzero", "global_alpha": 1,
                 "blend_mode": "normal", "antialias": true,
+                "context_bitmap": ["bits_per_component": context.bitsPerComponent,
+                    "bits_per_pixel": context.bitsPerPixel, "bytes_per_row": context.bytesPerRow,
+                    "bitmap_info": context.bitmapInfo.rawValue, "alpha_info": context.alphaInfo.rawValue,
+                    "color_space": context.colorSpace?.name.map { $0 as String } as Any? ?? NSNull(),
+                    "bitmap_data_available": context.data != nil],
                 "context_ctm": [context.ctm.a, context.ctm.b, context.ctm.c, context.ctm.d, context.ctm.tx, context.ctm.ty],
                 "context_clip": ElementCapture.box(context.boundingBoxOfClipPath)]
         }

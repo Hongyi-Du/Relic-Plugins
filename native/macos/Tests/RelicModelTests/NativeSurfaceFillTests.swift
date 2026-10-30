@@ -72,6 +72,7 @@ import SwiftUI
     func testNativeFillCandidatePreservesTheExistingSurfaceBitmap() throws {
         _ = NSApplication.shared
         let fixtures: [(radius: CGFloat, shadows: [SurfaceShadow])] = [(0, []), (8, []), (16, []), (16, SurfaceShadow.dialog)]
+        var nativeContexts: [[String: Any]] = []
         for (index, fixture) in fixtures.enumerated() {
             var images: [Data] = []
             let margin: CGFloat = fixture.shadows.isEmpty ? 0 : 56
@@ -90,11 +91,17 @@ import SwiftUI
                         (view as? NativeSurfaceFillView).map { [$0] } ?? view.subviews.flatMap(fills)
                     }
                     let fill = try XCTUnwrap(fills(host).first)
+                    fill.recordDraws = true; fill.needsDisplay = true; fill.layer?.setNeedsDisplay()
                     XCTAssertEqual(fill.usesOwnedBackingImage, fixture.shadows.isEmpty,
                         "A shadowed surface must retain the pixel-validated AppKit composition path")
                 }
+                host.displayIfNeeded(); CATransaction.flush()
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
                 host.cacheDisplay(in: host.bounds, to: bitmap)
+                if native {
+                    nativeContexts.append(["fixture": index, "shadowed": !fixture.shadows.isEmpty,
+                        "fills": NativeSurfaceFill.observations(in: window)])
+                }
                 images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
                 XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))[3], 255)
                 window.orderOut(nil)
@@ -108,5 +115,10 @@ import SwiftUI
             }
             XCTAssertEqual(images[0], images[1], "The measured fill must preserve the production background pixels")
         }
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: nativeContexts, options: [.sortedKeys])
+            .write(to: directory.appendingPathComponent("surface-render-contexts.json"))
     }
 }
