@@ -30,7 +30,6 @@ struct SelectableText: NSViewRepresentable {
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = QuoteTextView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
-        layout.delegate = view.lineMetrics
         view.isEditable = false; view.isSelectable = true; view.drawsBackground = false
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
@@ -102,7 +101,6 @@ extension NativeTextStyle {
 
 final class QuoteTextView: NSTextView {
     var sourceStorage: NSTextStorage?
-    let lineMetrics = NativeLineMetrics()
     var measuredOpacity: Double = 1
     var productionRegion = "window"
     var quoteTitle = ""
@@ -141,6 +139,7 @@ enum NativeTextStyle {
         // Keep character spacing explicit in both drawing and intrinsic sizing.
         // The CI advance regression separately checks the resolved font metrics.
         rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0,
+            .baselineOffset: NativeLineMetrics.baselineOffset(font: baseFont, lineHeight: paragraph.minimumLineHeight),
             .relicConfiguredFontWeight: monospaced ? 400 : weight == .bold ? 700 : weight == .semibold ? 600 : 400], range: range)
         // Preserve inline Markdown emphasis/code traits after applying the base font.
         var codeRanges: [NSRange] = []

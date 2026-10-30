@@ -1,3 +1,15 @@
+## 2026-10-30: retain native crash diagnostics on CI failure
+
+Run `41032074842`, macOS job `123983931463`, release compilation succeeded but
+the XCTest process exited with signal 11 in `FontShapingTests`. The log does
+not contain a native stack. Please add an `if: failure()` upload of existing
+`~/Library/Logs/DiagnosticReports/*.ips` and `*.crash` after the macOS test step
+in `native-apps.yml`, plus the same artifact on native visual capture failure.
+Do not launch a debugger or a process on the person's machine. The native fix
+removes layout-manager reentry from line-fragment callbacks; the tests remain.
+Keeping the runner's actual crash report will distinguish any remaining font
+API failure from text-layout recursion instead of guessing from the last log line.
+
 ## 2026-10-30: actual static-face weight receipt (shared matcher request)
 
 The actual Menlo glyph callbacks have no `wght` axis. `font_weights.py` currently
