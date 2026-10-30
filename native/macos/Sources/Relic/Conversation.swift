@@ -278,7 +278,7 @@ struct ConversationStream: View {
                             // scrolled offscreen by scrollTo(anchor: .bottom).
                             Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
-                            .environment(\.conversationDisclosure, { following.disclosureChanged() })
+                            .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.modifier(RecordedSurface(background: .clear, kind: "region"))
@@ -286,14 +286,16 @@ struct ConversationStream: View {
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
+                            keyboard.finishDisclosureLayout()
                             if following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size) {
                                 DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
                             }
                         }
                 }
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
-            }.onChange(of: m.selection) { initialLoad = true; following = ConversationScrollFollowing() }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; following = ConversationScrollFollowing() }
                 .onChange(of: m.revision) {
+                    keyboard.discardDisclosurePosition()
                     following.contentChanged()
                     if initialLoad || following.followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
                 }

@@ -16,6 +16,15 @@ uses the previously validated drawing path until those mounted tests pass.
 
 ## 2026-10-30: live disclosure scroll and actual child ownership
 
+Follow-up actual capture `63fc431` restores all label text but still records
+the same 97px disclosure jump. Its NSClipView history shows the document grows
+726 -> 823 while the clip origin moves 76 -> 173. Therefore the state-machine
+change alone is insufficient. The production scroll controller now snapshots
+its actual pre-click origin and restores it once after disclosure layout;
+selection/content changes and explicit keyboard scrolling cancel that queued
+restoration. A native NSScrollView regression exercises the real clip and a
+later user navigation. The screenshot driver still sets no offset. Await CI.
+
 The `06b914e` live-tool-output action receipt records the clicked row at screen
 y=420 and the same expanded row at y=517: a 97px jump, equal to the inserted
 output height. The production follow state cleared its disclosure guard after

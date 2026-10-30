@@ -96,7 +96,9 @@ struct ReferenceLabel: NSViewRepresentable {
         view.productionControlLabelOwner = stateOwner ?? (controlLabel ? owner : nil)
         view.productionParent = nativeParent
         view.productionRegion = region
-        if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
+        if view.attributedString() != value {
+            view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize(); view.invalidateLabelPaint()
+        }
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
@@ -137,17 +139,26 @@ final class ReferenceLabelView: ReadOnlyTextView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override var wantsUpdateLayer: Bool { usesOwnedBackingImage }
-    override func makeBackingLayer() -> CALayer { usesOwnedBackingImage ? CALayer() : super.makeBackingLayer() }
+    override func makeBackingLayer() -> CALayer {
+        usesOwnedBackingImage ? ReferenceLabelBackingLayer(owner: self) : super.makeBackingLayer()
+    }
+    func invalidateLabelPaint() {
+        needsDisplay = true
+        if usesOwnedBackingImage { layer?.setNeedsDisplay() }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow(); invalidateLabelPaint()
+    }
     override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance(); needsDisplay = true
+        super.viewDidChangeEffectiveAppearance(); invalidateLabelPaint()
     }
     override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties(); needsDisplay = true
+        super.viewDidChangeBackingProperties(); invalidateLabelPaint()
     }
     override func setFrameSize(_ newSize: NSSize) {
         let changed = frame.size != newSize
         super.setFrameSize(newSize)
-        if changed { needsDisplay = true }
+        if changed { invalidateLabelPaint() }
     }
     override func updateLayer() {
         backingUpdateCount += 1
@@ -212,6 +223,20 @@ final class ReferenceLabelView: ReadOnlyTextView {
         manager.drawGlyphs(forGlyphRange: glyphs, at: textContainerOrigin)
         NSGraphicsContext.restoreGraphicsState()
     }
+}
+
+/// The candidate owns its actual Core Animation display callback. NSTextView's
+/// private display machinery did not invoke updateLayer on the plain CALayer.
+/// Keep all painting on the UI thread, through the same native TextKit method.
+private final class ReferenceLabelBackingLayer: CALayer {
+    private weak var owner: ReferenceLabelView?
+    init(owner: ReferenceLabelView) {
+        self.owner = owner; super.init()
+        needsDisplayOnBoundsChange = true
+    }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func display() { MainActor.assumeIsolated { owner?.updateLayer() } }
 }
 
 /// AppKit treats a slash in a path as a convenient word boundary. The reference
