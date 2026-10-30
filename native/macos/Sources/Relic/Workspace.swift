@@ -67,9 +67,10 @@ struct WorkspaceView: View {
             if workspace["git"]["changes"].rows.isEmpty { hint(m.t("work.no_changes")) }
             Rows(Array(workspace["git"]["changes"].rows.prefix(60))) { file in
                 let status = FilePresentation.status(file["status"].text)
-                WorkspaceFileRow(path: file["path"].text, disabled: file["status"].text.contains("D")) {
+                let shown = FilePresentation.relative(file["path"].text, root: base)
+                WorkspaceFileRow(path: file["path"].text, accessibleName: status + " " + shown, disabled: file["status"].text.contains("D")) {
                     ReferenceLabel(status, size: 11, weight: 600, color: ["M", "R"].contains(status) ? RelicStyle.amber : ["A", "U"].contains(status) ? RelicStyle.green : status == "D" ? RelicStyle.red : RelicStyle.ink, monospaced: true).frame(width: 18)
-                    Text(FilePresentation.relative(file["path"].text, root: base)).font(RelicStyle.font(12.5, weight: 400)).lineLimit(1).strikethrough(file["status"].text.contains("D"))
+                    ReferenceLabel(shown, size: 12.5, struck: file["status"].text.contains("D"))
                 }
             }
             if workspace["git"]["changes"].rows.count > 60 { hint(m.t("common.more_items", ["n": String(workspace["git"]["changes"].rows.count - 60)])) }
@@ -81,7 +82,7 @@ struct WorkspaceView: View {
             Rows(Array(workspace["recent"].rows.prefix(15))) { file in
                 let shown = FilePresentation.relative(file["path"].text, root: base).replacingOccurrences(of: "\\", with: "/")
                 let name = FilePresentation.name(shown), folder = String(shown.dropLast(name.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                WorkspaceFileRow(path: file["path"].text) {
+                WorkspaceFileRow(path: file["path"].text, accessibleName: [name, folder, m.ago(file["at"])].filter { !$0.isEmpty }.joined(separator: " ")) {
                     ReferenceIcon(name: "file", size: 14, color: RelicStyle.muted)
                     (Text(name) + Text(folder.isEmpty ? "" : "  " + folder).foregroundColor(RelicStyle.muted)).font(RelicStyle.font(12.5, weight: 400)).lineLimit(1)
                     Spacer(minLength: 0)
@@ -93,30 +94,40 @@ struct WorkspaceView: View {
 }
 
 private struct WorkspaceMemberChip: View {
+    @EnvironmentObject var m: Model
     let member: Node, selected: Bool
     let action: () -> Void
     @State private var hovered = false
+    @State private var avatarImageVisible = false
+    private var identity: String { "relic-row/workspace-member/" + member["name"].text }
+    private var accessibleName: String { [avatarImageVisible ? "" : String(m.name(member["name"].text).prefix(1)).uppercased(), member.display].filter { !$0.isEmpty }.joined(separator: " ") }
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Avatar(member: member["name"].text, size: 20)
+                Avatar(member: member["name"].text, size: 20, imageVisibility: { avatarImageVisible = $0 })
                 ReferenceLabel(member.display, size: 12.5, weight: selected ? 600 : 400, color: selected || hovered ? RelicStyle.ink : RelicStyle.secondary)
             }.padding(.leading, 4).padding(.trailing, 11).frame(height: 28)
                 .modifier(RecordedSurface(background: selected ? RelicStyle.mix(RelicStyle.accent, RelicStyle.card, fraction: 0.1) : RelicStyle.card,
                     border: selected ? RelicStyle.accent.opacity(0.5) : RelicStyle.border, borderWidth: 1, radius: 14, hovered: hovered, selected: selected))
         }.buttonStyle(.plain).onHover { hovered = $0 }.help(member["name"].text + (member["role"].text.isEmpty ? "" : " · " + member["role"].text))
+            .accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
+            .environment(\.nativeElementParent, identity)
     }
 }
 
 private struct WorkspaceFileRow<Content: View>: View {
     @EnvironmentObject var m: Model
     let path: String
+    let accessibleName: String
     var disabled = false
+    @State private var identity = "relic-row/workspace-file/" + UUID().uuidString
     @ViewBuilder let content: () -> Content
     var body: some View {
         Button { m.run { try await m.openFile(path) } } label: {
             HStack(spacing: 6) { content(); Spacer(minLength: 0) }.padding(.horizontal, 6).frame(height: 26)
         }.buttonStyle(FileRowStyle()).help(path).disabled(disabled)
+            .accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
+            .environment(\.nativeElementParent, identity)
     }
 }
 

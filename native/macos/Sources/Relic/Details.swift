@@ -100,15 +100,7 @@ struct TraceView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     Rows(m.members) { who in
-                        Button { m.detailMember = who["name"].text } label: {
-                            HStack(spacing: 9) {
-                                Avatar(member: who["name"].text, size: 28, showState: true, stateBorder: RelicStyle.sidebar)
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ReferenceLabel(who.display, size: 13.3, weight: 550, lineHeight: 17.955)
-                                    ReferenceLabel([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · "), size: 12, color: RelicStyle.muted, lineHeight: 16.2)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(.horizontal, 8).padding(.vertical, 6)
-                        }.buttonStyle(QuietButtonStyle(selected: m.detailMember == who["name"].text, selectionApplicable: true)).help(who.display)
+                        TraceMemberRow(member: who)
                     }
                 }.padding(8)
             }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
@@ -119,6 +111,7 @@ struct TraceView: View {
                     HStack(spacing: 8) {
                         SettingsSegments(options: [("all", m.t("common.all")), ("talk", m.t("trace.filter_talk")), ("tools", m.t("trace.filter_actions"))], selection: $filter)
                         ReferenceInput(placeholder: m.t("trace.search"), text: $query, height: 30, voice: false).frame(width: 220)
+                            .environment(\.nativeFieldLabel, m.t("trace.search"))
                     }.padding(.bottom, 12)
                     if data["start"].integer > 0 { HStack { Spacer(); TextButton(m.t("trace.load_older"), size: 12, weight: 400) { m.run { try await load(older: true) } }.buttonStyle(ReferenceButtonStyle(small: true)).disabled(loading); Spacer() }.padding(.vertical, 8) }
                     if data["missing"].flag { ReferenceLabel(m.t("trace.no_session"), size: 13, color: RelicStyle.muted).padding(22) }
@@ -138,5 +131,29 @@ struct TraceView: View {
         let result = try await m.get(Client.org(org, "/transcript?member=" + Client.segment(who) + "&limit=400" + (older ? "&before=" + data["start"].text : "")))
         try Task.checkCancellation(); guard org == m.organization, who == m.detailMember else { return }
         data = older ? Node(result.object.merging(["steps": result["steps"].rows.map(\.raw) + data["steps"].rows.map(\.raw)]) { _, new in new }) : result
+    }
+}
+
+private struct TraceMemberRow: View {
+    @EnvironmentObject var m: Model
+    let member: Node
+    @State private var avatarImageVisible = false
+    private var identity: String { "relic-list-row/trace/" + member["name"].text }
+    private var subtitle: String { [member["harness_label"].text, member["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ") }
+    private var accessibleName: String {
+        [avatarImageVisible ? "" : String(m.name(member["name"].text).prefix(1)).uppercased(), member.display, subtitle].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    var body: some View {
+        Button { m.detailMember = member["name"].text } label: {
+            HStack(spacing: 9) {
+                Avatar(member: member["name"].text, size: 28, showState: true, stateBorder: RelicStyle.sidebar, imageVisibility: { avatarImageVisible = $0 })
+                VStack(alignment: .leading, spacing: 0) {
+                    ReferenceLabel(member.display, size: 13.3, weight: 550, lineHeight: 17.955)
+                    ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.horizontal, 8).padding(.vertical, 6)
+        }.buttonStyle(QuietButtonStyle(selected: m.detailMember == member["name"].text, selectionApplicable: true)).help(member.display)
+            .accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
+            .environment(\.nativeElementParent, identity)
     }
 }

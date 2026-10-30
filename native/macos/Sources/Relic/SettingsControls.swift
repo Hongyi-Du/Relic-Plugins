@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NativeRadio: NSViewRepresentable {
     @Binding var selected: Bool
+    var accessibleName = ""
     @Environment(\.isEnabled) private var enabled
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSButton {
@@ -11,6 +12,8 @@ struct NativeRadio: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.parent = self; button.state = selected ? .on : .off; button.isEnabled = enabled
+        button.setAccessibilityLabel(accessibleName)
+        button.cell?.setAccessibilityLabel(accessibleName)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? { CGSize(width: 13, height: 13) }
     final class Coordinator: NSObject {

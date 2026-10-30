@@ -92,7 +92,7 @@ struct MemberForm: View {
     private func toggle(_ key: String, value: Binding<Bool>) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             ReferenceSwitch(m.t(key), isOn: value)
-            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.secondary, lines: 0).onTapGesture { value.wrappedValue.toggle() }
+            ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.secondary, lines: 0, accessibleName: "").onTapGesture { value.wrappedValue.toggle() }
         }
     }
 
@@ -131,11 +131,15 @@ struct MemberForm: View {
         VStack(alignment: .leading, spacing: 6) {
             ReferenceLabel(m.t("member.harness_label"), size: 12.5, color: RelicStyle.muted)
             Rows(harnesses.filter { !$0["later"].flag }) { option in
+                let detail = option["available"].flag ? m.t("member.connected", ["program": ReferenceText.clip(option["program"].text, to: 48)]) : option["problem"].text
                 HStack(spacing: 10) {
-                    NativeRadio(selected: Binding(get: { harness == option["id"].text }, set: { if $0 { harness = option["id"].text } }))
+                    NativeRadio(selected: Binding(get: { harness == option["id"].text }, set: { if $0 { harness = option["id"].text } }), accessibleName: [option["title"].text, option["vendor"].text, detail].filter { !$0.isEmpty }.joined(separator: " "))
                     VStack(alignment: .leading, spacing: 0) {
-                        (Text(option["title"].text).font(RelicStyle.font(12.5, weight: 700)) + Text(" " + option["vendor"].text).font(RelicStyle.font(12.5, weight: 400)).foregroundColor(RelicStyle.muted)).fixedSize(horizontal: false, vertical: true)
-                        ReferenceLabel(option["available"].flag ? m.t("member.connected", ["program": ReferenceText.clip(option["program"].text, to: 48)]) : option["problem"].text, size: 12, color: RelicStyle.muted, lines: 0)
+                        HStack(spacing: (" " as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(12.5, weight: 400)]).width) {
+                            ReferenceLabel(option["title"].text, size: 12.5, weight: 700)
+                            ReferenceLabel(option["vendor"].text, size: 12.5, color: RelicStyle.muted)
+                        }
+                        ReferenceLabel(detail, size: 12, color: RelicStyle.muted, lines: 0)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.padding(.horizontal, 12).padding(.vertical, 10)
                     .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
@@ -159,9 +163,10 @@ struct MemberForm: View {
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], alignment: .leading, spacing: 6) {
                 ForEach(Capabilities.hostKinds(m.platform), id: \.self) { kind in
                     let parts = kind.split(separator: "/").map(String.init)
+                    let title = m.t(parts[1] == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": harnesses.first { $0["id"].text == parts[0] }?["title"].text ?? parts[0]])
                     HStack(spacing: 10) {
-                        NativeRadio(selected: Binding(get: { kind == hostHarness + "/" + surface }, set: { if $0 { hostHarness = parts[0]; surface = parts[1]; permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" } }))
-                        ReferenceLabel(m.t(parts[1] == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": harnesses.first { $0["id"].text == parts[0] }?["title"].text ?? parts[0]]), size: 12.5, weight: 700, color: RelicStyle.secondary, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+                        NativeRadio(selected: Binding(get: { kind == hostHarness + "/" + surface }, set: { if $0 { hostHarness = parts[0]; surface = parts[1]; permission = options[hostHarness == "codex" ? "codex_sandboxes" : "claude_modes"].rows.first?.text ?? "" } }), accessibleName: title)
+                        ReferenceLabel(title, size: 12.5, weight: 700, color: RelicStyle.secondary, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(.horizontal, 12).padding(.vertical, 10).modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
                 }
             }
