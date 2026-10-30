@@ -1,4 +1,17 @@
-## 2026-10-30: owned-layer regression isolated from production
+## 2026-10-30: hosted label-layer validation passed; production capture pending
+
+Native apps run 41085619771, macOS job 124166161296 at `00c623b`, builds and passes
+all 223 tests. The custom CALayer.display callback now actually invokes the same
+TextKit painter: the isolated direct view has no extra child layer and nonempty
+glyph pixels; the real SwiftUI host's full bitmap equals the previous painter;
+the submitted layer image also equals AppKit's actual bitmap including Emoji.
+This validates the implementation after the earlier blank regression. It is
+now enabled in production; new full-page captures must still prove current
+source binding and visible labels. No ContentLayer allowlist was introduced.
+Final PNG attribution and the containing controls' own outline obligations
+remain independent, unresolved requirements.
+
+## 2026-10-30: owned-layer regression isolated from production (historical)
 
 Actual `0d3d681` smoke captures from run 41078665367 completed, but show blank
 ReferenceLabel text. Their actual glyph receipts are null. No bitmap success
