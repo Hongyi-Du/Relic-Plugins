@@ -69,6 +69,7 @@ final class ReferenceSwitchButton: NSButton {
     // A custom painted cell has no built-in bezel/glyph AX provider. The real
     // control exposes its own role, current native state and full hit frame.
     override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityChildren() -> [Any]? { [] }
     // Bezel alignment insets otherwise expand a 32x18 SwiftUI proposal to a
     // 36x22 actual view/hit frame, despite the custom empty cell.
     override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
@@ -88,4 +89,5 @@ final class ReferenceSwitchButton: NSButton {
 private final class NativeSwitchCell: NSButtonCell {
     // All visible paint belongs to the adjacent production track/knob views.
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {}
+    override func isAccessibilityElement() -> Bool { false }
 }

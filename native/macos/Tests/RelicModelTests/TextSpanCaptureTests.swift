@@ -3,6 +3,27 @@ import AppKit
 @testable import Relic
 
 @MainActor final class TextSpanCaptureTests: XCTestCase {
+    func testPlainToolOutputRemainsOneTextElementAcrossNativeFontFallbacks() throws {
+        let source = "已读取 README.md\n\t布局：三栏\n\t检查：文字、间距与状态\n等待逐元素比较。"
+        let storage = NSTextStorage(attributedString: NativeTextStyle.render(AttributedString(source), size: 11.5,
+            lineHeight: 17.825, monospaced: true, uniformSource: true))
+        let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: 650, height: 120))
+        layout.recordDraws = true; storage.addLayoutManager(layout); layout.addTextContainer(container)
+        let view = QuoteTextView(frame: NSRect(x: 0, y: 0, width: 650, height: 120), textContainer: container)
+        view.sourceStorage = storage; view.isEditable = false; view.isSelectable = true
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view)); view.cacheDisplay(in: view.bounds, to: bitmap)
+        let rows = ElementCapture.textRuns(view)
+        XCTAssertEqual(rows.count, 1)
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["text"] as? String, source)
+        XCTAssertGreaterThan(try XCTUnwrap(row["native_attribute_runs"] as? [[String: Any]]).count, 1)
+        let accessible = try XCTUnwrap(row["native_accessible_range"] as? [String: Any])
+        XCTAssertEqual(accessible["value"] as? String, source)
+        XCTAssertEqual(accessible["matches_rendered_text"] as? Bool, true)
+        let fonts = try XCTUnwrap((row["style"] as? [String: Any])?["rendered_fonts"] as? [[String: Any]])
+        XCTAssertGreaterThan(Set(fonts.compactMap { $0["postscript_name"] as? String }).count, 1)
+    }
+
     func testRichSpanAccessibleValuesComeFromTheActualNativeRangeAPI() throws {
         let storage = NSTextStorage(attributedString: NativeTextStyle.render(try AttributedString(markdown: "Before **bold** after"), size: 14))
         let layout = NativeGlyphLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: 300, height: 80))

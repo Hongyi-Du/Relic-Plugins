@@ -20,7 +20,7 @@ struct ActivityGroup: View {
                     ReferenceLabel(m.clock(item["at"]), size: 12.5, color: RelicStyle.muted, owner: identity).fixedSize()
                 }.padding(.horizontal, 10).padding(.vertical, 6).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
-            }.buttonStyle(.plain).accessibilityIdentifier(identity)
+            }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in ActivityRow(row: row, member: item["member"].text) }
@@ -31,12 +31,19 @@ struct ActivityGroup: View {
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "card"))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
+    private var accessibleName: String {
+        var parts = [m.t("step.actions", ["n": String(rows.count)]), ToolActivity.summary(rows)]
+        let failed = rows.filter(\.failed).count
+        if failed > 0 { parts.append(m.t("step.failed", ["n": String(failed)])) }
+        parts.append(m.clock(item["at"]))
+        return parts.filter { !$0.isEmpty }.joined(separator: " ")
+    }
 }
 
 struct ActivityOutput: View {
     let text: String
     private var content: some View {
-        SelectableText(value: AttributedString(text), pointSize: 11.5, lineHeight: 17.825, monospaced: true)
+        SelectableText(value: AttributedString(text), pointSize: 11.5, lineHeight: 17.825, monospaced: true, uniformSource: true)
             .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 7, kind: "code"))
     }

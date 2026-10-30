@@ -38,7 +38,7 @@ private struct LiveActions: View {
     @EnvironmentObject var m: Model
     let items: [Node]
     @State private var expanded = true
-    @State private var identity = "relic-row/live-actions/" + UUID().uuidString
+    @State private var identity = "relic-text-button/live-actions/" + UUID().uuidString
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button { expanded.toggle() } label: {
@@ -92,7 +92,9 @@ private struct LiveToolRow: View {
                     ReferenceLabel(LivePresentation.toolState(item["status"].text, words: m.words), size: 11, color: RelicStyle.muted, lineHeight: 17.6, owner: identity).fixedSize()
                 }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: hovering ? RelicStyle.sidebar : .clear, owner: identity, hovered: hovering, expanded: expanded))
-            }.buttonStyle(.plain).accessibilityIdentifier(identity).onHover { hovering = $0 }
+            }.buttonStyle(.plain).accessibilityIdentifier(identity)
+                .accessibilityLabel(ReferenceText.clip(item["title"].text, to: 60) + " " + LivePresentation.toolState(item["status"].text, words: m.words))
+                .onHover { hovering = $0 }
             if expanded && !item["text"].text.isEmpty {
                 LiveToolOutput(text: item["text"].text).padding(.leading, 27).padding(.trailing, 10).padding(.top, 2).padding(.bottom, 8)
                     .accessibilityIdentifier("relic-live-output/" + item["id"].text)
@@ -110,7 +112,7 @@ private struct LiveToolOutput: View {
         }.frame(maxHeight: 360, alignment: .topLeading)
     }
     private var output: some View {
-        SelectableText(value: AttributedString(text), pointSize: 11.5, lineHeight: 17.825, monospaced: true)
+        SelectableText(value: AttributedString(text), pointSize: 11.5, lineHeight: 17.825, monospaced: true, uniformSource: true)
             .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 7, kind: "code"))
     }
