@@ -170,6 +170,8 @@ struct NativeMenuRow: View {
                 if !shortcut.isEmpty { Keycap(shortcut, menu: true) }
             }.padding(.horizontal, 10).frame(height: 34.8)
         }.buttonStyle(MenuItemStyle()).accessibilityIdentifier(identity)
+            .accessibilityLabel([title, shortcut].filter { !$0.isEmpty }.joined(separator: " "))
+            .environment(\.nativeElementParent, identity)
             .preference(key: MenuIntrinsicWidth.self, value: intrinsicWidth)
     }
 }

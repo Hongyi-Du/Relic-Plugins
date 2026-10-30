@@ -114,7 +114,7 @@ struct RichText: View {
         case "list":
             VStack(alignment: .leading, spacing: 0) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: 8) {
-                    ReferenceLabel(item.marker, size: baseSize, lineHeight: textLineHeight, alignment: .right).frame(width: 14, alignment: .trailing)
+                    ReferenceLabel(item.marker + " ", size: baseSize, lineHeight: textLineHeight, alignment: .right, textGlyphIcon: true).frame(width: 14, alignment: .trailing)
                     inline(item.text)
                 }.padding(.leading, item.indented ? 18 : 0)
             } }
@@ -125,6 +125,7 @@ struct RichText: View {
                         SelectableText(value: NativeMarkdown.attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
                             .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: tableWidths(block)[column], alignment: .leading)
                             .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == NativeMarkdown.table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
+                            .accessibilityLabel(String(NativeMarkdown.attributed(cell).characters))
                     }
                 } }
             }.padding(.vertical, 6) }.fixedSize(horizontal: false, vertical: true)
@@ -469,11 +470,12 @@ struct StepView: View {
                 HStack(spacing: 8) {
                     Circle().fill(step["error"].flag ? RelicStyle.red : step["role"].text == "tool_result" ? RelicStyle.green : RelicStyle.faint).frame(width: 7, height: 7)
                     ReferenceLabel(title, size: 12.5, weight: 600, owner: identity).fixedSize()
-                    Text(summary).font(Font(RelicStyle.monoFont(11.5))).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    ReferenceLabel(summary, size: 11.5, color: RelicStyle.muted, owner: identity, monospaced: true).frame(maxWidth: .infinity, alignment: .leading)
                     ReferenceLabel(m.clock(step["at"]), size: 11, color: RelicStyle.muted, owner: identity).fixedSize()
                 }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity)
+                .accessibilityLabel([title, summary, m.clock(step["at"])].filter { !$0.isEmpty }.joined(separator: " "))
             if expanded {
                 SelectableText(value: AttributedString(step["text"].text), pointSize: 11.5, lineHeight: 17.825, monospaced: true)
                     .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)

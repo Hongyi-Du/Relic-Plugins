@@ -235,7 +235,8 @@ import CoreText
                 "native_insertion_geometry": advances.lines, "native_ink_envelope": box(inkEnvelope),
                 "native_line_break_configuration": ["paragraph_mode": paragraph?.lineBreakMode.rawValue as Any? ?? NSNull(),
                     "container_mode": container.lineBreakMode.rawValue, "maximum_lines": container.maximumNumberOfLines],
-                "kind": attributes[.link] == nil ? "text" : "link",
+                "kind": (view as? ReferenceLabelView)?.textGlyphIcon == true ? "icon" : attributes[.link] == nil ? "text" : "link",
+                "icon": (view as? ReferenceLabelView)?.textGlyphIcon == true ? ["source": "text-glyph", "glyph": text] as Any : NSNull(),
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
@@ -370,6 +371,7 @@ import CoreText
                     if let parent = run["parent_run"] as? Int { projected["parent"] = path + "/text-" + String(parent) }
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
+                    projected["icon"] = run["icon"] ?? NSNull()
                     projected["native_structure"] = run["native_structure"]
                     if let nativeLabel = textView as? ReferenceLabelView, nativeLabel.hasExplicitAccessibilityName,
                        let actualLabel = attributes["label"] as? String {
