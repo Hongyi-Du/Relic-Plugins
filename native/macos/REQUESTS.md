@@ -1,5 +1,19 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed shared `d8f74ff` image contract and scrollbar-fixture fix. NativeLogoView
+now retains the actual parameters used by its CG calls: rectangle bounds/radii,
+gradient stop locations/colors, sRGB space, both extension flags, parsed CGPath
+segments and original parser input/fill rule, circle geometry, and executed layer
+order. Its `native_image_draw.paint` uses `vector-image-v1`, emitted as canonical
+icon only when the actual view/window identity and local bounds still match the
+completed draw. Raw transform and outer clipping remain separate. The receipt
+explicitly does not claim final-PNG pixel attribution. New native bitmap tests
+check actual letter/circle pixels and orientation; CI validation is pending.
+
+Latest verified build: `33a67ec`, Native apps `40999624975`, macOS job
+`123880723628` passed. This includes the sidebar surface fixes and production
+owner association; the actual large-window capture still awaits artifact upload.
+
 Current shared checker regression: `25f57f2` diagnostic `40997958370`, job
 `123876130410`, fails Node subtest 25, `overflow scrollbar evidence retains actual
 metrics without inventing thumb bounds`. `test_reference_elements.mjs:253` throws

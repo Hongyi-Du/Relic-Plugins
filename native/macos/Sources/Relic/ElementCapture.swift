@@ -279,6 +279,11 @@ import CoreText
             node["style"] = style(object, text: text)
             if let logo = object as? NativeLogoView {
                 node["native_image_draw"] = logo.lastDraw as Any? ?? NSNull()
+                node["icon"] = logo.currentPaint() as Any? ?? NSNull()
+                node["native_image_current_binding"] = ["view_identity": String(describing: ObjectIdentifier(logo)),
+                    "window_identity": logo.window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+                    "local_bounds": box(logo.bounds), "paint_available": logo.currentPaint() != nil,
+                    "quantity": "Current mounted view and completed native draw; final PNG contribution remains separate"]
                 if let draw = logo.lastDraw {
                     var imageStyle = node["style"] as! [String: Any]
                     imageStyle.merge(["backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0,
