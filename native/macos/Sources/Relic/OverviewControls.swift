@@ -80,11 +80,34 @@ struct ReferenceButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label.font(RelicStyle.font(small ? 12 : 13, weight: 600))
                 .foregroundStyle(primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink)
-                .padding(.horizontal, small ? 9 : 13).frame(height: small ? 26 : 32)
+                // CSS border-box includes one painted border on each side in
+                // addition to the 9/13px content padding.
+                .padding(.horizontal, small ? 10 : 14).frame(height: small ? 26 : 32)
                 .modifier(RecordedSurface(background: primary ? RelicStyle.ink : hovered || configuration.isPressed ? RelicStyle.hover : ghost ? .clear : RelicStyle.card,
                     border: primary ? RelicStyle.ink : ghost ? .clear : RelicStyle.border, borderWidth: 1, radius: small ? 7 : 9, hovered: hovered))
                 .recordedOpacity(enabled ? 1 : 0.45).onHover { hovered = $0 }
         }
+    }
+}
+
+/// The same native TextKit label is used for sizing, drawing and accessibility
+/// evidence. A compound SwiftUI Button otherwise hides its text renderer.
+struct ReferenceActionButton: View {
+    let title: String
+    var primary = false
+    var small = false
+    var danger = false
+    var ghost = false
+    let action: () -> Void
+    init(_ title: String, primary: Bool = false, small: Bool = false, danger: Bool = false, ghost: Bool = false, action: @escaping () -> Void) {
+        self.title = title; self.primary = primary; self.small = small
+        self.danger = danger; self.ghost = ghost; self.action = action
+    }
+    var body: some View {
+        TextButton(title, size: small ? 12 : 13, weight: 600,
+                   color: primary ? RelicStyle.background : danger ? RelicStyle.red : RelicStyle.ink,
+                   action: action)
+            .buttonStyle(ReferenceButtonStyle(primary: primary, small: small, danger: danger, ghost: ghost))
     }
 }
 

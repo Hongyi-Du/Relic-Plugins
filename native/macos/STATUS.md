@@ -14,7 +14,8 @@
 [41029422150 / macos 123975289918](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41029422150/job/123975289918)
 release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、原始工具文本边界和只读文档末尾换行高度回归。
 此后的静态字体表／文字基线修改仍待验证：`3462591` release 编译成功，XCTest 在字体绘制测试退出 signal 11；
-`f6c73ce` 已移除排版代理内的布局递归查询，保留原测试，并请求 CI 上传原始崩溃报告。
+`f6c73ce` 移除排版代理递归后仍退出 signal 11。随后定位到字体表 API 返回未装箱整数标签，
+错误桥接为 NSNumber 会解引用整数地址；现已改用 `CFArrayGetValueAtIndex` 读取，并保留真实绘制测试。
 
 最新已下载的完整矩阵失败报告是
 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\full-report\`，

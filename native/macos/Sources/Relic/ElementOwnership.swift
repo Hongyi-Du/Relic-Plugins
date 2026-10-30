@@ -78,7 +78,7 @@ enum ElementOwnership {
             }
             elements.removeAll { $0["id"] as? String == labelID }
             guard let index = elements.firstIndex(where: { $0["id"] as? String == ownerID }) else { continue }
-            let simple = ["relic-text-button/", "relic-chip-button/", "relic-avatar/", "relic-chip/", "relic-badge/", "relic-tab/"].contains { identifier.hasPrefix($0) }
+            let simple = ["relic-text-button/", "relic-chip-button/", "relic-avatar/", "relic-chip/", "relic-badge/", "relic-tab/", "relic-dropdown/"].contains { identifier.hasPrefix($0) }
             if simple && labels.filter({ $0["production_owner"] as? String == identifier }).count == 1 {
                 var style = elements[index]["style"] as? [String: Any] ?? [:]
                 let textStyle = label["style"] as? [String: Any] ?? [:]

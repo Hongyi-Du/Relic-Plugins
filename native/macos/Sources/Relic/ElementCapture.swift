@@ -270,6 +270,8 @@ import CoreText
     }
     private static func writeMeasured(window: NSWindow, png: URL, item: Node, language: String, theme: String, captureErrors: [String]) throws {
         guard let content = window.contentView, let bitmap = NSBitmapImageRep(data: try Data(contentsOf: png)) else { throw RelicError.message("Cannot inspect captured native image") }
+        try JSONSerialization.data(withJSONObject: ScrollGeometryTrace.receipt(), options: [.sortedKeys])
+            .write(to: png.deletingPathExtension().appendingPathExtension("native-scroll.json"))
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let viewport = NSRect(origin: .zero, size: content.bounds.size)
         var raw: [[String: Any]] = [], elements: [[String: Any]] = [], seen = Set<ObjectIdentifier>()

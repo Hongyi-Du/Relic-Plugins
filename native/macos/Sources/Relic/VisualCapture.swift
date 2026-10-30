@@ -83,6 +83,7 @@ import RelicAX
                 try item["id"].text.write(to: manifestURL.deletingLastPathComponent().appendingPathComponent("current-case.txt"), atomically: true, encoding: .utf8)
                 await model.start()
                 guard model.ready else { throw RelicError.message(model.error) }
+                ScrollGeometryTrace.reset()
                 hosting.rootView = MainView().environmentObject(model).id(item["id"].text)
                 sceneMounted = true
                 model.sheet = nil; model.error = ""; model.notice = ""; model.search = ""
