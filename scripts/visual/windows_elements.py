@@ -26,6 +26,7 @@ from windows_toggle_parts import windows_toggle_parts
 from windows_avatar_parts import windows_avatar_parts
 from windows_list_marker import windows_list_markers
 from windows_inset_shadow import windows_inset_shadows
+from windows_textarea_placeholder import textarea_placeholder_styles, apply_textarea_placeholder_style
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
 
@@ -2057,6 +2058,8 @@ def project(xaml_path, uia_path, png_path):
     unmeasured.extend(avatar_parts["unmeasured"])
     list_markers = windows_list_markers(source_raw)
     inset_shadows = windows_inset_shadows(source_raw)
+    textarea_placeholders = textarea_placeholder_styles(source_raw)
+    unmeasured.extend(textarea_placeholders["unmeasured"])
     for issue in inset_shadows["unmeasured"]:
         inset_owner = source_by_id.get(issue["id"], {})
         if not inset_owner.get("hidden_reason") and positive(inset_owner.get("visible_bounds")):
@@ -2704,6 +2707,14 @@ def project(xaml_path, uia_path, png_path):
         region = node["region"]
         name_witness = witness or run_name_witness
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
+        placeholder_style = textarea_placeholders["audits"].get(node["id"])
+        placeholder_node = by_id.get(placeholder_style.get("source_id")) if placeholder_style else None
+        placeholder_visible = placeholder_node is not None and visible(placeholder_node)
+        if placeholder_style and placeholder_style.get("status") == "measured" and not placeholder_visible:
+            unmeasured.append({"id": node["id"], "property": "input.placeholder_style",
+                               "reason": "Bound placeholder has no visible fragments after actual paint occlusion"})
+        apply_textarea_placeholder_style(style, placeholder_style,
+                                        textarea_placeholders["styles"].get(node["id"]), placeholder_visible)
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": submitted_label_text["visible_bounds"] if submitted_label_text is not None else avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
@@ -2716,6 +2727,7 @@ def project(xaml_path, uia_path, png_path):
                                 "native_label_text_quantity": submitted_label_text,
                                 "native_label_fonts": submitted_label_fonts,
                                 "label_source": label["id"] if label else None,
+                                "textarea_placeholder_style": copy.deepcopy(placeholder_style),
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,
                                 "placeholder": node.get("layout", {}).get("placeholder"),

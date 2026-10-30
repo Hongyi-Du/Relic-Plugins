@@ -1,11 +1,27 @@
 # Native Relic App contract
 
-Changes for the clients (new macOS ownership request under implementation): the
-owner added appkit-current-field-editor-v3 for ordinary native text fields, with
-actual base-class/currentEditor/controlView identities. Shared reader support is
-being implemented with the existing strict value/window/focus/unique-owner checks;
-until then v3 is not accepted. The new opaque-candidate diagnostics do not remove
-elements or establish visibility in the shared gate; unknown occlusion still fails.
+Changes for the clients (macOS current-editor request consumed): the shared reader
+now accepts appkit-current-field-editor-v3 only with the actual three base-type
+observations, retained owner/editor runtime classes and nonempty control class.
+The existing strict currentEditor/controlView, value, UTF-16 selection, window,
+focus, unique-owner, geometry and independent-paint checks remain mandatory.
+V2 behavior is unchanged and V1 remains rejected. Seven synthetic test methods
+run in CI; real native captures are still required. The owner's opaque-candidate
+diagnostics remove no elements; unknown occlusion still fails the shared gate.
+
+Changes for the clients (Windows placeholder source): NativeTextarea now records
+its actual already-applied PlaceholderTextContentPresenter object and the retained
+parent chain, with current text, visibility and style before/after readback.
+The shared reader uses that part's three text properties only for a proven visible
+placeholder of the current empty input. Missing, changed, hidden, occluded or
+ambiguous ownership leaves those quantities unknown. Owner configuration, the
+raw placeholder and resize Thumb, geometry and all paint failures are preserved.
+No template is applied or composition visual created by this read-only capture.
+
+Changes for the clients (macOS navigation evidence): the owner reports actual
+98841c1 file header/actions preceding the contents. Outgoing message avatar order
+still disagrees; its new mounted test evaluates native navigation priorities
+without enabling a production change or sorting by reference coordinates.
 
 Changes for the clients (one producer-buffer hypothesis control): paint-only
 diagnostics accept an optional 16MiB producer SMB request, with default zero

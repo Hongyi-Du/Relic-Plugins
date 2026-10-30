@@ -307,6 +307,7 @@ public sealed partial class MainWindow
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
         CaptureNativeDialogSurfaces(renderIds, renderNodes);
         CaptureNativeToggleParts(renderIds, renderNodes);
+        CaptureNativeTextareaPlaceholders(renderIds, renderNodes);
         CaptureNativeAvatarParts(renderIds, renderNodes);
         CaptureNativeInsetShadows(renderIds, renderNodes);
         // Bind the retained badge by actual object identity only after its
