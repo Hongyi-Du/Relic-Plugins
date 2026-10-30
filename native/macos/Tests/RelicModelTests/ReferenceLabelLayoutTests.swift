@@ -3,6 +3,25 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ReferenceLabelLayoutTests: XCTestCase {
+    func testMemberCardModelNoteWrapsInsideItsActualBorderAndPadding() throws {
+        // b63cd2f macOS reference, member-card-model, zh-CN/light/1440x900:
+        // 340px border box - 2px border - 36px padding - 52px term - 12px gap.
+        // The missing border reservation previously gave 240px, enough to
+        // pull the next Latin word onto line one instead of keeping it whole.
+        let source = "从 Relic 开的下一轮起生效（自动唤醒、Relic 开的轮次）。"
+        let view = ReferenceLabel(source, size: 11.5, lineHeight: 18.4, lines: 0).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 238, height: 36.8)
+        let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+        manager.ensureLayout(for: container)
+        var ranges: [NSRange] = [], widths: [CGFloat] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, used, _, glyphs, _ in
+            ranges.append(manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)); widths.append(used.width)
+        }
+        XCTAssertEqual(ranges, [NSRange(location: 0, length: 22), NSRange(location: 22, length: 12)])
+        for (actual, reference) in zip(widths, [211.75, 101.953125]) { XCTAssertEqual(actual, reference, accuracy: 0.5) }
+        XCTAssertEqual(view.string, source)
+    }
+
     func testListMarkerKeepsItsTrailingSpaceAndActualGlyphIconEvidence() throws {
         let view = ReferenceLabel("• ", size: 13.5, alignment: .right, textGlyphIcon: true).makeLabelView()
         view.frame = NSRect(x: 0, y: 0, width: 14, height: 21.6)
