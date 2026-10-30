@@ -31,6 +31,8 @@ respectively. macOS now renders the rename field in the header, the model editor
 inside its value column and the avatar hover layer, and will perform those real
 native actions in these additional scenes. Keep all existing 47 scenes and
 tolerances. These previously unmeasured states are required by Amendment 4.
+Resolved by `36fca26`: all three are in the shared 50-state / 600-case matrix;
+the native real-action capture handlers are retained and await CI validation.
 
 macOS consumes `fixture.scene_endpoint` before every case, records the actual
 response as `<case>.scene-fixture.json`, reloads the returned member's real Hub
@@ -75,6 +77,9 @@ same measurement quantity for both platforms, preserving each provider's raw
 components and raster evidence. This is not a request to relax alpha/DeltaE
 tolerances or copy reference colors into native data. Native values remain
 unchanged until a measured conversion is implemented and tested.
+Resolved in the shared contract merged through `36fca26`: computed float RGBA
+and independent canvas RGBA8 raster evidence now remain separate quantities.
+Native actual brush values and matcher tolerances have not changed.
 
 Canonical layout-container question: native AX exposes transparent grouping
 nodes (`AXGroup`, `AXScrollArea`, `AXOpaqueProviderGroup`) independently of
@@ -86,6 +91,9 @@ unpainted layout-only wrappers versus visible/interactive region elements.
 Native will retain every raw node and unresolved paint coverage failure; this
 must not become a blanket element/scene exclusion or an exception. Painted
 container borders/fills, scrollbars and actual controls remain separate evidence.
+The shared `native-layout-projection.md` merged through `7d0703d` supplies this
+contract. Native still needs independent paint/action/semantic ownership proof;
+no AX wrapper has been removed under this request.
 
 ## 2026-10-29: literal Harness label in the reference member form
 

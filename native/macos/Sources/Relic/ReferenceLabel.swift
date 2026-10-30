@@ -21,20 +21,33 @@ struct ReferenceLabel: NSViewRepresentable {
         self.monospaced = monospaced
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
-        let view = ReferenceLabelView()
-        view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
-        view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = true
-        view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = true
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let view = makeLabelView()
         updateNSView(view, context: context); return view
     }
-    func updateNSView(_ view: ReferenceLabelView, context: Context) {
+    func makeLabelView() -> ReferenceLabelView {
+        let view = ReferenceLabelView()
+        view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
+        // SwiftUI assigns the measured frame. TextKit must not resize it during
+        // draw or AX inspection after that layout has been committed.
+        view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
+        view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = true
+        view.textContainer?.heightTracksTextView = false
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.textContainer?.maximumNumberOfLines = lines
+        view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
+        view.textStorage?.setAttributedString(attributedText)
+        return view
+    }
+    var attributedText: NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        let value = NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0])
+        return NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0])
+    }
+    func updateNSView(_ view: ReferenceLabelView, context: Context) {
+        let value = attributedText
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner
