@@ -130,7 +130,7 @@ struct MemberCard: View {
             cardSelect(m.t("common.model"), value: $model, options: [("", m.t("common.default_model"))] + card["models"].rows.map { ($0.text, $0.text) })
             cardSelect(m.t("member.effort"), value: $effort, options: [("", m.t("common.default_effort"))] + card["efforts"].rows.map { ($0.text, $0.text) })
             ReferenceLabel(card["model_note"].text, size: 11.5, color: RelicStyle.muted, lineHeight: 18.4, lines: 0)
-            TextButton(m.t("card.save_model"), size: 12, color: RelicStyle.background) { m.run { let result = try await m.post(m.path("/model"), ["member": who, "model": model, "effort": effort]); m.notice = m.t(result["applied"].text == "now" ? "card.model_switched" : "card.model_next_turn"); editingModel = false; try await m.refresh(); try await load() } }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)).frame(maxWidth: .infinity)
+            TextButton(m.t("card.save_model"), size: 12, color: RelicStyle.background, fillsWidth: true) { m.run { let result = try await m.post(m.path("/model"), ["member": who, "model": model, "effort": effort]); m.notice = m.t(result["applied"].text == "now" ? "card.model_switched" : "card.model_next_turn"); editingModel = false; try await m.refresh(); try await load() } }.buttonStyle(ReferenceButtonStyle(primary: true, small: true))
         }
     }
     private func cardSelect(_ title: String, value: Binding<String>, options: [(String, String)]) -> some View {
