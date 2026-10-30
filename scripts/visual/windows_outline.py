@@ -11,6 +11,18 @@ RUN_SOURCE = "actual TextElement runtime type and owner ContentStart/ContentEnd 
 VECTOR_RUNTIME = "Relic.MainWindow+ReferenceVectorIcon"
 VECTOR_CONTRACT = "relic-reference-vector-usercontrol-child-only"
 VECTOR_SOURCE = "actual ReferenceVectorIcon Content/VectorCanvas/VectorPath object identities"
+LOCAL_LAYOUT_SOURCE = "actual local layout Type.BaseType/IsSealed and exact audited source contract"
+# Audited exact production classes: five add Measure/Arrange only, while the
+# Grid adds only its real region peer. Their native Panel background/border and
+# all independent child/focus/Composition obligations remain unchanged.
+LOCAL_LAYOUT_CONTRACTS = {
+    "Relic.CenteredFractionLayout": ("relic-centered-fraction-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/Conversation.cs#CenteredFractionLayout"),
+    "Relic.MessageBubbleLayout": ("relic-message-bubble-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/Conversation.cs#MessageBubbleLayout"),
+    "Relic.MessageHeaderRow": ("relic-message-header-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/MessageHeaderRow.cs#MessageHeaderRow"),
+    "Relic.ActionRow": ("relic-action-row-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/Design.cs#ActionRow"),
+    "Relic.DetailsFilterRow": ("relic-details-filter-panel-layout-only", "Microsoft.UI.Xaml.Controls.Panel", "native/windows/Relic/DetailsStyles.cs#DetailsFilterRow"),
+    "Relic.NativeRegionGrid": ("relic-region-grid-peer-only", "Microsoft.UI.Xaml.Controls.Grid", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid"),
+}
 CONTRACTS = {
     "Microsoft.UI.Xaml.Controls.Border": "native-border-fill-and-border",
     "Microsoft.UI.Xaml.Controls.ContentPresenter": "native-presenter-fill-border-and-content",
@@ -72,11 +84,19 @@ def native_outline(node, by_id):
         gap("Current primitive outline-owner receipt is missing or failed")
         return None, evidence, issues
     runtime = raw.get("runtime_type")
-    contract = VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else CONTRACTS.get(runtime) if isinstance(runtime, str) else None
+    local_contract = LOCAL_LAYOUT_CONTRACTS.get(runtime) if isinstance(runtime, str) else None
+    contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else local_contract[0] if local_contract
+                else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
     if (contract is None or raw.get("own_paint_contract") != contract
             or expected_type != node.get("type") or raw.get("owner_id") != node.get("id")):
         gap("No exact known native primitive own-paint contract; derived and compound renderers remain unmeasured")
+    if local_contract:
+        local = raw.get("local_layout")
+        if (not isinstance(local, dict) or local.get("source") != LOCAL_LAYOUT_SOURCE
+                or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
+                or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
+            gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
     if runtime == VECTOR_RUNTIME:
         vector = raw.get("vector_content")
         valid_vector = (isinstance(vector, dict) and vector.get("source") == VECTOR_SOURCE

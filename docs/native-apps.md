@@ -1,5 +1,47 @@
 # Native Relic App contract
 
+Changes for the clients (actual WinRT text-range diagnostic): Windows now emits
+`*.text-range-provider-probe.json` after the unchanged UIA hand-off and peer
+probe. It reads DocumentRange and every GetVisibleRanges result from each real
+TextBlock's existing peer, preserving raw double values, UTF-16 source, endpoint
+comparisons, actual failures and query times. It supplies no canonical rectangle
+or identity and never infers that zero-area text is hidden. Fixed SDK source
+shows GetVisibleRanges is computed before ancestor clipping, and this provider's
+IsHidden attribute is always false; those two values therefore cannot establish
+pixel visibility. The probe distinguishes provider geometry from later COM
+transport. Headless build passes; actual diagnostic results remain pending.
+
+Changes for the clients (macOS silent-startup request consumed): `native_process`
+now writes the host startup progress marker for macOS as well as Windows,
+before Popen. A process that never enters the native lifecycle therefore hits
+the existing 90-second progress failure and actual owned-PID stack sampling.
+The marker cannot count as an attempted scene. The 1200-second macOS process
+deadline, 45-minute job deadline, all three viewport shards and failure
+aggregation are unchanged. A wholly mocked lifecycle/clock/process regression
+checks sampling before cleanup at the existing deadline; it runs only in CI.
+The latest macOS lifecycle startup, shadow padding and split switch/label/knob
+changes were merged; their actual full capture validation remains pending.
+
+Changes for the clients (74b14eb actual Windows follow-up): group now has 23
+complete-source production label font receipts; trimmed previews still retain
+unknown font coverage. The header renderer had retained a single-line mode;
+it now uses DirectWrite WHOLE_WORD and the height of its actual measured lines,
+matching the reference's ordinary word breaks without emergency splitting.
+The extractor reads the actual layout mode, not the requested option. Current
+headless build passes. New runtime geometry still needs CI verification.
+
+Six exact sealed local layout/region classes now retain their actual base type,
+sealed flag and audited source contract for own-outline evidence. Their focus,
+Composition, Shadow and complete direct-child checks remain mandatory, and
+children keep independent paint obligations. This adds no generic derived-type
+allowance or parity exception. New focused regression cases run in CI.
+
+The 74b14eb Windows diagnostic still captures 15/19 cases. In hover, the actual
+tooltip now appears during PNG readback; resized still changes during element
+extraction. Both failures remain. Its Windows and reference artifacts were
+downloaded before cancelling that superseded workflow's still-queued macOS job
+so the current provider diagnostic can run. No full-matrix result is inferred.
+
 Changes for the clients (macOS evidence-shape request consumed): the latest
 native-macos merge includes `raw`/`applicable` line-break evidence and explicit
 non-text values required by the shared schema. Unknown text modes remain

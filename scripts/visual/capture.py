@@ -1409,7 +1409,10 @@ def native_process(manifest_path, manifest, exe):
         if len(manifest["cases"]) != 1 or not manifest.get("state_directory"):
             raise ValueError("Windows capture requires one case and its isolated native state directory")
         environment["RELIC_VISUAL_STATE_DIR"] = manifest["state_directory"]
-        (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
+    # A process that never reaches its native lifecycle is already stalled;
+    # it must obey the same progress deadline as one stalled inside a scene.
+    # This host marker is not an attempted case or an app-started receipt.
+    (manifest_path.parent / "current-case.txt").write_text("startup: launching native executable", encoding="utf-8")
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
         completed_requests, capture_errors = set(), []

@@ -329,7 +329,7 @@ public sealed partial class MainWindow
             NativeLabel Who(string value, double size, bool bold = false, bool mono = false)
             {
                 return new NativeLabel(value, mono ? "Cascadia Code" : FontFamilies.UI,
-                    size, (ushort)(bold ? 600 : 400), words.Language, size * 1.3, accessibleText: true)
+                    size, (ushort)(bold ? 600 : 400), words.Language, size * 1.3, accessibleText: true, wrapWholeWords: true)
                 { Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted, VerticalAlignment = VerticalAlignment.Bottom };
             }
             label.Children.Add(Who(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), 12.5, true));

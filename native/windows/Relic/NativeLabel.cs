@@ -24,7 +24,7 @@ public sealed class NativeLabel : Panel
     private readonly string text, familyList, locale;
     private readonly float fontSize, lineHeight;
     private readonly uint weight;
-    private readonly bool characterEllipsis, accessibleText;
+    private readonly bool characterEllipsis, accessibleText, wrapWholeWords;
     private IntPtr format, layout, surfaceInterop, trimmingSign;
     private SurfaceImageSource? surface;
     private ContentPresenter? presenter;
@@ -42,11 +42,13 @@ public sealed class NativeLabel : Panel
     private string? failure;
 
     public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
-        bool characterEllipsis = false, bool accessibleText = false)
+        bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false)
     {
         this.text = text; this.familyList = familyList; this.fontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; this.lineHeight = checked((float)lineHeight);
         this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
+        this.wrapWholeWords = wrapWholeWords;
+        if (characterEllipsis && wrapWholeWords) throw new ArgumentException("Whole-word labels cannot also request single-line character ellipsis");
         UseLayoutRounding = false; IsHitTestVisible = accessibleText;
         AutomationProperties.SetAccessibilityView(this, accessibleText ? AccessibilityView.Content : AccessibilityView.Raw);
         if (accessibleText) AutomationProperties.SetName(this, text);
@@ -267,7 +269,11 @@ public sealed class NativeLabel : Panel
                 if (family.Length == 0) throw new InvalidOperationException("NativeLabel requires an explicit primary font family");
                 var factory = NativeLabelDevice.Shared.WriteFactory;
                 Check(Method<CreateFormat>(factory, 15)(factory, family, IntPtr.Zero, weight, 0, 5, fontSize, locale, out format));
-                Check(Method<SetUInt>(format, 5)(format, 1)); // DWRITE_WORD_WRAPPING_NO_WRAP.
+                // The message header's ordinary inline text retains normal
+                // word breaks without emergency word splitting. Menus and
+                // sidebar previews keep their single-line production mode.
+                // DWRITE_WORD_WRAPPING_WHOLE_WORD=3; NO_WRAP=1.
+                Check(Method<SetUInt>(format, 5)(format, wrapWholeWords ? 3u : 1u));
                 Check(Method<CreateLayout>(factory, 18)(factory, text, checked((uint)text.Length), format, width, Math.Max(height, 1000), out layout));
                 fallbackConfiguration = NativeLabelFallback.Apply(factory, layout, familyList);
                 // Uniform CSS line height, with the actual natural line's baseline
@@ -359,12 +365,13 @@ public sealed class NativeLabel : Panel
     {
         try
         {
-            EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), lineHeight);
+            EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), wrapWholeWords ? 1000000 : lineHeight);
             Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics));
             var desiredWidth = (double)metrics.WidthIncludingTrailingWhitespace;
             if (characterEllipsis && double.IsFinite(availableSize.Width)) desiredWidth = Math.Min(desiredWidth, Math.Max(0, availableSize.Width));
-            image.Measure(new LayoutSize(desiredWidth, lineHeight));
-            return new LayoutSize(desiredWidth, lineHeight);
+            var desiredHeight = wrapWholeWords ? Math.Max(lineHeight, metrics.Height) : lineHeight;
+            image.Measure(new LayoutSize(desiredWidth, desiredHeight));
+            return new LayoutSize(desiredWidth, desiredHeight);
         }
         catch (Exception ex) { failure = ex.ToString(); InvalidateDraw(); return new LayoutSize(0, lineHeight); }
     }
