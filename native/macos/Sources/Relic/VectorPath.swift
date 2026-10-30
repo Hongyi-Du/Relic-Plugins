@@ -84,16 +84,8 @@ struct ReferenceIcon: View {
     var owner: String? = nil
     @Environment(\.captureOpacity) private var opacity
     var body: some View {
-        IconShape(name: name).stroke(color, style: StrokeStyle(lineWidth: 1.7 * size / 24, lineCap: .round, lineJoin: .round))
+        ElementPaintProbe(name: name, size: size, color: color, owner: owner, opacity: opacity)
             .frame(width: size, height: size)
-            .background(ElementPaintProbe(name: name, size: size, color: color, owner: owner, opacity: opacity))
             .accessibilityHidden(true)
-    }
-    private struct IconShape: Shape {
-        let name: String
-        func path(in rect: CGRect) -> Path {
-            guard let source = ReferenceIcons.paths[name], let path = try? VectorPath.parse(source) else { return Path() }
-            return Path(path).applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24).concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY)))
-        }
     }
 }
