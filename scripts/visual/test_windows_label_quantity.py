@@ -89,9 +89,11 @@ class WindowsLabelQuantityTests(unittest.TestCase):
                 else:
                     line["is_trimmed"] = state
                 synchronize_changed_draw(node, frame)
-                result, issues, *_ = measured(node, surface, frame)
+                result, issues, _, fonts, _ = measured(node, surface, frame)
                 self.assertIsNone(result)
-                self.assertTrue(any("trimmed" in issue["reason"] for issue in issues))
+                self.assertIs(fonts["source_span_complete"], False)
+                self.assertIsNone(fonts["fonts"])
+                self.assertTrue(any(issue["property"] == "style.rendered_fonts" for issue in issues))
 
     def test_partial_overlapping_and_changed_source_callbacks_are_rejected(self):
         mutations = {

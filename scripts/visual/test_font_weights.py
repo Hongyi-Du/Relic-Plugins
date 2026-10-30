@@ -6,8 +6,10 @@ from pathlib import Path
 import unittest
 
 from font_weights import (MAC_DRAW_SOURCE, MAC_WEIGHT_SOURCE, OS2_TABLE_TAG, FVAR_TABLE_TAG,
-                          WINDOWS_FACE_SOURCE, WINDOWS_FORMAT_SOURCE,
+                          WINDOWS_FACE_SOURCE, WINDOWS_FORMAT_SOURCE, WINDOWS_SUBMITTED_SCOPE,
                           compare_font_weights, font_weight_issues, project_font_weights)
+from native_label_fonts import native_label_fonts
+from test_native_label_fonts import trimmed_fixture, update_production
 
 
 def mac_element(configured=700, actual=600):
@@ -51,6 +53,28 @@ def static_mac_element(value=400, version=0, length=68):
 
 def sync_drawing_fonts(item):
     item["evidence"]["projection"]["native_font_drawing"]["fonts"] = deepcopy(item["style"]["rendered_fonts"])
+
+
+def submitted_windows_element(actual=400, case=None):
+    """Synthetic binding unless an unmodified recorded fixture case is supplied."""
+    if case is None:
+        node, image, frame = trimmed_fixture()
+        draw = node["native_label_evidence"]["draw"]
+        draw["actual_text_format"] = {"source": WINDOWS_FORMAT_SOURCE, "font_weight": 400}
+        for run in draw["glyph_runs"]:
+            run["face"]["axes"] = [{"tag": "wght", "value": actual}]
+        update_production(node, frame)
+    else:
+        node, image, frame = (deepcopy(case[key]) for key in ("node", "image", "frame"))
+    rendered, issues = native_label_fonts(node, image, frame)
+    if issues:
+        raise AssertionError(issues)
+    evidence = {"type": "NativeLabel", "native_label_evidence": deepcopy(node["native_label_evidence"]),
+                "native_label_fonts": rendered}
+    if case is None:
+        evidence["native_label_submission"] = {"style": {"font_weight": 400}}
+    return {"id": node["id"], "kind": "text", "text": node["text"],
+            "style": {"font_weight": 400, "rendered_fonts": deepcopy(rendered["fonts"])}, "evidence": evidence}
 
 
 class FontWeightTests(unittest.TestCase):
@@ -298,6 +322,95 @@ class FontWeightTests(unittest.TestCase):
         item["evidence"]["native_label_submission"]["style"] = None
         self.assertIsNone(project_font_weights(item)["configured"]["value"])
         self.assertTrue(font_weight_issues(item))
+
+    def test_trimmed_resolved_faces_cover_actual_submission_without_claiming_original_suffix(self):
+        item = submitted_windows_element()
+        before = deepcopy(item)
+        measured = project_font_weights(item)
+        self.assertEqual(font_weight_issues(item), [])
+        self.assertIs(measured["resolved"]["source_span_complete"], False)
+        self.assertEqual(measured["resolved"]["coverage"], {
+            "quantity": WINDOWS_SUBMITTED_SCOPE, "complete": True,
+            "source_evidence_path": "evidence.native_label_fonts", "original_source_span_complete": False,
+            "run_ordinals": [0, 1]})
+        self.assertEqual([face["value"] for face in measured["resolved"]["faces"]], [400, 400])
+        self.assertEqual([face["raw"] for face in measured["resolved"]["faces"]], item["style"]["rendered_fonts"])
+        self.assertFalse(item["evidence"]["native_label_fonts"]["final_png_attribution_proven"])
+        self.assertFalse(item["evidence"]["native_label_fonts"]["source_span_complete"])
+        self.assertEqual(item, before)
+
+    def test_trimmed_coverage_does_not_accept_completion_flags_without_actual_run_bindings(self):
+        for mutation in ("flag-only", "missing-draw", "different-owner", "different-source", "different-layout",
+                         "wrong-ordinal", "missing-ellipsis-font", "changed-axis", "missing-original-status"):
+            with self.subTest(mutation=mutation):
+                item = submitted_windows_element()
+                rendered = item["evidence"]["native_label_fonts"]
+                if mutation == "flag-only":
+                    item["evidence"]["native_label_fonts"] = {key: rendered[key] for key in (
+                        "status", "fonts", "source_span_complete", "original_source_span_complete", "submitted_glyph_runs_complete")}
+                elif mutation == "missing-draw": item["evidence"]["native_label_evidence"].pop("draw")
+                elif mutation == "different-owner": rendered["binding"]["image"]["owner_id"] = "other"
+                elif mutation == "different-source": item["evidence"]["native_label_evidence"]["text"] = "changed"
+                elif mutation == "different-layout": rendered["binding"]["layout_com_identity"] = "other"
+                elif mutation == "wrong-ordinal": rendered["fonts"][0]["run_ordinal"] = 1
+                elif mutation == "missing-ellipsis-font":
+                    rendered["fonts"].pop(); rendered["run_font_evidence"].pop()
+                elif mutation == "changed-axis": rendered["fonts"][0]["axes"][0]["value"] = 600
+                else: rendered.pop("original_source_span_complete")
+                if mutation in ("wrong-ordinal", "missing-ellipsis-font", "changed-axis"):
+                    item["style"]["rendered_fonts"] = deepcopy(rendered["fonts"])
+                self.assertTrue(any(row["field"] == "font_weight.resolved" for row in font_weight_issues(item)))
+
+    def test_cached_trimmed_weights_require_exact_face_record_axis_and_coverage_quantity(self):
+        for mutation in ("weight", "raw-face", "face-name", "missing-face", "duplicate-face", "run-order",
+                         "coverage-flag", "coverage-run", "coverage-quantity", "original-complete"):
+            with self.subTest(mutation=mutation):
+                item = submitted_windows_element()
+                measured = project_font_weights(item)
+                resolved = measured["resolved"]
+                if mutation == "weight": resolved["faces"][-1]["value"] = 600
+                elif mutation == "raw-face": resolved["faces"][-1]["raw"]["axes"][0]["value"] = 600
+                elif mutation == "face-name": resolved["faces"][-1]["family_name"] = "Requested family"
+                elif mutation == "missing-face": resolved["faces"].pop()
+                elif mutation == "duplicate-face": resolved["faces"].append(deepcopy(resolved["faces"][-1]))
+                elif mutation == "run-order": resolved["faces"].reverse()
+                elif mutation == "coverage-flag": resolved["coverage"] = {"complete": True}
+                elif mutation == "coverage-run": resolved["coverage"]["run_ordinals"] = [0]
+                elif mutation == "coverage-quantity": resolved["coverage"]["quantity"] = "visible-final-png-fonts"
+                else: resolved["source_span_complete"] = True
+                item["evidence"]["font_weight_quantities"] = measured
+                self.assertTrue(any(row["field"] == "font_weight.resolved" for row in font_weight_issues(item)))
+
+    def test_trimmed_missing_or_ambiguous_actual_wght_cannot_use_configured_weight(self):
+        for axes in ([], [{"tag": "wdth", "value": 100}],
+                     [{"tag": "wght", "value": 400}, {"tag": "wght", "value": 400}]):
+            node, image, frame = trimmed_fixture()
+            node["native_label_evidence"]["draw"]["glyph_runs"][-1]["face"]["axes"] = axes
+            update_production(node, frame)
+            item = submitted_windows_element(case={"node": node, "image": image, "frame": frame})
+            self.assertTrue(any(row["field"] == "font_weight.resolved" for row in font_weight_issues(item)))
+
+    def test_trimmed_weight_comparison_keeps_zero_tolerance_and_unknown_reference_failure(self):
+        records = compare_font_weights(submitted_windows_element(400), submitted_windows_element(400.1))
+        self.assertEqual([row["field"] for row in records], ["font_weight.resolved"])
+        self.assertEqual(records[0]["tolerance"], 0)
+        records = compare_font_weights(reference_element(), submitted_windows_element())
+        resolved = next(row for row in records if row["field"] == "font_weight.resolved")
+        self.assertTrue(any(side == "reference" for side, _ in resolved["measurement_errors"]))
+
+    def test_recorded_trimmed_faces_use_each_actual_axis_without_promoting_png_coverage(self):
+        recorded = json.loads((Path(__file__).parent / "fixtures" / "native-label-trimmed-67ed20d.json").read_text(encoding="utf-8"))
+        self.assertEqual(recorded["provenance"]["commit"], "67ed20d")
+        for case in recorded["cases"]:
+            item = submitted_windows_element(case=case)
+            before = deepcopy(item)
+            measured = project_font_weights(item)
+            self.assertFalse(any(row["field"] == "font_weight.resolved" for row in font_weight_issues(item)))
+            self.assertEqual(measured["resolved"]["coverage"]["run_ordinals"], [0, 1, 2, 3])
+            self.assertIs(measured["resolved"]["source_span_complete"], False)
+            self.assertEqual([face["value"] for face in measured["resolved"]["faces"]], [400] * 4)
+            self.assertFalse(item["evidence"]["native_label_fonts"]["final_png_attribution_proven"])
+            self.assertEqual(item, before)
 
     def test_raw_uia_or_legacy_weight_cannot_be_reclassified_without_source_evidence(self):
         item = {"id": "actual-text", "kind": "text", "text": "x", "style": {"font_weight": 700},

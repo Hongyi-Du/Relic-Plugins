@@ -8,6 +8,8 @@ import base64
 import binascii
 import math
 
+from native_label_fonts import BINDING_SOURCE, IMAGE_SOURCE, LABEL_SOURCE, _submitted_font_set
+
 VERSION = 1
 WGHT_CORETEXT_TAG = str(int.from_bytes(b"wght", "big"))
 MAC_DRAW_SOURCE = "production NSLayoutManager.showCGGlyphs callback"
@@ -18,6 +20,7 @@ WINDOWS_FACE_SOURCE = "DWRITE_GLYPH_RUN.fontFace passed to the actual D2D DrawGl
 WINDOWS_FORMAT_SOURCE = "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw"
 WINDOWS_XAML_SOURCE = "actual XAML text-owner FontWeight.Weight getter"
 WINDOWS_XAML_BINDING_SOURCE = "actual XAML text_source selected by existing projection"
+WINDOWS_SUBMITTED_SCOPE = "actual-current-submitted-glyph-font-set"
 
 
 def weight(value):
@@ -198,6 +201,62 @@ def _mac_face_weight(font):
                            "offset": 4, "byte_order": "big"}}
 
 
+def _windows_faces(fonts):
+    faces = []
+    for font in fonts:
+        axes = font.get("axes")
+        matches = [axis.get("value") for axis in axes if isinstance(axis, dict) and axis.get("tag") == "wght"] if isinstance(axes, list) else []
+        actual = matches[0] if len(matches) == 1 and font.get("source") == WINDOWS_FACE_SOURCE else None
+        faces.append({"family_name": font.get("family_name"), "postscript_name": font.get("postscript_name"),
+                      **_record(actual, "Actual DrawGlyphRun fontFace variation axis", font,
+                                None if weight(actual) else "No unique measured wght axis on the actual submitted face")})
+    return faces
+
+
+def _windows_submitted_coverage(element, rendered, fonts):
+    """Narrow additive coverage for an already-bound trimmed NativeLabel draw.
+
+    Re-read its original callback records with the existing submitted-font reader;
+    a completion flag, face-name set or cached resolved value cannot replace a run.
+    Original-source coverage stays false. Frame/PNG visibility is not inferred.
+    """
+    evidence = element.get("evidence") if isinstance(element.get("evidence"), dict) else {}
+    native = evidence.get("native_label_evidence")
+    draw = native.get("draw") if isinstance(native, dict) else None
+    binding = rendered.get("binding") if isinstance(rendered, dict) else None
+    if (evidence.get("type") != "NativeLabel" or not isinstance(element.get("text"), str) or not element["text"]
+            or not isinstance(native, dict) or native.get("source") != LABEL_SOURCE
+            or native.get("text") != element["text"] or not isinstance(draw, dict)
+            or not isinstance(rendered, dict) or rendered.get("status") != "measured-current-submission"
+            or rendered.get("source_span_complete") is not False or rendered.get("original_source_span_complete") is not False
+            or rendered.get("submitted_glyph_runs_complete") is not True
+            or not isinstance(fonts, list) or not fonts or any(not isinstance(font, dict) for font in fonts)
+            or rendered.get("fonts") != fonts or not isinstance(binding, dict)):
+        return None
+    image, capture = binding.get("image"), binding.get("capture")
+    if (not isinstance(image, dict) or image.get("source") != IMAGE_SOURCE or image.get("owner_id") != element.get("id")
+            or image.get("same_image_object") is not True or image.get("surface_binding_same_com_identity") is not True
+            or not isinstance(capture, dict) or capture.get("source") != BINDING_SOURCE
+            or capture.get("same_object_reference") is not True
+            or capture != native.get("capture_binding")
+            or not isinstance(draw.get("layout_com_identity"), str) or not draw["layout_com_identity"]
+            or binding.get("layout_com_identity") != draw["layout_com_identity"]
+            or binding.get("revisions") != {key: draw.get(key) for key in ("layout_revision", "surface_revision", "draw_ordinal")}):
+        return None
+    submitted, error = _submitted_font_set(element["text"], draw)
+    fields = ("fonts", "runs", "source_span_complete", "original_source_span_complete", "submitted_glyph_runs_complete",
+              "run_font_evidence", "trimming_submission", "submitted_original_source_range_utf16",
+              "unsubmitted_original_source_range_utf16")
+    if (error is not None or submitted.get("submitted_glyph_runs_complete") is not True
+            or submitted.get("source_span_complete") is not False
+            or any(key not in rendered or rendered[key] != submitted.get(key) for key in fields)
+            or any(not weight(face["value"]) for face in _windows_faces(fonts))):
+        return None
+    return {"quantity": WINDOWS_SUBMITTED_SCOPE, "complete": True,
+            "source_evidence_path": "evidence.native_label_fonts", "original_source_span_complete": False,
+            "run_ordinals": [font["run_ordinal"] for font in fonts]}
+
+
 def project_font_weights(element):
     """Project only measurements already bound to this actual source element.
 
@@ -268,20 +327,17 @@ def project_font_weights(element):
         result["legacy"]["quantity"] = "configured"
     rendered = evidence.get("native_label_fonts")
     fonts = style.get("rendered_fonts")
+    submitted_coverage = _windows_submitted_coverage(element, rendered, fonts)
     if (isinstance(rendered, dict) and rendered.get("status") == "measured-current-submission"
-            and rendered.get("source_span_complete") is True and isinstance(fonts, list) and fonts
+            and (rendered.get("source_span_complete") is True or submitted_coverage is not None)
+            and isinstance(fonts, list) and fonts
             and all(isinstance(font, dict) for font in fonts)
             and rendered.get("fonts") == fonts):
-        faces = []
-        for font in fonts:
-            axes = font.get("axes") if isinstance(font, dict) else None
-            matches = [axis.get("value") for axis in axes if isinstance(axis, dict) and axis.get("tag") == "wght"] if isinstance(axes, list) else []
-            actual = matches[0] if len(matches) == 1 and font.get("source") == WINDOWS_FACE_SOURCE else None
-            faces.append({"family_name": font.get("family_name"), "postscript_name": font.get("postscript_name"),
-                          **_record(actual, "Actual DrawGlyphRun fontFace variation axis", font,
-                                    None if weight(actual) else "No unique measured wght axis on the actual submitted face")})
-        result["resolved"] = {"source_span_complete": True, "faces": faces,
+        result["resolved"] = {"source_span_complete": rendered.get("source_span_complete") is True,
+                              "faces": _windows_faces(fonts),
                               "source": WINDOWS_FACE_SOURCE, "source_evidence_path": "evidence.native_label_fonts"}
+        if submitted_coverage is not None:
+            result["resolved"]["coverage"] = submitted_coverage
     return result
 
 
@@ -312,7 +368,19 @@ def font_weight_issues(element, measurement=None):
     resolved = measured.get("resolved")
     faces = resolved.get("faces") if isinstance(resolved, dict) else None
     fonts = style.get("rendered_fonts")
-    if (not isinstance(resolved, dict) or resolved.get("source_span_complete") is not True
+    covered = isinstance(resolved, dict) and resolved.get("source_span_complete") is True
+    if isinstance(resolved, dict) and "coverage" in resolved:
+        # This new quantity is accepted only with its exact current Windows
+        # source and every per-run face/value. Old complete-source receipts
+        # retain their previous path and do not acquire a synthetic new scope.
+        evidence = element.get("evidence") if isinstance(element.get("evidence"), dict) else {}
+        actual_coverage = _windows_submitted_coverage(element, evidence.get("native_label_fonts"), fonts)
+        covered = (actual_coverage is not None and resolved["coverage"] == actual_coverage
+                   and resolved.get("source_span_complete") is False
+                   and resolved.get("source") == WINDOWS_FACE_SOURCE
+                   and resolved.get("source_evidence_path") == "evidence.native_label_fonts"
+                   and faces == _windows_faces(fonts))
+    if (not isinstance(resolved, dict) or not covered
             or not isinstance(faces, list) or not faces or not isinstance(fonts, list) or not fonts
             or {_identity(face) for face in faces} != {_identity(font) for font in fonts}):
         issues.append({"field": "font_weight.resolved", "reason": "Resolved weight does not cover the independently measured actual font faces"})
