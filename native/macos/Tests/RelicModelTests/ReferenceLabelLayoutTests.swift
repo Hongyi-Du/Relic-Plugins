@@ -3,6 +3,42 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ReferenceLabelLayoutTests: XCTestCase {
+    func testHierarchyNoteMatchesActualReferenceLineAdvancesAndSpacing() throws {
+        // 2cb073c reference macOS zh-CN/light/1440x900/group, dom-382:text-0.
+        // The reference's .hier-note uses 12px text and 1.55 line height.
+        let source = "全库只有一个秘书处，它的负责人就是秘书长：成员新建或调整正式组织，要秘书长批准；各正式组织的负责人也会自动在秘书处有一个席位。"
+        let view = ReferenceLabel(source, size: 12, lineHeight: 18.6, lines: 0).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 307, height: 100)
+        let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+        manager.ensureLayout(for: container)
+        var fragments: [NSRect] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, used, _, _, _ in fragments.append(used) }
+        XCTAssertEqual(fragments.count, 3)
+        for (actual, expected) in zip(fragments, [294.0625, 294.0625, 183.78125]) {
+            XCTAssertEqual(actual.width, expected, accuracy: 0.5)
+        }
+        for pair in zip(fragments, fragments.dropFirst()) {
+            XCTAssertEqual(pair.1.minY - pair.0.minY, 18.59375, accuracy: 0.02)
+        }
+        XCTAssertEqual(view.string, source)
+    }
+
+    func testCompletedInspectorTitleDrawsStrikeWithoutChangingItsTextOrAdvance() throws {
+        var rasters: [Data] = [], advances: [CGFloat] = []
+        for struck in [false, true] {
+            let view = ReferenceLabel("Completed task", size: 13, weight: 600, struck: struck).makeLabelView()
+            view.frame = NSRect(x: 0, y: 0, width: 180, height: 20.8)
+            let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+            manager.ensureLayout(for: container); advances.append(manager.usedRect(for: container).width)
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            rasters.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            XCTAssertEqual(view.string, "Completed task")
+        }
+        XCTAssertEqual(advances[0], advances[1])
+        XCTAssertNotEqual(rasters[0], rasters[1], "The real label must draw the completed-state decoration")
+    }
+
     func testSidebarMixedScriptAdvancesMatchActualReferenceText() throws {
         // Actual DOMRange from 3c652b7 macOS zh-CN/light/group. This checks the
         // production text layout separately from its ink envelope; those are
