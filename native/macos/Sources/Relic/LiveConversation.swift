@@ -10,6 +10,7 @@ struct LiveTurnView: View {
                 MessageColumns(mine: true) {
                     Avatar(member: "human", size: 36).accessibilitySortPriority(1.5)
                     liveBubble(prompt["text"].text, mine: true).frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilitySortPriority(1)
                 }.padding(.top, messageGap).environment(\.selectedAuthor, "human").accessibilitySortPriority(1)
             }
             HStack(alignment: .top, spacing: 10) {

@@ -191,7 +191,7 @@ struct HarnessSettings: View {
     }
     private func pathRow(_ id: String, placeholder: String, small: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            ReferenceInput(placeholder: placeholder, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), height: small ? 35.2 : 38.4, pointSize: small ? 12 : 14, monospaced: true, voice: false)
+            ReferenceInput(placeholder: placeholder, text: Binding(get: { paths[id] ?? "" }, set: { paths[id] = $0 }), height: small ? 35.2 : 36.608, pointSize: small ? 12 : 12.88, monospaced: true, voice: false)
             TextButton(m.t("common.save")) { m.run { var saved = m.preferences["paths"].object; saved[id] = (paths[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines); try await m.savePreferences(["paths": saved]); m.notice = m.t("settings.path_saved"); harnesses = try await m.get("/api/harnesses").rows } }.buttonStyle(ReferenceButtonStyle(small: true))
         }
     }

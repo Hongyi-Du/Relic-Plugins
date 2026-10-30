@@ -4,10 +4,14 @@ import AppKit
 /// every covered screenshot pixel. It does not remove elements from capture.
 @MainActor enum NativeOpaqueCoverage {
     private static func id(_ value: AnyObject) -> String { String(describing: ObjectIdentifier(value)) }
-    private static func ancestry(_ layer: CALayer) -> [CALayer] {
+    private static func ancestry(_ layer: CALayer, through root: CALayer) -> [CALayer]? {
         var result: [CALayer] = [], next: CALayer? = layer
-        while let current = next { result.append(current); next = current.superlayer }
-        return result
+        while let current = next {
+            result.append(current)
+            if current === root { return result }
+            next = current.superlayer
+        }
+        return nil
     }
     static func inspect(target: NSView, screenRect: NSRect, fill: NativeSurfaceFillView,
                         bitmap: NSBitmapImageRep, canvas: NSRect) -> [String: Any] {
@@ -30,7 +34,18 @@ import AppKit
               presentedFill.contentsScale == fillLayer.contentsScale else {
             return fail("Presentation contents are not the exact current unmodified fill image")
         }
-        let targets = ancestry(targetLayer), fills = ancestry(fillLayer)
+        // VisualCapture caches each actual NSWindow.contentView, then composites
+        // those bitmaps. Window chrome is outside that draw operation. Bind both
+        // measured branches to that exact root instead of inspecting titlebar
+        // filter siblings which never participate in the captured bitmap.
+        guard let content = window.contentView, let captureRoot = content.layer,
+              let targets = ancestry(targetLayer, through: captureRoot),
+              let fills = ancestry(fillLayer, through: captureRoot) else {
+            return fail("Target and fill are not inside the actual content-view capture root")
+        }
+        result["capture_root"] = ["view_identity": id(content), "layer_identity": id(captureRoot),
+            "source": "the actual NSWindow.contentView passed to cacheDisplay by VisualCapture",
+            "screen_bounds": ElementCapture.box(window.convertToScreen(content.convert(content.bounds, to: nil)))]
         guard let common = targets.first(where: { candidate in fills.contains(where: { $0 === candidate }) }),
               let ti = targets.firstIndex(where: { $0 === common }), ti > 0,
               let fi = fills.firstIndex(where: { $0 === common }), fi > 0 else {
@@ -79,12 +94,13 @@ import AppKit
         result["common_ancestor"] = id(common)
         result["branches"] = ["target": id(targetBranch), "fill": id(fillBranch), "target_index": targetIndex, "fill_index": fillIndex]
         // A later custom compositing filter could reveal lower content. Reject
-        // that entire native tree instead of assuming source-over everywhere.
+        // every such filter inside the actual captured content tree, without
+        // assuming source-over semantics for any unknown filter.
         func hasSpecialBlend(_ layer: CALayer) -> Bool {
             layer.compositingFilter != nil || layer.presentation()?.compositingFilter != nil
                 || (layer.sublayers ?? []).contains(where: hasSpecialBlend)
         }
-        guard let root = fills.last, !hasSpecialBlend(root) else { return fail("The native tree includes an unmeasured compositing filter") }
+        guard !hasSpecialBlend(captureRoot) else { return fail("The captured native tree includes an unmeasured compositing filter") }
         guard image.bitsPerComponent == 8, image.bitsPerPixel == 32,
               image.alphaInfo == .premultipliedLast,
               image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Big,

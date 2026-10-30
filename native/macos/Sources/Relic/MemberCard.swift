@@ -80,12 +80,13 @@ struct MemberCard: View {
         }
         if !card["also_in"].rows.isEmpty {
             row("card.also_in") { VStack(alignment: .leading, spacing: 3) { Rows(card["also_in"].rows) { seat in
+                let identity = "relic-text-button/member-also-in/" + seat["org"].text + "/" + seat["member"].text
                 Button { m.sheet = nil; m.run { try await m.select(seat["org"].text, seat["member"].text) } } label: {
                     HStack(spacing: 6) {
-                        ReferenceLabel(m.t("card.also_in_item", ["org": seat["org_name"].text, "member": seat["member"].text]), size: 12.5, color: RelicStyle.accent, lineHeight: 20)
+                        ReferenceLabel(m.t("card.also_in_item", ["org": seat["org_name"].text, "member": seat["member"].text]), size: 12.5, color: RelicStyle.accent, lineHeight: 20, owner: identity)
                         if seat["main"].flag { tag(m.t("card.main_seat")) }
-                    }
-                }.buttonStyle(.plain).help(seat["role"].text)
+                    }.environment(\.nativeElementParent, identity)
+                }.buttonStyle(.plain).help(seat["role"].text).accessibilityIdentifier(identity)
             } } }
         }
         row("common.model") {
@@ -146,8 +147,8 @@ struct MemberCard: View {
     private var actions: some View {
         VStack(alignment: .leading, spacing: 12) {
             CardActionLayout {
-                Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { ReferenceLabel(m.t("card.message"), size: 13, weight: 600, color: RelicStyle.background).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
-                Button { m.openDetails("trace", member: who) } label: { ReferenceLabel(m.t("common.context_trace"), size: 13, weight: 600).frame(maxWidth: .infinity) }
+                TextButton(m.t("card.message"), size: 13, weight: 600, color: RelicStyle.background, fillsWidth: true) { m.sheet = nil; m.run { try await m.select(m.organization, who) } }.buttonStyle(ReferenceButtonStyle(primary: true))
+                TextButton(m.t("common.context_trace"), size: 13, weight: 600, fillsWidth: true) { m.openDetails("trace", member: who) }
             }.buttonStyle(ReferenceButtonStyle())
             if hasSeatActions { FlowLayout(spacing: 6) { seatActions }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card")).font(RelicStyle.font(12, weight: 600)) }
         }

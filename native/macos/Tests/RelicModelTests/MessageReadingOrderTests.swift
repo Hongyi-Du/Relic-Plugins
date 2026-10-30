@@ -6,6 +6,46 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class MessageReadingOrderTests: XCTestCase {
+    private struct CompleteMessages: View {
+        var body: some View {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(0..<2) { index in
+                        let priority = Double((2 - index) * 2)
+                        MessageView(item: Node(["id": "test-\(index)", "type": "message", "from": "human",
+                            "fromLabel": "Metadata \(index)", "text": "Body \(index)"]),
+                            readingOrderPriority: priority).accessibilitySortPriority(priority)
+                    }
+                }.padding(20)
+            }.frame(width: 600, height: 280)
+        }
+    }
+    func testCompleteMessageViewsKeepTheAvatarBeforeTheirMetadataAndRichText() async throws {
+        _ = NSApplication.shared
+        let model = Model(); model.preferences = Node(["name": "Hongyi Du", "avatar": "initials"])
+        let host = NSHostingView(rootView: CompleteMessages().environmentObject(model))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 280)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(80))
+        var seen = Set<ObjectIdentifier>(), names: [String] = []
+        func walk(_ object: AnyObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            let values = RelicAXRead(object)
+            if values["element"] as? Bool == true {
+                let label = values["label"] as? String ?? "", value = values["value"] as? String ?? ""
+                let name = label.isEmpty ? value : label
+                if name == "H" || name.hasPrefix("Metadata ") || name.hasPrefix("Body ") { names.append(name) }
+            }
+            for child in RelicAXChildren(object) { walk(child as AnyObject) }
+            if let view = object as? NSView { for child in view.subviews { walk(child) } }
+        }
+        walk(host)
+        XCTAssertEqual(names, ["H", "Metadata 0", "Body 0", "H", "Metadata 1", "Body 1"],
+            "Exercise the complete production row, RichText, interaction modifiers and ScrollView, not a label-only proxy")
+    }
     private struct ProductionRows: View {
         let absoluteAvatarPriority: Bool
         var body: some View {
