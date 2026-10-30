@@ -392,6 +392,7 @@ struct MessageView: View {
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity).accessibilityLabel(threadAccessibilityName)
                     }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
+                    .accessibilitySortPriority(readingOrderPriority)
             }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {
                 if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
             }.background(MessageInteractionAnchor(messageID: item["id"].text))
