@@ -5,11 +5,12 @@ import CoreText
 /// has no wght variation axis; its OS/2 table records the weight class. Never
 /// substitute the requested style, font name or an NSFont trait conversion.
 enum NativeFontWeight {
+    static let os2Tag = UInt32(kCTFontTableOS2)
     static let variationTag: UInt32 = 0x66766172 // fvar
     static let weightTag: UInt32 = 0x77676874 // wght
 
     static func staticWeight(table: Data?, availableTags: [UInt32]?, hasVariationAxes: Bool) -> Int? {
-        guard let tags = availableTags, !tags.contains(variationTag), tags.contains(kCTFontTableOS2), !hasVariationAxes,
+        guard let tags = availableTags, !tags.contains(variationTag), tags.contains(os2Tag), !hasVariationAxes,
               let table, table.count >= 68 else { return nil }
         let version = Int(table[0]) << 8 | Int(table[1])
         let value = Int(table[4]) << 8 | Int(table[5])
@@ -18,7 +19,7 @@ enum NativeFontWeight {
 
     static func capture(_ font: CTFont) -> [String: Any] {
         let tags = (CTFontCopyAvailableTables(font, []) as? [NSNumber])?.map(\.uint32Value)
-        let table = CTFontCopyTable(font, kCTFontTableOS2, []).map { $0 as Data }
+        let table = CTFontCopyTable(font, os2Tag, []).map { $0 as Data }
         let variations = (CTFontCopyVariation(font) as? [NSNumber: NSNumber])?.reduce(into: [String: Double]()) { $0[$1.key.stringValue] = $1.value.doubleValue }
         let axes = (CTFontCopyVariationAxes(font) as? [[String: Any]])?.map { axis -> [String: Any] in
             ["tag": axis[kCTFontVariationAxisIdentifierKey as String] ?? NSNull(),
