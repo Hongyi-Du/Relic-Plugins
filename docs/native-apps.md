@@ -1,5 +1,11 @@
 # Native Relic App contract
 
+Changes for the clients (decoder compilation): run 41069194779 successfully
+builds the pinned Skia library, then the diagnostic translation unit fails on
+the incomplete SkFontMgr type used by a null smart-pointer parameter. Including
+the actual public definition fixes that compile dependency; it does not create
+a fallback font manager. Runtime decoding remains pending.
+
 Changes for the clients (native locale and public provider chain): Windows now
 sets FrameworkElement.Language on the actual main root and dialog when loading
 the selected `/api/i18n` language, matching the reference's document lang update.
