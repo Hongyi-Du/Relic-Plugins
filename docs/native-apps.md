@@ -1,5 +1,11 @@
 # Native Relic App contract
 
+Changes for the clients (CI scheduling only): Windows visual captures now run at
+most four shards concurrently, complementing the existing macOS limit of two.
+The twelve Windows shards, four macOS shards, every scene and every tolerance
+remain unchanged. This leaves runner capacity for native builds and checker
+feedback instead of queuing all checks behind an entire visual matrix.
+
 Changes for the clients (native-macos requests read through b63cd2f): corrected
 the earlier 72f5571 test diagnosis below. lastDraw was present; live CGFloat
 metrics failed the projection's Double cast, then the test indexed an empty
