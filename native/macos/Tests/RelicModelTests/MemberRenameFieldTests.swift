@@ -28,6 +28,8 @@ import SwiftUI
         XCTAssertTrue(field.isAccessibilityElement())
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
     }
 
     func testCommitCancelAndLengthLimitUseNativeTextFieldDelegate() {
@@ -46,5 +48,9 @@ import SwiftUI
         XCTAssertTrue(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
         XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveLeft(_:))))
         XCTAssertEqual(saves, 1); XCTAssertEqual(cancels, 1)
+        editor.setMarkedText("拼", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertEqual(saves, 1, "IME confirmation must not submit the rename")
     }
 }

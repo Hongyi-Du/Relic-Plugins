@@ -1,3 +1,25 @@
+## 2026-10-30: shared contract stale assertion after bounded downloader
+
+Run 41055829988 job 124064563039 fails
+`test_capture_viewport_shards.CaptureViewportShardTests.test_unfiltered_macos_and_reference_paths_and_deadlines_stay_unchanged`:
+it still requires the removed YAML string `pattern: visual-windows-*`.
+The actual compare job now uses `download_comparison_inputs.py`. Please retain
+the coverage/deadline assertions and bind the artifact-path assertion to the
+new downloader's exhaustive manifest contract; do not waive a capture failure.
+
+d0d8277 release compiles; 205/206 tests pass. Its only failure remains the
+unlaunched unit host's SwiftUI AX tree (-25208). 1ffe201 finishes the actual
+AppKit launch lifecycle before querying, with the 100x24 assertion unchanged.
+The nonfinite editable measurement is now located at `$.text_bounds.x/y`.
+bf85998 explicitly constructs the per-line rectangle array and strengthens the
+test to require one finite actual line rectangle and no measurement failures.
+
+64863e7 gives Member Rename a padded native NSTextField: its entire 195x32.4
+input is interactive/accessible, text/editor use the 9/35 internal insets, and
+the microphone retains separate ownership. Initial focus preserves an empty
+selection, and Return during IME composition does not submit. These changes
+remain awaiting actual compiled/captured verification.
+
 ## 2026-10-30: recipient menu actual activation; diagnostic coverage request
 
 The archived 72f5571 full capture places the recipients popup at the window's

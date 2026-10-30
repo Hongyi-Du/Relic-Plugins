@@ -48,6 +48,9 @@ struct MemberRenameField: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let window = self.window, self.isEnabled else { return }
                 window.makeFirstResponder(self)
+                // The reference focuses a populated input without selecting
+                // its contents; opening Rename must not highlight the name.
+                (self.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 0, length: 0))
             }
         }
     }
@@ -78,7 +81,10 @@ struct MemberRenameField: NSViewRepresentable {
             parent.text = value
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) { parent.save(); return true }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                guard !textView.hasMarkedText() else { return false }
+                parent.save(); return true
+            }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) { parent.cancel(); return true }
             return false
         }
