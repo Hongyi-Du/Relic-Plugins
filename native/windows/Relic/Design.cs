@@ -72,14 +72,25 @@ public sealed partial class MainWindow
         var b = Button(label, action); b.Background = new SolidColorBrush(Colors.Transparent); b.BorderThickness = new Thickness(0);
         b.Padding = new Thickness(6, 3, 6, 3); return b;
     }
-    private Button ChipButton(string icon, string label, string tooltip, Func<Task> action)
+    private Button ChipButton(string icon, string label, string tooltip, Func<Task> action, bool selected = false)
     {
         // This content belongs to the chip button's one action, not a selectable text surface.
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-        row.Children.Add(ReferenceIcon(icon, 15)); var text = Text(label, 12.5); text.TextWrapping = TextWrapping.NoWrap; text.IsTextSelectionEnabled = false; row.Children.Add(text);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, UseLayoutRounding = false };
+        row.Children.Add(ReferenceIcon(icon, 15));
+        // CSS fixes chip text at 12.5px/1.6. Draw the real production label
+        // with that layout, inheriting the presenter's normal/hover foreground.
+        row.Children.Add(new NativeLabel(label, FontFamilies.UI, 12.5, 400, words.Language, 20));
         var button = QuietButton("", action); button.Content = row; button.Height = 28; button.Padding = new Thickness(11, 0, 11, 0); button.CornerRadius = new CornerRadius(14);
-        button.Background = Paint("FFFFFF", "252523"); button.Margin = new Thickness(0, 0, 4, 0);
-        button.BorderBrush = Paint("DEDBD4", "3A3936"); button.BorderThickness = new Thickness(1); button.Foreground = Paint("5A5853", "B8B5AE"); text.Foreground = button.Foreground;
+        button.UseLayoutRounding = false; button.Margin = new Thickness(0, 0, 4, 0);
+        button.Background = selected ? Paint("EFEBF8", "2E2A3D") : Paint("FFFFFF", "252523");
+        button.Foreground = selected ? Paint("7058B8", "A894E0") : Paint("5A5853", "B8B5AE");
+        button.BorderBrush = selected ? OverviewAlpha(Paint("7058B8", "A894E0"), .45) : Paint("DEDBD4", "3A3936");
+        button.BorderThickness = new Thickness(1);
+        // .chip-btn.on follows :hover and retains its selected paint while
+        // hovered or pressed. Only this real button's resources override it.
+        button.Resources["RelicChipHoverBackground"] = selected ? button.Background : Paint("EFEEEA", "262624");
+        button.Resources["RelicChipHoverForeground"] = selected ? button.Foreground : Ink;
+        button.Template = (ControlTemplate)Application.Current.Resources["RelicChipButtonTemplate"];
         AutomationProperties.SetName(button, label); ToolTipService.SetToolTip(button, tooltip); return button;
     }
     private Border ChatAvatar(bool secretary)

@@ -277,8 +277,8 @@ public sealed partial class MainWindow
             var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; heading.Children.Add(HeaderLabel(T("common.group_chat")));
             var count = HeaderLabel(T("common.members", ("n", snap.Rows("members").Count))); count.FontWeight = Microsoft.UI.Text.FontWeights.Normal; count.Foreground = Muted; heading.Children.Add(count); titles.Children.Add(heading);
             titles.Children.Add(HeaderMeta(T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name")))));
-            actions.Children.Add(ChipButton("lang", T(plainMode ? "chat.plain_on" : "common.plain_words"), T("chat.plain_title"), TogglePlain));
-            actions.Children.Add(ChipButton("sparkle", T("chat.digest"), T("chat.digest_title"), ToggleDigest));
+            actions.Children.Add(ChipButton("lang", T(plainMode ? "chat.plain_on" : "common.plain_words"), T("chat.plain_title"), TogglePlain, plainMode));
+            actions.Children.Add(ChipButton("sparkle", T("chat.digest"), T("chat.digest_title"), ToggleDigest, digestOpen));
             var tasks = IconButton("\uE73A", "common.tasks", () => Details("tasks"));
             var tasksIcon = (ReferenceVectorIcon)ReferenceIcon("check", 18);
             tasks.Foreground = Paint("5A5853", "B8B5AE"); tasksIcon.Foreground = tasks.Foreground;
