@@ -20,6 +20,7 @@ from native_label_geometry import native_label_geometry
 from native_label_fonts import native_label_fonts
 from windows_automation_identity import OWNER_SOURCE, bind_automation_identities
 from windows_text_precision import analyze_text_precision
+from windows_text_range_geometry import load_observed_text_geometry
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
@@ -2020,9 +2021,12 @@ def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia
     return ordered
 
 
-def project(xaml_path, uia_path, png_path):
+def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
-    uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
+    original_uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
+    if geometry_selection is None:
+        geometry_selection = load_observed_text_geometry(xaml_path, uia_path, xaml=xaml, uia=original_uia)
+    uia = geometry_selection["effective_uia"]
     image = Image.open(png_path).convert("RGBA")
     uia_errors, nonvisible_diagnostics = visible_uia_errors(uia)
     errors = list(xaml.get("extraction_errors", [])) + uia_errors
@@ -2902,14 +2906,15 @@ def project(xaml_path, uia_path, png_path):
         for key, value in composition_clips.items()}
     capture_evidence["automation_identity_bindings"] = identity_bindings
     capture_evidence["uia_pairing_rejections"] = list(rejected_identity_pairs.values())
-    # Optional supplementary diagnostic. Keep the original UIA errors, bounds
-    # and canonical element measurements unchanged until actual frame/range
-    # continuity is independently established.
+    capture_evidence["observed_text_geometry_selection"] = geometry_selection["audit"]
+    # The independent WinRT diagnostic still examines the original external
+    # COM measurements, including every raw zero/error. Only the separately
+    # bound public COM range measurement above may supply effective geometry.
     probe_path = Path(xaml_path).with_name(Path(xaml_path).name.removesuffix(".xaml.json") + ".text-range-provider-probe.json")
     if probe_path.exists():
         try:
             probe = json.loads(probe_path.read_text(encoding="utf-8-sig"))
-            capture_evidence["text_range_precision"] = analyze_text_precision(xaml, uia, probe)
+            capture_evidence["text_range_precision"] = analyze_text_precision(xaml, original_uia, probe)
         except (ValueError, TypeError, KeyError, AttributeError, OSError) as error:
             capture_evidence["text_range_precision"] = {
                 "source": probe_path.name, "status": "unavailable", "error": str(error),

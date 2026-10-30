@@ -1,5 +1,25 @@
 # Native Relic App contract
 
+Changes for the clients (observed UIA range geometry): the Windows reader can
+select actual in-process public COM doubles for an external zero-area range
+only after exact peer/RuntimeId/observer, UTF-16 endpoints/category, HRESULT,
+IEEE754, stable object checkpoints, QPC, origin and scale binding. The original
+external JSON, values and diagnostics remain immutable and linked in the audit.
+35ac04a's last tool line measures 0.4000244140625px through that channel, yielding
+client (1117,899,180,0.4000244140625), not the different WinRT y coordinate.
+Only individually resolved original geometry errors can clear exit 1; unknown
+prefixes, unrelated failures, and all other evidence obligations still fail.
+Eleven pure regression methods cover the real capture and corrupted bindings;
+they run in CI, not locally.
+
+Changes for the clients (tab configured font weight): an actual SelectorBarItem
+label's Run.FontWeight getter can now be read through its existing measured
+Tag/ContentPresenter/text-source binding. Three recorded 35ac04a tabs plus six
+regression methods reject mismatched owners, incomplete subtrees, forged getters
+and partial sources. This supplies configured weight only; no resolved font or
+paint value is inferred. The separate proposed font-weight contract clarification
+is awaiting the person's answer; the current resolved-weight gate is unchanged.
+
 Changes for the clients (Markdown tables): Windows keeps the table's 6px
 vertical margins inside its horizontal scroll wrapper, so surrounding block
 margins cannot absorb them. Actual cells now draw complete 1px borders centered

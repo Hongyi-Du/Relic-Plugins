@@ -9,6 +9,7 @@ import binascii
 import math
 
 from native_label_fonts import BINDING_SOURCE, IMAGE_SOURCE, LABEL_SOURCE, _submitted_font_set
+from windows_selector_labels import CONTRACT as SELECTOR_LABEL_CONTRACT, SOURCE as SELECTOR_LABEL_SOURCE
 
 VERSION = 1
 WGHT_CORETEXT_TAG = str(int.from_bytes(b"wght", "big"))
@@ -39,6 +40,77 @@ def _record(value, source, raw, reason=None):
     if reason:
         result["reason"] = reason
     return result
+
+
+def _selector_configured_label(element, evidence, binding):
+    """Bind a full TextBlock Run to the existing measured tab-content audit.
+
+    selector_content_labels already checked the receipt against the raw tree.
+    Recheck its retained owner/content/text identities here before accepting the
+    Run getter. A projection reason or measured flag alone is not that binding.
+    This does not establish a resolved face, paint or final-PNG contribution.
+    """
+    audit = evidence.get("selector_content_label")
+    run = binding.get("text_run_source")
+    if (element.get("kind") != "tab" or evidence.get("type") != "SelectorBarItem"
+            or not isinstance(element.get("id"), str) or not element["id"]
+            or binding.get("source_type") != "Run" or not isinstance(run, dict)
+            or not isinstance(audit, dict) or audit.get("status") != "measured"
+            or not isinstance(audit.get("source_id"), str) or not audit["source_id"]
+            or not isinstance(audit.get("text"), str) or not audit["text"]
+            or evidence.get("label_source") != binding.get("source_id")
+            or audit.get("source_id") != run.get("owner")
+            or audit.get("text") != binding.get("text") or audit.get("text") != element.get("text")):
+        return False
+    proof = audit.get("evidence")
+    if (not isinstance(proof, dict) or proof.get("contract") != SELECTOR_LABEL_CONTRACT
+            or proof.get("source") != SELECTOR_LABEL_SOURCE or proof.get("status") != "measured"
+            or proof.get("owner_id") != element.get("id")
+            or proof.get("owner_runtime_type") != "Microsoft.UI.Xaml.Controls.SelectorBarItem"
+            or proof.get("errors") != []
+            or any(proof.get(key) is not True for key in
+                   ("ui_thread_access", "template_present", "same_subtree_after", "same_tag_after",
+                    "same_template_after", "same_presenter_content_after", "tag_in_actual_subtree",
+                    "captured_subtree_complete"))):
+        return False
+    entries, sources = proof.get("actual_subtree"), proof.get("text_sources")
+    if (not isinstance(entries, list) or not entries
+            or any(not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"]
+                   or not isinstance(entry.get("runtime_type"), str) or not entry["runtime_type"]
+                   or entry.get("captured_parent_matches") is not True
+                   or type(entry.get("child_index")) is not int or entry["child_index"] < 0 for entry in entries)
+            or not isinstance(sources, list) or len(sources) != 1 or not isinstance(sources[0], dict)):
+        return False
+    by_id = {entry["id"]: entry for entry in entries}
+    owner_id, label_id = element["id"], audit["source_id"]
+    if (len(by_id) != len(entries) or owner_id not in by_id or label_id not in by_id
+            or by_id[owner_id].get("parent_id") is not None
+            or by_id[owner_id]["runtime_type"] != proof["owner_runtime_type"]
+            or by_id[label_id]["runtime_type"] != "Microsoft.UI.Xaml.Controls.TextBlock"):
+        return False
+    paths = {}
+    for entry_id in by_id:
+        path, current = [], entry_id
+        while isinstance(current, str) and current in by_id and current not in path:
+            path.append(current)
+            current = by_id[current].get("parent_id")
+        if current is not None or not path or path[-1] != owner_id:
+            return False  # Detached, cyclic or incomplete current subtree.
+        paths[entry_id] = path
+    tag_id, presenters = proof.get("tag_content_id"), proof.get("presenter_ids")
+    if (not isinstance(tag_id, str) or tag_id not in by_id or tag_id == label_id or tag_id == owner_id
+            or not isinstance(presenters, list) or len(presenters) != 1
+            or not isinstance(presenters[0], str) or presenters[0] not in by_id
+            or by_id[presenters[0]]["runtime_type"] != "Microsoft.UI.Xaml.Controls.ContentPresenter"
+            or presenters[0] == tag_id or presenters[0] not in paths[tag_id]
+            or tag_id not in paths[label_id]):
+        return False
+    source = sources[0]
+    observed_text_ids = {entry["id"] for entry in entries if entry["runtime_type"] in
+                         {"Microsoft.UI.Xaml.Controls.TextBlock", "Microsoft.UI.Xaml.Controls.RichTextBlock", "Relic.NativeLabel"}}
+    return (observed_text_ids == {label_id} and source.get("id") == label_id
+            and source.get("runtime_type") == by_id[label_id]["runtime_type"]
+            and source.get("captured_text_matches") is True and source.get("text") == audit["text"])
 
 
 def _xaml_configured_weight(element, evidence, style):
@@ -73,8 +145,13 @@ def _xaml_configured_weight(element, evidence, style):
     if source_id != element.get("id"):
         ownership = binding.get("ownership")
         if (not isinstance(ownership, dict) or ownership.get("source_id") != source_id
-                or ownership.get("owner_id") != element.get("id")
-                or ownership.get("reason") != "single simple control label"):
+                or ownership.get("owner_id") != element.get("id")):
+            return unknown("A containing element has no existing single-text-source ownership for this getter")
+        if ownership.get("reason") == "actual current SelectorBarItem content label":
+            if not _selector_configured_label(element, evidence, binding):
+                return unknown("Tab Run getter is not bound to the actual current SelectorBarItem content label")
+            raw["selector_content_label"] = evidence["selector_content_label"]
+        elif ownership.get("reason") != "single simple control label":
             return unknown("A containing element has no existing single-text-source ownership for this getter")
     elif binding.get("ownership") is not None:
         return unknown("Direct text owner unexpectedly claims a different projection owner")

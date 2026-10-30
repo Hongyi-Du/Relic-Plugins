@@ -137,7 +137,7 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                                             "observer_pid": observer_pid, "status": "observed"}))
         observer = Mock(side_effect=observe)
         native_probe_wait = Mock(side_effect=native_ack)
-        def project(*args):
+        def project(*args, **kwargs):
             if handshake_error:
                 process.terminate.assert_called_once()
                 process.wait.assert_called_once_with(timeout=20)

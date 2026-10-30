@@ -1788,13 +1788,20 @@ def native_process(manifest_path, manifest, exe):
                 wait_native_probe_receipt(receipt.with_name(last_request + ".probes.json"),
                     request, held["observer_pid"], process, deadline)
             observer_completed = False
+            geometry_selection = None
             try:
                 from uia_observer import observe
+                from windows_text_range_geometry import load_observed_text_geometry
                 result = observe(manifest["uia_exe"], request_path, raw, process, observer_ready)
                 observer_completed = True
                 with (manifest_path.parent / "uia.log").open("a", encoding="utf-8") as observer_log:
                     observer_log.write(f"case={last_request} pid={process.pid} returncode={result.returncode}\n{result.stdout}\n{result.stderr}\n")
-                if result.returncode:
+                geometry_selection = load_observed_text_geometry(output / (last_request + ".xaml.json"), raw)
+                # The observer's original exit/errors remain in its log/JSON.
+                # Only an exact, complete set of individually bound observed
+                # floating-point range measurements can resolve exit 1 here.
+                resolved_geometry_exit = result.returncode == 1 and geometry_selection["all_original_failures_resolved"]
+                if result.returncode and not resolved_geometry_exit:
                     raise RuntimeError(f"UIA extractor exited {result.returncode}: {result.stderr}")
             except Exception as error:
                 capture_errors.append("UIA capture failed: " + str(error))
@@ -1812,9 +1819,11 @@ def native_process(manifest_path, manifest, exe):
                 partial = json.loads(raw.read_text(encoding="utf-8-sig")) if raw.exists() else {"raw_nodes": []}
                 partial.setdefault("extraction_errors", []).append(str(error))
                 raw.write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
+                geometry_selection = None  # Retain the newly recorded unresolved capture failure.
             from windows_elements import project
             try:
-                projected = project(output / (last_request + ".xaml.json"), raw, output / (last_request + ".png"))
+                projected = project(output / (last_request + ".xaml.json"), raw, output / (last_request + ".png"),
+                    geometry_selection=geometry_selection)
             except Exception as error:
                 capture_errors.append("Projection failed: " + str(error))
                 projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
