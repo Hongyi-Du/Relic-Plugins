@@ -14,6 +14,7 @@ struct MainView: View {
     @State private var resizingPanel: CGFloat?
     @State private var resizeStart: CGFloat?
     @State private var inspectorHandleHovered = false
+    @StateObject private var panelResizeTrace = PanelResizeTrace()
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
     private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
     private var panelWidth: CGFloat {
@@ -22,12 +23,12 @@ struct MainView: View {
     var body: some View {
         GeometryReader { geometry in
         VStack(spacing: 0) {
-            AppToolbar().measuredRegion("header").zIndex(50)
+            AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar") }
-                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation")
+                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region")).foregroundStyle(RelicStyle.ink)
@@ -55,14 +56,17 @@ struct MainView: View {
     }
     private var inspector: some View {
         RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
+            .background(PanelResizeProbe(part: "pane", trace: panelResizeTrace))
             .overlay(alignment: .leading) {
                 Color.clear.frame(width: 5).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: inspectorHandleHovered || resizeStart != nil ? RelicStyle.accent.opacity(0.4) : .clear, kind: "resize-handle", owner: "relic-resize-handle/panel", hovered: inspectorHandleHovered))
-                    .onHover { hovering in inspectorHandleHovered = hovering; if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                    .background(PanelResizeProbe(part: "handle", trace: panelResizeTrace))
+                    .onHover { hovering in inspectorHandleHovered = hovering; panelResizeTrace.hover(hovering); if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("relic-window")).onChanged { value in
+                        panelResizeTrace.gesture(value, ended: false)
                         if resizeStart == nil { resizeStart = panelWidth }
                         resizingPanel = InspectorGeometry.width(window: m.windowSize.width, saved: (resizeStart ?? panelWidth) - value.translation.width, files: m.pane == "files")
-                    }.onEnded { _ in m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
+                    }.onEnded { value in panelResizeTrace.gesture(value, ended: true); m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
                     .accessibilityElement(children: .ignore).accessibilityLabel(m.t("panel.resize"))
                     .accessibilityIdentifier("relic-resize-handle/panel").help(m.t("panel.resize"))
             }

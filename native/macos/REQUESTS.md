@@ -1,5 +1,13 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `d77f162`: all 55 shared scenes are retained (660 full / 19 diagnostic).
+macOS implements the new real panel hover/64px drag inputs, opens a hidden pane
+through its actual toolbar control, and records mounted pane/handle identities,
+received production SwiftUI gesture callbacks, before/after bounds and pointer
+state through PNG and extraction. The original width/position assertions remain
+exact; execution awaits CI. Scrollbar kinds are now accepted by the shared schema;
+macOS is wiring its actual draw receipts and native value range into those kinds.
+
 New confirmed shared reference stall: full `40984430181`, macOS zh-CN/light job
 `123832322148` exhausted its 45-minute job deadline. Native completed all 159
 cases (151 captured / 8 preserved failed states); reference wrote only 51 cases.

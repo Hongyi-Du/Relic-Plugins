@@ -34,7 +34,7 @@ struct DialogLayer: View {
             if [.settings, .details, .chart].contains(sheet) {
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }.padding(14)
             }
-        }.measuredRegion("dialog").accessibilityElement(children: .contain)
+        }.measuredRegion("dialog", createsAccessibilityContainer: false).accessibilityElement(children: .contain)
     }
 }
 

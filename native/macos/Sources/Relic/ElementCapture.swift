@@ -516,8 +516,16 @@ extension EnvironmentValues {
     var captureRegion: String { get { self[CaptureRegionKey.self] } set { self[CaptureRegionKey.self] = newValue } }
 }
 extension View {
-    func measuredRegion(_ name: String) -> some View {
-        background(ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity))
-            .environment(\.captureRegion, name).accessibilityElement(children: .contain).accessibilityIdentifier("relic-region/" + name)
+    @ViewBuilder func measuredRegion(_ name: String, createsAccessibilityContainer: Bool = true) -> some View {
+        let measured = background(ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity))
+            .environment(\.captureRegion, name)
+        if createsAccessibilityContainer {
+            measured.accessibilityElement(children: .contain).accessibilityIdentifier("relic-region/" + name)
+        } else {
+            // The production view already owns a named AX container. Adding
+            // another container here duplicates its region and makes actual
+            // surface ownership ambiguous. Keep the passive measuring view.
+            measured
+        }
     }
 }
