@@ -186,6 +186,9 @@ public sealed partial class MainWindow
                         if (input.IsLoaded && !input.IsDocumentReady)
                             throw new InvalidOperationException("Native composer document did not initialize: " + (input.InitializationFailure ?? "not ready"));
                     root.UpdateLayout();
+                    if (scene == "member-card-model")
+                        PathLineBreakProbe.Capture(root, CaptureCardControl("member-card-cwd") as TextBlock,
+                            shot.Text("id"), manifest.Text("output"));
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);

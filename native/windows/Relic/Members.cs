@@ -160,7 +160,12 @@ public sealed partial class MainWindow
                 if (c.Text("parent").Length > 0) session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = T("card.in_parent_session", ("parent", Display(c.Text("parent")))) }); ToolTipService.SetToolTip(session, c.Text("agent")); Row("common.session", session);
             }
             else if (c.Text("session").Length > 0) { var session = InlineMono(c.Text("session")[..Math.Min(18, c.Text("session").Length)] + (c.Text("session").Length > 18 ? "…" : "")); ToolTipService.SetToolTip(session, c.Text("session")); Row("common.session", session); }
-            if (c.Text("cwd").Length > 0) Row("card.folder", InlineMono(OverviewClip(c.Text("cwd"), 64)));
+            if (c.Text("cwd").Length > 0)
+            {
+                var cwd = InlineMono(OverviewClip(c.Text("cwd"), 64));
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(cwd, "member-card-cwd");
+                Row("card.folder", cwd);
+            }
             TextRow("card.joined", c.Text("joined_at").Length > 0 ? When(c.Text("joined_at")) + (int.TryParse(c.Text("carriers"), out var carriers) && carriers > 1 ? " · " + T("card.session_nth", ("n", carriers)) : "") : "");
             if (c.Rows("recent").Count > 0)
             {

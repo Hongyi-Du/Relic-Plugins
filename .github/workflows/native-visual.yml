@@ -36,6 +36,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Keep runner capacity for builds and contract checks without removing
+      # any of the twelve required Windows capture shards.
+      max-parallel: 4
       matrix:
         include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"},{"lang":"zh-CN","theme":"light","viewport":"1280x800"},{"lang":"zh-CN","theme":"light","viewport":"1024x700"},{"lang":"zh-CN","theme":"dark","viewport":"1440x900"},{"lang":"zh-CN","theme":"dark","viewport":"1280x800"},{"lang":"zh-CN","theme":"dark","viewport":"1024x700"},{"lang":"en-US","theme":"light","viewport":"1440x900"},{"lang":"en-US","theme":"light","viewport":"1280x800"},{"lang":"en-US","theme":"light","viewport":"1024x700"},{"lang":"en-US","theme":"dark","viewport":"1440x900"},{"lang":"en-US","theme":"dark","viewport":"1280x800"},{"lang":"en-US","theme":"dark","viewport":"1024x700"}]' || '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"}]') }}
     steps:

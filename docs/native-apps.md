@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (bounded cwd line-break diagnostic): ca8d997 still
+renders the same member-card path in two Windows lines versus three reference
+lines. A CI-only member-card-model probe now reads the actual cwd TextBlock/Run,
+Grid allocation, font request and language, then records an independent unpainted
+DirectWrite emergency-break layout's line, hit-test and cluster metrics. It also
+records the system ICU line boundaries/version when available, using only the
+OS DLLs. Raw object identities, text and before/after source state are retained
+in `<case>.path-line-break-probe.json`. No fixture widths/breaks, canonical values,
+production text or success conditions are supplied by the probe. The production
+fix depends on these measurements; this is not a resolved wrapping difference.
+The main WinUI project builds headlessly with zero warnings/errors.
+
+Changes for the clients (CI scheduling only): Windows visual captures now run at
+most four shards concurrently, complementing the existing macOS limit of two.
+The twelve Windows shards, four macOS shards, every scene and every tolerance
+remain unchanged. This leaves runner capacity for native builds and checker
+feedback instead of queuing all checks behind an entire visual matrix.
+
 Changes for the clients (native-macos requests read through b63cd2f): corrected
 the earlier 72f5571 test diagnosis below. lastDraw was present; live CGFloat
 metrics failed the projection's Double cast, then the test indexed an empty
