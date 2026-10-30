@@ -28,13 +28,14 @@ class AnonymousAnchorTests(unittest.TestCase):
                     "dom-521": "window/3/2/4", "dom-523": "window/3/2/6", "dom-527": "window/3/3"}
         for left, right in expected.items():
             self.assertEqual(mapped.get(left), right, left)
-        self.assertIn("dom-525", [reference[index]["id"] for index in missing], "The missing divider must remain missing")
+        self.assertEqual(mapped.get("dom-525"), "surface-paint/294", "The actual divider is emitted later in the native traversal")
+        self.assertTrue(any(issue["reference"] == "dom-525" for issue in compare_elements(reference, native)["order_mismatch"]))
 
     def test_recorded_recipient_avatar_is_paired_with_its_actual_row(self):
         reference, native = self.recorded("recipients")
         mapped, missing, extra = self.mapping(reference, native)
         self.assertEqual(mapped.get("dom-497"), "surface-paint/274")
-        self.assertIn("dom-496", [reference[index]["id"] for index in missing], "No avatar may absorb the missing checkbox")
+        self.assertEqual(mapped.get("dom-496"), "window/1/0/view-0/view-0/view-0/view-0/0", "The actual checkbox is emitted later in the native traversal")
         self.assertTrue(extra, "The extra native menu wrapper cannot disappear")
 
     def test_pairing_does_not_change_or_accept_recorded_measurements(self):
@@ -44,7 +45,22 @@ class AnonymousAnchorTests(unittest.TestCase):
         self.assertEqual((reference, native), original)
         self.assertTrue(report["style_out_of_tolerance"], "Omitted paint evidence stays unknown after correspondence is repaired")
         self.assertTrue(report["state_mismatch"], "Omitted state evidence is not supplied by anchors")
-        self.assertTrue(report["missing"], "The actual missing divider still fails")
+        self.assertTrue(report["order_mismatch"], "The actual late divider still fails reading order")
+
+    def test_removing_a_real_divider_does_not_shift_the_recorded_cards(self):
+        reference, native = self.recorded("chart")
+        native = [item for item in native if item["id"] != "surface-paint/294"]
+        mapped, missing, extra = self.mapping(reference, native)
+        self.assertEqual(mapped.get("dom-495"), "window/3/0")
+        self.assertEqual(mapped.get("dom-527"), "window/3/3")
+        self.assertIn("dom-525", [reference[index]["id"] for index in missing])
+
+    def test_removing_real_checkboxes_does_not_consume_the_recorded_avatar(self):
+        reference, native = self.recorded("recipients")
+        native = [item for item in native if item["kind"] != "checkbox"]
+        mapped, missing, extra = self.mapping(reference, native)
+        self.assertEqual(mapped.get("dom-497"), "surface-paint/274")
+        self.assertIn("dom-496", [reference[index]["id"] for index in missing])
 
     def test_no_shared_anchors_does_not_establish_identity_from_geometry(self):
         left = [{"id": "a", "region": "dialog", "kind": "card", "bounds": {"x": 1}}]

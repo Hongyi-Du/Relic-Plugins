@@ -71,8 +71,21 @@ class WindowsListMarkerTests(unittest.TestCase):
         self.assertFalse(audit["presentation_identity_proven"])
         self.assertEqual(nodes, original)
         self.assertEqual(windows_list_marker_issues(canonical(nodes)), [PRESENTATION_GAP])
-        from element_parity import icon_identity
-        self.assertIsNotNone(icon_identity(canonical(nodes)["icon"])[1])
+        from element_parity import validate_capture
+        from test_element_parity import capture, element
+        actual = canonical(nodes)
+        item = element("marker", text="", kind="icon")
+        item.update({key: deepcopy(actual[key]) for key in ("name", "bounds", "icon")})
+        item["style"].update(actual["style"])
+        item["evidence"].update(actual["evidence"])
+        for icon, required_error in ((actual["icon"], "Invalid icon identity"),
+                                     (None, "Visible glyph/vector/image has no independently extracted identity")):
+            with self.subTest(icon=icon):
+                item["icon"] = deepcopy(icon)
+                data = capture("windows", [item])
+                errors = validate_capture(data, "windows", data["scene_id"], data["viewport"])
+                self.assertTrue(any(error["element"] == "marker" and error["reason"] == required_error for error in errors))
+                self.assertTrue(any(error["element"] == "marker" and error["reason"] == "Windows list marker: " + PRESENTATION_GAP for error in errors))
 
     def test_missing_foreign_unmounted_or_wrong_type_binding_is_not_owned(self):
         mutations = [

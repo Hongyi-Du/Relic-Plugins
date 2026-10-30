@@ -7,7 +7,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "plugins/relic"))
+from relic_core.process import creation_flags
 
 
 def observe(executable, request_path, output_path, client_process, on_ready):
@@ -31,7 +36,19 @@ def observe(executable, request_path, output_path, client_process, on_ready):
     result = None
     with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
         try:
-            process = subprocess.Popen(command, stdout=stdout, stderr=stderr)
+            # Redirected stdio does not request a windowless console process.
+            # Reuse the engine's CREATE_NO_WINDOW policy for this read-only Exe:
+            # https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
+            flags = creation_flags()
+            launch_path = output_path.with_name(output_path.name + ".observer-launch.json")
+            launch = {"source": "Actual subprocess.Popen arguments for the independent UIA observer",
+                      "case_id": request.get("case_id"), "app_pid": client_process.pid,
+                      "command": command, "creationflags": flags, "status": "requested",
+                      "quantity": "Process creation arguments; not an observation of desktop windows or hover state"}
+            launch_path.write_text(json.dumps(launch), encoding="utf-8")
+            process = subprocess.Popen(command, stdout=stdout, stderr=stderr, creationflags=flags)
+            launch.update(status="started", observer_pid=process.pid)
+            launch_path.write_text(json.dumps(launch), encoding="utf-8")
             while True:
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(command, 75)

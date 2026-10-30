@@ -23,6 +23,33 @@ class UIAObserverTests(unittest.TestCase):
         worker = Mock(pid=4321); worker.poll.return_value = None; worker.wait.return_value = 0
         return request, output, client, worker
 
+    def test_observer_uses_shared_windowless_flags_and_records_actual_launch_arguments(self):
+        for windows, expected in ((True, 0x08000000), (False, 0)):
+            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); request, output, client, worker = self.fixture(root)
+                def launch(command, **kwargs):
+                    self.assertEqual(kwargs["creationflags"], expected)
+                    self.assertEqual(kwargs["creationflags"] & (0x00000010 | 0x00000008), 0)
+                    receipt = json.loads(output.with_name(output.name + ".observer-launch.json").read_text())
+                    self.assertEqual(receipt["status"], "requested")
+                    self.assertEqual(receipt["creationflags"], kwargs["creationflags"])
+                    self.assertEqual(receipt["command"], command)
+                    output.write_text('{"raw_nodes":[],"extraction_errors":[]}')
+                    Path(command[command.index("--hold-ready") + 1]).write_text(json.dumps({
+                        "case_id": "case", "app_pid": 1234, "observer_pid": worker.pid, "exit_code": 0}))
+                    return worker
+                with patch("relic_core.process.WINDOWS", windows), \
+                        patch.object(uia_observer.subprocess, "Popen", side_effect=launch) as popen:
+                    result = uia_observer.observe("observer.exe", request, output, client, Mock())
+                popen.assert_called_once()
+                self.assertEqual(result.returncode, 0)
+                receipt = json.loads(output.with_name(output.name + ".observer-launch.json").read_text())
+                self.assertEqual(receipt["creationflags"], expected)
+                self.assertEqual(receipt["case_id"], "case")
+                self.assertEqual(receipt["app_pid"], 1234)
+                self.assertEqual(receipt["observer_pid"], 4321)
+                self.assertEqual(receipt["status"], "started")
+
     def test_actual_observer_is_alive_until_native_observation_and_original_error_survives(self):
         for code in (0, 1):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as folder:

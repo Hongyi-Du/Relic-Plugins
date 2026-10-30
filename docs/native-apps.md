@@ -1,5 +1,17 @@
 # Native Relic App contract
 
+Changes for the clients (independent observer launch): the CI UIA observer now
+uses `relic_core.process.creation_flags()` for its existing Popen, with the
+actual flags/arguments retained in observer-launch.json. Redirected standard
+streams alone did not request CREATE_NO_WINDOW. db91b1b proves that message
+hover disappeared during the independent observer interval; the change fixes
+that launch omission but does not yet establish the cause of lost hover. The
+original 75-second deadline, state checkpoints and failures are unchanged.
+The 9f11a82 shared tests exposed three wrong recorded-fixture expectations and
+one wrong low-level icon-null assertion. The tests now check the complete
+recorded traversal and actual validate_capture failure paths; no acceptance
+property, scene, exception or tolerance was altered to satisfy them.
+
 Changes for the clients (actual db91b1b capture and correspondence): smoke run
 41070038057 writes its comparison artifacts but fails the strict gate; accepted
 scenes remain zero. Windows has seven capture failures (down from nineteen),
@@ -15,8 +27,11 @@ The macOS 15581b1 chart/recipient pairing request is addressed in the shared
 matcher: anonymous elements with equal kind, region, established surrounding
 anchors and known matched parent are paired before leftover sequence alignment.
 Neither geometry nor style influences that correspondence. Unequal anonymous
-groups remain ambiguous; missing checkboxes/dividers and extra native wrappers
-remain failures. The recorded fixture and six tests retain the original IDs,
+groups remain ambiguous; actual late-emitted checkboxes/dividers retain their
+reading-order errors and extra native wrappers remain failures. Initial tests
+mistakenly assumed those late nodes were absent; the complete recorded traversal
+shows them. Eight tests now check those actual identities and separately remove
+nodes in explicit synthetic negative cases to verify missing failures. The fixture retains original IDs,
 parents and reading order. The newly supplied macOS content_screen_frame is
 consumed by the already committed list-marker reader; no origin is inferred.
 
