@@ -463,16 +463,18 @@ import RelicAX
         guard let view = window.contentView else { throw RelicError.message("Cannot allocate native capture") }
         view.layoutSubtreeIfNeeded(); view.displayIfNeeded(); CATransaction.flush()
         guard abs(view.bounds.width - CGFloat(width)) < 1 && abs(view.bounds.height - CGFloat(height)) < 1 else { throw RelicError.message("Native view size differs from capture matrix: \(view.bounds)") }
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw RelicError.message("Cannot allocate native capture") }
+        guard let bitmap = CaptureRaster.forView(view) else { throw RelicError.message("Cannot allocate native capture") }
         print("Capture geometry: window=\(window.frame), view=\(view.bounds), bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
         view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let result = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32), let context = NSGraphicsContext(bitmapImageRep: result) else { throw RelicError.message("Cannot allocate PNG canvas") }
+        guard let result = CaptureRaster.canvas(width: width, height: height), let context = NSGraphicsContext(bitmapImageRep: result) else { throw RelicError.message("Cannot allocate PNG canvas") }
+        var rasters = [CaptureRaster.evidence(bitmap), CaptureRaster.evidence(result)]
         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
         let canvas = NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         NSColor.windowBackgroundColor.setFill(); canvas.fill(); bitmap.draw(in: canvas)
         let contentRect = window.convertToScreen(view.bounds)
         for child in NSApp.windows where child !== window && child.isVisible && child.contentView != nil {
-            guard let content = child.contentView, let childBitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { continue }
+            guard let content = child.contentView, let childBitmap = CaptureRaster.forView(content) else { continue }
+            rasters.append(CaptureRaster.evidence(childBitmap))
             content.layoutSubtreeIfNeeded(); content.displayIfNeeded(); content.cacheDisplay(in: content.bounds, to: childBitmap)
             if child === window.attachedSheet { NSColor.black.withAlphaComponent(0.18).setFill(); canvas.fill() }
             let childRect = child.convertToScreen(content.bounds)
@@ -488,6 +490,8 @@ import RelicAX
         NSGraphicsContext.restoreGraphicsState()
         guard let png = result.representation(using: .png, properties: [:]) else { throw RelicError.message("Cannot encode native PNG") }
         try png.write(to: path)
+        try JSONSerialization.data(withJSONObject: ["provider": "actual native capture destinations", "bitmaps": rasters], options: [.prettyPrinted, .sortedKeys])
+            .write(to: path.deletingPathExtension().appendingPathExtension("native-raster.json"))
     }
 }
 

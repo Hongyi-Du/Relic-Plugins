@@ -16,7 +16,8 @@ import AppKit
             host.appearance = NSAppearance(named: .aqua)
             host.frame = NSRect(x: 0, y: 0, width: 32, height: 32)
             host.layoutSubtreeIfNeeded()
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+            XCTAssertEqual(bitmap.colorSpace, .sRGB)
             host.cacheDisplay(in: host.bounds, to: bitmap)
             // Inside the circle, away from its anti-aliased edge and arrow ink.
             let color = try XCTUnwrap(bitmap.colorAt(x: 7, y: 16)?.usingColorSpace(.sRGB))
