@@ -7,6 +7,7 @@ import SwiftUI
     func testLayerBackedLabelUsesItsSingleNativeTextKitDrawingPath() throws {
         _ = NSApplication.shared
         let view = ReferenceLabel("Relic → 组织", size: 14, lines: 0).makeLabelView()
+        view.usesOwnedBackingImage = true
         view.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
         view.wantsLayer = true
         let manager = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
@@ -35,6 +36,7 @@ import SwiftUI
     func testSubmittedLabelLayerImagePreservesAppKitsActualBitmap() throws {
         _ = NSApplication.shared
         let view = ReferenceLabel("Relic 🙂 组织", size: 14).makeLabelView()
+        view.usesOwnedBackingImage = true
         view.frame = NSRect(x: 0, y: 0, width: 180, height: 32)
         view.wantsLayer = true
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)

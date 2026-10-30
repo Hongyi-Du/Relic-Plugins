@@ -107,6 +107,9 @@ struct ReferenceLabel: NSViewRepresentable {
 }
 
 final class ReferenceLabelView: ReadOnlyTextView {
+    // The candidate must prove its actual mounted raster before production
+    // adopts it. The existing draw(_:) path remains the visible label painter.
+    var usesOwnedBackingImage = false
     var sourceStorage: NSTextStorage?
     let pathLineBreaks = PathLineBreaks()
     var measuredOpacity: Double = 1
@@ -124,8 +127,8 @@ final class ReferenceLabelView: ReadOnlyTextView {
     private var backingDraw: [String: Any]?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
-    override var wantsUpdateLayer: Bool { true }
-    override func makeBackingLayer() -> CALayer { CALayer() }
+    override var wantsUpdateLayer: Bool { usesOwnedBackingImage }
+    override func makeBackingLayer() -> CALayer { usesOwnedBackingImage ? CALayer() : super.makeBackingLayer() }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance(); needsDisplay = true
     }
