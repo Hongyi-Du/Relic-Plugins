@@ -1,5 +1,10 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Production labels/placeholders now retain the working AppKit glyph primitive
+while the alternate direct primitive is tested. This restores visible text;
+the actual extra ContentLayer remains an extraction failure and the strict
+mounted zero-child-layer test stays enabled. No unknown layer is allowlisted.
+
 f0c2487 CI 41064042324 also fails: 212 tests, six failures. CTFontDrawGlyphs
 still produces empty label rasters and an AppKit ContentLayer; it is NOT a
 verified repair. The callback's actual clip, CTM and glyph positions are valid
