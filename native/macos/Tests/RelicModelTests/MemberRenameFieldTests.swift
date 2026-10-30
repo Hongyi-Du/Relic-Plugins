@@ -6,7 +6,8 @@ import SwiftUI
 @MainActor final class MemberRenameFieldTests: XCTestCase {
     func testNativeInputOwnsItsPaddingAndLeavesSpaceForMicrophone() async throws {
         _ = NSApplication.shared
-        let input = MemberRenameField(placeholder: "Member", identifier: "relic-input/member-rename", hint: "Rename", text: .constant("Current name"), focused: .constant(false), save: {}, cancel: {})
+        var focused = false
+        let input = MemberRenameField(placeholder: "Member", identifier: "relic-input/member-rename", hint: "Rename", text: .constant("Current name"), focused: Binding(get: { focused }, set: { focused = $0 }), save: {}, cancel: {})
         let host = NSHostingView(rootView: input.frame(width: 195, height: 32.4))
         let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 195, height: 32.4), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
@@ -27,17 +28,23 @@ import SwiftUI
         XCTAssertEqual(drawing.minX, 9)
         XCTAssertEqual(field.bounds.maxX - drawing.maxX, 35)
         XCTAssertEqual(drawing.midY, field.bounds.midY)
-        XCTAssertTrue(field.isAccessibilityElement())
+        XCTAssertFalse(field.isAccessibilityElement(), "The real AppKit text-field cell remains the single accessible control")
+        XCTAssertTrue(cell.isAccessibilityElement())
+        XCTAssertEqual(cell.accessibilityLabel(), "Member")
+        XCTAssertEqual(cell.accessibilityIdentifier(), "relic-input/member-rename")
+        XCTAssertEqual(cell.accessibilityFrame(), field.accessibilityFrame())
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         XCTAssertTrue(editor is ObservedFieldEditor)
         XCTAssertTrue(editor.isFieldEditor)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
+        XCTAssertTrue(focused)
         let receipts = FieldEditorCapture.receipts(in: window)
         XCTAssertEqual(receipts.count, 1)
         let receipt = try XCTUnwrap(receipts.first)
-        XCTAssertEqual(receipt["owner_identity"] as? String, String(describing: ObjectIdentifier(field)))
+        XCTAssertEqual(receipt["owner_identity"] as? String, String(describing: ObjectIdentifier(cell)))
+        XCTAssertEqual(receipt["control_identity"] as? String, String(describing: ObjectIdentifier(field)))
         XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
         XCTAssertEqual(receipt["first_responder_is_editor"] as? Bool, true)
         XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
@@ -52,6 +59,8 @@ import SwiftUI
         EditableTextCapture.attach(to: &measured, view: editor, canvas: canvas)
         XCTAssertNil(measured["native_measurement_errors"])
         XCTAssertNotNil(measured["native_editable_text_runs"])
+        window.makeFirstResponder(nil)
+        XCTAssertFalse(focused)
     }
 
     func testCommitCancelAndLengthLimitUseNativeTextFieldDelegate() {

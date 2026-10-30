@@ -16,7 +16,13 @@ struct MemberCard: View {
     private var hosted: Bool { own && !card["embedded"].flag && (!card["config"]["harness"].text.isEmpty || ["cli", "desktop"].contains(card["surface"].text)) }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            Group {
+                if editingName {
+                    // The reference's intrinsic input may overflow its flex
+                    // row, but must not enlarge/recenter the card's other rows.
+                    GeometryReader { _ in header.fixedSize(horizontal: true, vertical: false) }.frame(height: 60)
+                } else { header }
+            }
                 VStack(alignment: .leading, spacing: 7) {
                     information
                 }.padding(.top, 13)

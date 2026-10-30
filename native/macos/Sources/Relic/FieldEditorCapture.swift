@@ -8,14 +8,18 @@ import AppKit
         var rows: [[String: Any]] = []
         func walk(_ view: NSView) {
             if let field = view as? MemberRenameField.Control,
+               let cell = field.cell as? MemberRenameField.PaddedCell, cell.controlView === field,
                let editor = field.currentEditor() as? NSTextView,
                field.window === window, editor.window === window,
                NativeVisibility.screenClip(field).map({ !$0.isNull && !$0.isEmpty }) == true,
                NativeVisibility.screenClip(editor).map({ !$0.isNull && !$0.isEmpty }) == true {
                 rows.append([
-                    "contract": "appkit-current-field-editor-v1", "provider": "mounted NSTextField.currentEditor and NSWindow.firstResponder",
-                    "owner_identity": String(describing: ObjectIdentifier(field)),
-                    "owner_class": String(describing: type(of: field)), "owner_identifier": field.accessibilityIdentifier() ?? "",
+                    "contract": "appkit-current-field-editor-v2", "provider": "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder",
+                    "owner_identity": String(describing: ObjectIdentifier(cell)),
+                    "owner_class": String(describing: type(of: cell)), "owner_identifier": cell.accessibilityIdentifier() ?? "",
+                    "control_identity": String(describing: ObjectIdentifier(field)),
+                    "owner_control_view_identity": String(describing: ObjectIdentifier(cell.controlView!)),
+                    "control_cell_identity": String(describing: ObjectIdentifier(field.cell!)),
                     "editor_identity": String(describing: ObjectIdentifier(editor)), "editor_class": String(describing: type(of: editor)),
                     "current_editor_identity": String(describing: ObjectIdentifier(field.currentEditor()!)),
                     "window_identity": String(describing: ObjectIdentifier(window)),
@@ -39,8 +43,11 @@ import AppKit
                   let editorIdentity = receipt["editor_identity"] as? String else { errors.append("Field editor receipt has no native identities"); continue }
             let owners = elements.indices.filter { elements[$0]["object_identity"] as? String == ownerIdentity && elements[$0]["kind"] as? String == "input" }
             let editors = elements.indices.filter { elements[$0]["object_identity"] as? String == editorIdentity && elements[$0]["kind"] as? String == "input" }
-            guard receipt["contract"] as? String == "appkit-current-field-editor-v1",
-                  receipt["owner_class"] as? String == String(describing: MemberRenameField.Control.self),
+            guard receipt["contract"] as? String == "appkit-current-field-editor-v2",
+                  receipt["owner_class"] as? String == String(describing: MemberRenameField.PaddedCell.self),
+                  receipt["control_cell_identity"] as? String == ownerIdentity,
+                  let controlIdentity = receipt["control_identity"] as? String, !controlIdentity.isEmpty,
+                  receipt["owner_control_view_identity"] as? String == controlIdentity,
                   !(receipt["window_identity"] as? String ?? "").isEmpty,
                   owners.count == 1, editors.count == 1, let owner = owners.first, let editor = editors.first, owner != editor,
                   receipt["current_editor_identity"] as? String == editorIdentity,
