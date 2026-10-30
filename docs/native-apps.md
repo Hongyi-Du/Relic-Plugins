@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (reference scrollbar evidence): every actual scrolling
+axis now emits a scrollbar and thumb. The reference stores its actual DOM gutter,
+owner and scroll state, plus lossless pixel runs from the original PNG. Gutter,
+thumb outer box, hit box and ink envelope are distinct quantities. A uniquely
+attributable ink envelope cannot supply the unknown outer/hit box; no scroll-ratio
+or transparent-border estimate is used. Unknown thumb geometry/style still fails.
+See `docs/native-scrollbar-evidence.md`. Windows and macOS must preserve the same
+quantity distinctions when comparing actual template/draw evidence.
+
+Changes for the clients (new image request in b89f80b): the actual loaded brand
+image must be compared by measured resource/paint content rather than its random
+localhost transport URL. Shared resource-byte/decoded SVG evidence and Windows
+SvgImageSource binding are being implemented. macOS's actual NativeLogoView draw
+receipt is retained; no image mapping or equivalence exception is approved.
+
 Changes for the clients (verified Copy fix and Windows ABI correction): diagnostic
 `40994609011` / `8b5bfce` reference Windows completes all 19 cases. The actual Copy
 receipt has all six state checkpoints, successful final clipboard read and no

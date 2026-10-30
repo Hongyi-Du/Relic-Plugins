@@ -5,7 +5,7 @@
   const elements = [], raw_nodes = [], extraction_errors = [], unmeasured = [];
   for (const error of meta.input_text_errors || []) extraction_errors.push({ type: 'input_text_capture_error', detail: error });
   const viewport = { width: innerWidth, height: innerHeight, scale: devicePixelRatio };
-  const nodeIds = new WeakMap(), emittedIds = new WeakMap(), styles = new WeakMap(), occlusionMasks = new WeakMap();
+  const nodeIds = new WeakMap(), emittedIds = new WeakMap(), styles = new WeakMap(), occlusionMasks = new WeakMap(), scrollbarOrder = new WeakMap();
   const colorCanvas = new OffscreenCanvas(1, 1);
   const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   const colors = new Map(), regionOrders = new Map();
@@ -975,12 +975,26 @@
       return { pseudo, display: p.display, visibility: p.visibility, opacity: p.opacity,
         source: 'computed pseudo style request, not evidence that the UA painted this part', painted_presence: null, painted_bounds: null,
         width: p.width, height: p.height, background: p.backgroundColor, background_clip: p.backgroundClip,
+        computed_background_rgba: computedSrgb(p.backgroundColor).rgba,
+        background_image: p.backgroundImage, box_shadow: p.boxShadow, content: p.content,
+        transform: p.transform, filter: p.filter, mix_blend_mode: p.mixBlendMode,
         border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Width']),
+        border_styles: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Style']),
         border_colors: ['Top', 'Right', 'Bottom', 'Left'].map(side => p['border' + side + 'Color']),
+        computed_border_rgba: ['Top', 'Right', 'Bottom', 'Left'].map(side => computedSrgb(p['border' + side + 'Color']).rgba),
         corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => p['border' + corner + 'Radius']) };
     });
     if (parts[0].display === 'none' || parts[0].visibility === 'hidden' || parts[0].opacity?.trim() !== '' && Number(parts[0].opacity) === 0) return null;
+    const ancestry = [];
+    for (let p = el; p; p = p.parentElement) {
+      const ps = styleOf(p);
+      ancestry.push({ selector: pathOf(p), transform: ps.transform, perspective: ps.perspective, zoom: ps.zoom,
+        opacity: ps.opacity, filter: ps.filter, backdrop_filter: ps.backdropFilter, mix_blend_mode: ps.mixBlendMode,
+        clip_path: ps.clipPath, mask_image: ps.maskImage, background_image: ps.backgroundImage });
+    }
     return { source: 'actual scroll metrics + getComputedStyle UA pseudo styles', axes, owner_bounds: rect(el.getBoundingClientRect()),
+      owner_backend_node_id: snapshotBackend.get(el) ?? null, owner_style: { border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => s['border' + side + 'Width']),
+        transform: s.transform, zoom: s.zoom, flex_direction: s.flexDirection }, ancestry,
       client_width: el.clientWidth, client_height: el.clientHeight, client_left: el.clientLeft, client_top: el.clientTop,
       offset_width: el.offsetWidth, offset_height: el.offsetHeight, scroll_width: el.scrollWidth, scroll_height: el.scrollHeight,
       scroll_left: el.scrollLeft, scroll_top: el.scrollTop, scrollbar_width: s.scrollbarWidth, scrollbar_gutter: s.scrollbarGutter,
@@ -990,7 +1004,82 @@
       measurement_limit: 'CSS overflow and integer client/offset metrics establish a scroll container, not actual overlay visibility or individual track/thumb/button paint bounds. Computed pseudo styles do not establish part existence.',
       measured_part_bounds: null, measured_part_pixels: null };
   };
-  const readingOrderIds = (root, ids) => {
+  const scrollbarGutter = (evidence, axis) => {
+    // Client/offset metrics expose reserved layout space, not the thumb box.
+    // Only use their exact integer, untransformed case; rounding/overlay gaps
+    // remain unknown instead of being expanded to a requested CSS thickness.
+    const fail = reason => ({ bounds: null, reason, quantity: 'reserved DOM scrollbar gutter; not a thumb or hit rectangle' });
+    const box = evidence.owner_bounds, metrics = ['client_width', 'client_height', 'client_left', 'client_top', 'offset_width', 'offset_height'];
+    const px = value => typeof value === 'string' && /^\d+(?:\.\d+)?px$/.test(value) ? Number.parseFloat(value) : null;
+    const borders = evidence.owner_style.border_widths.map(px);
+    if (!metrics.every(key => Number.isInteger(evidence[key]) && evidence[key] >= 0) || !borders.every(Number.isInteger) ||
+        !Object.values(box).every(Number.isInteger) || box.width !== evidence.offset_width || box.height !== evidence.offset_height)
+      return fail('Integer DOM metrics do not independently resolve this fractional/rounded layout box.');
+    if (evidence.writing_mode !== 'horizontal-tb' || evidence.ancestry.some(p => p.transform !== 'none' || p.perspective !== 'none' || !['1', 'normal'].includes(p.zoom)))
+      return fail('Actual writing mode/transform/zoom does not expose an untransformed scrollbar gutter.');
+    const [bt, br, bb, bl] = borders;
+    const vertical = box.width - evidence.client_width - bl - br;
+    const horizontal = box.height - evidence.client_height - bt - bb;
+    const left = evidence.client_left - bl, top = evidence.client_top - bt;
+    const requested = px(axis === 'vertical' ? evidence.parts[0].width : evidence.parts[0].height);
+    if (vertical < 0 || horizontal < 0 || top !== 0 || ![0, vertical].includes(left))
+      return fail('Measured reserved space cannot be assigned to one scrollbar side without guessing.');
+    const thickness = axis === 'vertical' ? vertical : horizontal;
+    if (thickness <= 0 || requested !== thickness)
+      return fail('No uniquely measured reserved gutter agreeing with the actual pseudo thickness; overlay or stable gutters remain unknown.');
+    const bounds = axis === 'vertical' ? { x: left ? box.x + bl : box.x + evidence.client_left + evidence.client_width,
+      y: box.y + evidence.client_top, width: vertical, height: evidence.client_height } : {
+      x: box.x + evidence.client_left, y: box.y + evidence.client_top + evidence.client_height, width: evidence.client_width, height: horizontal };
+    if (bounds.width <= 0 || bounds.height <= 0) return fail('The measured reserved gutter has no positive area.');
+    return { bounds, reason: null, quantity: 'reserved DOM scrollbar gutter outer rectangle; not individual track-piece, thumb or hit geometry',
+      source: 'actual integer border/client/offset metrics and unchanged coordinate axes', side: axis === 'vertical' ? left ? 'left' : 'right' : 'bottom' };
+  };
+  const emitScrollbarParts = (el, raw, evidence, parent) => {
+    const slots = [], region = regionOf(el);
+    evidence.gutters = {};
+    for (const axis of evidence.axes) {
+      const gutter = scrollbarGutter(evidence, axis);
+      if (gutter.bounds) {
+        gutter.visible_bounds = visibleRect(el, gutter.bounds);
+        gutter.visible_fragments = gutter.visible_bounds ? fragmentsOf(el, gutter.visible_bounds) : [];
+        gutter.occlusion_masks = occlusionMasks.get(el) || [];
+        gutter.visibility_gaps = unmeasured.filter(gap => gap.element === raw.id && gap.property?.startsWith('visibility.'));
+        const equal = other => other && ['x', 'y', 'width', 'height'].every(key => other[key] === gutter.bounds[key]);
+        gutter.fully_visible = equal(gutter.visible_bounds) && gutter.visible_fragments.length === 1 && equal(gutter.visible_fragments[0]) && !gutter.occlusion_masks.length && !gutter.visibility_gaps.length;
+      } else { gutter.visible_bounds = null; gutter.fully_visible = false; }
+      evidence.gutters[axis] = gutter;
+      const extent = axis === 'vertical' ? evidence.scroll_height - evidence.client_height : evidence.scroll_width - evidence.client_width;
+      const offset = axis === 'vertical' ? evidence.scroll_top : evidence.scroll_left;
+      const normalFlow = evidence.writing_mode === 'horizontal-tb' && !['column-reverse', 'row-reverse'].includes(evidence.owner_style.flex_direction) && (axis === 'vertical' || evidence.direction === 'ltr');
+      const position = normalFlow && Number.isFinite(extent) && extent >= 0 && Number.isFinite(offset) && offset >= 0 && offset <= extent ? extent === 0 ? 0 : offset / extent : null;
+      for (const kind of ['scrollbar', 'scrollbar-thumb']) {
+        const id = raw.id + ':' + kind + ':' + axis, isThumb = kind === 'scrollbar-thumb';
+        const bounds = isThumb ? null : gutter.bounds;
+        const item = { id, parent, region, order: 0, kind, text: '', name: null, bounds,
+          visible_bounds: isThumb ? null : gutter.visible_bounds,
+          style: Object.fromEntries(['font_size', 'font_weight', 'foreground', 'background', 'border_color', 'border_width', 'corner_radius',
+            'border_widths', 'border_colors', 'border_styles', 'corner_radii', 'opacity', 'background_image', 'shadow'].map(key => [key, null])),
+          state: { enabled: Number.isFinite(extent) ? extent > 0 : null, selected: null, checked: null, expanded: null,
+            focused: null, hovered: null, unread: null, orientation: axis, scroll_position: position },
+          layout: { wrap: null, truncation: null, line_count: null }, icon: null,
+          evidence: { source: 'actual DOM scroll owner; unresolved UA part retained explicitly', raw_node: raw.id, selector: pathOf(el),
+            owner_backend_node_id: evidence.owner_backend_node_id, orientation: axis, gutter,
+            outer_bounds: bounds, hit_bounds: null, ink_bounds: null, painted_presence: null,
+            bounds_quantity: isThumb ? 'actual thumb part border box remains unmeasured' : gutter.quantity,
+            scroll_state: { offset, range: extent, client_extent: axis === 'vertical' ? evidence.client_height : evidence.client_width,
+              content_extent: axis === 'vertical' ? evidence.scroll_height : evidence.scroll_width,
+              normalized_quantity: 'actual scroll offset/range state only; never used to derive thumb geometry' },
+            computed_pseudo: evidence.parts.find(part => part.pseudo === (isThumb ? '::-webkit-scrollbar-thumb' : '::-webkit-scrollbar')),
+            measurement_limit: 'DOM gutter and CSS pseudo requests do not expose individual transparent borders, hit rectangles, hover/name or resolved UA part paint. Original PNG sampling supplies separate ink evidence only.' } };
+        elements.push(item); raw.emitted.push(id); slots.push(id);
+        unmeasured.push({ element: id, property: 'scrollbar.ua_part', reason: item.evidence.measurement_limit });
+        extraction_errors.push({ type: 'ua_scrollbar_part_measurement_unavailable', node: id, kind,
+          reason: 'Real scroll-owner obligation is explicit; unknown part geometry/style/state cannot pass as omitted UI.' });
+      }
+    }
+    scrollbarOrder.set(el, slots);
+  };
+  const readingOrderIds = (root, ids, scrollSlots = new WeakMap()) => {
     // CSS tree-abiding pseudo-elements occur at their originating element's
     // content boundaries. Enumerate mixed text/element children, not separate
     // text and element passes: ::after follows every descendant, while a code
@@ -1007,6 +1096,7 @@
         } else if (child.nodeType === Node.ELEMENT_NODE) visit(child);
       }
       if (id !== undefined) ordered.push(id + '::after');
+      ordered.push(...(scrollSlots.get(el) || []));
     };
     visit(root);
     return ordered;
@@ -1081,6 +1171,7 @@
       if (own) own.nodes.forEach(n => { suppressedText.add(n); for (const t of raw.text_nodes) if (t.text === n.nodeValue) t.owned_by = emitted; });
       if (el.localName === 'canvas') extraction_errors.push({ type: 'canvas_semantics_unavailable', node: id, reason: 'Canvas pixels are captured but internal element identities require a separate instrumentation contract.' });
     }
+    if (scrollbar) emitScrollbarParts(el, raw, scrollbar, parent);
     const childText = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE);
     for (let i = 0; i < childText.length; i++) {
       const n = childText[i], text = visibleText(n, s);
@@ -1118,7 +1209,7 @@
     }
     raw.projection_reason = raw.emitted.length ? 'paint-or-semantic-or-text' : 'layout-only-wrapper-or-owned-label';
   }
-  assignReadingOrder(elements, raw_nodes, readingOrderIds(document.body, nodeIds), extraction_errors);
+  assignReadingOrder(elements, raw_nodes, readingOrderIds(document.body, nodeIds, scrollbarOrder), extraction_errors);
   return { schema_version: 1, scene_id: meta.scene_id, client: 'reference', viewport,
     lang: meta.lang || document.documentElement.lang, theme: meta.theme || document.documentElement.dataset.theme, reference_environment: meta.reference_environment || null,
     capture: { source: 'production-dom', coordinate_space: 'viewport-css-pixels', device_scale_factor: devicePixelRatio,
