@@ -7,7 +7,7 @@ import AppKit
     static func makeLabel() -> ReferenceLabelView {
         let storage = NSTextStorage(), manager = NativeGlyphLayoutManager()
         manager.recordDraws = VisualCapture.enabled
-        let container = NSTextContainer(containerSize: NSSize(width: 400, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
@@ -25,7 +25,7 @@ extension ComposerTextView {
     static func makeObserved(frame: NSRect) -> ComposerTextView {
         let storage = NSTextStorage(), manager = NativeGlyphLayoutManager()
         manager.recordDraws = VisualCapture.enabled
-        let container = NSTextContainer(containerSize: NSSize(width: frame.width, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(containerSize: NSSize(width: frame.width, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let view = ComposerTextView(frame: frame, textContainer: container)
         view.observedStorage = storage
