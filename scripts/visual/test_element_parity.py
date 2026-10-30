@@ -603,10 +603,11 @@ class MatrixReportTests(unittest.TestCase):
             partial.putpixel((10, 10), (27, 27, 26, 255)); partial.save(path)
             self.assertEqual([], image_info(path, "macos", viewport))
 
-    def test_full_matrix_requires_exact_660_cases(self):
+    def test_full_matrix_requires_exact_672_cases(self):
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         cases = expected_cases(spec, "full")
-        self.assertEqual(len(cases), 660)
+        self.assertEqual(len(cases), 672)
+        self.assertIn("en-US-dark-1024x700-settings-navigation-hover", cases)
         self.assertIn("en-US-dark-1024x700-menu-help", cases)
         self.assertIn("zh-CN-light-1440x900-quick-start", cases)
         self.assertIn("en-US-dark-1024x700-member-host-model-suggestions", cases)
@@ -623,8 +624,8 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-panel-resize-hover", cases)
         self.assertIn("zh-CN-light-1280x800-panel-resized", cases)
         smoke = expected_cases(spec, "smoke")
-        self.assertEqual(len(smoke), 19)
-        original_smoke = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart",
+        self.assertEqual(len(smoke), 20)
+        original_smoke = ("group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart",
                           "menu-file", "file-code", "live-tool-output", "live-typing")
         added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
         self.assertEqual(set(smoke), {"zh-CN-light-1440x900-" + scene for scene in original_smoke + added})

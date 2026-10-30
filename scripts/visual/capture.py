@@ -32,6 +32,7 @@ MEMBER_CARD_SCENES = {
 MESSAGE_SCENES = frozenset(("message-hover", "message-copy-toast"))
 RESIZE_SCENES = frozenset(("new-org-textarea-resized",))
 PANEL_RESIZE_SCENES = frozenset(("panel-resize-hover", "panel-resized"))
+SETTINGS_NAVIGATION_SCENES = frozenset(("settings-navigation-hover",))
 
 
 def validate_reference_cc(state, responses):
@@ -491,6 +492,109 @@ def read_fixture_json(fixture, path):
         headers={"X-Relic-Token": fixture["token"]})
     with urllib.request.urlopen(request) as response:
         return json.load(response)
+
+
+class SettingsNavigationCapture:
+    """Real navigation hover, retaining the selected production Appearance page."""
+    SELECTOR = '.settings nav button[data-k="notify"]'
+    INSTALL_OBSERVER = """() => {
+      const root=document.querySelector('.settings'),nav=root?.querySelector('nav'),
+        pane=root?.querySelector(':scope > .pane'),buttons=nav?Array.from(nav.querySelectorAll('button')):[],
+        target=nav?.querySelector('button[data-k="notify"]'),events=[];
+      const box=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+      const style=n=>{const s=getComputedStyle(n);return {display:s.display,visibility:s.visibility,
+        opacity:s.opacity,background:s.backgroundColor,color:s.color,font_family:s.fontFamily,font_size:s.fontSize,
+        font_weight:s.fontWeight,line_height:s.lineHeight,border:s.border,border_radius:s.borderRadius,
+        padding:s.padding,gap:s.gap,outline:s.outline,box_shadow:s.boxShadow};};
+      const node=n=>n?{connected:n.isConnected,bounds:box(n),style:style(n),text:n.textContent,
+        hovered:n.matches(':hover'),focused:n===document.activeElement}:null;
+      const observe=event=>events.push({type:event.type,trusted:event.isTrusted,x:event.clientX,y:event.clientY,
+        timestamp:event.timeStamp,target_is_notify:!!target&&event.target instanceof Node&&target.contains(event.target)});
+      const types=['pointermove','pointerdown','pointerup','click'];
+      for(const type of types)document.addEventListener(type,observe,true);
+      return {read:()=>{
+        const liveButtons=nav?Array.from(nav.querySelectorAll('button')):[],
+          point=events.findLast(event=>event.type==='pointermove');
+        return {state:{closure:window.__relicVisualSettingsState??null,
+          same_root:!!root&&document.querySelectorAll('.settings').length===1&&document.querySelector('.settings')===root,
+          same_nav:!!nav&&root?.querySelector('nav')===nav,
+          same_pane:!!pane&&root?.querySelector(':scope > .pane')===pane,
+          same_buttons:liveButtons.length===buttons.length&&liveButtons.every((button,i)=>button===buttons[i]),
+          same_target:!!target&&nav?.querySelector('button[data-k="notify"]')===target,
+          root:node(root),nav:node(nav),buttons:buttons.map(button=>({...node(button),key:button.dataset.k,
+            selected:button.classList.contains('on'),disabled:button.disabled})),
+          pane:pane?{...node(pane),html:pane.innerHTML,controls:Array.from(pane.querySelectorAll('input,select,textarea,button'),
+            control=>({tag:control.localName,text:control.textContent,value:control.value??null,
+              checked:typeof control.checked==='boolean'?control.checked:null,
+              selected_index:typeof control.selectedIndex==='number'?control.selectedIndex:null,disabled:control.disabled}))}:null,
+          pointer:point?{x:point.x,y:point.y,trusted:point.trusted,target_is_notify:point.target_is_notify}:null,
+          pointer_event_count:events.length},pointer_events:events.slice(),
+          clock:{date_now:Date.now(),performance_now:performance.now(),time_origin:performance.timeOrigin}};
+      },dispose:()=>{for(const type of types)document.removeEventListener(type,observe,true);}};
+    }"""
+
+    def __init__(self, page, scene, receipt_path):
+        self.page, self.scene, self.receipt_path = page, scene, receipt_path
+        self.observer = self.baseline = None
+        self.evidence = {"source": "trusted Playwright hover + retained production settings DOM and closure snapshots",
+            "scene": scene, "navigation_scene": "settings-appearance", "selector": self.SELECTOR,
+            "desired_state": {"current": "appearance", "hovered": "notify", "notify_selected": False},
+            "checkpoints": [], "errors": []}
+
+    def save(self):
+        self.receipt_path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def open(self):
+        self.evidence["fonts_before_action"] = self.page.evaluate(
+            "async () => {await document.fonts.ready; return {status:document.fonts.status,count:document.fonts.size};}")
+        if self.evidence["fonts_before_action"].get("status") != "loaded":
+            raise RuntimeError("Actual page fonts were not ready before settings navigation hover")
+        target = self.page.locator(self.SELECTOR)
+        if target.count() != 1:
+            raise RuntimeError("Expected exactly one actual Notifications navigation button")
+        self.observer = self.page.evaluate_handle(self.INSTALL_OBSERVER)
+        self.evidence["before_action"] = self.observer.evaluate("capture => capture.read()")
+        self.save()
+        target.hover()
+        self.checkpoint("after_action")
+
+    def checkpoint(self, stage):
+        measured = self.observer.evaluate("capture => capture.read()")
+        record = {"stage": stage, "host_monotonic": time.monotonic(), **measured}
+        self.evidence["checkpoints"].append(record)
+        self.save()
+        state = measured["state"]
+        closure, buttons = state.get("closure"), state.get("buttons", [])
+        selected = [button.get("key") for button in buttons if button.get("selected") is True]
+        targets = [button for button in buttons if button.get("key") == "notify"]
+        if (not isinstance(closure, dict) or closure.get("source") != "actual production closure settingsPane.current; read-only snapshot"
+                or closure.get("current") != "appearance" or selected != ["appearance"]
+                or len(targets) != 1 or targets[0].get("selected") is not False
+                or targets[0].get("disabled") is not False or targets[0].get("hovered") is not True
+                or any(state.get(key) is not True for key in ("same_root", "same_nav", "same_pane", "same_buttons", "same_target"))):
+            raise RuntimeError("Actual Appearance selection or retained Notifications hover identity changed at " + stage)
+        for node in (state.get("root"), state.get("nav"), state.get("pane"), *buttons):
+            if (not node or node.get("connected") is not True or node.get("style", {}).get("display") == "none"
+                    or node.get("style", {}).get("visibility") != "visible" or float(node.get("style", {}).get("opacity", 0)) <= 0
+                    or node.get("bounds", {}).get("width", 0) <= 0 or node.get("bounds", {}).get("height", 0) <= 0):
+                raise RuntimeError("Actual settings navigation/page is detached or not visible at " + stage)
+        point, events = state.get("pointer"), measured.get("pointer_events", [])
+        if (not point or point.get("trusted") is not True or point.get("target_is_notify") is not True
+                or not events or any(event.get("type") != "pointermove" for event in events)
+                or state.get("pointer_event_count") != len(events)):
+            raise RuntimeError("Settings navigation requires actual hover without a navigation click at " + stage)
+        if self.baseline is None:
+            self.baseline = state
+        elif state != self.baseline:
+            raise RuntimeError("Settings navigation/page geometry, style, selection or pointer changed during capture at " + stage)
+
+    def close(self):
+        try:
+            if self.observer is not None:
+                self.observer.evaluate("capture => capture.dispose()")
+                self.observer.dispose()
+        finally:
+            self.save()
 
 
 class MessageSceneCapture:
@@ -1044,7 +1148,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
     resize = TextareaResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in RESIZE_SCENES else None
     panel_resize = PanelResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in PANEL_RESIZE_SCENES else None
-    actions = [action for action in (message, resize, panel_resize) if action is not None]
+    settings_navigation = SettingsNavigationCapture(page, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in SETTINGS_NAVIGATION_SCENES else None
+    actions = [action for action in (message, resize, panel_resize, settings_navigation) if action is not None]
     def source_step(name, operation):
         if message is not None:
             message.progress(name)
@@ -1064,7 +1169,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             capture_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
             message.pause_for_sources()
         else:
-            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES else "disabled"))
+            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES | SETTINGS_NAVIGATION_SCENES else "disabled"))
         for action in actions:
             action.checkpoint("after_screenshot")
         if cc_capture is not None:
@@ -1102,6 +1207,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             elements.setdefault("capture_evidence", {})["textarea_resize_action"] = resize.evidence
         if panel_resize is not None:
             elements.setdefault("capture_evidence", {})["panel_resize_action"] = panel_resize.evidence
+        if settings_navigation is not None:
+            elements.setdefault("capture_evidence", {})["settings_navigation_action"] = settings_navigation.evidence
         record_caret_coverage(elements, environment.get("caret_context"))
         if member_card is not None:
             elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
@@ -1839,7 +1946,7 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     capture_errors, captured_client, captured_reference = [], 0, 0

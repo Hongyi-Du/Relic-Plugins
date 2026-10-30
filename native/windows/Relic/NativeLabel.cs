@@ -60,6 +60,46 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
+    internal void DisposePathLine() => Detach();
+    // Used by the production selectable path owner. All hit tests use this
+    // exact per-line layout, the same object that supplies production Draw.
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int HitPoint(IntPtr self, float x, float y, out int trailing, out int inside, out HitTestMetrics hit);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int HitPosition(IntPtr self, uint position, int trailing, out float x, out float y, out HitTestMetrics hit);
+    internal int PathPositionAt(double x, double y)
+    {
+        if (layout == IntPtr.Zero) throw new InvalidOperationException("The production line has not been measured");
+        Check(Method<HitPoint>(layout, 64)(layout, (float)x, (float)y, out var trailing, out _, out var hit));
+        return Math.Clamp(checked((int)(hit.TextPosition + (trailing != 0 ? hit.Length : 0))), 0, text.Length);
+    }
+    internal double PathPositionX(int position)
+    {
+        if (layout == IntPtr.Zero) throw new InvalidOperationException("The production line has not been measured");
+        Check(Method<HitPosition>(layout, 65)(layout, checked((uint)Math.Clamp(position, 0, text.Length)), 0, out var x, out _, out _));
+        return x;
+    }
+    internal IReadOnlyList<LayoutRect> PathRangeRectangles(int start, int end)
+    {
+        if (layout == IntPtr.Zero) throw new InvalidOperationException("The production line has not been measured");
+        if (start < 0 || end < start || end > text.Length) throw new ArgumentOutOfRangeException(nameof(start));
+        if (start == end) return [];
+        var hit = Method<HitTestRange>(layout, 66);
+        var first = hit(layout, (uint)start, (uint)(end - start), 0, 0, IntPtr.Zero, 0, out var count);
+        if (first < 0 && first != unchecked((int)0x8007007A)) Check(first);
+        var buffer = Marshal.AllocHGlobal(checked((int)count * Marshal.SizeOf<HitTestMetrics>()));
+        try
+        {
+            Check(hit(layout, (uint)start, (uint)(end - start), 0, 0, buffer, count, out var actual));
+            if (actual > count) throw new InvalidOperationException("DirectWrite range exceeded its actual buffer");
+            var result = new List<LayoutRect>();
+            for (var i = 0; i < actual; i++)
+            {
+                var range = Marshal.PtrToStructure<HitTestMetrics>(buffer + checked((int)i * Marshal.SizeOf<HitTestMetrics>()));
+                result.Add(new LayoutRect(range.Left, range.Top, range.Width, range.Height));
+            }
+            return result;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
     // Read the first baseline from the very layout used by production Draw.
     // No font fallback estimate or second shaping pass supplies row alignment.
     internal double FirstBaseline

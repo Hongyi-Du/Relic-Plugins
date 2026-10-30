@@ -23,6 +23,7 @@ from image_paint import ImagePaintError, validate_vector_paint
 from outline_paint import outline_measurement, compare_outlines
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import compare_font_weights, font_weight_issues
+from macos_icon_draw import icon_draw_issues
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -40,7 +41,7 @@ STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovere
 LAYOUT_FIELDS = (*BREAK_FIELDS, "truncation", "line_count")
 INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link", "resize-handle"} | SCROLL_KINDS
 CATEGORIES = ("missing", "extra", "text_mismatch", "geometry_out_of_tolerance", "style_out_of_tolerance", "state_mismatch", "kind_mismatch", "region_mismatch", "order_mismatch", "layout_mismatch", "icon_mismatch", "extraction_errors")
-SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
+SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
 TOLERANCES = {"geometry_small_px": 4, "geometry_large_threshold_px": 130, "geometry_large_fraction": .03, "font_size_px": .5, "font_weight": 0, "color_delta_e_76": 3, "alpha": 0, "corner_radius_px": 1, "border_width_px": 0}
 
 
@@ -405,6 +406,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
             error("Invalid icon identity", eid)
         _, icon_error = icon_identity(icon)
         if icon_error: error(icon_error, eid)
+        if client == "macos":
+            for issue in icon_draw_issues(element): error("Mac icon draw: " + issue, eid)
         if not isinstance(element.get("evidence"), dict):
             error("Evidence must be an object", eid)
     for element in elements:

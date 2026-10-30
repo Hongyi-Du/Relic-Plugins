@@ -110,8 +110,12 @@ public sealed partial class MainWindow : Window
         recipientButton = QuietButton("", PickRecipients); var composeActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; composeActions.Children.Add(Microphone(editor));
         sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); sendButton.Width = sendButton.Height = 32; sendButton.CornerRadius = new CornerRadius(16); sendButton.HorizontalContentAlignment = HorizontalAlignment.Center; sendButton.VerticalContentAlignment = VerticalAlignment.Center; sendButton.Padding = new Thickness(0); composeActions.Children.Add(sendButton);
         compose.Children.Add(TwoColumns(recipientButton, composeActions));
-        composerSurface.Child = compose; composerSurface.Padding = new Thickness(14, 10, 10, 8); composerSurface.Margin = new Thickness(20, 0, 20, 0); composerSurface.CornerRadius = new CornerRadius(18); composerSurface.BorderThickness = new Thickness(1); composerSurface.MaxWidth = 880;
-        composerRegion.Children.Add(composerSurface); Grid.SetRow(composerRegion, 3); chat.Children.Add(composerRegion);
+        composerSurface.Child = compose; composerSurface.Padding = new Thickness(14, 10, 10, 8); composerSurface.CornerRadius = new CornerRadius(18); composerSurface.BorderThickness = new Thickness(1);
+        // Keep the shadow mask on the actual border box; outer spacing belongs
+        // to the wrapper so growing text and quotes resize both together.
+        var composerShadow = new NativeShadowPanel(composerSurface) { Margin = new Thickness(20, 0, 20, 0), MaxWidth = 880 };
+        composerShadow.SetShadows([new NativeShadowLayer(0, 1, 2, Windows.UI.Color.FromArgb(255, 20, 18, 15), .06f)]);
+        composerRegion.Children.Add(composerShadow); Grid.SetRow(composerRegion, 3); chat.Children.Add(composerRegion);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
