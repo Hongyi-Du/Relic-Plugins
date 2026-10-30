@@ -210,6 +210,7 @@ public sealed partial class MainWindow
                     RecordPanelResizePhase("before_native_label_capture");
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
                     RecordPanelResizePhase("after_native_label_capture");
+                    await AwaitPanelResizeCaptureReadiness();
                     CapturePanelResizeCheckpoint("before_screenshot");
                     CheckpointSettingsNavigationCapture("before_screenshot");
                     BeginTextRangeFrameCapture(shot.Text("id"));
