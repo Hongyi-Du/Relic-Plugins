@@ -396,12 +396,31 @@ class ExtractionContractTests(unittest.TestCase):
         item["evidence"].pop("text_bounds")
         self.assertEqual(self.validate(capture(elements=[item])), [])
 
+    def test_actual_scroll_parts_are_valid_but_unknown_range_state_still_fails(self):
+        for kind in ("scrollbar", "scrollbar-thumb"):
+            item = element(text="", kind=kind)
+            item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
+            item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+            item["evidence"].pop("text_bounds")
+            item["state"].update(enabled=True, orientation="vertical", scroll_position=.25)
+            self.assertEqual(self.validate(capture(elements=[item])), [])
+            other = deepcopy(item); other["id"] = "native-scroll"
+            self.assertFalse(compare_elements([item], [other])["state_mismatch"])
+            for key, bad in (("orientation", None), ("orientation", "diagonal"),
+                             ("scroll_position", None), ("scroll_position", True),
+                             ("scroll_position", -1), ("scroll_position", 1.01)):
+                invalid = deepcopy(item); invalid["state"][key] = bad
+                self.assertTrue(any(key in failure["reason"] for failure in self.validate(capture(elements=[invalid]))))
+                self.assertTrue(compare_elements([item], [invalid])["state_mismatch"])
+            other["state"]["scroll_position"] = .2501
+            self.assertTrue(compare_elements([item], [other])["state_mismatch"])
+
 
 class MatrixReportTests(unittest.TestCase):
-    def test_full_matrix_requires_exact_636_cases(self):
+    def test_full_matrix_requires_exact_660_cases(self):
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         cases = expected_cases(spec, "full")
-        self.assertEqual(len(cases), 636)
+        self.assertEqual(len(cases), 660)
         self.assertIn("en-US-dark-1024x700-menu-help", cases)
         self.assertIn("zh-CN-light-1440x900-quick-start", cases)
         self.assertIn("en-US-dark-1024x700-member-host-model-suggestions", cases)
@@ -415,11 +434,13 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-message-hover", cases)
         self.assertIn("zh-CN-light-1440x900-message-copy-toast", cases)
         self.assertIn("en-US-dark-1024x700-new-org-textarea-resized", cases)
+        self.assertIn("en-US-dark-1024x700-panel-resize-hover", cases)
+        self.assertIn("zh-CN-light-1280x800-panel-resized", cases)
         smoke = expected_cases(spec, "smoke")
-        self.assertEqual(len(smoke), 17)
+        self.assertEqual(len(smoke), 19)
         original_smoke = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart",
                           "menu-file", "file-code", "live-tool-output", "live-typing")
-        added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized")
+        added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
         self.assertEqual(set(smoke), {"zh-CN-light-1440x900-" + scene for scene in original_smoke + added})
         self.assertTrue(set(smoke).issubset(cases))
 

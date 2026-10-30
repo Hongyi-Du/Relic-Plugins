@@ -26,15 +26,16 @@ from paint_patterns import (MeasurementError, background_pattern_kind,
 PLATFORMS = ("windows", "macos")
 CLIENTS = ("reference",) + PLATFORMS
 REGIONS = {"window", "header", "sidebar", "conversation", "composer", "right-pane", "dialog", "menu"}
-KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link", "resize-handle"}
+KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link", "resize-handle", "scrollbar", "scrollbar-thumb"}
+SCROLL_KINDS = {"scrollbar", "scrollbar-thumb"}
 STYLE_FIELDS = ("font_size", "font_weight", "foreground", "background", "border_color", "border_width", "corner_radius")
 PAINT_FIELDS = ("border_widths", "border_colors", "border_styles", "corner_radii", "opacity", "background_image", "shadow")
 STROKE_FIELDS = ("stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin")
 STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
 LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
-INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link", "resize-handle"}
+INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link", "resize-handle"} | SCROLL_KINDS
 CATEGORIES = ("missing", "extra", "text_mismatch", "geometry_out_of_tolerance", "style_out_of_tolerance", "state_mismatch", "kind_mismatch", "region_mismatch", "order_mismatch", "layout_mismatch", "icon_mismatch", "extraction_errors")
-SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized")
+SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
 TOLERANCES = {"geometry_small_px": 4, "geometry_large_threshold_px": 130, "geometry_large_fraction": .03, "font_size_px": .5, "font_weight": 0, "color_delta_e_76": 3, "alpha": 0, "corner_radius_px": 1, "border_width_px": 0}
 
 
@@ -367,6 +368,12 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                 if style.get(key) is None: error("Font glyph has no measured " + key, eid)
         if isinstance(element.get("kind"), str) and element.get("kind") in INTERACTIVE and state.get("enabled") is None:
             error("Interactive element has no enabled state", eid)
+        if isinstance(element.get("kind"), str) and element.get("kind") in SCROLL_KINDS:
+            if state.get("orientation") not in ("horizontal", "vertical"):
+                error("Scrollbar has no measured orientation", eid)
+            position = state.get("scroll_position")
+            if not number(position) or not 0 <= position <= 1:
+                error("Scrollbar has no measured normalized scroll_position", eid)
         for kind, key in (("input", "focused"), ("tab", "selected"), ("toggle", "checked"), ("checkbox", "checked")):
             if element.get("kind") == kind and state.get(key) is None:
                 error(kind + " has no " + key + " state", eid)
@@ -617,6 +624,12 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
             av, bv = a.get("state", {}).get("current"), b.get("state", {}).get("current")
             if not isinstance(av, bool) or not isinstance(bv, bool) or av != bv:
                 mismatch("state_mismatch", "current", av, bv)
+        if any(e.get("kind") in SCROLL_KINDS for e in (a, b)):
+            for key in ("orientation", "scroll_position"):
+                av, bv = a.get("state", {}).get(key), b.get("state", {}).get(key)
+                valid = (av in ("horizontal", "vertical") and bv in ("horizontal", "vertical")) if key == "orientation" else (number(av) and number(bv) and 0 <= av <= 1 and 0 <= bv <= 1)
+                if not valid or av != bv:
+                    mismatch("state_mismatch", key, av, bv)
         if has_text(a) or has_text(b):
             fonts_a, fonts_b = rendered_fonts(a), rendered_fonts(b)
             if fonts_a is None or fonts_b is None:

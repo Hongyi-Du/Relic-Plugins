@@ -10,6 +10,7 @@
     "member-card", "member-card-rename", "member-card-model", "member-card-avatar-hover", "member-edit", "forward", "secretary", "tasks", "task-report", "protocols", "documents", "trajectory",
     "settings-profile", "settings-appearance", "settings-language", "settings-voice", "settings-notify", "settings-harness", "settings-about",
     "shortcuts", "recipients", "quote", "mention", "digest", "plain", "quick-start", "menu-file", "menu-edit", "menu-view", "menu-help",
-    "live-busy", "live-tool-output", "live-typing", "message-hover", "message-copy-toast", "new-org-textarea-resized"
+    "live-busy", "live-tool-output", "live-typing", "message-hover", "message-copy-toast", "new-org-textarea-resized",
+    "panel-resize-hover", "panel-resized"
   ]
 }

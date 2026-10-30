@@ -458,7 +458,7 @@ function fontNodeReader() {
   const fonts = { source: 'CDP.CSS.getPlatformFontsForNode', by_backend_node: {}, queries: {}, errors: [] };
   const meta = { reference_environment: { fonts }, input_text_boxes: {} };
   const identity = vm.runInNewContext('(' + expression('platformFontIdentity', 'fontRequestEvidence') + ')');
-  const read = vm.runInNewContext('(' + expression('platformFonts', 'supplementalRegionEvidence') + ')', {
+  const read = vm.runInNewContext('(' + expression('platformFonts', 'panelResizeEvidence') + ')', {
     meta, snapshotBackend, snapshotInputFontOwners, unmeasured, Node: { TEXT_NODE: 3 }, platformFontIdentity: identity,
   });
   const actual = (backend, face, count, type = 3) => {
@@ -663,7 +663,7 @@ test('CSS border styles preserve each side and do not invent dashed paint length
 });
 
 test('current chart organization is distinct from selection and uses actual aria-current', () => {
-  const read = vm.runInNewContext('(' + expression('stateOf', 'iconOf') + ')', { document: { activeElement: null } });
+  const read = vm.runInNewContext('(' + expression('stateOf', 'iconOf') + ')', { document: { activeElement: null }, panelResizeEvidence: () => null });
   const chart = value => ({ localName: 'button', classList: { contains: () => false }, hasAttribute: () => false,
     getAttribute: name => name === 'aria-current' ? value : null,
     matches: selector => selector === '.oc-node' || selector.startsWith('button,input'),
@@ -750,11 +750,18 @@ test('zero scrollbar gutter is not proof that overlay scrollbars are absent', ()
   assert.equal(result.measured_part_pixels, null);
 });
 
+const panelResizeDocument = { body: { classList: { contains: () => false } }, activeElement: null };
+const panelResizeMeta = { panel_listeners: { source: 'CDP.DOMDebugger.getEventListeners', owner: { backendNodeId: 902, nodeType: 1 },
+  listeners: [{ type: 'pointerdown', backendNodeId: 902, useCapture: false, scriptId: 'actual-script', lineNumber: 1452 }], errors: [] } };
+const panelResizeEvidence = vm.runInNewContext('(' + expression('panelResizeEvidence', 'supplementalRegionEvidence') + ')', {
+  document: panelResizeDocument, styleOf: el => el.style, rect: value => value,
+  meta: panelResizeMeta, snapshotBackend: { get: el => el.backendNodeId },
+});
 const supplementalRegionEvidence = vm.runInNewContext('(' + expression('supplementalRegionEvidence', 'kindOf') + ')', {
   accessibilityOf: owner => owner.accessibility,
 });
 const kindOf = vm.runInNewContext('(' + expression('kindOf', 'semanticOwnerKinds') + ')', {
-  supplementalRegionEvidence, document: { body: {} },
+  supplementalRegionEvidence, panelResizeEvidence, document: { body: {} },
   color: value => value === 'rgba(0, 0, 0, 0)' ? [0, 0, 0, 0] : [248, 247, 245, 255],
   number: value => parseFloat(value) || 0, pathOf: () => '#fixture-owner', textNodes: () => [],
 });
@@ -770,6 +777,35 @@ const regionStyle = (values = {}) => ({
   backgroundColor: 'rgba(0, 0, 0, 0)', boxShadow: 'none', backgroundImage: 'none', overflowX: 'hidden', overflowY: 'auto',
   ...Object.fromEntries(['Top', 'Right', 'Bottom', 'Left'].flatMap(side => [
     ['border' + side + 'Width', '0px'], ['border' + side + 'Style', 'none']])), ...values,
+});
+
+test('real panel pointer handle is retained even with an idle transparent background', () => {
+  const owner = regionOwner({ selectors: new Set(['#panel > .pane-resize']), attrs: { title: 'Drag to resize' },
+    style: { cursor: 'col-resize' }, onpointerdown: null, backendNodeId: 902,
+    getBoundingClientRect: () => ({ x: 1100, y: 36, width: 5, height: 864 }) });
+  const evidence = normalize(panelResizeEvidence(owner));
+  assert.equal(kindOf(owner, regionStyle()), 'resize-handle');
+  assert.deepEqual(evidence.bounds, { x: 1100, y: 36, width: 5, height: 864 });
+  assert.equal(evidence.title, 'Drag to resize'); assert.equal(evidence.has_pointer_handler, true);
+  assert.deepEqual(evidence.pointer_state, { hovered: false, active: false, body_resizing: false });
+  owner.selectors.add(':hover');
+  assert.equal(panelResizeEvidence(owner).pointer_state.hovered, true);
+  assert.equal(kindOf(owner, regionStyle({ backgroundColor: 'rgb(248, 247, 245)' })), 'resize-handle', 'Hover paint does not turn the real control into a card');
+  assert.equal(evidence.pointer_handler_property_type, 'object', 'addEventListener does not populate an IDL onpointerdown property');
+  owner.backendNodeId = 903;
+  assert.equal(panelResizeEvidence(owner).has_pointer_handler, null, 'Another node listener receipt cannot establish this handle interaction');
+  assert.equal(kindOf(owner, regionStyle()), 'resize-handle', 'Missing listener coverage is a failure, not a reason to omit the real element');
+});
+
+test('panel handle enabled, focused and hover state come from the actual control', () => {
+  const read = vm.runInNewContext('(' + expression('stateOf', 'iconOf') + ')', {
+    document: panelResizeDocument, panelResizeEvidence,
+  });
+  const owner = regionOwner({ selectors: new Set(['#panel > .pane-resize', ':hover']),
+    style: { cursor: 'col-resize' }, backendNodeId: 902, onpointerdown: null, hasAttribute: () => false, classList: { contains: () => false } });
+  const state = normalize(read(owner));
+  assert.equal(state.enabled, true); assert.equal(state.focused, false); assert.equal(state.hovered, true);
+  assert.equal(state.selected, null); assert.equal(state.expanded, null);
 });
 
 test('recorded named navigation becomes a region from its own DOM and actual AX evidence', () => {

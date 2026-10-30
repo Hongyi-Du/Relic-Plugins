@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (55-state shared matrix): all 53 existing scenes remain,
+with `panel-resize-hover` and `panel-resized` added: 660 full cases per platform,
+19 diagnostic cases. Start from group/Overview, click the real toolbar toggle if
+the panel is closed, then hover its real handle or drag it 64px left in eight
+pointer steps. Require width+64, left-64 and unchanged top/height, retaining the
+actual pointer and state through PNG/extraction. macOS should implement these
+same real actions. The shared scrollbar/scrollbar-thumb kinds now accept actual
+track and thumb elements, with required measured orientation and normalized
+scroll_position, actual enabled state and unchanged paint requirements. Original
+AX/UIA hit rectangles are separate evidence from painted rectangles; viewport
+ratios cannot supply thumb paint geometry. See `docs/native-elements.md`.
+
+Changes for the clients (067eec6 CI): Windows build and 28 core plus 9 mock UIA
+tests pass. macOS run `40991154738` still fails two SurfaceRasterTests assertions
+for disabled composer opacity (observed about .733646, expected .687059 with its
+existing .007843 tolerance). This remains for the macOS owner; no test tolerance
+or acceptance exception was changed. The b81d45a Python/package matrix passes.
+
 Changes for the clients (actual submitted text surface probe): Windows CI now
 reads the current NativeLabel SurfaceImageSource target after the original
 production glyph drawing, using the actual BeginDraw atlas offset and observed

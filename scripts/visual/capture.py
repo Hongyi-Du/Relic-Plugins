@@ -26,6 +26,7 @@ MEMBER_CARD_SCENES = {
 }
 MESSAGE_SCENES = frozenset(("message-hover", "message-copy-toast"))
 RESIZE_SCENES = frozenset(("new-org-textarea-resized",))
+PANEL_RESIZE_SCENES = frozenset(("panel-resize-hover", "panel-resized"))
 
 
 class TextareaResizeCapture:
@@ -151,6 +152,194 @@ class TextareaResizeCapture:
             self.observer.dispose()
         if self.field is not None:
             self.field.dispose()
+
+
+def panel_resize_listener_evidence(cdp):
+    """Read installed listeners on the actual DOM object, never an IDL guess."""
+    evidence = {"source": "CDP.DOMDebugger.getEventListeners", "selector": "#panel > .pane-resize",
+        "requests": [], "owner": None, "listeners": None, "errors": []}
+    object_id = None
+    def request(method, parameters):
+        item = {"method": method, "parameters": parameters}
+        evidence["requests"].append(item)
+        try:
+            item["result"] = cdp.send(method, parameters)
+            return item["result"]
+        except Exception as error:
+            item["error"] = str(error)
+            raise
+    try:
+        result = request("Runtime.evaluate", {"expression": "document.querySelector('#panel > .pane-resize')", "returnByValue": False})
+        if result.get("exceptionDetails"):
+            raise RuntimeError(str(result["exceptionDetails"]))
+        object_id = result.get("result", {}).get("objectId")
+        if object_id is not None:
+            evidence["owner"] = request("DOM.describeNode", {"objectId": object_id, "depth": 0})["node"]
+            evidence["listeners"] = request("DOMDebugger.getEventListeners", {"objectId": object_id, "depth": 1})["listeners"]
+    except Exception as error:
+        evidence["errors"].append(str(error))
+    finally:
+        if object_id is not None:
+            try:
+                request("Runtime.releaseObject", {"objectId": object_id})
+            except Exception as error:
+                evidence["errors"].append(str(error))
+    return evidence
+
+
+class PanelResizeCapture:
+    """Observe production panel pointer handling, without writing layout/state."""
+    SELECTOR = "#panel > .pane-resize"
+    OPEN_SELECTOR = "#appbar .ab-right > .ab-sep + button"
+    READ_STATE = """capture => {
+      const box=el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+      const {handle,panel}=capture,s=getComputedStyle(handle),p=getComputedStyle(panel);
+      return {connected:handle.isConnected&&panel.isConnected,
+        same_handle:document.querySelector('#panel > .pane-resize')===handle,
+        same_panel:document.querySelector('#panel')===panel,parent_matches:handle.parentElement===panel,
+        handle:{bounds:box(handle),title:handle.title,pointer_handler_property_type:typeof handle.onpointerdown,
+          hovered:handle.matches(':hover'),active:handle.matches(':active'),focused:document.activeElement===handle,
+          style:{display:s.display,visibility:s.visibility,opacity:s.opacity,cursor:s.cursor,background:s.backgroundColor,
+            border_widths:['Top','Right','Bottom','Left'].map(side=>s['border'+side+'Width']),
+            border_colors:['Top','Right','Bottom','Left'].map(side=>s['border'+side+'Color'])}},
+        panel:{bounds:box(panel),display:p.display,visibility:p.visibility,pane:panel.dataset.pane??null,
+          computed_panel_width:getComputedStyle(document.querySelector('#app')).getPropertyValue('--panel-w')},
+        body_resizing:document.body.classList.contains('resizing'),viewport:{width:innerWidth,height:innerHeight},
+        pointer_events:capture.events.slice()};
+    }"""
+
+    def __init__(self, page, cdp, scene, receipt_path):
+        self.page, self.cdp, self.scene, self.receipt_path = page, cdp, scene, receipt_path
+        self.observer = None
+        self.baseline = None
+        self.evidence = {"source": "actual production pane-resize + trusted mouse input", "scene": scene,
+            "navigation_scene": "group", "selector": self.SELECTOR, "checkpoints": [], "steps": [], "errors": []}
+
+    def save(self):
+        self.receipt_path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def step(self, name, operation):
+        record = {"name": name, "status": "started", "host_monotonic": time.monotonic()}
+        self.evidence["steps"].append(record)
+        self.save()
+        result = operation()
+        record.update(status="completed", completed_host_monotonic=time.monotonic())
+        self.save()
+        return result
+
+    def open(self):
+        self.evidence["fonts_before_action"] = self.page.evaluate(TextareaResizeCapture.SETTLE)
+        if self.evidence["fonts_before_action"].get("status") != "loaded":
+            raise RuntimeError("Panel resize requires loaded production page fonts")
+        locator = self.page.locator(self.SELECTOR)
+        self.evidence["initial_handle_visible"] = locator.is_visible()
+        if not self.evidence["initial_handle_visible"]:
+            opener = self.page.locator(self.OPEN_SELECTOR)
+            if opener.count() != 1:
+                raise RuntimeError("Expected the actual Overview toolbar button to open the hidden panel")
+            self.evidence["open_button"] = opener.evaluate("el => ({tag:el.localName,title:el.title,name:el.getAttribute('aria-label'),disabled:el.disabled,selected:el.classList.contains('on'),html:el.outerHTML})")
+            self.step("open_panel:actual_toolbar_click", opener.click)
+            self.evidence["fonts_after_open"] = self.page.evaluate(TextareaResizeCapture.SETTLE)
+            self.evidence["open_button_after"] = opener.evaluate("el => ({tag:el.localName,title:el.title,name:el.getAttribute('aria-label'),disabled:el.disabled,selected:el.classList.contains('on'),html:el.outerHTML})")
+            self.save()
+            if self.evidence["open_button_after"].get("selected") is not True:
+                raise RuntimeError("Actual Overview toolbar button did not become selected after opening the panel")
+        locator.wait_for(state="visible")
+        if locator.count() != 1:
+            raise RuntimeError("Expected one actual panel resize handle")
+        self.observer = self.page.evaluate_handle("""selector => {
+          const handle=document.querySelector(selector),panel=document.querySelector('#panel'),events=[];
+          if(!handle||!panel)throw new Error('Production panel/handle detached');
+          const observe=event=>events.push({type:event.type,trusted:event.isTrusted,x:event.clientX,y:event.clientY,
+            buttons:event.buttons,button:event.button,pointer_id:event.pointerId,timestamp:event.timeStamp,
+            target_is_handle:event.target===handle,target_tag:event.target.localName,
+            body_resizing:document.body.classList.contains('resizing')});
+          const types=['pointermove','pointerdown','pointerup','pointercancel','mousedown','mouseup'];
+          for(const type of types)document.addEventListener(type,observe,true);
+          return {handle,panel,events,dispose:()=>{for(const type of types)document.removeEventListener(type,observe,true);}};
+        }""", self.SELECTOR)
+        before = self.observer.evaluate(self.READ_STATE)
+        self.evidence["before"] = before
+        listeners = panel_resize_listener_evidence(self.cdp)
+        self.evidence["installed_listeners"] = listeners
+        self.save()
+        self.validate_identity(before)
+        if (listeners["errors"] or listeners["owner"] is None or listeners["owner"].get("nodeType") != 1
+                or not any(item.get("type") == "pointerdown" and item.get("backendNodeId") == listeners["owner"].get("backendNodeId") for item in listeners["listeners"] or [])
+                or before["handle"]["style"]["cursor"] != "col-resize" or before["body_resizing"]):
+            raise RuntimeError("The actual handle does not expose an idle production column-resize interaction")
+        bounds, panel = before["handle"]["bounds"], before["panel"]["bounds"]
+        if bounds["width"] <= 0 or bounds["height"] <= 0 or panel["width"] != 340:
+            raise RuntimeError("Panel resize requires the actual visible handle and initial 340px side pane")
+        if self.scene == "panel-resized" and panel["width"] + 64 > before["viewport"]["width"] * .6:
+            raise RuntimeError("The production viewport clamp would prevent the required 64px panel drag")
+        start = {"x": bounds["x"] + bounds["width"] / 2, "y": bounds["y"] + bounds["height"] / 2}
+        end = {"x": start["x"] - (64 if self.scene == "panel-resized" else 0), "y": start["y"]}
+        self.evidence["action"] = {"start": start, "end": end, "steps": 8 if self.scene == "panel-resized" else 1,
+            "quantity": "requested trusted pointer path in window CSS pixels; actual handle bounds are measured independently"}
+        self.step("pointer:move_to_actual_handle_center", lambda: self.page.mouse.move(start["x"], start["y"]))
+        if self.scene == "panel-resized":
+            self.step("pointer:left_down", lambda: self.page.mouse.down(button="left"))
+            try:
+                down = self.observer.evaluate(self.READ_STATE)
+                self.evidence["after_pointer_down"] = down
+                self.save()
+                if not down["body_resizing"]:
+                    raise RuntimeError("Actual pointerdown did not enter the production panel resizing state")
+                self.step("pointer:move_left_64_in_8_steps", lambda: self.page.mouse.move(end["x"], end["y"], steps=8))
+            finally:
+                self.step("pointer:left_up", lambda: self.page.mouse.up(button="left"))
+        self.evidence["fonts_after_action"] = self.page.evaluate(TextareaResizeCapture.SETTLE)
+        after = self.observer.evaluate(self.READ_STATE)
+        self.evidence["after"] = after
+        self.evidence["geometry_delta"] = {part: {key: after[part]["bounds"][key] - before[part]["bounds"][key]
+            for key in ("x", "y", "width", "height")} for part in ("handle", "panel")}
+        self.save()
+        self.validate_identity(after)
+        if self.evidence["fonts_after_action"].get("status") != "loaded":
+            raise RuntimeError("Actual page fonts did not settle after the panel action")
+        if after["body_resizing"] or not after["handle"]["hovered"]:
+            raise RuntimeError("The actual final handle is not hovered and idle after the panel action")
+        delta = 64 if self.scene == "panel-resized" else 0
+        expected = {"panel": {"x": -delta, "y": 0, "width": delta, "height": 0},
+                    "handle": {"x": -delta, "y": 0, "width": 0, "height": 0}}
+        if self.evidence["geometry_delta"] != expected:
+            raise RuntimeError("Actual panel/handle geometry did not follow the requested production pointer movement")
+        events = after["pointer_events"]
+        if not events or any(event.get("trusted") is not True for event in events):
+            raise RuntimeError("Panel action requires actual trusted document pointer-event receipts")
+        moves = [event for event in events if event["type"] == "pointermove"]
+        if not moves or moves[-1]["x"] != end["x"] or moves[-1]["y"] != end["y"]:
+            raise RuntimeError("Actual final pointermove does not match the preserved capture position")
+        if self.scene == "panel-resized":
+            downs = [event for event in events if event["type"] == "pointerdown"]
+            ups = [event for event in events if event["type"] == "pointerup"]
+            if len(downs) != 1 or len(ups) != 1 or not downs[0]["target_is_handle"] or ups[0]["buttons"] != 0:
+                raise RuntimeError("Actual panel drag did not produce the required handle press and release receipts")
+        elif any(event["type"] in ("pointerdown", "pointerup") for event in events):
+            raise RuntimeError("The panel hover scene unexpectedly pressed the handle")
+        self.checkpoint("after_action")
+
+    @staticmethod
+    def validate_identity(state):
+        if not all(state.get(key) is True for key in ("connected", "same_handle", "same_panel", "parent_matches")):
+            raise RuntimeError("The actual production panel/resize-handle identities changed")
+
+    def checkpoint(self, stage):
+        state = self.observer.evaluate(self.READ_STATE)
+        self.evidence["checkpoints"].append({"stage": stage, "state": state, "host_monotonic": time.monotonic()})
+        self.save()
+        self.validate_identity(state)
+        if self.baseline is None:
+            self.baseline = state
+        elif state != self.baseline:
+            raise RuntimeError("Actual panel/handle geometry, paint, state or pointer events changed during capture at " + stage)
+
+    def close(self):
+        self.save()
+        if self.observer is not None:
+            self.observer.evaluate("capture => capture.dispose()")
+            self.observer.dispose()
 
 
 def read_fixture_json(fixture, path):
@@ -700,7 +889,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
     resize = TextareaResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in RESIZE_SCENES else None
-    actions = [action for action in (message, resize) if action is not None]
+    panel_resize = PanelResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in PANEL_RESIZE_SCENES else None
+    actions = [action for action in (message, resize, panel_resize) if action is not None]
     def source_step(name, operation):
         if message is not None:
             message.progress(name)
@@ -715,7 +905,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         if case["scene"] == "message-copy-toast":
             capture_paused_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
         else:
-            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled"))
+            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES else "disabled"))
         for action in actions:
             action.checkpoint("after_screenshot")
         snapshot = source_step("source:DOMSnapshot", lambda: cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True}))
@@ -723,6 +913,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             action.checkpoint("after_dom_snapshot")
         ax_tree = source_step("source:Accessibility", lambda: cdp.send("Accessibility.getFullAXTree"))
         input_text = source_step("source:input_text", lambda: input_text_evidence(cdp))
+        panel_listeners = source_step("source:panel_listeners", lambda: panel_resize_listener_evidence(cdp))
         fonts = source_step("source:platform_fonts", lambda: font_evidence(cdp, snapshot, input_text))
         environment = source_step("source:environment", lambda: page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true,caret_context:(" + CARET_CONTEXT + ")()})"))
         environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
@@ -730,16 +921,19 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
+        (output / (case["id"] + ".panel-listeners.json")).write_text(json.dumps(panel_listeners, ensure_ascii=False), encoding="utf-8")
         for action in actions:
             action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "screenshot_file": case["file"], "reference_environment": environment}))
+        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "panel_listeners": panel_listeners, "screenshot_file": case["file"], "reference_environment": environment}))
         for action in actions:
             action.checkpoint("after_element_extraction")
         if message is not None:
             elements.setdefault("capture_evidence", {})["message_action"] = message.evidence
         if resize is not None:
             elements.setdefault("capture_evidence", {})["textarea_resize_action"] = resize.evidence
+        if panel_resize is not None:
+            elements.setdefault("capture_evidence", {})["panel_resize_action"] = panel_resize.evidence
         record_caret_coverage(elements, environment.get("caret_context"))
         if member_card is not None:
             elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
@@ -793,7 +987,7 @@ def reference(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
-            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
+            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES | PANEL_RESIZE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
             page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
@@ -1196,7 +1390,7 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]

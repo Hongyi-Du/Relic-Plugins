@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from capture import DATALIST_SCENES, LIVE_SCENES, MEMBER_CARD_SCENES, MESSAGE_SCENES, RESIZE_SCENES, open_datalist_scene, record_datalist_coverage
+from capture import DATALIST_SCENES, LIVE_SCENES, MEMBER_CARD_SCENES, MESSAGE_SCENES, RESIZE_SCENES, PANEL_RESIZE_SCENES, open_datalist_scene, record_datalist_coverage
 
 
 class DatalistCaptureTests(unittest.TestCase):
@@ -78,8 +78,9 @@ class DatalistCaptureTests(unittest.TestCase):
         self.assertEqual(set(MEMBER_CARD_SCENES), {"member-card-rename", "member-card-model", "member-card-avatar-hover"})
         self.assertEqual(set(MESSAGE_SCENES), {"message-hover", "message-copy-toast"})
         self.assertEqual(RESIZE_SCENES, {"new-org-textarea-resized"})
-        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES) | MESSAGE_SCENES | RESIZE_SCENES)
-        self.assertEqual(len(spec["scenes"]), 53)
+        self.assertEqual(PANEL_RESIZE_SCENES, {"panel-resize-hover", "panel-resized"})
+        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES) | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES)
+        self.assertEqual(len(spec["scenes"]), 55)
 
 
 if __name__ == "__main__":
