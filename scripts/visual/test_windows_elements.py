@@ -8,7 +8,7 @@ import unittest
 from PIL import Image
 
 from windows_elements import (host_container_ownership, project, transformed_box_edges,
-                              transparent_uia_ownership, uia_identity_rejection)
+                              transparent_uia_ownership, uia_identity_rejection, measured_dialog_surfaces)
 from windows_automation_identity import bind_automation_identities
 
 
@@ -188,6 +188,102 @@ class ProjectionTests(unittest.TestCase):
         result = self.capture(measured([dialog]), [uia_node("provider", "Group", bounds=dialog["bounds"])])
         self.assertEqual(self.by_id(result)["dialog"]["kind"], "card")
         self.assertEqual(self.by_id(result)["dialog"]["bounds"], dialog["bounds"])
+
+    @staticmethod
+    def recorded_dialog_surface():
+        return json.loads((Path(__file__).parent / "fixtures" / "dialog_surface_recorded_e5f092b.json").read_text(encoding="utf-8"))
+
+    def test_recorded_dialog_projects_actual_surface_but_keeps_host_identity_and_independent_paint(self):
+        fixture = self.recorded_dialog_surface()
+        xaml, uia = fixture["xaml"], fixture["uia"]
+        raw = {n["id"]: n for n in xaml["raw_nodes"]}
+        original = deepcopy(xaml)
+        result = self.capture(xaml["raw_nodes"], uia["raw_nodes"], xaml_changes=xaml,
+                              uia_changes=uia, image_size=(1440, 900))
+        elements = self.by_id(result)
+        dialog = elements["xaml-1192"]
+        self.assertEqual(dialog["kind"], "region")
+        self.assertEqual(dialog["name"], "设置")
+        self.assertEqual(dialog["text"], "")
+        self.assertEqual(dialog["bounds"], raw["xaml-1195"]["bounds"])
+        self.assertEqual(dialog["visible_bounds"], raw["xaml-1195"]["visible_bounds"])
+        self.assertEqual(dialog["evidence"]["uia_id"], "uia-6")
+        self.assertEqual(dialog["evidence"]["paint_sources"], ["xaml-1195"])
+        # The authored opaque content is a true descendant of the surface.
+        # It must not erase the ancestor modal region's semantic visibility.
+        self.assertEqual(dialog["evidence"]["visible_fragments"], [raw["xaml-1195"]["visible_bounds"]])
+        self.assertNotIn("xaml-1205", [mask["source"] for mask in dialog["evidence"]["occlusion_masks"]])
+        proof = dialog["evidence"]["dialog_surface"]
+        self.assertFalse(proof["host_layout_projected_as_paint"])
+        self.assertEqual(proof["host"]["bounds"], box(0, 0, 1440, 900))
+        self.assertEqual(proof["host"]["uia_bounds"], box(0, 0, 1440, 900))
+        self.assertEqual(proof["surface"]["raw"], raw["xaml-1195"])
+        self.assertEqual(proof["template_receipt"], raw["xaml-1192"]["dialog_surface_evidence"])
+        self.assertFalse(proof["other_template_paint_and_authored_content_merged"])
+        self.assertFalse(proof["smoke_layer_merged"])
+        self.assertNotIn("xaml-1195", elements)
+        # These are actual separate white layers and an independently hosted
+        # smoke layer; matching bounds do not license their disappearance.
+        for eid in ("xaml-1201", "xaml-1205", "xaml-1425"):
+            self.assertIn(eid, elements)
+            self.assertEqual(elements[eid]["style"]["background"], raw[eid]["style"]["background"])
+        self.assertIsNone(elements["xaml-1205"]["evidence"]["uia_id"])
+        self.assertIsNone(dialog["style"]["shadow"])
+        self.assertIsNone(dialog["style"]["outline"])
+        self.assertTrue(any(issue["id"] == "xaml-1192" and issue["property"] == "style.shadow"
+                            for issue in result["coverage"]["unmeasured"]))
+        self.assertTrue(any(issue["id"] == "xaml-1195" and issue["property"] == "style.outline"
+                            for issue in result["coverage"]["unmeasured"]))
+        for error in xaml["extraction_errors"]:
+            self.assertIn(error, result["extraction_errors"])
+        self.assertEqual(xaml, original)
+
+    def test_dialog_surface_binding_rejects_changed_template_parts_paths_and_authored_content(self):
+        for change in ("missing", "source", "owner", "revision", "boolean-revision", "thread", "template",
+                       "part-reference", "part-type", "part-error", "part-id", "path", "path-id", "raw-parent", "path-cycle",
+                       "authored-surface", "authored-owner", "authored-id", "missing-bounds"):
+            with self.subTest(change=change):
+                raw = self.recorded_dialog_surface()["xaml"]["raw_nodes"]
+                by_id = {n["id"]: n for n in raw}
+                owner = by_id["xaml-1192"]
+                proof = owner["dialog_surface_evidence"]
+                part = proof["parts"]["BackgroundElement"]
+                if change == "missing": owner.pop("dialog_surface_evidence")
+                elif change == "source": proof["source"] = "inferred named descendant"
+                elif change == "owner": proof["owner_id"] = "another-owner"
+                elif change == "revision": proof["template_revision_after"] += 1
+                elif change == "boolean-revision": proof["template_revision"] = proof["template_revision_after"] = True
+                elif change == "thread": proof["ui_thread_access"] = False
+                elif change == "template": proof["same_applied_template_reference_after"] = False
+                elif change == "part-reference": part["same_applied_part_reference"] = False
+                elif change == "part-type": part["runtime_type"] = "Microsoft.UI.Xaml.Controls.Grid"
+                elif change == "part-error": part["error"] = "actual GetTemplateChild failure"
+                elif change == "part-id": part["id"] = ["xaml-1195"]
+                elif change == "path": part["actual_parent_path_to_owner"][0]["id"] = "xaml-1205"
+                elif change == "path-id": part["actual_parent_path_to_owner"][0]["id"] = ["xaml-1195"]
+                elif change == "raw-parent": by_id["xaml-1195"]["parent"] = "xaml-1193"
+                elif change == "path-cycle": part["actual_parent_path_to_owner"].insert(1, deepcopy(part["actual_parent_path_to_owner"][0]))
+                elif change == "authored-surface": proof["authored_content_id"] = "xaml-1195"
+                elif change == "authored-owner": by_id["xaml-1205"]["declared_content_owner"] = "other-dialog"
+                elif change == "authored-id": proof["authored_content_id"] = ["xaml-1205"]
+                elif change == "missing-bounds": by_id["xaml-1195"]["bounds"] = None
+                issues = []
+                self.assertEqual(measured_dialog_surfaces(raw, by_id, issues), {})
+                self.assertTrue(any(issue["id"] == "xaml-1192" and issue["property"] == "dialog.surface" for issue in issues))
+
+    def test_unproven_surface_does_not_consume_real_border_or_use_same_geometry_authored_grid(self):
+        fixture = self.recorded_dialog_surface()
+        xaml, uia = fixture["xaml"], fixture["uia"]
+        raw = {n["id"]: n for n in xaml["raw_nodes"]}
+        raw["xaml-1192"]["dialog_surface_evidence"]["parts"]["BackgroundElement"]["id"] = "xaml-1205"
+        result = self.capture(xaml["raw_nodes"], uia["raw_nodes"], xaml_changes=xaml,
+                              uia_changes=uia, image_size=(1440, 900))
+        elements = self.by_id(result)
+        self.assertEqual(elements["xaml-1192"]["bounds"], raw["xaml-1192"]["bounds"])
+        self.assertNotIn("dialog_surface", elements["xaml-1192"]["evidence"])
+        self.assertIn("xaml-1195", elements)
+        self.assertIn("xaml-1205", elements)
+        self.assertTrue(any(issue["property"] == "dialog.surface" for issue in result["coverage"]["unmeasured"]))
 
     def test_precision_diagnostic_does_not_replace_bounds_or_erase_provider_errors(self):
         nodes = measured([xaml_node("text", text="Actual captured source")])
