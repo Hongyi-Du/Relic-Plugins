@@ -59,6 +59,12 @@ def semantic_control_kind(node, scrollbar_thumbs=None):
     return CONTROL_KINDS.get(node.get("type"))
 
 
+def measured_runtime_type(node, property_name):
+    """Null or absent runtime receipts stay unknown, never inferred by name."""
+    evidence = node.get("render_type_evidence")
+    return evidence.get(property_name) if isinstance(evidence, dict) else None
+
+
 SCROLLBAR_SOURCE = "actual ScrollBar runtime properties and current visual subtree"
 SCROLLBAR_THUMB_SOURCE = "actual Thumb visual ancestry to ScrollBar and current template subtree identities"
 
@@ -1008,11 +1014,11 @@ def interaction_applicability(node, kind, witness):
         focusable = witness.get("state", {}).get("focusable")
         if focusable is True:
             return True, "UIA measured IsKeyboardFocusable=true"
-        if (node["type"] in PAINT_ONLY_TYPES or node.get("render_type_evidence", {}).get("is_panel") is True) and focusable is False and isinstance(patterns, list):
+        if (node["type"] in PAINT_ONLY_TYPES or measured_runtime_type(node, "is_panel") is True) and focusable is False and isinstance(patterns, list):
             return False, "Paint-only XAML element; UIA reports no action pattern and IsKeyboardFocusable=false"
         return None, "UIA interaction applicability is not completely measured"
     interaction = node.get("interaction_evidence", {})
-    if interaction.get("is_control") is False and (node["type"] in PAINT_ONLY_TYPES or node.get("render_type_evidence", {}).get("is_panel") is True):
+    if interaction.get("is_control") is False and (node["type"] in PAINT_ONLY_TYPES or measured_runtime_type(node, "is_panel") is True):
         return False, "Actual XAML non-Control paint element with no independent UIA interactive witness"
     if interaction.get("is_hit_test_visible") is False and interaction.get("is_tab_stop") is False:
         return False, "Actual XAML element is neither hit-testable nor a tab stop"
@@ -1319,10 +1325,10 @@ def project(xaml_path, uia_path, png_path):
             kind = "chart-edge" if ancestor(node, {n["id"] for n in raw if n["type"] == "Canvas"}) else "divider"
         elif typ == "Ellipse":
             kind = "state-dot" if node["bounds"]["width"] <= 10 else "image"
-        elif not kind and (typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"} or node.get("render_type_evidence", {}).get("is_panel") is True):
+        elif not kind and (typ in {"Border", "Rectangle", "Grid", "StackPanel", "Canvas", "ContentPresenter"} or measured_runtime_type(node, "is_panel") is True):
             if (painted(style.get("background"))
                     or painted(style.get("border_color")) and finite(style.get("border_width")) and style["border_width"] > 0
-                    or node.get("render_type_evidence", {}).get("is_shape") is True
+                    or measured_runtime_type(node, "is_shape") is True
                     and painted(style.get("foreground")) and finite(style.get("stroke_width")) and style["stroke_width"] > 0):
                 kind = "divider" if min(node["bounds"]["width"], node["bounds"]["height"]) <= 2 else "card"
                 if node.get("parent") is None or typ == "Border" and node["region"] != by_id.get(node.get("parent"), {}).get("region"):
@@ -1494,7 +1500,7 @@ def project(xaml_path, uia_path, png_path):
         if not text:
             layout = {"wrap": None, "truncation": None, "line_count": None}
             style["font_size"] = style["font_weight"] = None
-            if kind not in {"icon", "chart-edge"} and node.get("render_type_evidence", {}).get("is_shape") is not True:
+            if kind not in {"icon", "chart-edge"} and measured_runtime_type(node, "is_shape") is not True:
                 style["foreground"] = None
         compound_paint = None
         if node["id"] in state_dot_layers:

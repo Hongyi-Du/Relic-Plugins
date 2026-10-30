@@ -24,6 +24,7 @@ def xaml_node(eid, typ="TextBlock", text="", parent=None, bounds=None, **changes
     control = typ in {"Button", "AppBarButton", "RepeatButton", "TextBox", "ComposerInput", "NativeTextarea",
                       "SelectorBarItem", "ToggleButton", "ToggleSwitch", "ComboBox", "CheckBox", "RadioButton",
                       "PersonPicture", "ScrollBar", "Thumb", "ScrollViewer", "ContentDialog", "Expander",
+                      "MenuFlyoutItem", "MenuFlyoutSubItem", "ToggleMenuFlyoutItem", "MenuBarItem",
                       "OverviewChipView", "OverviewBadgeView"}
     node = {
         "id": eid, "parent": parent, "type": typ, "region": "conversation",
@@ -115,6 +116,7 @@ class ProjectionTests(unittest.TestCase):
                 paint["style"]["background"] = [240, 238, 235, 255]
                 result = self.capture(measured([owner, paint]), [uia_node("uia-button", "Button")])
                 self.assertIn("paint", self.by_id(result))
+                self.assertEqual(self.by_id(result)["button"]["evidence"]["render_type_evidence"], proof)
                 if not isinstance(proof, dict) or proof.get("control_template_present") is not False:
                     self.assertTrue(any(row.get("id") == "button" and row["property"] == "template.paint_ownership"
                                         for row in result["coverage"]["unmeasured"]))

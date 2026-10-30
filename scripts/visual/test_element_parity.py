@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from element_parity import (CATEGORIES, STATE_FIELDS, compare_elements, delta_e,
-                            expected_cases, geometry_tolerance, match_elements,
+                            expected_cases, geometry_tolerance, image_info, match_elements,
                             outlines, run, validate_capture)
 
 
@@ -417,6 +417,24 @@ class ExtractionContractTests(unittest.TestCase):
 
 
 class MatrixReportTests(unittest.TestCase):
+    def test_fully_transparent_png_cannot_stand_in_for_a_visible_scene(self):
+        from PIL import Image
+        viewport = {"width": 20, "height": 20}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actual.png"
+            for hidden_rgb in ((0, 0, 0, 0), (255, 255, 255, 0)):
+                Image.new("RGBA", (20, 20), hidden_rgb).save(path)
+                errors = image_info(path, "macos", viewport)
+                self.assertEqual(1, len(errors))
+                self.assertIn("fully transparent", errors[0]["reason"])
+            # Opaque dark content and partially transparent window edges are
+            # separate cases; neither is silently reclassified as an empty PNG.
+            Image.new("RGB", (20, 20), "black").save(path)
+            self.assertEqual([], image_info(path, "windows", viewport))
+            partial = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
+            partial.putpixel((10, 10), (27, 27, 26, 255)); partial.save(path)
+            self.assertEqual([], image_info(path, "macos", viewport))
+
     def test_full_matrix_requires_exact_660_cases(self):
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         cases = expected_cases(spec, "full")
