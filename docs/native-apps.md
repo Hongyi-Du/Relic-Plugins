@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (macOS mounted-ancestry merge): actual sidebar,
+organization and profile child records now retain their native parent
+environment and mounted NSView ancestry, restoring order only for a unique
+measured parent. Ambiguous ownership remains unknown; reference text/geometry
+does not determine native order. The owner's bbe04a3 diagnostic captures 19/19
+but still accepts zero full-matrix scenes; its actual composer viewport is
+758x26. Their stale font-test API call was corrected without changing its
+assertions. These merged changes remain subject to the next complete gate.
+
 Changes for the clients (live observer ownership): the UIA observer now keeps
 its actual AutomationElement/root/NativeTextEvidence references alive through
 a PID/case-bound ready/release handshake. The native provider probes run before
