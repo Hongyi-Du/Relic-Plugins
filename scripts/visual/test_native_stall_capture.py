@@ -11,6 +11,43 @@ import capture
 
 
 class NativeStallCaptureTests(unittest.TestCase):
+    def test_mac_without_lifecycle_progress_is_sampled_at_existing_progress_deadline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder); clock = [0]; events = []
+            marker = "startup: launching native executable"
+            process = Mock(pid=8765, returncode=0); process.poll.return_value = None
+            process.terminate.side_effect = lambda: events.append("terminate")
+            manifest = {"client": "macos", "output": folder,
+                        "fixture": {"home": folder, "clock": "2026-10-29T11:02:00Z"},
+                        "cases": [{"id": "case", "file": "case.png"}]}
+            def launch(*args, **kwargs):
+                self.assertEqual((directory / "current-case.txt").read_text(), marker)
+                events.append("launch")
+                return process
+            def sleep(_):
+                clock[0] += 31
+            def sample(actual, target, client, reason):
+                self.assertIs(actual, process); self.assertEqual(target, directory)
+                self.assertEqual(client, "macos"); self.assertEqual(clock[0], 93)
+                self.assertIn(marker, reason); process.terminate.assert_not_called()
+                events.append("sample")
+                return {"status": "sample_collected", "capture_failed": True}
+            with patch.dict("os.environ", {"GITHUB_ACTIONS": "true"}), \
+                    patch.object(capture.sys, "platform", "darwin"), \
+                    patch.object(capture.subprocess, "Popen", side_effect=launch), \
+                    patch.object(capture.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(capture.time, "sleep", side_effect=sleep), \
+                    patch.object(capture, "sample_native_stall", side_effect=sample):
+                with self.assertRaisesRegex(TimeoutError, "did not advance for 90 seconds: startup"):
+                    capture.native_process(directory / "manifest.json", manifest, Path("Relic"))
+            self.assertEqual(events, ["launch", "sample", "terminate"])
+            self.assertEqual(clock[0], 93)
+            process.wait.assert_called_once_with(timeout=20)
+            observations = json.loads((directory / "progress-observations.json").read_text())
+            self.assertEqual(len(observations), 1)
+            self.assertIsNone(observations[0]["case_id"], "A host startup marker is not a native scene attempt")
+            self.assertFalse((directory / "complete.json").exists())
+
     def test_sample_never_starts_outside_ci_darwin_native_client(self):
         for ci, platform, client in (("false", "darwin", "macos"), ("true", "win32", "macos"),
                                      ("true", "linux", "macos"), ("true", "darwin", "windows")):

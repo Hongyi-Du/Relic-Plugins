@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (macOS silent-startup request consumed): `native_process`
+now writes the host startup progress marker for macOS as well as Windows,
+before Popen. A process that never enters the native lifecycle therefore hits
+the existing 90-second progress failure and actual owned-PID stack sampling.
+The marker cannot count as an attempted scene. The 1200-second macOS process
+deadline, 45-minute job deadline, all three viewport shards and failure
+aggregation are unchanged. A wholly mocked lifecycle/clock/process regression
+checks sampling before cleanup at the existing deadline; it runs only in CI.
+The latest macOS lifecycle startup, shadow padding and split switch/label/knob
+changes were merged; their actual full capture validation remains pending.
+
 Changes for the clients (74b14eb actual Windows follow-up): group now has 23
 complete-source production label font receipts; trimmed previews still retain
 unknown font coverage. The header renderer had retained a single-line mode;
