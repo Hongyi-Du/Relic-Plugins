@@ -22,6 +22,7 @@ from windows_automation_identity import OWNER_SOURCE, bind_automation_identities
 from windows_text_precision import analyze_text_precision
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
+from windows_toggle_parts import windows_toggle_parts
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -47,7 +48,7 @@ CONTROL_KINDS = {
     "Button": "button", "AppBarButton": "button", "RepeatButton": "button",
     "HyperlinkButton": "link", "TextBox": "input", "ComposerInput": "input", "NativeTextarea": "input", "PasswordBox": "input",
     "CheckBox": "checkbox", "RadioButton": "checkbox", "ToggleSwitch": "toggle",
-    "ToggleButton": "toggle", "ComboBox": "dropdown", "SelectorBarItem": "tab",
+    "ToggleButton": "toggle", "NativeOverviewToggle": "toggle", "ComboBox": "dropdown", "SelectorBarItem": "tab",
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",
     "MenuFlyoutSubItem": "menu-item", "ToggleMenuFlyoutItem": "menu-item",
     "ListViewItem": "list-row", "TreeViewItem": "list-row", "Expander": "card",
@@ -629,7 +630,7 @@ def uia_kind_matches(node, kind):
     control_type = (node.get("control_type") or "").removeprefix("ControlType.")
     class_name = (node.get("class_name") or "").rsplit(".", 1)[-1]
     if control_type == "Button" and kind == "toggle":
-        return class_name in {"ToggleButton", "ToggleSwitch"} and any(isinstance(p, str) and "Toggle" in p for p in node.get("supported_patterns", []))
+        return class_name in {"ToggleButton", "ToggleSwitch", "NativeOverviewToggle"} and any(isinstance(p, str) and "Toggle" in p for p in node.get("supported_patterns", []))
     if control_type == "ListItem" and kind == "tab":
         return class_name == "SelectorBarItem"
     return kind in UIA_KINDS.get(control_type, set())
@@ -1631,6 +1632,283 @@ def uia_identity_rejection(node, provider_id, owner_by_provider, provider_by_own
     return None
 
 
+def native_path_binding(owner, by_id):
+    """Validate retained production objects/spans, independently of text matching.
+
+    Text equality is a consistency check AFTER explicit object/parent binding.
+    It never finds a line or a UIA provider. Invalid/fallback captures stay raw.
+    """
+    receipt = owner.get("native_path_evidence")
+    if not isinstance(receipt, dict):
+        return None, "No actual production path receipt"
+    identity = receipt.get("owner_identity")
+    def real_identity(value, runtime):
+        return (isinstance(value, dict) and value.get("runtime_type") == runtime
+                and type(value.get("managed_reference_hash")) is int
+                and isinstance(value.get("iunknown_identity"), str)
+                and re.fullmatch(r"[0-9a-fA-F]+", value["iunknown_identity"]) is not None
+                and int(value["iunknown_identity"], 16) != 0)
+    if (owner.get("type") != "NativePathText"
+            or receipt.get("source") != "Actual NativePathText production line selection and actual child line objects"
+            or receipt.get("owner_id") != owner.get("id") or receipt.get("status") != "laid-out"
+            or receipt.get("failure") is not None or receipt.get("actual_visual_bindings_complete") is not True
+            or not real_identity(identity, "Relic.NativePathText")
+            or type(receipt.get("layout_revision")) is not int or receipt["layout_revision"] <= 0):
+        return None, "Actual path owner/layout identity is missing, failed or incomplete"
+    source = receipt.get("source_text")
+    if not isinstance(source, str) or not source:
+        return None, "Actual complete path source is missing"
+    encoded = source.encode("utf-16-le", "surrogatepass")
+    if type(receipt.get("source_utf16_length")) is not int or len(encoded) != 2 * receipt["source_utf16_length"]:
+        return None, "Actual path UTF-16 length differs from its retained source"
+    layout = receipt.get("layout")
+    layouts = layout.get("lines") if isinstance(layout, dict) else None
+    bindings = receipt.get("actual_line_bindings")
+    if (not isinstance(layouts, list) or not layouts or not isinstance(bindings, list) or len(layouts) != len(bindings)):
+        return None, "Actual retained line objects and production line intervals are incomplete"
+    result, seen, seen_labels = [], set(), set()
+    position = 0
+    for index, (binding, line_layout) in enumerate(zip(bindings, layouts)):
+        if not isinstance(binding, dict) or not isinstance(line_layout, dict):
+            return None, "A production line binding/interval is malformed"
+        line_id = binding.get("line_id")
+        line = by_id.get(line_id)
+        if (not isinstance(line_id, str) or line_id in seen or not isinstance(line, dict)
+                or line.get("type") != "NativeLabel" or line.get("native_path_line_evidence") != binding
+                or binding.get("source") != "Actual NativePathText retained NativeLabel object identity and unchanged source interval"
+                or binding.get("owner_id") != owner["id"] or binding.get("owner_identity") != identity
+                or not real_identity(binding.get("label_identity"), "Relic.NativeLabel")
+                or type(binding.get("layout_revision")) is not int or binding["layout_revision"] != receipt["layout_revision"]
+                or type(binding.get("line_index")) is not int or binding["line_index"] != index
+                or type(binding.get("line_count")) is not int or binding["line_count"] != len(bindings)
+                or any(binding.get(key) is not True for key in
+                       ("same_retained_label_reference", "same_current_body_parent", "same_content_body", "label_is_loaded",
+                        "line_in_actual_visual_walk", "reaches_same_owner_object", "all_captured_edges_match", "source_slice_matches"))):
+            return None, "A retained NativeLabel lacks exact current object/render-id binding"
+        label_identity = int(binding["label_identity"]["iunknown_identity"], 16)
+        if label_identity in seen_labels:
+            return None, "Distinct production lines claim the same actual NativeLabel object"
+        seen_labels.add(label_identity)
+        edges = binding.get("actual_ancestor_edges")
+        if not isinstance(edges, list) or not edges:
+            return None, "Actual production line has no retained visual parent chain"
+        current, ancestors = line_id, {line_id}
+        for edge in edges:
+            actual = by_id.get(current)
+            if (not isinstance(edge, dict) or not isinstance(actual, dict) or edge.get("child_id") != current
+                    or edge.get("parent_id") != actual.get("parent") or edge.get("parent_id") not in by_id
+                    or edge.get("actual_parent_in_visual_walk") is not True or edge.get("captured_parent_matches") is not True
+                    or edge["parent_id"] in ancestors):
+                return None, "Actual line parent edges differ from the independently retained XAML tree"
+            current = edge["parent_id"]; ancestors.add(current)
+        if current != owner["id"]:
+            return None, "Actual line parent chain does not end at the same path owner"
+        first, last = binding.get("start_utf16"), binding.get("end_utf16")
+        if (type(first) is not int or type(last) is not int or first != position or last <= first or last * 2 > len(encoded)
+                or type(line_layout.get("start_utf16")) is not int or line_layout["start_utf16"] != first
+                or type(line_layout.get("end_utf16")) is not int or line_layout["end_utf16"] != last):
+            return None, "Production path lines overlap, omit, reorder or exceed the original UTF-16 source"
+        source_slice = encoded[first * 2:last * 2].decode("utf-16-le", "surrogatepass")
+        if (last * 2 < len(encoded)
+                and 0xD800 <= int.from_bytes(encoded[last * 2 - 2:last * 2], "little") <= 0xDBFF
+                and 0xDC00 <= int.from_bytes(encoded[last * 2:last * 2 + 2], "little") <= 0xDFFF):
+            return None, "A production line splits a source UTF-16 surrogate pair"
+        if (binding.get("complete_source_text") != source or binding.get("actual_label_text") != source_slice
+                or line.get("text") != source_slice or line_layout.get("source_text") != source_slice
+                or any(not finite(binding.get(a)) or not finite(line_layout.get(b)) or binding[a] != line_layout[b]
+                       for a, b in (("actual_line_y", "label_y"), ("actual_line_height", "line_height")))):
+            return None, "The bound production line source or layout differs between actual receipts"
+        result.append(line); seen.add(line_id); position = last
+    if position * 2 != len(encoded):
+        return None, "Bound production lines do not cover the complete path source"
+    recorded = {node["id"] for node in by_id.values() if isinstance(node.get("native_path_line_evidence"), dict)
+                and node["native_path_line_evidence"].get("owner_id") == owner["id"]}
+    if recorded != seen:
+        return None, "An actual retained path line is omitted or claimed more than once"
+    return result, None
+
+
+def project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia, projection, unmeasured):
+    """One source-owning selectable text control, with all line measurements raw.
+
+    Only bound internal line elements are replaced. Independent selection paint,
+    menus, unbound Images and every previous extraction/coverage error survive.
+    """
+    result = list(elements)
+    for owner in by_id.values():
+        if owner.get("type") != "NativePathText":
+            continue
+        lines, reason = native_path_binding(owner, by_id)
+        def gap(prop, message):
+            unmeasured.append({"id": owner["id"], "property": "native_path." + prop, "reason": message})
+        if reason:
+            gap("ownership", reason); continue
+        line_ids = [line["id"] for line in lines]
+        own_elements = {eid: [element for element in result if element["id"] == eid] for eid in line_ids}
+        if any(len(values) != 1 or values[0].get("kind") != "text" for values in own_elements.values()):
+            gap("visible_line_measurements", "Not every bound production line has one independently projected text measurement"); continue
+        if any(element["id"] == owner["id"] for element in result):
+            gap("owner_paint", "Owner also has independently projected paint/semantics; it cannot silently become only text"); continue
+        measured = [own_elements[eid][0] for eid in line_ids]
+        receipt = owner["native_path_evidence"]
+        # Actual values must agree. An unmeasured/different line cannot inherit
+        # its sibling's glyph font, paint or geometry to manufacture coverage.
+        style = {}
+        keys = ("font_size", "font_weight", "foreground", "background", "border_color", "border_width", "corner_radius",
+                "border_widths", "border_colors", "border_styles", "corner_radii", "opacity", "background_image", "shadow", "outline")
+        for key in keys:
+            values = [element.get("style", {}).get(key) for element in measured]
+            style[key] = copy.deepcopy(values[0]) if values[0] is not None and all(value == values[0] for value in values) else None
+            if style[key] is None:
+                gap("style." + key, "Actual bound line values differ or at least one line is unmeasured")
+        font_lists = [element.get("style", {}).get("rendered_fonts") for element in measured]
+        fonts_complete = all(isinstance(fonts, list) and fonts and all(isinstance(font, dict) for font in fonts) for fonts in font_lists)
+        style["rendered_fonts"] = [copy.deepcopy(font) for fonts in font_lists for font in fonts] if fonts_complete else None
+        if not fonts_complete:
+            gap("rendered_fonts", "At least one actual drawing line has no complete measured render-face evidence")
+        geometry, visible_geometry = [], []
+        geometry_complete = True
+        for element in measured:
+            entry = element.get("evidence", {}).get("native_label_geometry")
+            metrics = entry.get("font_metric_advance") if isinstance(entry, dict) else None
+            source = element["text"].encode("utf-16-le", "surrogatepass")
+            covered = set()
+            if not isinstance(metrics, list) or not metrics:
+                geometry_complete = False; continue
+            for metric in metrics:
+                description = metric.get("description") if isinstance(metric, dict) else None
+                window = metric.get("window") if isinstance(metric, dict) else None
+                if not isinstance(description, dict) or not isinstance(window, dict) or metric.get("text_scope") != "layout-source":
+                    geometry_complete = False; continue
+                first, length = description.get("text_position_utf16"), description.get("text_length_utf16")
+                text = description.get("text")
+                if (type(first) is not int or type(length) is not int or first < 0 or length <= 0 or (first + length) * 2 > len(source)
+                        or not isinstance(text, str) or source[first * 2:(first + length) * 2] != text.encode("utf-16-le", "surrogatepass")
+                        or not positive(window.get("bounds")) or not positive(window.get("visible_bounds"))
+                        or covered.intersection(range(first, first + length))):
+                    geometry_complete = False; continue
+                covered.update(range(first, first + length))
+                geometry.append(copy.deepcopy(window["bounds"])); visible_geometry.append(copy.deepcopy(window["visible_bounds"]))
+            if covered != set(range(len(source) // 2)):
+                geometry_complete = False
+        if not geometry_complete:
+            gap("text_bounds", "Bound line font-metric advance rectangles/source coverage are incomplete; layout/hit/ink boxes are not substituted")
+        pairs = [pair for pair in identity_bindings.get("pairs", []) if pair.get("xaml_id") == owner["id"]]
+        witnesses = [provider for provider in uia_nodes if len(pairs) == 1 and provider.get("id") == pairs[0].get("uia_id")]
+        witness = witnesses[0] if len(witnesses) == 1 and witnesses[0].get("control_type") == "ControlType.Text" else None
+        if witness:
+            used_uia.add(witness["id"])
+        else:
+            gap("UIA_correspondence", "No unique actual RuntimeId-bound Text provider; names/nearby boxes are not pairing evidence")
+        state = {key: copy.deepcopy(owner.get("state", {}).get(key)) for key in STATE_KEYS}
+        if witness:
+            for key in STATE_KEYS:
+                if witness.get("state", {}).get(key) is not None:
+                    state[key] = witness["state"][key]
+        interactive, interaction_reason = interaction_applicability(owner, "text", witness)
+        if interactive is None:
+            state["enabled"] = state["focused"] = None; gap("interaction", interaction_reason)
+        name = witness.get("name") if witness else owner.get("accessible_name")
+        if not isinstance(name, str):
+            name = ""; gap("name", "Actual path owner accessible name was not measured")
+        actual_layout = receipt.get("layout", {})
+        icu = actual_layout.get("icu")
+        iterators = icu.get("iterators") if isinstance(icu, dict) else None
+        def complete_iterator(typ):
+            if not isinstance(iterators, list):
+                return False
+            matches = [row for row in iterators if isinstance(row, dict)
+                       and type(row.get("type")) is int and row["type"] == typ]
+            if len(matches) != 1:
+                return False
+            row = matches[0]
+            boundaries = row.get("boundaries_utf16")
+            encoded = receipt["source_text"].encode("utf-16-le", "surrogatepass")
+            return (type(row.get("open_status")) is int and row["open_status"] <= 0
+                    and isinstance(boundaries, list) and len(boundaries) >= 2
+                    and all(type(position) is int for position in boundaries)
+                    and boundaries[0] == 0 and boundaries[-1] == len(encoded) // 2
+                    and all(left < right for left, right in zip(boundaries, boundaries[1:]))
+                    and not any(0 < position < len(encoded) // 2
+                                and 0xD800 <= int.from_bytes(encoded[position * 2 - 2:position * 2], "little") <= 0xDBFF
+                                and 0xDC00 <= int.from_bytes(encoded[position * 2:position * 2 + 2], "little") <= 0xDFFF
+                                for position in boundaries))
+        policy = (isinstance(icu, dict) and icu.get("source") == "Actual system ICU ubrk iterators over the unchanged production source"
+                  and icu.get("source_text") == receipt["source_text"] and all(complete_iterator(typ) for typ in (0, 2)))
+        measured_count = all(type(element.get("layout", {}).get("line_count")) is int and element["layout"]["line_count"] > 0 for element in measured)
+        line_count = sum(element["layout"]["line_count"] for element in measured) if measured_count else None
+        trims = [element.get("layout", {}).get("truncation") for element in measured]
+        layout = {"wrap": None, "break_strategy_version": 1, "normal_break_strategy": "word" if policy else None,
+                  "emergency_break_strategy": "break-unbreakable" if policy else None,
+                  "line_count": line_count if measured_count else None,
+                  "truncation": trims[0] if trims[0] is not None and all(value == trims[0] for value in trims) else None}
+        if not policy:
+            gap("break_strategy", "Actual ICU source-bound line/character iterator receipts are incomplete")
+        element = {"id": owner["id"], "parent": owner.get("parent"), "region": owner["region"], "order": measured[0]["order"],
+                   "kind": "text", "text": receipt["source_text"], "name": name,
+                   "bounds": union_boxes(geometry) if geometry_complete else None,
+                   "visible_bounds": union_boxes(visible_geometry) if geometry_complete else None,
+                   "style": style, "state": state, "layout": layout, "icon": None,
+                   "evidence": {"source": "Actual NativePathText owner and independently measured retained NativeLabel drawing lines",
+                                "type": owner["type"], "uia_id": witness["id"] if witness else None,
+                                "uia_identity_binding": copy.deepcopy(pairs[0]) if witness else None,
+                                "native_path_projection": {"source_receipt": copy.deepcopy(receipt), "source_line_ids": line_ids,
+                                                           "independent_line_elements": copy.deepcopy(measured), "raw_owner": copy.deepcopy(owner),
+                                                           "raw_lines": copy.deepcopy(lines), "other_child_paint_merged": False},
+                                "text_bounds": geometry if geometry_complete else None, "text_coordinate_space": "content-window",
+                                "text_bounds_quantity": "Actual rendered-face font metrics around actual draw baselines plus actual glyph advances",
+                                "owner_layout_bounds": copy.deepcopy(owner.get("bounds")),
+                                "line_break_configuration": {"applicable": True, "source": "Actual NativePathText ICU normal-boundary / safe-cluster emergency production policy",
+                                                             "owner": owner["id"], "raw": copy.deepcopy(actual_layout),
+                                                             "errors": [] if policy else ["Actual iterator source binding is incomplete"]},
+                                "interaction_applicability": {"applicable": interactive, "reason": interaction_reason,
+                                                              "xaml": copy.deepcopy(owner.get("interaction_evidence")),
+                                                              "uia_state": copy.deepcopy(witness.get("state")) if witness else None},
+                                "outline": copy.deepcopy(measured[0].get("evidence", {}).get("outline")) if style.get("outline") is not None else None}}
+        # Preserve configured and resolved independently, including every raw
+        # source receipt. No line's request supplies another line's face weight.
+        quantities = [item.get("evidence", {}).get("font_weight_quantities") for item in measured]
+        quantities_bound = [isinstance(quantity, dict) and type(quantity.get("version")) is int and quantity["version"] == 1
+                            and quantity.get("applicable") is True and quantity.get("owner") == item["id"]
+                            and isinstance(quantity.get("legacy"), dict)
+                            and quantity["legacy"].get("value") == item.get("style", {}).get("font_weight")
+                            for item, quantity in zip(measured, quantities)]
+        configured = [item.get("configured") if isinstance(item, dict) else None for item in quantities]
+        configured_ok = all(quantities_bound) and all(isinstance(item, dict) and finite(item.get("value")) and 1 <= item["value"] <= 1000
+                            and isinstance(item.get("source"), str) and item["source"] and isinstance(item.get("raw"), dict)
+                            and item["value"] == style.get("font_weight") for item in configured)
+        resolved = [item.get("resolved") if isinstance(item, dict) else None for item in quantities]
+        resolved_ok = all(quantities_bound) and fonts_complete and all(isinstance(item, dict) and item.get("source_span_complete") is True
+                                            and isinstance(item.get("faces"), list) and item["faces"] for item in resolved)
+        element["evidence"]["font_weight_quantities"] = {
+            "version": 1, "applicable": True, "owner": owner["id"],
+            "legacy": {"value": style.get("font_weight"), "quantity": "configured" if configured_ok else "unclassified provider value"},
+            "configured": {"value": style.get("font_weight") if configured_ok else None,
+                           "source": "Actual source-bound production line requests", "raw": {"lines": copy.deepcopy(configured), "source_bindings": copy.deepcopy(receipt["actual_line_bindings"])}},
+            "resolved": {"source_span_complete": bool(resolved_ok),
+                         "faces": [copy.deepcopy(face) for item in resolved for face in item["faces"]] if resolved_ok else None,
+                         "source": "Actual source-bound production line render-face measurements",
+                         "raw": {"lines": copy.deepcopy(resolved), "source_bindings": copy.deepcopy(receipt["actual_line_bindings"])}}}
+        for issue in font_weight_issues(element):
+            gap(issue["field"], issue["reason"])
+        for issue in unmeasured:
+            if issue.get("id") in line_ids:
+                issue.setdefault("projected_owner_id", owner["id"])
+        insertion = min(result.index(item) for item in measured)
+        result = [item for item in result if item["id"] not in line_ids]
+        result.insert(insertion, element)
+        for line_id in line_ids:
+            projection.append({"source": line_id, "owner": owner["id"], "reason": "Actual retained production drawing line of one source-owning path text",
+                               "binding": copy.deepcopy(by_id[line_id]["native_path_line_evidence"])})
+        if witness:
+            projection.append({"source": witness["id"], "owner": owner["id"], "reason": "Actual complete RuntimeId binding to production path text owner"})
+    orders = defaultdict(int)
+    ordered = []
+    for element in result:
+        ordered.append(dict(element, order=orders[element["region"]])); orders[element["region"]] += 1
+    return ordered
+
+
 def project(xaml_path, uia_path, png_path):
     xaml = json.loads(Path(xaml_path).read_text(encoding="utf-8-sig"))
     uia = json.loads(Path(uia_path).read_text(encoding="utf-8-sig"))
@@ -1652,6 +1930,10 @@ def project(xaml_path, uia_path, png_path):
     dialog_surfaces = measured_dialog_surfaces(source_raw, source_by_id, unmeasured)
     dialog_surface_owners = {surface["id"]: owner for owner, surface in dialog_surfaces.items()}
     identity_bindings = bind_automation_identities(source_raw, uia)
+    toggle_parts = windows_toggle_parts(source_raw, uia)
+    for issue in toggle_parts["unresolved"]:
+        unmeasured.append({"id": issue["owner_id"], "property": "state.originating_toggle",
+                           "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
     owner_by_provider = {pair["uia_id"]: pair["xaml_id"] for pair in identity_bindings["pairs"]}
     provider_by_owner = {pair["xaml_id"]: pair["uia_id"] for pair in identity_bindings["pairs"]}
     provider_records = defaultdict(list)
@@ -1983,6 +2265,10 @@ def project(xaml_path, uia_path, png_path):
         else:
             matching = [n for n in uia_nodes if n["id"] not in used_uia and uia_kind_matches(n, kind)
                         and distance(n["bounds"], node["bounds"]) <= 8 and identity_allows(node, n)]
+        if isinstance(node.get("native_path_line_evidence"), dict):
+            # The retained line is paint inside a separately accessible source
+            # owner. It must not claim that owner's Text provider by proximity.
+            matching = [n for n in matching if owner_by_provider.get(n["id"]) == node["id"]]
         if kind == "scrollbar-thumb":
             owner_provider = paired_controls.get(scrollbar_thumbs[node["id"]])
             matching = [n for n in matching if owner_provider and uia_scrollbar_owner(n) == owner_provider["id"]]
@@ -2006,6 +2292,13 @@ def project(xaml_path, uia_path, png_path):
             state["enabled"] = state["focused"] = None
         elif interactive is None:
             unmeasured.append({"id": node["id"], "property": "state.interaction_applicability", "reason": interaction_reason})
+        originating_toggle = toggle_parts["parts"].get(node["id"])
+        if originating_toggle is not None:
+            # This decorative part has no independent action. Its four live
+            # originating-control fields are separately proven by retained
+            # objects, the exact ancestor chain and a full RuntimeId binding.
+            # Keep the raw part state and every paint/frame obligation below.
+            state.update(originating_toggle["state"])
         if control_kind(node) and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
         scrollbar_range_evidence = None
@@ -2227,6 +2520,7 @@ def project(xaml_path, uia_path, png_path):
                                 "markdown_code_text_evidence": copy.deepcopy(node.get("markdown_code_text_evidence")),
                                 "compound_paint": compound_paint,
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
+                                "originating_toggle": copy.deepcopy(originating_toggle),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),
                                 "brush_evidence": copy.deepcopy(paint_node.get("style", {}).get("brush_evidence")),
@@ -2263,6 +2557,7 @@ def project(xaml_path, uia_path, png_path):
         projection.append({"source": node["id"], "element": node["id"], "reason": "visible rendered element"})
         # Collection is deliberately independent of the reference element count.
         elements.append(element)
+    elements = project_native_paths(elements, by_id, uia_nodes, identity_bindings, used_uia, projection, unmeasured)
     for n in uia_nodes:
         if n["id"] in used_uia:
             continue
@@ -2279,7 +2574,8 @@ def project(xaml_path, uia_path, png_path):
             continue
         # A UIA text child can already be represented by the owning control's
         # label. Preserve the measured ownership instead of silently losing it.
-        owner = next((e for e in elements if n.get("control_type") == "ControlType.Text" and n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1
+        owner = next((e for e in elements if not isinstance(e.get("evidence", {}).get("native_path_projection"), dict)
+                      and positive(e.get("bounds")) and n.get("control_type") == "ControlType.Text" and n.get("name") and n.get("name") == e["text"] and e["bounds"]["x"] <= b["x"] and e["bounds"]["y"] <= b["y"] and b["x"] + b["width"] <= e["bounds"]["x"] + e["bounds"]["width"] + 1 and b["y"] + b["height"] <= e["bounds"]["y"] + e["bounds"]["height"] + 1
                       and identity_allows(by_id[e["id"]], n)), None)
         if owner:
             projection.append({"source": n["id"], "owner": owner["id"], "reason": "UIA label owned by corresponding rendered control"})
