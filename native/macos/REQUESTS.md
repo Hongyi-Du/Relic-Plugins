@@ -9,6 +9,10 @@ New extraction-contract requests from actual c4b113d reports:
   these are visible/usable controls, not wrappers to drop. Native AX reports
   hit rectangles wider than the actual 10px NSView gutter; production draw and
   actual view geometry must supply paint bounds separately from AX hit bounds.
+  macOS adds raw `nodes[].native_scrollbar_paint` from the actual draw callback:
+  track/knob local bounds, the separate knob hit bounds, resolved fill/radius,
+  clipping, orientation, normalized value, knob proportion and hover state.
+  Missing draw receipts stay null; they are not supplied by expected geometry.
 * Reference `.pane-resize` is a real 5px element with `onpointerdown: startResize`
   and a hover/drag accent fill at 40% alpha, but c4b113d extraction emits no
   counterpart. Emit its actual interaction as `resize-handle`, with its title,

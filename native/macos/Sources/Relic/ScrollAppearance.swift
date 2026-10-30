@@ -30,6 +30,7 @@ struct ScrollAppearance: NSViewRepresentable {
 
 final class ReferenceScroller: NSScroller {
     private var over = false
+    private(set) var lastPaint: [String: Any]?
     override class var isCompatibleWithOverlayScrollers: Bool { true }
     override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat { 10 }
     var paintedKnob: NSRect {
@@ -38,9 +39,21 @@ final class ReferenceScroller: NSScroller {
         return NSRect(x: knob.minX + 3, y: bounds.maxY - 7, width: max(0, knob.width - 6), height: 4)
     }
     override func drawKnob() {
-        guard knobProportion < 1 else { return }
-        NSColor(RelicStyle.muted).withAlphaComponent(over ? 0.55 : 0.35).setFill()
+        guard knobProportion < 1 else {
+            if VisualCapture.enabled { lastPaint = ["provider": "production ReferenceScroller.drawKnob", "painted": false, "knob_proportion": knobProportion] }
+            return
+        }
+        let fill = NSColor(RelicStyle.muted).withAlphaComponent(over ? 0.55 : 0.35)
+        fill.setFill()
         NSBezierPath(roundedRect: paintedKnob, xRadius: 2, yRadius: 2).fill()
+        if VisualCapture.enabled {
+            lastPaint = ["provider": "production ReferenceScroller.drawKnob", "painted": true,
+                "track_local_bounds": ElementCapture.box(bounds), "knob_local_bounds": ElementCapture.box(paintedKnob),
+                "knob_hit_bounds": ElementCapture.box(rect(for: .knob)), "fill": ElementCapture.rgba(fill),
+                "corner_radius": 2, "orientation": bounds.height > bounds.width ? "vertical" : "horizontal",
+                "value": doubleValue, "knob_proportion": knobProportion, "hovered": over,
+                "clip_local_bounds": ElementCapture.box(visibleRect), "draw_returned": true]
+        }
     }
     override func draw(_ dirtyRect: NSRect) { drawKnob() }
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
