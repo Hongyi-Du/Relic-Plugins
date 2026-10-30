@@ -5,7 +5,15 @@ import UserNotifications
 final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var onQuit: (() -> Void)?
     var onNotification: ((String, String) -> Void)?
-    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); if !VisualCapture.enabled { UNUserNotificationCenter.current().delegate = self } }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        if VisualCapture.enabled {
+            // A subsequent viewport process can restore the ordinary window
+            // as closed. Capture owns its own window and must start from the
+            // actual application lifecycle, independent of a Window view task.
+            Task { @MainActor in await VisualCapture.run(Model()) }
+        } else { UNUserNotificationCenter.current().delegate = self }
+    }
     func applicationWillTerminate(_ notification: Notification) { onQuit?() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { if !flag { sender.windows.first?.makeKeyAndOrderFront(nil) }; return true }
@@ -21,7 +29,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     var body: some Scene {
         Window("Relic", id: "main") {
             MainView().environmentObject(model)
-                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if VisualCapture.enabled { Task { await VisualCapture.run(model) } } else { await model.start() } }
+                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if !VisualCapture.enabled { await model.start() } }
                 .frame(minWidth: 920, minHeight: 620)
         }
         .defaultSize(width: 1440, height: 900)

@@ -1,5 +1,43 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**Actual full-shard startup failure, `afe7f6f` / `41004901717`:** zh-CN/light
+job `123897519335` completes the first 55-case viewport, then the 1280x800
+process (PID 29604) writes no client log/progress and times out at 1200 seconds;
+1024x700 likewise writes nothing before the unchanged 45-minute job deadline.
+Downloaded evidence: `parity-afe7f6f/macos-zh-CN-light/data/zh-CN/light/viewports`.
+This is a startup failure, not slow successful cases. macOS previously started
+capture only from the ordinary Window's `.task`; a later process may restore
+that window as closed. Capture now starts from `applicationDidFinishLaunching`
+and owns its own model/window regardless of ordinary-window restoration, with
+an immediate startup log/progress marker. Full multi-process validation is pending.
+
+Shared request: `native_process` currently creates `current-case.txt` before
+launch only for Windows. Please initialize a startup marker for macOS too so a
+process that never reaches our app lifecycle triggers the existing 90-second
+progress deadline and stack sampling, rather than waiting 1200 seconds without
+startup evidence. Preserve all process/case/job deadlines, all 165 cases in
+each language/theme and the existing failed-shard aggregation.
+
+`edb98f3` smoke `41005480198` completes all 19 macOS captures; its actual new
+PNG reveals a shadow regression: the non-linear drawingGroup clips all paint
+outside its layout bounds. At the member-card left edge the native samples at
+offsets 1/4/8/16/24/40 are all white; reference red channels are 234/240/244/250/
+253/255. The shape-only raster group now receives padding derived from its own
+blur radii and offsets, followed by equal negative layout padding, so the card
+retains its original size and the actual shadow has room to render. The strict
+reference edge-profile test remains unchanged and must pass in CI. The failed
+edb98f3 images/report are retained under `parity-edb98f3`; no evidence is replaced.
+
+The overview toggle previously exposed its entire 257px switch-and-label row
+as one checkbox while the reference has a 32px control, separate visible text
+and a 14px knob. The production SwiftUI style now scopes its native checkbox
+representation to the actual 32x18 switch, preserves the visible label beside
+it and allows label clicks only while enabled. The knob is an independently
+painted/owned card with the unchanged 14px/white/1px shadow parameters. Hidden
+labels in settings likewise keep the switch frame. Toggle canonical text is
+empty because its actual visible label is now a separate native text element;
+its accessible name/checked state remain on the real toggle. Capture pending.
+
 Consumed `74b14eb` evidence-shape follow-up: macOS retains the original native
 line-break properties under `raw`, with `source`, actual `owner`, and
 `applicable:true` for `bool(text) || kind == "text"`. Non-text elements emit
