@@ -29,6 +29,7 @@ struct SelectableText: NSViewRepresentable {
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = QuoteTextView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
+        layout.delegate = view.lineMetrics
         view.isEditable = false; view.isSelectable = true; view.drawsBackground = false
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
@@ -100,6 +101,7 @@ extension NativeTextStyle {
 
 final class QuoteTextView: NSTextView {
     var sourceStorage: NSTextStorage?
+    let lineMetrics = NativeLineMetrics()
     var measuredOpacity: Double = 1
     var productionRegion = "window"
     var quoteTitle = ""

@@ -21,6 +21,17 @@ import RelicCore
                 "parent": view.superview.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()]
             if let window = view.window { item["screen_bounds"] = ElementCapture.box(window.convertToScreen(view.convert(view.bounds, to: nil))) }
             if let text = view as? NSTextView { item["text"] = text.string }
+            func insets(_ value: NSEdgeInsets) -> [Double] { [value.top, value.right, value.bottom, value.left].map(Double.init) }
+            if let scroll = view as? NSScrollView {
+                item["scroll_content_insets"] = insets(scroll.contentInsets)
+                item["scroller_insets"] = insets(scroll.scrollerInsets)
+                item["scroll_automatic_insets"] = scroll.automaticallyAdjustsContentInsets
+                item["document_visible_rect"] = ElementCapture.box(scroll.documentVisibleRect)
+            }
+            if let clip = view as? NSClipView {
+                item["clip_content_insets"] = insets(clip.contentInsets)
+                item["clip_automatic_insets"] = clip.automaticallyAdjustsContentInsets
+            }
             if let layer = view.layer {
                 item["layer_bounds"] = ElementCapture.box(layer.bounds)
                 item["layer_position"] = ["x": layer.position.x, "y": layer.position.y]

@@ -4,6 +4,39 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class NativeTextStyleTests: XCTestCase {
+    func testFixedHeightCodeCentersLeadingWithoutChangingLineHeightOrGlyphAdvance() throws {
+        let view = ReferenceLabel("# Native app review\nNext line", size: 12.5, lineHeight: 20.625, lines: 0, monospaced: true).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
+        let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+        manager.ensureLayout(for: container)
+        var baselines: [CGFloat] = [], heights: [CGFloat] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { line, _, _, glyphs, _ in
+            baselines.append(line.minY + manager.location(forGlyphAt: glyphs.location).y); heights.append(line.height)
+        }
+        // Independent Menlo draw: the former TextKit baseline was 17.625px,
+        // with all 5.625px of extra leading above it. Centered leading moves
+        // it to 14.8125 while retaining the 20.625px line step and 143px advance.
+        XCTAssertEqual(try XCTUnwrap(baselines.first), 14.8125, accuracy: 0.01)
+        XCTAssertEqual(baselines.count, 2)
+        XCTAssertEqual(baselines[1] - baselines[0], 20.625, accuracy: 0.01)
+        XCTAssertTrue(heights.allSatisfy { abs($0 - 20.625) < 0.01 })
+        XCTAssertEqual(NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: 19)).envelope?.width ?? 0, 143, accuracy: 0.5)
+    }
+
+    func testDocumentLineAdvancesDoNotIncludeTheNewlineEditingCaret() throws {
+        let source = "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n"
+        let storage = NSTextStorage(attributedString: NativeTextStyle.render(AttributedString(source), size: 12.5, lineHeight: 20.625, monospaced: true, uniformSource: true))
+        let manager = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: 664, height: 200))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        let measured = NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: storage.length))
+        XCTAssertTrue(measured.complete)
+        XCTAssertEqual(measured.rectangles.count, 3, "The empty source line remains in the raw geometry receipt")
+        for (rect, width) in zip(measured.rectangles, [CGFloat(143), 0, 496.703125]) { XCTAssertEqual(rect.width, width, accuracy: 0.5) }
+        XCTAssertEqual(try XCTUnwrap(measured.envelope).width, 496.703125, accuracy: 0.5)
+        XCTAssertEqual(storage.string, source)
+    }
+
     func testReadOnlyDocumentDoesNotReserveATerminalInsertionLine() {
         // Actual 0a1d569 en-US/dark/1024x700 document: 14 lines at 20.625px,
         // including four empty interior lines. The 318.75px reference card
