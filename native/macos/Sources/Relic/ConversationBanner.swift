@@ -10,9 +10,10 @@ struct ConversationBanner: View {
         return card["surface"].text == "subagent" || !Capabilities.automatic(m.platform, harness: card["harness"].text, surface: surface) || card["state"].text == "vacant"
     }
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            ReferenceIcon(name: "info", size: 15, color: RelicStyle.secondary)
-            ReferenceLabel(m.banner(m.selectedMember), size: 12.5, color: RelicStyle.secondary, lineHeight: 20, lines: 0).frame(maxWidth: .infinity, alignment: .leading)
+        let label = ReferenceLabel(m.banner(m.selectedMember), size: 12.5, color: RelicStyle.secondary, lineHeight: 20, lines: 0)
+        BannerFlexLayout(textWidths: BannerTextMetrics.measure(label.attributedText)) {
+            ReferenceIcon(name: "info", size: 15, color: RelicStyle.secondary, flexibleWidth: true)
+            label.frame(maxWidth: .infinity, alignment: .leading)
         }.padding(.horizontal, 13).padding(.vertical, 9)
             .modifier(RecordedSurface(background: amber ? RelicStyle.amberSoft : RelicStyle.sidebar, border: amber ? RelicStyle.amber.opacity(0.3) : RelicStyle.line, borderWidth: 1, radius: 10, kind: "card"))
             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 10)

@@ -130,10 +130,13 @@ struct ElementPaintProbe: NSViewRepresentable {
         override func draw(_ dirtyRect: NSRect) {
             guard let source = ReferenceIcons.paths[name], let path = try? VectorPath.parse(source),
                   let context = NSGraphicsContext.current?.cgContext else { return }
-            var transform = CGAffineTransform(scaleX: bounds.width / 24, y: bounds.height / 24)
-                .concatenating(CGAffineTransform(translationX: bounds.minX, y: bounds.minY))
+            // SVG's default xMidYMid meet preserves the glyph when a flex item
+            // narrows its viewport. A non-square viewport must not stretch it.
+            let scale = min(bounds.width, bounds.height) / 24
+            var transform = CGAffineTransform(scaleX: scale, y: scale)
+                .concatenating(CGAffineTransform(translationX: bounds.midX - 12 * scale, y: bounds.midY - 12 * scale))
             guard let rendered = path.copy(using: &transform) else { return }
-            let width = 1.7 * size / 24
+            let width = 1.7 * scale
             context.saveGState()
             context.setShouldAntialias(true)
             context.setLineWidth(width); context.setLineCap(.round); context.setLineJoin(.round)

@@ -1,3 +1,16 @@
+## 2026-10-30: private banner follows actual native text flex widths
+
+The macOS full `1ffe201` en-US/light/1024x700/private capture has a fixed 15px
+banner icon and text at x=332; the reference icon viewport is 6.390625px and its
+text starts at x=323.390625. This is an actual layout defect. BannerFlexLayout
+now uses both flex-shrink bases and a native CFStringTokenizer line-break minimum
+measured with CoreText from the exact production attributed text. It preserves
+the text source and applies no scene-specific coordinates. The icon viewport can
+shrink while its path and stroke use the SVG xMidYMid meet transform. Square
+icons keep the same rendering. Mounted Chinese/English tests check actual view
+frames, gap, glyph aspect ratio, stroke width and current backing-image binding.
+These tests and whole-scene captures are pending CI. No gate change is requested.
+
 ## 2026-10-30: mounted dark/light painters pass; message receipts preserve other evidence
 
 Native apps 41090924802 / macOS 124185072559 (`06890e8`) builds and runs 230 tests.

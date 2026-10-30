@@ -82,10 +82,17 @@ struct ReferenceIcon: View {
     var size: CGFloat = 18
     var color: Color = RelicStyle.secondary
     var owner: String? = nil
+    var flexibleWidth = false
     @Environment(\.captureOpacity) private var opacity
     var body: some View {
-        ElementPaintProbe(name: name, size: size, color: color, owner: owner, opacity: opacity)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        if flexibleWidth {
+            ElementPaintProbe(name: name, size: size, color: color, owner: owner, opacity: opacity)
+                .frame(minWidth: 0, idealWidth: size, maxWidth: .infinity).frame(height: size)
+                .accessibilityHidden(true)
+        } else {
+            ElementPaintProbe(name: name, size: size, color: color, owner: owner, opacity: opacity)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
     }
 }
