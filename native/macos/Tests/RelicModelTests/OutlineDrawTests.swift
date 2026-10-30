@@ -21,9 +21,19 @@ import SwiftUI
         view.display(); CATransaction.flush()
         let bitmap = try XCTUnwrap(CaptureRaster.forView(view)); view.cacheDisplay(in: view.bounds, to: bitmap)
         let current = inspect()
-        // AppKit can omit a presentation layer in the unit-test host. In that
-        // case absence stays unknown; mounted application captures supply it.
-        if view.layer == nil || view.layer?.presentation() != nil {
+        XCTAssertEqual(current.evidence["glyph_draw_status"] as? String, "measured-current-draw")
+        // The test host can install AppKit text sublayers even on a view with
+        // no NSView children (observed in 41044882354). Their paint is outside
+        // this bounded contract. A visible presentation layer alone therefore
+        // cannot justify the former assumption that absence must be proven.
+        let nativeChildren = view.layer?.sublayers?.count ?? 0
+        let presentedChildren = view.layer?.presentation()?.sublayers?.count ?? 0
+        if nativeChildren > 0 || presentedChildren > 0 {
+            XCTAssertTrue(current.paint is NSNull)
+            XCTAssertEqual(current.evidence["absence_proven"] as? Bool, false)
+            let errors = try XCTUnwrap(current.evidence["errors"] as? [String])
+            XCTAssertTrue(errors.contains { $0.contains("layer paint/effects") })
+        } else if view.layer == nil || view.layer?.presentation() != nil {
             XCTAssertEqual(current.paint as? String, "none", String(describing: current.evidence))
             XCTAssertEqual(current.evidence["absence_proven"] as? Bool, true)
         } else { XCTAssertTrue(current.paint is NSNull) }
