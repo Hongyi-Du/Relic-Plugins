@@ -4,6 +4,33 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class ScrollAppearanceTests: XCTestCase {
+    func testScrollViewsMountedAfterInitialLayoutReceiveTheirNativeStyleOnWindowUpdate() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let probe = ScrollAppearance.Probe(frame: .zero)
+        root.addSubview(probe); window.contentView = root
+        defer { window.contentView = nil; window.close() }
+        root.layoutSubtreeIfNeeded()
+        func newScroll() -> NSScrollView {
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+            scroll.borderType = .noBorder; scroll.hasVerticalScroller = true
+            scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 190, height: 600))
+            root.addSubview(scroll); return scroll
+        }
+        let late = newScroll()
+        XCTAssertFalse(late.verticalScroller is ReferenceScroller)
+        window.update(); late.tile()
+        let scroller = try XCTUnwrap(late.verticalScroller as? ReferenceScroller)
+        XCTAssertEqual(late.contentSize.width, 190, accuracy: 0.01)
+        XCTAssertEqual(scroller.frame.width, 10, accuracy: 0.01)
+        window.update()
+        XCTAssertTrue(late.verticalScroller === scroller, "Repeated updates retain the actual native scroller and its state")
+        probe.removeFromSuperview()
+        let detached = newScroll(); window.update()
+        XCTAssertFalse(detached.verticalScroller is ReferenceScroller, "An unmounted observer must leave its former window alone")
+    }
+
     func testRoleOnlyReaderDoesNotEnumerateTheQueriedElementsChildren() {
         final class Part: NSAccessibilityElement {
             var childReads = 0
