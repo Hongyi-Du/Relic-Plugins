@@ -48,6 +48,13 @@ the scroll moves, and avatar hover is verified using its actual painted label,
 surface and pointer rather than requiring an invisible wrapper AX node.
 No scene, tolerance or exception changes are requested.
 
+Verified follow-up: `40987219219` / `38af737` now has 16/17 macOS diagnostic
+cases captured, only group failing with four changed document views. The actual
+hover/expanded/rename/textarea states pass their capture assertions, and no
+TextKit 2 content views disappear. `3c652b7` lays out the currently loaded page
+with VStack and anchors after the real 24px bottom space; this remains pending
+capture validation. Its lazy-layout diagnosis must not be treated as a pass.
+
 Dropdown arrow coverage: the actual c4b113d reference PNG shows one downward
 chevron, while AppKit's default popup draws two directions. macOS now keeps the
 real NSPopUpButton/menu and paints a single 8x4px, 2px butt-cap/miter-join arrow,

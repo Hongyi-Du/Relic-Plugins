@@ -10,6 +10,15 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+最新已核实的采集修复证据：共享提交 `38af737` 的
+[40987219219](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40987219219) 含 macOS
+17 个诊断 case，16 个 captured、1 个 failed-state-captured。成员卡悬停/重命名、实时工具展开、
+消息悬停和 textarea 拖拽均完成真实动作与采集；TextKit 2 内部视图被删除的问题没有再次出现。
+唯一采集失败仍为群聊四个文档视图高度变化。该提交早于 `3c652b7` 的 VStack/底部滚动修复。
+原生回执位于 `S:\Codex\Outputs\Relic-native-visual\smoke-38af737\macos\`，共享 HTML 报告
+位于 `S:\Codex\Outputs\Relic-native-visual\parity-38af737\`。元素匹配依旧失败，不能将
+16 个采集完成解释为 16 个通过；没有已获批准的例外。
+
 ### 2026-10-30：当前修复及最新下载的完整失败报告
 
 已合入 `native-apps` 的 `34d4c35`（共享更新 `4afb5d1`），当前矩阵为 53 个场景 × 12 个语言/主题/尺寸组合，
