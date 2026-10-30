@@ -1,5 +1,13 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+The 15581b1 copies capture contains two actual accessibility regions at the
+same panel bounds: a named SwiftUI AXGroup and its unnamed NSScrollView.
+Content-sized dialogs now give the real NSScrollView the panel identifier and
+title directly, removing the redundant production accessibility wrapper. Native
+scrolling and children stay on that viewport. Fixed-height dialogs retain their
+existing container. This is a production ownership fix, not a capture filter;
+the next raw AX tree must confirm whether the duplicate has actually gone.
+
 The e9206ea diagnostic images isolate the alternate glyph failure inside the
 actual callback: the callback and final bitmap are both empty. TextKit supplies
 user-space positions, whereas CGContext.showGlyphs(at:) consumes text-space
