@@ -109,6 +109,7 @@ internal sealed class Capture
     private readonly HashSet<string> seen = new(StringComparer.Ordinal);
     private readonly JsonArray nodes = new(), errors = new();
     private readonly TreeWalker walker = TreeWalker.RawViewWalker;
+    private NativeTextEvidence? nativeText;
     private int nextId;
 
     public Capture(JsonObject request)
@@ -248,14 +249,18 @@ internal sealed class Capture
         });
         ReadPattern<TextPattern>(element, TextPattern.Pattern, supported, nodeErrors, value =>
         {
+            var document = value.DocumentRange;
             var ranges = new JsonArray();
-            foreach (var range in value.GetVisibleRanges()) ranges.Add(ReadTextRange(range, nodeErrors, includeRuns: true));
-            node["text_pattern"] = new JsonObject
+            foreach (var range in value.GetVisibleRanges()) ranges.Add(ReadTextRange(range, document, nodeErrors, includeRuns: true));
+            var pattern = new JsonObject
             {
-                ["document"] = ReadTextRange(value.DocumentRange, nodeErrors, includeRuns: false),
+                ["document"] = ReadTextRange(document, document, nodeErrors, includeRuns: false),
                 ["visible_ranges"] = ranges,
                 ["supported_text_selection"] = value.SupportedTextSelection.ToString()
             };
+            node["text_pattern"] = pattern;
+            nativeText ??= new NativeTextEvidence(processId, originX, originY);
+            nativeText.Attach(element, value, pattern, nodeErrors);
         });
     }
 
@@ -271,7 +276,7 @@ internal sealed class Capture
         catch (Exception error) { errors.Add(pattern.ProgrammaticName + ": " + error.GetType().Name + ": " + error.Message); }
     }
 
-    private JsonObject ReadTextRange(TextPatternRange range, JsonArray errors, bool includeRuns)
+    private JsonObject ReadTextRange(TextPatternRange range, TextPatternRange document, JsonArray errors, bool includeRuns)
     {
         var attributes = new JsonObject(); var status = new JsonObject();
         foreach (var (name, attribute) in new[]
@@ -296,13 +301,24 @@ internal sealed class Capture
             }
             catch (Exception error) { attributes[name] = null; status[name] = "error"; errors.Add(attribute.ProgrammaticName + ": " + error.Message); }
         }
-        var rectangles = new JsonArray();
+        var rectangles = new JsonArray(); var managedRectangles = new JsonArray(); var diagnostics = new JsonArray();
         var bounds = range.GetBoundingRectangles();
         foreach (var box in bounds)
-            rectangles.Add(Rectangle(box.X, box.Y, box.Width, box.Height));
+        {
+            managedRectangles.Add(NativeTextEvidence.ManagedRectangle(box));
+            if (box.IsEmpty)
+            {
+                rectangles.Add(new JsonObject { ["x"] = null, ["y"] = null, ["width"] = null, ["height"] = null });
+                diagnostics.Add("Managed Rect.Empty at index " + (rectangles.Count - 1) + "; .NET projects native width<=0 or height<=0 to this sentinel. Original native geometry is unmeasured until the paired COM query succeeds.");
+            }
+            else rectangles.Add(Rectangle(box.X, box.Y, box.Width, box.Height));
+        }
         var result = new JsonObject
         {
             ["text"] = range.GetText(-1), ["bounds"] = rectangles,
+            ["managed_bounds"] = managedRectangles, ["managed_bounds_diagnostics"] = diagnostics,
+            ["range_identity"] = NativeTextEvidence.ManagedIdentity(range, document),
+            ["bounds_source"] = "Managed UIA Rect[]; awaiting independent native COM range identity/geometry verification",
             ["attributes"] = attributes, ["attribute_status"] = status,
             ["font_size_unit"] = "pt"
         };
@@ -322,7 +338,7 @@ internal sealed class Capture
                 { errors.Add("UIA text format endpoint did not advance."); break; }
                 if (cursor.CompareEndpoints(TextPatternRangeEndpoint.End, range, TextPatternRangeEndpoint.End) > 0)
                     cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, range, TextPatternRangeEndpoint.End);
-                runs.Add(ReadTextRange(cursor, errors, includeRuns: false));
+                runs.Add(ReadTextRange(cursor, document, errors, includeRuns: false));
                 cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, cursor, TextPatternRangeEndpoint.End);
             }
             result["format_runs"] = runs;
