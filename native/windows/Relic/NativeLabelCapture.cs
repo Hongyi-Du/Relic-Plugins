@@ -12,7 +12,33 @@ public sealed partial class MainWindow
     // It is intentionally not a canonical font/geometry conversion: presentation
     // synchronization, source text ownership and equal-quantity browser evidence
     // still have to be established by the capture/matcher work.
-    private static JsonObject CaptureNativeLabel(NativeLabel label) => label.CaptureProductionReceipt();
+    private JsonObject CaptureNativeLabel(NativeLabel label)
+    {
+        var result = label.CaptureProductionReceipt();
+        int? index = null;
+        if (capturedNativeLabels != null)
+            for (var i = 0; i < capturedNativeLabels.Length; i++)
+                if (ReferenceEquals(label, capturedNativeLabels[i])) { index = i; break; }
+        result["capture_binding"] = new JsonObject
+        {
+            ["source"] = "Actual NativeLabel object ReferenceEquals against the capture observer label array",
+            ["capture_label_index"] = index, ["same_object_reference"] = index != null,
+            ["case_id"] = capturedNativeLabelEvidence?["case_id"]?.DeepClone()
+        };
+        return result;
+    }
+
+    private static bool CurrentNativeLabelSubmission(JsonObject evidence)
+    {
+        if (evidence["current_submission"] is not JsonObject state || evidence["draw"] is not JsonObject draw) return false;
+        return state["is_loaded"]?.GetValue<bool>() == true && state["queued"]?.GetValue<bool>() == false
+            && state["rendering"]?.GetValue<bool>() == false && state["surface_binding_same_com_identity"]?.GetValue<bool>() == true
+            && evidence["last_failure"] == null && draw["surface_end_draw_succeeded"]?.GetValue<bool>() == true
+            && draw["draw_hresult"]?.GetValue<int>() >= 0 && draw["surface_end_draw_hresult"]?.GetValue<int>() >= 0
+            && JsonNode.DeepEquals(draw["layout_revision"], evidence["current_layout_revision"])
+            && JsonNode.DeepEquals(draw["surface_revision"], evidence["current_surface_revision"])
+            && JsonNode.DeepEquals(draw["draw_ordinal"], evidence["current_draw_ordinal"]);
+    }
 
     private JsonObject? capturedNativeLabelEvidence;
     private NativeLabel[]? capturedNativeLabels;

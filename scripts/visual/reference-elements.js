@@ -112,6 +112,34 @@
   // CDP supplies actual pseudo/UA-shadow layout boxes that the standard DOM
   // cannot expose. Resolve snapshot ancestry to real elements without adding
   // attributes or otherwise changing the page being measured.
+  const pseudoLayoutMeasurement = (index, layout, document) => {
+    const rows = layout.nodeIndex.flatMap((node, position) => {
+      if (node !== index) return [];
+      const raw = layout.bounds?.[position], valid = Array.isArray(raw) && raw.length === 4 && raw.every(Number.isFinite) && raw[2] >= 0 && raw[3] >= 0;
+      return [{ layout_index: position, source_bounds: raw ?? null,
+        bounds: valid ? { x: raw[0] - (document.scrollOffsetX || 0), y: raw[1] - (document.scrollOffsetY || 0), width: raw[2], height: raw[3] } : null,
+        client_rect: layout.clientRects?.[position] ?? null, offset_rect: layout.offsetRects?.[position] ?? null,
+        scroll_rect: layout.scrollRects?.[position] ?? null, paint_order: layout.paintOrders?.[position] ?? null,
+        text_index: layout.text?.[position] ?? null }];
+    });
+    const positive = rows.filter(row => row.bounds?.width > 0 && row.bounds?.height > 0), groups = [];
+    for (const row of positive) {
+      const same = groups.find(group => ['x', 'y', 'width', 'height'].every(key => group[0].bounds[key] === row.bounds[key]));
+      if (same) same.push(row); else groups.push([row]);
+    }
+    const problems = [];
+    if (rows.some(row => !row.bounds)) problems.push({ property: 'pseudo.bounds', reason: 'An actual pseudo layout row has invalid bounds; no remaining row is selected as a substitute.' });
+    else if (groups.length !== 1) problems.push({ property: 'pseudo.bounds', reason: groups.length ?
+      'Actual pseudo layout has multiple distinct positive-area boxes; their union is not an independently measured pseudo rectangle.' :
+      'No actual positive-area pseudo box is available; zero-area layout rows do not establish that visible pseudo paint is absent.' });
+    const selected = problems.length ? [] : groups[0];
+    const paintOrders = [...new Set(selected.map(row => row.paint_order))];
+    const paintOrder = paintOrders.length === 1 ? paintOrders[0] : null;
+    if (selected.length && paintOrder === null) problems.push({ property: 'pseudo.paint_order', reason: 'The actual positive pseudo layout rows have no single measured paint order.' });
+    return { bounds: selected.length ? selected[0].bounds : null, layout_index: selected.length === 1 ? selected[0].layout_index : null,
+      paint_order: paintOrder, layout_rows: rows, selected_layout_indices: selected.map(row => row.layout_index),
+      layout_measurement: 'All actual CDP layout rows retained; only one distinct positive-area box may supply geometry, never last-row overwrite or a guessed union', problems };
+  };
   const snapshot = meta.dom_snapshot, snapshotDocument = snapshot?.documents?.[0];
   const snapshotStrings = snapshot?.strings || [], snapshotNodes = snapshotDocument?.nodes;
   const snapshotLayout = snapshotDocument?.layout, snapshotTextBoxes = snapshotDocument?.textBoxes;
@@ -191,13 +219,14 @@
       return false;
     };
     for (const [index, type] of snapshotPseudo) {
-      const owner = snapshotElements.get(snapshotNodes.parentIndex[index]), li = layoutByNode.get(index);
-      if (!owner || li === undefined) continue;
+      const owner = snapshotElements.get(snapshotNodes.parentIndex[index]);
+      if (!owner) continue;
+      const measurement = pseudoLayoutMeasurement(index, snapshotLayout, snapshotDocument);
       const childLayouts = snapshotLayout.nodeIndex.map((n, l) => ({ n, l })).filter(x => descendantOf(x.n, index));
       const text = childLayouts.map(x => snapshotStrings[snapshotLayout.text[x.l]] || '').join('');
       const boxes = (snapshotTextBoxes?.layoutIndex || []).flatMap((l, k) => childLayouts.some(x => x.l === l) ? [snapshotRect(snapshotTextBoxes.bounds[k])] : []);
-      const data = { type: '::' + type, index, layout_index: li, bounds: snapshotRect(snapshotLayout.bounds[li]), text, text_boxes: boxes,
-        paint_order: snapshotLayout.paintOrders?.[li] ?? null, backend_node_id: snapshotNodes.backendNodeId?.[index] };
+      const data = { type: '::' + type, index, ...measurement, text, text_boxes: boxes,
+        backend_node_id: snapshotNodes.backendNodeId?.[index] };
       const list = pseudoByOwner.get(owner) || []; list.push(data); pseudoByOwner.set(owner, list);
     }
     for (const [index, actual] of snapshotElements) {
@@ -506,7 +535,9 @@
     if (el.matches('.card,.task,.cc-card,.bubble,.report,.cc-summary,.banner,.digest,.choice,.session-list')) return 'card';
     const background = color(s.backgroundColor, pathOf(el), 'background-color');
     const border = ['Top', 'Right', 'Bottom', 'Left'].some(side => number(s['border' + side + 'Width']) > 0 && !['none', 'hidden'].includes(s['border' + side + 'Style']));
-    if ((background?.[3] > 0 || border || s.boxShadow !== 'none' || s.backgroundImage !== 'none') && tag !== 'html') return el.getBoundingClientRect().width <= 2 || el.getBoundingClientRect().height <= 2 ? 'divider' : 'card';
+    const outline = typeof s.outlineStyle === 'string' && s.outlineStyle !== 'none' &&
+      (s.outlineStyle === 'auto' || number(s.outlineWidth) > 0);
+    if ((background?.[3] > 0 || border || outline || s.boxShadow !== 'none' || s.backgroundImage !== 'none') && tag !== 'html') return el.getBoundingClientRect().width <= 2 || el.getBoundingClientRect().height <= 2 ? 'divider' : 'card';
     // Add previously missing regions; never replace an existing control,
     // decoration, text owner or explicitly named region classification.
     if (supplementalRegion) return 'region';
@@ -678,6 +709,53 @@
       reason: 'Actual SVG strokes do not have one measurable content-window width; no source-space width is substituted.' });
     return result;
   };
+  const outlineData = (el, s, pseudo = null, measuredBox = null) => {
+    const raw = { style: s.outlineStyle, color: s.outlineColor, width: s.outlineWidth, offset: s.outlineOffset };
+    const length = value => typeof value === 'string' && /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?px$/i.test(value) && Number.isFinite(parseFloat(value)) ? parseFloat(value) : null;
+    const localWidth = length(raw.width), localOffset = length(raw.offset), problems = [];
+    const evidence = { source: 'actual getComputedStyle outline properties and DOM boxes; independent from border',
+      selector: pathOf(el), pseudo, computed: raw, absence_proven: false,
+      owner_bounds: rect(el.getBoundingClientRect()), owner_client_rects: Array.from(el.getClientRects()).map(rect),
+      measured_pseudo_bounds: pseudo ? measuredBox : null, local_width: localWidth, local_offset: localOffset,
+      coordinate_space: 'computed CSS px; window mapping requires actual unchanged ancestor axes',
+      outline_to_window_scale: null, ancestry: [], contour: null, dash: null, dash_offset: null,
+      measurement_limit: 'DOM boxes and border radii do not measure the actual outline contour. CSS dashed/dotted does not expose UA-selected segments or phase. No outline paint is copied from border.' };
+    const legalStyle = ['none', 'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset', 'auto'].includes(raw.style);
+    if (raw.style === 'none' || legalStyle && raw.style !== 'auto' && localWidth === 0) {
+      evidence.absence_proven = true;
+      evidence.absence_reason = raw.style === 'none' ? 'Actual computed outline-style is none.' : 'Actual non-auto outline has zero computed width.';
+      return { value: 'none', evidence, problems };
+    }
+    if (!legalStyle) problems.push({ property: 'style.outline.style', reason: 'Actual computed outline style is missing or unsupported.' });
+    for (let p = el; p; p = p.parentElement) {
+      const ps = styleOf(p);
+      evidence.ancestry.push({ selector: pathOf(p), transform: ps.transform, perspective: ps.perspective,
+        zoom: ps.zoom, scale: ps.scale, rotate: ps.rotate, translate: ps.translate });
+    }
+    if (pseudo) evidence.ancestry.unshift({ selector: pathOf(el), pseudo, transform: s.transform, perspective: s.perspective,
+      zoom: s.zoom, scale: s.scale, rotate: s.rotate, translate: s.translate });
+    const unchangedAxes = !(el instanceof SVGElement) && evidence.ancestry.length > 0 && evidence.ancestry.every(p =>
+      p.transform === 'none' && p.perspective === 'none' && ['1', 'normal'].includes(p.zoom) &&
+      p.scale === 'none' && p.rotate === 'none' && p.translate === 'none');
+    if (unchangedAxes) evidence.outline_to_window_scale = 1;
+    else problems.push({ property: 'style.outline.coordinate_space', reason: 'Actual transform/zoom/SVG coordinate mapping does not prove computed outline px equal window px.' });
+    const automatic = raw.style === 'auto';
+    if (automatic) problems.push({ property: 'style.outline.auto_paint', reason: 'UA auto outlines ignore outline-width and may ignore outline-color; computed requests do not establish actual auto paint.' });
+    if (localWidth === null || localWidth < 0) problems.push({ property: 'style.outline.width', reason: 'No finite nonnegative actual computed outline width in px.' });
+    if (localOffset === null) problems.push({ property: 'style.outline.offset', reason: 'No finite actual computed outline offset in px.' });
+    const tint = automatic ? null : color(raw.color, pathOf(el), 'outline-color', pseudo);
+    if (!automatic && tint === null) problems.push({ property: 'style.outline.color', reason: 'Actual outline color has no measured sRGB representation.' });
+    const dashed = raw.style === 'dashed' || raw.style === 'dotted';
+    if (dashed) {
+      problems.push({ property: 'style.outline.dash', reason: 'Computed CSS outline style does not measure actual UA dash/gap segments.' });
+      problems.push({ property: 'style.outline.dash_offset', reason: 'Computed CSS outline style does not measure the actual UA dash phase.' });
+    }
+    problems.push({ property: 'style.outline.contour', reason: 'Actual outline contour is not exposed by computed style or DOM client rectangles; box/radius expansion is not substituted.' });
+    return { value: { style: legalStyle ? raw.style : null, color: tint,
+      width: !automatic && unchangedAxes && localWidth !== null && localWidth >= 0 ? localWidth : null,
+      offset: unchangedAxes ? localOffset : null, dash: raw.style === 'solid' ? [] : null,
+      dash_offset: null, contour: null }, evidence, problems };
+  };
   const styleData = (el, s, text, pseudo = null, measuredBox = null) => {
     const sides = ['Top', 'Right', 'Bottom', 'Left'];
     const widths = sides.map(side => number(s['border' + side + 'Width']) || 0);
@@ -691,6 +769,7 @@
       font_family: text ? s.fontFamily : null, border_widths: widths, corner_radii: radii,
       border_styles: sides.map(side => s['border' + side + 'Style']),
       border_colors: sides.map((side, i) => widths[i] > 0 ? color(s['border' + side + 'Color'], pathOf(el), 'border-' + side.toLowerCase() + '-color', pseudo) : [0, 0, 0, 0]),
+      outline: outlineData(el, s, pseudo, measuredBox).value,
       opacity: cumulativeOpacity(el) * (pseudo ? Number(s.opacity) : 1), shadow: shadowData(el, s.boxShadow, pseudo), background_image: backgroundData(el, s, measuredBox, pseudo),
       text_align: s.textAlign, letter_spacing: s.letterSpacing, line_height: s.lineHeight,
       stroke_width: svgStrokeData(el)?.width ?? null,
@@ -747,6 +826,7 @@
     const region = regionOf(el), id = nodeIds.get(el) + suffix;
     const s = options.style || styleOf(el), boxes = options.textBoxes || [];
     const paintStyle = styleData(el, options.pseudo ? s : styleOf(el), text, options.pseudo || null, options.unclippedBounds);
+    let outline = outlineData(el, options.pseudo ? s : styleOf(el), options.pseudo || null, options.unclippedBounds);
     const textStyle = styleData(el, s, text, options.pseudo || null, options.unclippedBounds);
     for (const field of ['font_size', 'font_weight', 'font_family', 'foreground', 'letter_spacing', 'line_height', 'text_align']) paintStyle[field] = textStyle[field];
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
@@ -760,6 +840,10 @@
       paintStyle.border_widths = [0, 0, 0, 0]; paintStyle.corner_radii = [0, 0, 0, 0]; paintStyle.border_colors = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
       paintStyle.border_styles = ['none', 'none', 'none', 'none'];
       paintStyle.shadow = []; paintStyle.background_image = 'none';
+      paintStyle.outline = 'none';
+      outline = { value: 'none', problems: [], evidence: { source: 'actual DOM Text node is a glyph leaf with no independent CSS box; owner outline remains on its emitted DOM element',
+        absence_proven: options.textNode?.nodeType === Node.TEXT_NODE, text_node_type: options.textNode?.nodeType ?? null,
+        owner: nodeIds.get(el), owner_outline: outline.evidence, quantity: 'own outline of this text leaf only; not absence of its owner outline' } };
     }
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
     const accessibility = accessibilityOf(options.textNode || el, options.axBackend);
@@ -782,7 +866,7 @@
         clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
         font_request: text ? fontRequestEvidence(s) : null,
-        panel_resize: panelResize, image_resource: imageResourceEvidence(el), name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
+        panel_resize: panelResize, outline: outline.evidence, image_resource: imageResourceEvidence(el), name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
           source: 'getComputedStyle request + CSS.getPlatformFontsForNode resolved identity',
@@ -791,6 +875,10 @@
           background_size: s.backgroundSize, background_position: s.backgroundPosition, background_repeat: s.backgroundRepeat, background_origin: s.backgroundOrigin, background_clip: s.backgroundClip }, ...options.evidence } };
     regionOrders.set(region, item.order + 1);
     elements.push(item);
+    for (const problem of outline.problems) {
+      unmeasured.push({ element: id, ...problem, evidence: outline.evidence });
+      extraction_errors.push({ type: 'outline_measurement_unavailable', node: id, ...problem });
+    }
     if (item.evidence.image_resource) {
       const image = item.evidence.image_resource;
       if (image.status !== 'loaded-response-bytes') {
@@ -1087,7 +1175,7 @@
         const item = { id, parent, region, order: 0, kind, text: '', name: null, bounds,
           visible_bounds: isThumb ? null : gutter.visible_bounds,
           style: Object.fromEntries(['font_size', 'font_weight', 'foreground', 'background', 'border_color', 'border_width', 'corner_radius',
-            'border_widths', 'border_colors', 'border_styles', 'corner_radii', 'opacity', 'background_image', 'shadow'].map(key => [key, null])),
+            'border_widths', 'border_colors', 'border_styles', 'corner_radii', 'opacity', 'background_image', 'shadow', 'outline'].map(key => [key, null])),
           state: { enabled: Number.isFinite(extent) ? extent > 0 : null, selected: null, checked: null, expanded: null,
             focused: null, hovered: null, unread: null, orientation: axis, scroll_position: position },
           layout: { wrap: null, truncation: null, line_count: null }, icon: null,
@@ -1155,7 +1243,7 @@
     const raw = { id, parent: nodeIds.get(el.parentElement) || null, selector: pathOf(el), tag: el.localName,
       attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])), bounds: unclipped,
       visible_bounds: bounds, paint_bounds: paintBounds, visible_fragments: fragments, occlusion_masks: occlusionMasks.get(el) || [], display: s.display, visibility: s.visibility, opacity: s.opacity, emitted: [],
-      accessibility: accessibilityOf(el), details_visibility: detailsVisibilityEvidence(el), image_resource: imageResourceEvidence(el),
+      accessibility: accessibilityOf(el), details_visibility: detailsVisibilityEvidence(el), image_resource: imageResourceEvidence(el), outline: outlineData(el, s).evidence,
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue,
         details_visibility: detailsVisibilityEvidence(el, true), owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
@@ -1219,19 +1307,32 @@
       if (ps.display === 'none' || ps.visibility !== 'visible' || Number(ps.opacity) === 0 || !snapshotPseudoElement && (!content || content === 'none' || content === 'normal')) continue;
       raw.pseudo_elements ??= [];
       const pseudoRecord = { pseudo, content, style: styleData(el, ps, content !== '""', pseudo, snapshotPseudoElement?.bounds),
-        snapshot_node: snapshotPseudoElement?.index ?? null, bounds: snapshotPseudoElement?.bounds ?? null };
+        outline: outlineData(el, ps, pseudo, snapshotPseudoElement?.bounds).evidence,
+        snapshot_node: snapshotPseudoElement?.index ?? null, bounds: snapshotPseudoElement?.bounds ?? null,
+        layout_rows: snapshotPseudoElement?.layout_rows || [], selected_layout_indices: snapshotPseudoElement?.selected_layout_indices || [],
+        layout_measurement: snapshotPseudoElement?.layout_measurement || null, layout_problems: snapshotPseudoElement?.problems || [],
+        computed_corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => ps['border' + corner + 'Radius']) };
+      if (!snapshotPseudoElement?.bounds) { pseudoRecord.style.corner_radius = null; pseudoRecord.style.corner_radii = null; }
       raw.pseudo_elements.push(pseudoRecord);
       if (!snapshotPseudoElement) {
         extraction_errors.push({ type: 'pseudo_geometry_unavailable', node: id, selector: pathOf(el), pseudo, content, reason: 'No matching CDP DOMSnapshot layout; estimated rectangles are not parity evidence.' });
         continue;
       }
-      const p = snapshotPseudoElement, vb = visibleRect(el, p.bounds);
+      const p = snapshotPseudoElement;
+      for (const problem of p.problems || []) {
+        unmeasured.push({ element: id + pseudo, ...problem, layout_rows: p.layout_rows });
+        extraction_errors.push({ type: 'pseudo_layout_measurement_unavailable', node: id + pseudo, ...problem });
+      }
+      if (!p.bounds) { pseudoRecord.projection_reason = 'unresolved-pseudo-layout'; continue; }
+      const vb = visibleRect(el, p.bounds);
       const pseudoFragments = vb ? fragmentsOf(el, vb) : [];
       pseudoRecord.visible_bounds = vb; pseudoRecord.visible_fragments = pseudoFragments;
       if (!vb || !pseudoFragments.length) { pseudoRecord.projection_reason = !vb ? 'hidden-or-fully-clipped' : 'fully-occluded'; continue; }
       const pkind = p.text ? pseudo === '::marker' ? 'icon' : 'text' : 'card';
       const emitted = emit(el, pkind, p.text, vb, parent, pseudo, { style: ps, pseudo, textBoxes: p.text_boxes, unclippedBounds: p.bounds, axBackend: p.backend_node_id,
-        evidence: { source: 'CDP.DOMSnapshot', snapshot_node: p.index, snapshot_layout: p.layout_index, backend_node_id: p.backend_node_id, paint_order: p.paint_order } });
+        evidence: { source: 'CDP.DOMSnapshot', snapshot_node: p.index, snapshot_layout: p.layout_index,
+          snapshot_layout_rows: p.layout_rows, selected_layout_indices: p.selected_layout_indices, layout_measurement: p.layout_measurement,
+          backend_node_id: p.backend_node_id, paint_order: p.paint_order } });
       if (pkind === 'icon') elements[elements.length - 1].icon = { source: 'text-glyph', glyph: p.text };
       pseudoRecord.projection_reason = 'paint-or-text'; pseudoRecord.emitted = emitted;
       raw.emitted.push(emitted);

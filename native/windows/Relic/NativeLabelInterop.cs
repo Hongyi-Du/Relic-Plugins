@@ -75,6 +75,7 @@ internal static class NativeLabelInterop
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int InterfaceResult(IntPtr self, out IntPtr result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate uint GetUInt(IntPtr self);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate float GetFloat(IntPtr self);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetBool(IntPtr self);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetUInt(IntPtr self, uint value);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetFloat(IntPtr self, float value);

@@ -203,8 +203,9 @@ public sealed partial class MainWindow
                     }
                     node["paint_kind"] = element switch
                     {
+                        NativeLabel => "glyphs",
                         Border or ContentPresenter => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
-                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or WorkspaceCodeView or NativeLabel or IconElement => "glyphs",
+                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or WorkspaceCodeView or IconElement => "glyphs",
                         Control => "template", _ => "none"
                     };
                     node["render_type_evidence"] = new JsonObject { ["is_panel"] = element is Panel,
@@ -622,7 +623,7 @@ public sealed partial class MainWindow
         var borderWidth = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom));
         if (borderWidth > 0 && border != null && border is not SolidColorBrush) PaintGap("actual " + border.GetType().Name + " visible border brush needs directional gradient/image measurement");
         JsonArray? BorderColor(double width) => width > 0 ? CaptureColor(border) : new JsonArray(0, 0, 0, 0);
-        return new JsonObject
+        var result = new JsonObject
         {
             ["font_size"] = size, ["font_weight"] = weight, ["foreground"] = foreground == null && size == null ? null : CaptureColor(foreground),
             ["background"] = CaptureColor(background), ["border_color"] = BorderColor(borderWidth),
@@ -641,6 +642,30 @@ public sealed partial class MainWindow
             ["border_styles"] = new JsonArray(thickness.Top > 0 ? "solid" : "none", thickness.Right > 0 ? "solid" : "none", thickness.Bottom > 0 ? "solid" : "none", thickness.Left > 0 ? "solid" : "none"),
             ["corner_radii"] = new JsonArray(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
         };
+        if (element is NativeLabel label)
+        {
+            var production = label.CaptureProductionReceipt();
+            var current = CurrentNativeLabelSubmission(production);
+            var draw = production["draw"];
+            result["native_label_style_evidence"] = new JsonObject
+            {
+                ["source"] = "Current bound NativeLabel production draw, actual TextFormat getters and D2D brush inputs",
+                ["current_submission_verified"] = current,
+                ["layout_revision"] = draw?["layout_revision"]?.DeepClone(),
+                ["surface_revision"] = draw?["surface_revision"]?.DeepClone(),
+                ["draw_ordinal"] = draw?["draw_ordinal"]?.DeepClone(),
+                ["actual_text_format"] = draw?["actual_text_format"]?.DeepClone(),
+                ["brush_input_srgb_unpremultiplied_0_255"] = draw?["brush_input_srgb_unpremultiplied_0_255"]?.DeepClone()
+            };
+            if (current)
+            {
+                result["font_size"] = draw?["actual_text_format"]?["font_size"]?.DeepClone();
+                result["font_weight"] = draw?["actual_text_format"]?["font_weight"]?.DeepClone();
+                result["foreground"] = draw?["brush_input_srgb_unpremultiplied_0_255"]?.DeepClone();
+            }
+            else if (visible) errors.Add(id + ": NativeLabel actual text style has no current successful bound production draw");
+        }
+        return result;
     }
     private static void CaptureStrokeEvidence(Shape shape, UIElement captureRoot, JsonObject node, string id, JsonArray errors)
     {
@@ -747,6 +772,31 @@ public sealed partial class MainWindow
     {
         if (element is WorkspaceCodeView code) return CaptureCodeDocument(code, id, errors, captureRoot, visible);
         if (element is ComposerInput input) return CaptureComposerDocument(input, id, errors, captureRoot, visible);
+        if (element is NativeLabel label)
+        {
+            var production = label.CaptureProductionReceipt(); var current = CurrentNativeLabelSubmission(production);
+            var draw = production["draw"];
+            var rows = draw?["line_metrics"] as JsonArray;
+            var trimming = draw?["trimming"];
+            return new JsonObject
+            {
+                ["wrap"] = current && draw?["actual_text_format"]?["word_wrapping"]?.GetValue<uint>() == 1 ? "none" : null,
+                ["truncation"] = !current ? null : trimming?["granularity"]?.GetValue<uint>() == 0 ? "none"
+                    : trimming?["granularity"]?.GetValue<uint>() == 1 && trimming?["same_sign_com_identity"]?.GetValue<bool>() == true ? "ellipsis" : null,
+                ["line_count"] = current ? draw?["layout_metrics"]?["line_count"]?.DeepClone() : null,
+                ["character_boxes"] = new JsonArray(), ["local_character_boxes"] = new JsonArray(),
+                ["character_boxes_coordinate_space"] = "content-window", ["rich_text_runs"] = new JsonArray(),
+                ["text_geometry_status"] = visible ? "unmeasured-equivalent-text-line-quantity" : "not-visible",
+                ["actual_trimming"] = new JsonObject
+                {
+                    ["source"] = "Actual NativeLabel production Draw line metrics and GetTrimming; no inferred ellipsis rectangle",
+                    ["is_text_trimmed"] = current && rows is { Count: > 0 } ? rows.Any(row => row?["is_trimmed"]?.GetValue<bool>() == true) : null,
+                    ["layout_revision"] = draw?["layout_revision"]?.DeepClone(), ["draw_ordinal"] = draw?["draw_ordinal"]?.DeepClone(),
+                    ["ellipsis_bounds"] = null, ["production_trimming"] = trimming?.DeepClone()
+                },
+                ["placeholder"] = null
+            };
+        }
         var wrap = element switch { TextBlock t => t.TextWrapping.ToString(), RichTextBlock t => t.TextWrapping.ToString(), TextBox t => t.TextWrapping.ToString(), _ => "" };
         var trim = element switch { TextBlock t => t.TextTrimming.ToString(), RichTextBlock t => t.TextTrimming.ToString(), _ => "" };
         int? lines = null; var boxes = new JsonArray(); var localBoxes = new JsonArray(); var runs = new JsonArray();

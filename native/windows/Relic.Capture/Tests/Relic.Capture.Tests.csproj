@@ -9,5 +9,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <Compile Include="../TextRangeEvidence.cs" Link="TextRangeEvidence.cs" />
     <Compile Include="../../Relic/NativeLabelInterop.cs" Link="NativeLabelInterop.cs" />
+    <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
   </ItemGroup>
 </Project>

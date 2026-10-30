@@ -19,6 +19,7 @@ import shutil
 from typing import Any
 
 from image_paint import ImagePaintError, validate_vector_paint
+from outline_paint import outline_measurement, compare_outlines
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -343,6 +344,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         state = element.get("state") if isinstance(element.get("state"), dict) else {}
         layout = element.get("layout") if isinstance(element.get("layout"), dict) else {}
         for issue in paint_issues(style): error(issue, eid)
+        _, outline_issues = outline_measurement(element)
+        for issue in outline_issues: error("Unmeasured outline: " + issue, eid)
         # A typed bitmap descriptor is not proof of measured paint. Unknown
         # placement/occlusion retains one concrete failure instead of inventing
         # independent errors for every absent subfield. Null descriptors already
@@ -426,10 +429,44 @@ def identity(element: dict) -> tuple:
     return element.get("region"), element.get("kind"), element.get("text", ""), element.get("name", "")
 
 
+def measured_icon_anchor(element: dict) -> Any:
+    """Only decoded content can anchor a pair; URI/font/path labels cannot.
+
+    Freeze JSON structure without changing its values: dict key order is
+    irrelevant, list order is retained, and numeric equality is Python's
+    existing canonical comparison (1 and 1.0 compare equally).
+    """
+    icon = element.get("icon")
+    if not isinstance(icon, dict) or icon.get("source") not in ("svg", "vector-image-v1"):
+        return None
+    decoded, error = icon_identity(icon)
+    if error or element.get("region") not in REGIONS:
+        return None
+    def freeze(value):
+        if isinstance(value, dict):
+            if not all(isinstance(key, str) for key in value): raise ValueError("non-JSON key")
+            return ("object", tuple((key, freeze(value[key])) for key in sorted(value)))
+        if isinstance(value, list): return ("array", tuple(freeze(item) for item in value))
+        if isinstance(value, bool):
+            # v1 already rejects bool numerics. Legacy SVG tree validation is
+            # less strict; such values cannot become content anchors (True == 1
+            # in Python), even though their raw evidence remains available.
+            raise ValueError("boolean is not measured SVG/vector numeric content")
+        if value is None or isinstance(value, str): return value
+        if number(value): return value
+        raise ValueError("unmeasured/nonfinite icon value")
+    try:
+        return element["region"], freeze(decoded)
+    except (ValueError, OverflowError):
+        return None
+
+
 def match_elements(reference: list[dict], native: list[dict]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
     """One-to-one semantic pairing without ids or screenshot geometry.
 
-    Exact nonempty text/name anchors are paired in reading order. Remaining
+    Exact nonempty text/name anchors and decoded same-region icon content are
+    paired in reading order. Unique icon content is anchored before duplicates.
+    Remaining
     same-region elements are sequence aligned, with text similarity only a
     pairing cost (never a passing tolerance). Unique moved anchors are retained
     so that region errors are reported instead of being hidden as unmatched.
@@ -447,6 +484,19 @@ def match_elements(reference: list[dict], native: list[dict]) -> tuple[list[tupl
             nkeys[identity(element)].append(i)
     for key in sorted(rkeys.keys() & nkeys.keys()):
         for r, n in zip(ordered(rkeys[key], reference), ordered(nkeys[key], native)):
+            pairs.append((r, n)); refs.remove(r); natives.remove(n)
+    icon_r, icon_n = defaultdict(list), defaultdict(list)
+    for indices, elements, groups in ((refs, reference, icon_r), (natives, native, icon_n)):
+        for index in ordered(indices, elements):
+            key = measured_icon_anchor(elements[index])
+            if key is not None: groups[key].append(index)
+    shared_icons = [key for key in icon_r if key in icon_n]
+    # Group insertion follows actual reference reading order. Unique identities
+    # take precedence; surplus repeated icons remain missing/extra candidates.
+    shared_icons.sort(key=lambda key: (not (len(icon_r[key]) == len(icon_n[key]) == 1),
+                                       reference[icon_r[key][0]].get("order", icon_r[key][0]), icon_r[key][0]))
+    for key in shared_icons:
+        for r, n in zip(ordered(icon_r[key], reference), ordered(icon_n[key], native)):
             pairs.append((r, n)); refs.remove(r); natives.remove(n)
     # Unique same-name/text anchors that moved to another region.
     moved_r, moved_n = defaultdict(list), defaultdict(list)
@@ -613,6 +663,9 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                         if left != right: mismatch("style_out_of_tolerance", field + f"[{index}]", left, right)
             else:
                 compare_structured(field, av, bv)
+        for record in compare_outlines(a, b, color_distance=delta_e, geometry_tolerance=geometry_tolerance):
+            mismatch(record["category"], record["field"], record["expected"], record["actual"],
+                     **{key: value for key, value in record.items() if key not in ("category", "field", "expected", "actual")})
         if a.get("style", {}).get("stroke_width") is not None or b.get("style", {}).get("stroke_width") is not None:
             compare_structured("stroke_width", a.get("style", {}).get("stroke_width"), b.get("style", {}).get("stroke_width"))
         if any(number(e.get("style", {}).get("stroke_width")) and e["style"]["stroke_width"] > 0 for e in (a, b)):

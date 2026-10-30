@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Relic;
 using Xunit;
 using static Relic.NativeLabelInterop;
 
@@ -53,8 +54,14 @@ public sealed class NativeLabelTrimmingTests
             Assert.Equal(ComIdentity(sign), ComIdentity(returnedSign));
             Check(Method<GetInlineMetrics>(returnedSign, 4)(returnedSign, out var signMetrics));
             Assert.True(signMetrics.Width > 0);
-            Assert.True(signMetrics.Height > 0);
-            Assert.False(ReadLines(layout).Any(line => line.IsTrimmed != 0));
+            // GetMetrics reports inline layout dimensions, not ink. The
+            // factory omission sign may have zero height; glyph emission is
+            // instead checked through its actual Draw callbacks below.
+            // https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_inline_object_metrics
+            Assert.True(float.IsFinite(signMetrics.Height) && signMetrics.Height >= 0,
+                $"Actual omission metrics: width={signMetrics.Width:R}, height={signMetrics.Height:R}, baseline={signMetrics.Baseline:R}");
+            Assert.True(float.IsFinite(signMetrics.Baseline));
+            Assert.DoesNotContain(ReadLines(layout), line => line.IsTrimmed != 0);
 
             Check(Method<SetFloat>(layout, 28)(layout, 80));
             var narrow = ReadLines(layout);
@@ -64,6 +71,24 @@ public sealed class NativeLabelTrimmingTests
             var hitTest = ReadBounds(layout, text.Length);
             Assert.Contains(hitTest, item => item.IsTrimmed != 0 && item.Width > 0 && item.Height > 0);
             Assert.All(hitTest, item => Assert.True(item.TextPosition + item.Length <= text.Length));
+
+            // Invoke the real layout and the actual factory omission object's
+            // Draw, through the linked production renderer. Only the terminal
+            // D2D sink is mocked; these assertions prove callback forwarding
+            // and glyph submission, not ink bounds or screenshot presentation.
+            using var target = new RecordingGlyphSink();
+            using var renderer = new NativeLabelRenderer(target.Pointer, new IntPtr(1), 1,
+                new Matrix { M11 = 1, M22 = 1 }, sign);
+            Check(Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0));
+            Assert.Null(renderer.CallbackFailure);
+            var omission = Assert.Single(renderer.InlineDraws.Where(row => row?["is_configured_trimming_sign"]?.GetValue<bool>() == true));
+            Assert.Equal(ComIdentity(sign), omission!["inline_com_identity"]!.GetValue<string>());
+            Assert.True(omission["draw_succeeded"]!.GetValue<bool>());
+            Assert.True(omission["glyph_run_count"]!.GetValue<int>() > 0);
+            Assert.Equal(signMetrics.Height, omission["inline_metrics"]!["height"]!.GetValue<float>());
+            Assert.Contains(renderer.Runs, run => run?["inline_draw_ordinal"]?.GetValue<int>() == omission["ordinal"]!.GetValue<int>()
+                && run["submitted_to_d2d"]!.GetValue<bool>() && run["glyph_indices"]!.AsArray().Count > 0);
+            Assert.True(target.GlyphCalls > 0);
 
             // Re-expand this same layout. No separate measurement layout is
             // permitted to provide the untrimmed state or omitted text range.
@@ -76,6 +101,32 @@ public sealed class NativeLabelTrimmingTests
         finally
         {
             Release(ref returnedSign); Release(ref sign); Release(ref layout); Release(ref format); Release(ref factory);
+        }
+    }
+
+    private sealed class RecordingGlyphSink : IDisposable
+    {
+        private readonly IntPtr vtable;
+        private readonly DrawGlyph glyph;
+        private readonly GlyphBounds bounds;
+        internal IntPtr Pointer { get; }
+        internal int GlyphCalls { get; private set; }
+        internal RecordingGlyphSink()
+        {
+            // Slots/ABI match the production context calls. The zero fixture
+            // bounds are intentionally not treated as visible glyph geometry.
+            glyph = (_, _, run, _, _) => { if (Marshal.PtrToStructure<GlyphRun>(run).GlyphCount > 0) GlyphCalls++; };
+            bounds = (IntPtr self, PointF point, IntPtr run, uint mode, out RectF value) => { value = default; return 0; };
+            vtable = Marshal.AllocHGlobal(73 * IntPtr.Size); Pointer = Marshal.AllocHGlobal(IntPtr.Size);
+            for (var i = 0; i < 73; i++) Marshal.WriteIntPtr(vtable, i * IntPtr.Size, IntPtr.Zero);
+            Marshal.WriteIntPtr(vtable, 29 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(glyph));
+            Marshal.WriteIntPtr(vtable, 72 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(bounds));
+            Marshal.WriteIntPtr(Pointer, vtable);
+        }
+        public void Dispose()
+        {
+            Marshal.FreeHGlobal(Pointer); Marshal.FreeHGlobal(vtable);
+            GC.KeepAlive(glyph); GC.KeepAlive(bounds);
         }
     }
 

@@ -145,7 +145,7 @@ or copy the browser's content-binding proof into a native receipt.
 
 ## Validation and remaining work
 
-`test_image_paint.py` contains ten pure CI tests covering the real resource,
+`test_image_paint.py` contains pure CI tests covering the real resource,
 shape-relative gradient decoding, source bytes and URI independence, changed
 content/order, unknown features/references, malformed/nonfinite values,
 unsupported gradient semantics, XML failures, and preserved path data.
@@ -157,7 +157,14 @@ Reference and Windows caller integration is now implemented in
 and completed response bytes, or the current native SvgImageSource/SetSourceAsync
 byte binding, before decoding. Successful decoding removes only that element's
 collector-owned rendered-content gap; raw bytes, transport URI and all unrelated
-errors remain. Unsupported image formats and incomplete bindings fail. CI must
-still validate this integration on real captures. macOS native-draw receipt
-completeness and mapping to this exact representation remain for its owner.
+errors remain. Unsupported image formats and incomplete bindings fail. Actual
+`d8f74ff` diagnostic captures from run `40999801033` now confirm successful,
+independent decoding of the group header logo on reference Windows and native
+Windows. Their original source/PNG/JSON files are retained under
+`S:\Codex\Outputs\Relic-native-visual\smoke-d8f74ff-reference-zh-light\` and
+`S:\Codex\Outputs\Relic-native-visual\smoke-d8f74ff-windows-zh-light\`.
+The full shared checker passes 69 Node and 359 Python tests in that CI run.
+macOS's completed actual-draw parameter mapping is merged in `5d789e9`; its
+real capture validation remains pending. These are resource-identity checks,
+not acceptance of the image's geometry, style or the surrounding scene.
 Final screenshot-pixel attribution is separate; decoding does not supply it.

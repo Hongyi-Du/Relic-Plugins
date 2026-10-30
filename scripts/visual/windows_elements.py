@@ -896,6 +896,96 @@ def native_label_surfaces(raw, by_id, unmeasured):
     return result
 
 
+def native_label_submission(node, frame):
+    """Use the current actual draw's style; retain unknown final visibility.
+
+    A successful submitted surface and its real font callbacks are not proof
+    that every glyph contributed to the desktop PNG. No hit-test/ink rectangle
+    is converted to DOM text geometry here, and no requested family is used.
+    """
+    issues = []
+    result = {"style": None, "submitted_glyph_runs": None, "frame_binding": None,
+              "presentation_identity_proven": False, "visible_glyph_coverage": None}
+
+    def gap(prop, reason):
+        issues.append({"id": node.get("id"), "property": prop, "reason": reason})
+
+    receipt = node.get("native_label_evidence")
+    if not isinstance(receipt, dict) or receipt.get("source") != "NativeLabel production SurfaceImageSource / DirectWrite renderer":
+        gap("style.native_label_submission", "NativeLabel has no actual production draw receipt")
+        return result, issues
+    state, draw = receipt.get("current_submission"), receipt.get("draw")
+    revisions = (("layout_revision", "current_layout_revision"), ("surface_revision", "current_surface_revision"),
+                 ("draw_ordinal", "current_draw_ordinal"))
+    current = (isinstance(state, dict) and state.get("source") == "Actual NativeLabel state at receipt capture"
+               and state.get("is_loaded") is True and state.get("queued") is False and state.get("rendering") is False
+               and state.get("surface_binding_same_com_identity") is True and receipt.get("last_failure") is None
+               and isinstance(draw, dict) and draw.get("surface_end_draw_succeeded") is True
+               and all(type(draw.get(k)) is int and draw[k] >= 0 for k in ("draw_hresult", "surface_end_draw_hresult"))
+               and all(type(draw.get(a)) is int and draw[a] > 0 and type(receipt.get(b)) is int and draw[a] == receipt[b] for a, b in revisions)
+               and isinstance(draw.get("layout_com_identity"), str) and bool(draw["layout_com_identity"])
+               and receipt.get("text") == node.get("text"))
+    if not current:
+        gap("style.native_label_submission", "NativeLabel draw is missing, stale, failed, pending or not bound to this text surface")
+        return result, issues
+    fmt = draw.get("actual_text_format")
+    rgba = draw.get("brush_input_srgb_unpremultiplied_0_255")
+    source_style = node.get("style") if isinstance(node.get("style"), dict) else {}
+    measured = source_style.get("native_label_style_evidence")
+    valid_style = (isinstance(fmt, dict)
+                   and fmt.get("source") == "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw"
+                   and finite(fmt.get("font_size")) and fmt["font_size"] > 0
+                   and type(fmt.get("font_weight")) is int and 1 <= fmt["font_weight"] <= 999
+                   and isinstance(rgba, list) and len(rgba) == 4 and all(finite(c) and 0 <= c <= 255 for c in rgba)
+                   and isinstance(measured, dict)
+                   and measured.get("source") == "Current bound NativeLabel production draw, actual TextFormat getters and D2D brush inputs"
+                   and measured.get("current_submission_verified") is True
+                   and all(measured.get(a) == draw[a] for a, _ in revisions)
+                   and measured.get("actual_text_format") == fmt
+                   and measured.get("brush_input_srgb_unpremultiplied_0_255") == rgba)
+    if valid_style:
+        values = {"font_size": fmt["font_size"], "font_weight": fmt["font_weight"], "foreground": copy.deepcopy(rgba)}
+        if all(source_style.get(key) == value for key, value in values.items()):
+            result["style"] = values
+        else:
+            gap("style.native_label_submission", "NativeLabel extracted style disagrees with its actual production draw inputs")
+    else:
+        gap("style.native_label_submission", "Actual production TextFormat getters, brush inputs or matching style receipt are incomplete")
+
+    # Preserve exact callback records (including localized names, face/axis
+    # data, inline ownership and failures). They describe submitted glyphs;
+    # they do not certify the visible subset or its canonical family set.
+    runs = draw.get("glyph_runs")
+    if isinstance(runs, list):
+        result["submitted_glyph_runs"] = copy.deepcopy(runs)
+    binding = receipt.get("capture_binding")
+    index = binding.get("capture_label_index") if isinstance(binding, dict) else None
+    bound = (isinstance(binding, dict)
+             and binding.get("source") == "Actual NativeLabel object ReferenceEquals against the capture observer label array"
+             and binding.get("same_object_reference") is True and type(index) is int and index >= 0
+             and isinstance(frame, dict) and binding.get("case_id") == frame.get("case_id") and bool(binding.get("case_id"))
+             and frame.get("source") == "Actual NativeLabel object references observed around desktop readback")
+    if bound:
+        baseline = [row for row in (frame.get("baseline") if isinstance(frame.get("baseline"), list) else [])
+                    if isinstance(row, dict) and type(row.get("capture_label_index")) is int and row["capture_label_index"] == index]
+        draws = [row for row in (frame.get("production_draws") if isinstance(frame.get("production_draws"), list) else [])
+                 if isinstance(row, dict) and type(row.get("capture_label_index")) is int and row["capture_label_index"] == index]
+        bound = (len(baseline) == len(draws) == 1 and isinstance(baseline[0].get("state"), dict)
+                 and all(baseline[0]["state"].get(a) == draw[a] for a, _ in revisions)
+                 and baseline[0]["state"].get("surface_binding_same_com_identity") is True
+                 and isinstance(draws[0].get("production_receipt"), dict)
+                 and draws[0]["production_receipt"].get("draw") == draw)
+        if bound:
+            result["frame_binding"] = {"source": copy.deepcopy(binding), "baseline_state": copy.deepcopy(baseline[0]["state"]),
+                                       "production_draw_matches": True, "frame_failure": frame.get("failure"),
+                                       "checkpoints": copy.deepcopy(frame.get("checkpoints")),
+                                       "presentation_identity_proven": frame.get("presentation_identity_proven")}
+    if not bound:
+        gap("evidence.native_label_frame_binding", "No matching actual object-reference capture index, draw revision and baseline are available")
+    gap("evidence.native_label_visible_glyphs", "Current production draw evidence does not establish final PNG contribution, visible glyph ownership or equivalent text-line geometry")
+    return result, issues
+
+
 def run_font_witnesses(uia_nodes, owner, glyph_boxes):
     """Match actual UIA format ranges to the measured leaf's glyph positions."""
     candidates = []
@@ -1428,6 +1518,14 @@ def project(xaml_path, uia_path, png_path):
             actual_text_boxes = [copy.deepcopy(b) for r in (witness.get("text_pattern") or {}).get("visible_ranges", [])
                                  for b in measured_text_boxes(r.get("bounds")) if positive(b)]
         text_source = label or node
+        submitted_label = None
+        if text_source.get("type") == "NativeLabel":
+            captured_frame = xaml.get("capture_evidence")
+            frame = captured_frame.get("native_label_frame") if isinstance(captured_frame, dict) else None
+            submitted_label, label_issues = native_label_submission(text_source, frame)
+            unmeasured.extend(label_issues)
+            for key in ("font_size", "font_weight", "foreground"):
+                style[key] = submitted_label["style"].get(key) if submitted_label["style"] is not None else None
         run_source = text_source.get("text_run_source")
         run_name_witness = None
         actual_run_font_records = []
@@ -1476,7 +1574,7 @@ def project(xaml_path, uia_path, png_path):
                         "proves_actual_render_face": False, "font_family_coverage": copy.deepcopy(coverage)}
             if not any(f["family_name"] == family for f in provider_fonts):
                 provider_fonts.append(identity)
-        if text and provider_fonts:
+        if text and provider_fonts and submitted_label is None:
             unmeasured.append({"id": node["id"], "property": "style.rendered_fonts.actual_face",
                                "reason": "UIA font-name attributes are retained as provider evidence; actual DirectWrite glyph-run/fallback face identity is not exposed by this capture",
                                "provider_families": [font["family_name"] for font in provider_fonts]})
@@ -1487,7 +1585,10 @@ def project(xaml_path, uia_path, png_path):
         if text and not actual_text_boxes:
             unmeasured.append({"id": node["id"], "property": "evidence.text_bounds", "reason": "Actual window-relative text rectangles are unavailable"})
         if text and not provider_fonts:
-            unmeasured.append({"id": node["id"], "property": "style.rendered_fonts", "reason": "UIA did not measure the rendered font; declared XAML family is not substituted"})
+            reason = ("Actual NativeLabel submitted glyph callbacks are retained, but the visible glyph subset/final PNG contribution is not established"
+                      if submitted_label is not None and submitted_label["submitted_glyph_runs"] is not None
+                      else "UIA did not measure the rendered font; declared XAML family is not substituted")
+            unmeasured.append({"id": node["id"], "property": "style.rendered_fonts", "reason": reason})
         if run_source and actual_text_boxes:
             font_rectangles = [b for record in actual_run_font_records
                                if record.get("attribute_status", {}).get("font_family") == "measured"
@@ -1566,6 +1667,7 @@ def project(xaml_path, uia_path, png_path):
                                 "scrollbar_page_hit_evidence": copy.deepcopy(node.get("scrollbar_page_hit_evidence")),
                                 "scrollbar_range": scrollbar_range_evidence, "scrollbar_paint": scrollbar_paint,
                                 "native_label_evidence": copy.deepcopy(text_source.get("native_label_evidence")),
+                                "native_label_submission": submitted_label,
                                 "actual_trimming": copy.deepcopy(layout.get("actual_trimming")),
                                 "inline_sequence_evidence": copy.deepcopy(node.get("inline_sequence_evidence")),
                                 "inline_order_evidence": copy.deepcopy(node.get("inline_order_evidence")),

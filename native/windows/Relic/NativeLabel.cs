@@ -181,11 +181,15 @@ public sealed class NativeLabel : Panel
         ["requested_character_ellipsis"] = characterEllipsis, ["accessible_full_text"] = accessibleText,
         ["applied_font_fallback"] = fallbackConfiguration?.DeepClone(),
         ["current_layout_revision"] = layoutRevision, ["current_surface_revision"] = surfaceRevision,
+        ["current_draw_ordinal"] = drawOrdinal,
+        ["current_submission"] = new JsonObject { ["source"] = "Actual NativeLabel state at receipt capture",
+            ["is_loaded"] = IsLoaded, ["queued"] = queued, ["rendering"] = rendering,
+            ["surface_binding_same_com_identity"] = ProductionSurfaceBindingMatches() },
         ["last_failure"] = failure, ["draw"] = receipt?.DeepClone(),
         ["surface_readback"] = readback?.Snapshot(),
         ["presentation_frame"] = null,
         ["coverage_complete"] = false,
-        ["coverage_reason"] = "Initial noneditable label renderer: screenshot/presentation synchronization and canonical text projection are not implemented. Only successful EndDraw records describe submitted pixels; font identity comes from the actual renderer callback, never the fallback configuration."
+        ["coverage_reason"] = "Submitted style and glyph callbacks are recorded; final PNG contribution, visible glyph ownership and equivalent text-line geometry remain unmeasured. Only successful EndDraw records describe submitted pixels; font identity comes from the actual renderer callback, never the fallback configuration."
     };
 
     private void Attach()
@@ -437,6 +441,14 @@ public sealed class NativeLabel : Panel
             receipt = new JsonObject
             {
                 ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision, ["draw_ordinal"] = drawOrdinal,
+                ["layout_com_identity"] = ComIdentity(layout),
+                ["actual_text_format"] = new JsonObject
+                {
+                    ["source"] = "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw",
+                    ["font_size"] = Method<GetFloat>(layout, 25)(layout),
+                    ["font_weight"] = Method<GetUInt>(layout, 22)(layout),
+                    ["word_wrapping"] = Method<GetUInt>(layout, 13)(layout)
+                },
                 ["draw_hresult"] = drawResult, ["surface_end_draw_hresult"] = endResult, ["surface_end_draw_succeeded"] = true,
                 ["submitted_at_utc"] = DateTimeOffset.UtcNow.ToString("O"), ["presented_frame_id"] = null,
                 ["driver"] = NativeLabelDevice.Shared.Driver, ["pixels_per_dip"] = scale,
@@ -448,6 +460,7 @@ public sealed class NativeLabel : Panel
                 ["text_antialias_mode"] = "grayscale", ["pixel_snapping_disabled"] = false,
                 ["unit_mode"] = "DIPS", ["primitive_blend"] = "SOURCE_OVER",
                 ["brush_srgb_unpremultiplied_0_1"] = new JsonArray(paint.R, paint.G, paint.B, paint.A),
+                ["brush_input_srgb_unpremultiplied_0_255"] = new JsonArray(color.R, color.G, color.B, color.A * foreground.Opacity),
                 ["presenter_brush_color_rgba8"] = new JsonArray(color.R, color.G, color.B, color.A),
                 ["presenter_brush_opacity"] = foreground.Opacity,
                 ["foreground_source"] = Foreground != null ? "NativeLabel.Foreground" : "ContentPresenter.Foreground",
