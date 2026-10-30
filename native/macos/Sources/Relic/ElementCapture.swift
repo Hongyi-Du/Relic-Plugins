@@ -82,7 +82,7 @@ import CoreText
         guard NSFontManager.shared.availableFonts.contains(name) else { return nil }
         return NSFont(name: name, size: CGFloat(size.doubleValue))
     }
-    static func renderedFonts(_ value: NSAttributedString) -> [[String: Any]] {
+    static func reshapedFonts(_ value: NSAttributedString) -> [[String: Any]] {
         let line = CTLineCreateWithAttributedString(value)
         return (CTLineGetGlyphRuns(line) as! [CTRun]).compactMap { run in
             let attributes = CTRunGetAttributes(run) as NSDictionary
@@ -122,6 +122,11 @@ import CoreText
             }
             result["native_cell_control_identity"] = cell.controlView.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()
         }
+        else if let cell = object as? ReferencePopUpCell {
+            font = cell.font
+            if cell.attributedTitle.length > 0 { foreground = cell.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
+            result["native_cell_control_identity"] = cell.controlView.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()
+        }
         else if let popup = object as? NSPopUpButton {
             font = popup.font
             if popup.attributedTitle.length > 0 { foreground = popup.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
@@ -147,7 +152,8 @@ import CoreText
         }
         if let font {
             result["fontSize"] = Double(font.pointSize); result["fontWeight"] = cssWeight(font); result["fontFamily"] = font.familyName ?? font.fontName
-            result["rendered_fonts"] = renderedFonts(NSAttributedString(string: text, attributes: [.font: font]))
+            result["native_reshaped_fonts"] = reshapedFonts(NSAttributedString(string: text, attributes: [.font: font]))
+            result["rendered_fonts"] = NSNull() // Attribute/AX fonts do not prove the actual fallback glyph draw.
         }
         result["color"] = rgba(foreground); result["backgroundColor"] = rgba(background)
         return result
@@ -231,7 +237,7 @@ import CoreText
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
-                "native_reshaped_fonts": renderedFonts(storage.attributedSubstring(from: range)),
+                "native_reshaped_fonts": reshapedFonts(storage.attributedSubstring(from: range)),
                 "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",
                 "style": ["fontSize": measuredSizes.count == 1 ? measuredSizes.first! as Any : NSNull(),
                           "fontWeight": measuredWeights.count == 1 ? measuredWeights.first! as Any : NSNull(),
@@ -282,10 +288,11 @@ import CoreText
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
+            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-state-dot/") ? "state-dot" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
             if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
+            else if elementKind == "dropdown" { text = valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
             let textRegion = (object as? ReferenceLabelView)?.productionRegion ?? (object as? QuoteTextView)?.productionRegion

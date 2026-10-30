@@ -6,6 +6,22 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testActualPopupCellRetainsItsFieldNameAndSelectedValue() throws {
+        let popup = ReferencePopUpButton(frame: NSRect(x: 0, y: 0, width: 180, height: 24), pullsDown: false)
+        popup.cell = ReferencePopUpCell(textCell: "", pullsDown: false)
+        popup.addItems(withTitles: ["First organization", "Second organization"])
+        popup.configureAccessibility(title: "Parent organization")
+        let cell = try XCTUnwrap(popup.cell as? ReferencePopUpCell)
+        for (index, expected) in [(0, "First organization"), (1, "Second organization")] {
+            popup.selectItem(at: index)
+            let actual = RelicAXRead(cell)
+            XCTAssertEqual(actual["label"] as? String, "Parent organization")
+            XCTAssertEqual(actual["identifier"] as? String, "relic-dropdown/Parent organization")
+            XCTAssertEqual(actual["value"] as? String, expected)
+            XCTAssertTrue(cell.controlView === popup)
+        }
+    }
+
     func testTextKit2InspectionDoesNotReplaceItsActualRenderer() throws {
         let storage = NSTextContentStorage(), layout = NSTextLayoutManager(), container = NSTextContainer(size: NSSize(width: 200, height: 100))
         storage.addTextLayoutManager(layout); layout.textContainer = container
@@ -83,9 +99,9 @@ import ApplicationServices
         XCTAssertFalse(font.fontName.contains("Times"))
         XCTAssertNil(ElementCapture.fontFromAX(["AXFontFamily": ".AppleSystemUIFont", "AXFontName": ".SFNS-Unknown", "AXFontSize": 12]))
     }
-    func testFontEvidenceContainsActualCoreTextFacesAndGlyphs() throws {
+    func testIndependentReshapingRetainsDiagnosticCoreTextFacesAndGlyphs() throws {
         let font = RelicStyle.nativeFont(14, weight: 400)
-        let runs = ElementCapture.renderedFonts(NSAttributedString(string: "Relic 组织", attributes: [.font: font]))
+        let runs = ElementCapture.reshapedFonts(NSAttributedString(string: "Relic 组织", attributes: [.font: font]))
         XCTAssertFalse(runs.isEmpty)
         XCTAssertTrue(runs.allSatisfy { !($0["family_name"] as? String ?? "").isEmpty && !($0["postscript_name"] as? String ?? "").isEmpty })
         XCTAssertTrue(runs.contains { $0["postscript_name"] as? String == font.fontName })

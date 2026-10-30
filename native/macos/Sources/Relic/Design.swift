@@ -190,9 +190,11 @@ struct SmallBadge: View {
 struct StateDot: View {
     let state: String
     let border: Color
+    @State private var identity = "relic-state-dot/" + UUID().uuidString
     var body: some View {
         Color.clear.frame(width: 10, height: 10)
-            .modifier(RecordedSurface(background: state == "vacant" ? .clear : RelicStyle.state(state), border: border, borderWidth: 2, radius: 5, kind: "state-dot", insetRingWidth: state == "vacant" ? 1.5 : 0, insetRingColor: RelicStyle.faint))
+            .modifier(RecordedSurface(background: state == "vacant" ? .clear : RelicStyle.state(state), border: border, borderWidth: 2, radius: 5, kind: "state-dot", owner: identity, insetRingWidth: state == "vacant" ? 1.5 : 0, insetRingColor: RelicStyle.faint))
+            .accessibilityElement(children: .ignore).accessibilityIdentifier(identity).accessibilityLabel("")
     }
 }
 

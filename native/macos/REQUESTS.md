@@ -1,5 +1,21 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The real macOS popup AX element is `ReferencePopUpCell`, not its backing
+`ReferencePopUpButton`. Captured cells had empty field names/identifiers and
+only their 22px interior frame. The production control now assigns its actual
+localized field name/identifier to the cell, so its existing border probe can
+bind to that real owner. Extraction reads the cell's actual selected AX value
+and native attributed title/font. The new regression changes selection on the
+actual AppKit cell and reads the AX values; no expected values enter capture.
+Status dots likewise now have actual component identities at their native
+hierarchy positions, rather than unordered anonymous paint-only elements.
+
+All independently re-shaped fonts, including AX/native-control attributed
+font estimates, are now explicitly diagnostic `native_reshaped_fonts`.
+Only currently bound actual glyph callbacks supply `rendered_fonts`; controls
+without that measurement remain unknown and fail. Their actual declared AX
+font metrics remain in the raw evidence, never promoted to actual fallback.
+
 Additional actual-capture fixes: the `fcdc0b6` group composer exposed a 1158px
 native editor inside its 758px viewport. The initial 400px document width was
 being added by native autoresizing. The production scroll view now explicitly
