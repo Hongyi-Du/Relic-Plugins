@@ -57,7 +57,7 @@ struct OverviewChip: View {
         switch tone { case "ok": return RelicStyle.green.opacity(0.14); case "warn": return RelicStyle.amberSoft; case "bad": return RelicStyle.redSoft; case "sec": return RelicStyle.violetSoft; case "accent": return RelicStyle.accent.opacity(0.13); default: return RelicStyle.hover }
     }
     var body: some View {
-        ReferenceLabel(text, size: 11.5, color: foreground, lineHeight: 20, owner: identity).fixedSize()
+        ReferenceLabel(text, size: 11.5, color: foreground, lineHeight: 20, owner: identity, truncates: false).fixedSize()
             .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
             .modifier(RecordedSurface(background: background, radius: 10, kind: "chip", owner: identity))
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)

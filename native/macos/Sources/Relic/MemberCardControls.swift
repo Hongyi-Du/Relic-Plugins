@@ -7,7 +7,7 @@ struct MemberTag: View {
     let background: Color
     @State private var identity = "relic-badge/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18, owner: identity).padding(.horizontal, 6).frame(height: 18)
+        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18, owner: identity, truncates: false).fixedSize().padding(.horizontal, 6).frame(height: 18)
             .modifier(RecordedSurface(background: background, radius: 5, kind: "badge", owner: identity))
             .accessibilityElement(children: .ignore).accessibilityLabel("").accessibilityIdentifier(identity)
     }

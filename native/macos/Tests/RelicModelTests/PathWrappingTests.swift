@@ -3,6 +3,27 @@ import AppKit
 @testable import Relic
 
 @MainActor final class PathWrappingTests: XCTestCase {
+    func testNonEllipsizingControlTextRetainsOneLineWithoutSynthesizingAnEllipsis() throws {
+        let source = "A long control label"
+        var truncationLengths: [Int] = []
+        for truncates in [false, true] {
+            let view = ReferenceLabel(source, size: 12, lineHeight: 20, monospaced: true, truncates: truncates).makeLabelView()
+            view.frame = NSRect(x: 0, y: 0, width: 42, height: 20)
+            let container = try XCTUnwrap(view.textContainer), layout = try XCTUnwrap(view.layoutManager)
+            layout.ensureLayout(for: container)
+            truncationLengths.append(layout.truncatedGlyphRange(inLineFragmentForGlyphAt: 0).length)
+            var count = 0
+            layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, _, _ in count += 1 }
+            XCTAssertEqual(count, 1)
+            XCTAssertEqual(view.string, source)
+            let observed = NativeLineBreaks.inspect(view, range: NSRange(location: 0, length: (source as NSString).length))
+            XCTAssertEqual(observed.layout["normal_break_strategy"] as? String, "none")
+            XCTAssertEqual(observed.layout["emergency_break_strategy"] as? String, "none")
+        }
+        XCTAssertEqual(truncationLengths[0], 0)
+        XCTAssertGreaterThan(truncationLengths[1], 0)
+    }
+
     func testMemberDirectoryUsesTheReferenceWordBoundariesWithoutChangingItsText() throws {
         let source = "/Users/runner/work/Relic-Plugins/Relic-Plugins/visual/macos/dat…"
         let view = ReferenceLabel(source, size: 11.5, lineHeight: 20, lines: 0, monospaced: true, pathWrapping: true).makeLabelView()
