@@ -46,7 +46,7 @@ internal sealed class TextRangeProviderProbe : IDisposable
             ["origin_managed_thread_id"] = originThread,
             ["origin_apartment_state"] = Thread.CurrentThread.GetApartmentState().ToString(),
             ["owner_filter"] = "Every actual TextBlock in the supplied renderIds, including offscreen/zero-area owners; no name or geometry matching",
-            ["range_filter"] = "Actual DocumentRange and every range returned by GetVisibleRanges; no geometry-based exclusion",
+            ["range_filter"] = "Actual DocumentRange, every GetVisibleRanges range and independently enumerated Format ranges within each visible range; no geometry-based exclusion",
             ["coordinate_space"] = "Unmodified WinRT provider API values; no inferred or applied client/screen conversion",
             ["metadata_modified"] = false, ["create_peer_for_element_called"] = false,
             ["canonical_geometry_supplied"] = false, ["canonical_identity_supplied"] = false,
@@ -139,7 +139,7 @@ internal sealed class TextRangeProviderProbe : IDisposable
                 TryCall(ownerId, observed, "DocumentRange.GetText(-1) before", () => document.GetText(-1),
                     out documentBefore, TextValue);
                 observed["document_text_before"] = TextValue(documentBefore);
-                observed["document_range"] = CaptureRange(ownerId, "document", document, document, documentBefore);
+                observed["document_range"] = CaptureRange(ownerId, "document", "document_range", document, document, documentBefore);
             }
             else if (documentRead) Issue(ownerId, "ITextProvider.DocumentRange", "Provider returned null", observed);
 
@@ -149,7 +149,8 @@ internal sealed class TextRangeProviderProbe : IDisposable
             {
                 if (ranges == null) Issue(ownerId, "ITextProvider.GetVisibleRanges", "Provider returned null rather than an array", observed);
                 else for (var index = 0; index < ranges.Length; index++)
-                    visible.Add(CaptureRange(ownerId, "visible-" + index, ranges[index], document, documentBefore));
+                    visible.Add(CaptureRange(ownerId, "visible-" + index, "visible_ranges[" + index + "]",
+                        ranges[index], document, documentBefore, includeFormats: true));
             }
             if (documentRead && document != null
                 && TryCall(ownerId, observed, "DocumentRange.GetText(-1) after", () => document.GetText(-1), out var documentAfter, TextValue))
@@ -194,12 +195,13 @@ internal sealed class TextRangeProviderProbe : IDisposable
         }
     }
 
-    private JsonObject CaptureRange(string ownerId, string rangeId, ITextRangeProvider? range,
-        ITextRangeProvider? document, string? documentText)
+    private JsonObject CaptureRange(string ownerId, string rangeId, string rangePath, ITextRangeProvider? range,
+        ITextRangeProvider? document, string? documentText, bool includeFormats = false)
     {
         var result = new JsonObject
         {
-            ["range_id"] = rangeId, ["type"] = range?.GetType().FullName, ["is_null"] = range == null,
+            ["range_id"] = rangeId, ["range_path"] = rangePath,
+            ["type"] = range?.GetType().FullName, ["is_null"] = range == null,
             ["started_qpc"] = Stopwatch.GetTimestamp(), ["calls"] = new JsonArray(),
             ["endpoint_source"] = "DocumentRange.Clone + MoveEndpointByRange + CompareEndpoints + actual prefix GetText(-1) UTF16 lengths",
             ["canonical_geometry_supplied"] = false
@@ -243,9 +245,111 @@ internal sealed class TextRangeProviderProbe : IDisposable
                     ? string.Equals(documentText.Substring(startOffset, endOffset - startOffset), text, StringComparison.Ordinal) : null;
             }
         }
+        if (includeFormats) CaptureFormats(ownerId, rangeId, rangePath, range, document, documentText, result);
         result["completed_qpc"] = Stopwatch.GetTimestamp();
         Trace(ownerId, rangeId, "completed", result);
         return result;
+    }
+
+    private void CaptureFormats(string ownerId, string rangeId, string rangePath, ITextRangeProvider parent,
+        ITextRangeProvider? document, string? documentText, JsonObject result)
+    {
+        var runs = new JsonArray(); result["format_runs"] = runs;
+        var enumeration = new JsonObject
+        {
+            ["source"] = "Actual WinRT Clone, MoveEndpointByRange, MoveEndpointByUnit(End,Format,1), and CompareEndpoints calls",
+            ["parent_range_id"] = rangeId, ["parent_range_path"] = rangePath,
+            ["started_qpc"] = Stopwatch.GetTimestamp(), ["calls"] = new JsonArray(),
+            ["steps"] = new JsonArray(), ["status"] = "pending", ["completed"] = false,
+            ["maximum_runs"] = 10000, ["canonical_geometry_supplied"] = false
+        };
+        result["format_enumeration"] = enumeration;
+        var errorsBefore = errors.Count; var issuesBefore = contractIssues.Count;
+        var sequence = new FormatCallSequence(this, ownerId, rangeId, enumeration);
+        try
+        {
+            enumeration["enumerated_count"] = TextRangeFormatEnumeration.Capture(
+                new FormatCursor(parent, sequence), (cursor, step) =>
+                {
+                    var id = rangeId + "-format-" + step.Index;
+                    var path = rangePath + ".format_runs[" + step.Index + "]";
+                    var measuredStep = new JsonObject
+                    {
+                        ["format_run_index"] = step.Index, ["range_id"] = id, ["range_path"] = path,
+                        ["units_moved"] = step.UnitsMoved,
+                        ["end_vs_parent_end_before_clamp"] = step.EndVsParentEndBeforeClamp,
+                        ["start_vs_previous_start"] = step.StartVsPreviousStart,
+                        ["end_vs_previous_end"] = step.EndVsPreviousEnd,
+                        ["start_vs_end"] = step.StartVsEnd,
+                        ["end_vs_parent_end_after_clamp"] = step.EndVsParentEndAfterClamp
+                    };
+                    enumeration["steps"]!.AsArray().Add(measuredStep.DeepClone());
+                    Trace(ownerId, id + ".format-step", "measured", measuredStep);
+                    var actual = CaptureRange(ownerId, id, path, ((FormatCursor)cursor).Provider, document, documentText);
+                    actual["parent_range_id"] = rangeId; actual["format_step"] = measuredStep;
+                    runs.Add(actual);
+                });
+            enumeration["completed"] = true; enumeration["status"] = "enumerated";
+        }
+        catch (ProbeCallFailedException)
+        {
+            // TryCall already preserved the original exception and HRESULT.
+            enumeration["status"] = "provider-call-failed";
+        }
+        catch (Exception error)
+        {
+            Issue(ownerId, rangeId + ".format-enumeration", error.Message, enumeration);
+            enumeration["status"] = "incomplete";
+        }
+        finally
+        {
+            enumeration["captured_range_count"] = runs.Count;
+            enumeration["error_count"] = errors.Count - errorsBefore;
+            enumeration["contract_issue_count"] = contractIssues.Count - issuesBefore;
+            enumeration["completed_qpc"] = Stopwatch.GetTimestamp();
+            Trace(ownerId, rangeId + ".format-enumeration", enumeration["status"]!.ToString(), enumeration);
+            GC.KeepAlive(parent); GC.KeepAlive(document);
+        }
+    }
+
+    private sealed class ProbeCallFailedException(string api) : Exception(api) { }
+
+    private sealed class FormatCallSequence(TextRangeProviderProbe probe, string ownerId, string parentId, JsonObject journal)
+    {
+        private int sequence;
+        internal T Read<T>(string operation, Func<T> read, Func<T, JsonNode?>? encode = null)
+        {
+            var api = parentId + ".format-enumeration.call-" + sequence++ + "." + operation;
+            if (!probe.TryCall(ownerId, journal, api, read, out var value, encode))
+                throw new ProbeCallFailedException(api);
+            return value;
+        }
+        internal void Run(string operation, Action action) => Read<object?>(operation, () => { action(); return null; });
+    }
+
+    private sealed class FormatCursor(ITextRangeProvider provider, FormatCallSequence calls) : IProbeFormatRange
+    {
+        internal ITextRangeProvider Provider { get; } = provider;
+        private static TextPatternRangeEndpoint Endpoint(ProbeRangeEndpoint value) => value switch
+        { ProbeRangeEndpoint.Start => TextPatternRangeEndpoint.Start, ProbeRangeEndpoint.End => TextPatternRangeEndpoint.End,
+            _ => throw new ArgumentOutOfRangeException(nameof(value)) };
+        public IProbeFormatRange Clone()
+        {
+            var clone = calls.Read("Clone", Provider.Clone,
+                value => new JsonObject { ["is_null"] = value == null, ["type"] = value?.GetType().FullName });
+            if (clone == null) throw new InvalidOperationException("WinRT Format Clone returned null.");
+            return new FormatCursor(clone, calls);
+        }
+        public int CompareEndpoints(ProbeRangeEndpoint endpoint, IProbeFormatRange other, ProbeRangeEndpoint otherEndpoint)
+            => calls.Read("CompareEndpoints(" + endpoint + ",other," + otherEndpoint + ")",
+                () => Provider.CompareEndpoints(Endpoint(endpoint), ((FormatCursor)other).Provider, Endpoint(otherEndpoint)),
+                value => JsonValue.Create(value));
+        public void MoveEndpointByRange(ProbeRangeEndpoint endpoint, IProbeFormatRange other, ProbeRangeEndpoint otherEndpoint)
+            => calls.Run("MoveEndpointByRange(" + endpoint + ",other," + otherEndpoint + ")",
+                () => Provider.MoveEndpointByRange(Endpoint(endpoint), ((FormatCursor)other).Provider, Endpoint(otherEndpoint)));
+        public int MoveEndByOneFormat()
+            => calls.Read("MoveEndpointByUnit(End,Format,1)",
+                () => Provider.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Format, 1), value => JsonValue.Create(value));
     }
 
     private JsonObject? ObserveFrame(string stage)

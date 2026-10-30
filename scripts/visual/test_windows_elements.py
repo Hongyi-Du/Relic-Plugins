@@ -8,7 +8,8 @@ import unittest
 from PIL import Image
 
 from windows_elements import (host_container_ownership, project, transformed_box_edges,
-                              transparent_uia_ownership, uia_identity_rejection, measured_dialog_surfaces)
+                              transparent_uia_ownership, uia_identity_rejection, measured_dialog_surfaces,
+                              project_ellipse_border)
 from windows_automation_identity import bind_automation_identities
 
 
@@ -83,6 +84,90 @@ def measured(nodes):
 
 
 class ProjectionTests(unittest.TestCase):
+    @staticmethod
+    def recorded_ellipse_border():
+        return json.loads((Path(__file__).parent / "fixtures" / "ellipse_border_recorded_0545cf0.json").read_text(encoding="utf-8"))
+
+    def test_recorded_header_state_dot_maps_actual_stroke_without_claiming_unknown_radius(self):
+        fixture = self.recorded_ellipse_border()
+        node, reference = fixture["native"], fixture["reference"]
+        original = deepcopy(node)
+        viewport = {"width": 1440, "height": 900, "scale": 1}
+        result = self.capture([node], [], xaml_changes={"viewport": viewport},
+                              uia_changes={"viewport": viewport}, image_size=(1440, 900))
+        element = self.by_id(result)[node["id"]]
+        self.assertEqual(element["kind"], "state-dot")
+        for field in ("background", "border_color", "border_width", "border_widths", "border_colors", "border_styles"):
+            self.assertEqual(element["style"][field], reference["style"][field])
+        self.assertEqual(element["style"]["foreground"], node["style"]["foreground"])
+        self.assertEqual(element["style"]["stroke_width"], node["style"]["stroke_width"])
+        self.assertIsNone(element["style"]["corner_radius"])
+        self.assertIsNone(element["style"]["corner_radii"])
+        proof = element["evidence"]["ellipse_border"]
+        self.assertTrue(proof["stroke_fields_measured"])
+        self.assertFalse(proof["contour_measured"])
+        self.assertEqual(proof["raw_style"], node["style"])
+        self.assertTrue(any(issue["id"] == node["id"] and issue["property"] == "style.corner_radius"
+                            for issue in result["coverage"]["unmeasured"]))
+        self.assertTrue(result["extraction_errors"], "This isolated recorded node is not a complete independent UIA scene")
+        self.assertEqual(node, original)
+
+    def test_ellipse_border_does_not_fill_a_transparent_interior(self):
+        node = self.recorded_ellipse_border()["native"]
+        node["style"]["background"] = [0, 0, 0, 0]
+        node["style"]["brush_evidence"]["background"]["solid_rgba"] = [0, 0, 0, 0]
+        element = {"style": deepcopy(node["style"]), "evidence": {}}
+        issues = []
+        project_ellipse_border(element, node, issues)
+        self.assertEqual(element["style"]["background"], [0, 0, 0, 0])
+        self.assertEqual(element["style"]["border_color"], [255, 255, 255, 255])
+        self.assertTrue(issues, "Missing actual contour remains a failure even when stroke fields are known")
+
+    def test_nonellipse_path_line_rectangle_and_font_glyph_keep_their_own_stroke_meaning(self):
+        for typ in ("Path", "Line", "Polyline", "Rectangle", "FontIcon", "ReferenceVectorIcon"):
+            with self.subTest(type=typ):
+                node = self.recorded_ellipse_border()["native"]
+                node["type"] = typ
+                element = {"style": deepcopy(node["style"]), "evidence": {}}
+                original = deepcopy(element)
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertEqual(element, original)
+                self.assertEqual(issues, [])
+
+    def test_missing_or_unsupported_ellipse_stroke_cannot_be_declared_a_css_border(self):
+        for change in ("runtime", "primitive", "brush", "color", "opacity", "stroke", "source", "width", "basis", "scale", "matrix", "dash"):
+            with self.subTest(change=change):
+                node = self.recorded_ellipse_border()["native"]
+                if change == "runtime": node["render_type_evidence"]["is_shape"] = None
+                elif change == "primitive": node["paint_kind"] = "path"
+                elif change == "brush": node["style"]["brush_evidence"]["foreground"]["type"] = "Microsoft.UI.Xaml.Media.LinearGradientBrush"
+                elif change == "color": node["style"]["brush_evidence"]["foreground"]["solid_rgba"] = [0, 0, 0, 255]
+                elif change == "opacity": node["style"]["brush_evidence"]["foreground"]["opacity"] = None
+                elif change == "stroke": node.pop("stroke_evidence")
+                elif change == "source": node["stroke_evidence"]["source"] = "guessed boundary"
+                elif change == "width": node["style"]["stroke_width"] = 3
+                elif change == "basis": node["stroke_evidence"]["basis_x"]["y"] = 1
+                elif change == "scale": node["stroke_evidence"]["scale_y"] = 2
+                elif change == "matrix": node["transform"]["m11"] = 2
+                elif change == "dash": node["stroke_evidence"]["raw_pattern"]["dash_array"] = [1, 1]
+                element = {"style": deepcopy(node["style"]), "evidence": {}}
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertIsNone(element["style"]["border_color"])
+                self.assertIsNone(element["style"]["border_width"])
+                self.assertFalse(element["evidence"]["ellipse_border"]["stroke_fields_measured"])
+                self.assertTrue(any(issue["property"] == "style.ellipse_border" for issue in issues))
+
+    def test_absent_ellipse_stroke_is_not_replaced_by_fill_or_reference_border(self):
+        node = self.recorded_ellipse_border()["native"]
+        node["style"]["brush_evidence"]["foreground"] = {"type": None, "opacity": None, "solid_rgba": [0, 0, 0, 0]}
+        node["style"]["foreground"] = [0, 0, 0, 0]
+        element = {"style": deepcopy(node["style"]), "evidence": {}}
+        original = deepcopy(element)
+        project_ellipse_border(element, node, [])
+        self.assertEqual(element, original)
+
     def capture(self, nodes, uia_nodes=None, *, xaml_changes=None, uia_changes=None,
                 image_size=None, text_probe=None):
         xaml = {"schema_version": 1, "scene_id": SCENE, "client": "windows",

@@ -304,16 +304,43 @@ public sealed partial class MainWindow
                     button.Click += async (_, _) => { if (Environment.TickCount64 - draggedAt < 500) return; dialog.Hide(); if (id != org) await Run(() => Select(id)); };
                     var surface = new Grid { Width = point.Width, Height = ChartHeight, Opacity = ended ? .5 : 1 };
                     if (id == org) surface.Children.Add(new Border { Margin = new Thickness(-3), CornerRadius = new CornerRadius(15), BorderThickness = new Thickness(3), BorderBrush = Color(OverviewAlpha(Accent, .4)), IsHitTestVisible = false });
-                    surface.Children.Add(button);
+                    NativeShadowPanel? raised = null;
+                    if (button.IsCurrent) surface.Children.Add(button);
+                    else
+                    {
+                        raised = new NativeShadowPanel(new Border { Child = button, CornerRadius = new CornerRadius(12), UseLayoutRounding = false }) { UseLayoutRounding = false };
+                        surface.Children.Add(raised);
+                    }
+                    void UpdateShadow(bool active)
+                    {
+                        // The later .cur rule replaces both normal and active
+                        // shadows with the existing 3px accent ring.
+                        if (raised == null) return;
+                        var normal = Color(Paint("14120F")).Color;
+                        var activeColor = Dark ? Colors.Black : normal;
+                        raised.SetShadows(active
+                            ? [new NativeShadowLayer(0, 10, 32, activeColor, Dark ? .5f : .14f), new NativeShadowLayer(0, 2, 6, activeColor, Dark ? .3f : .06f)]
+                            : [new NativeShadowLayer(0, 1, 2, normal, .06f)]);
+                    }
+                    UpdateShadow(false);
                     var border = new Rectangle { Stroke = stroke, StrokeThickness = 1, RadiusX = 12, RadiusY = 12, IsHitTestVisible = false };
                     // Preserve the existing native 4.5px dash lengths while fixing
                     // border width. CSS border dash segments/phase remain unmeasured.
                     if (item.Text("kind") == "subgroup") border.StrokeDashArray = new DoubleCollection { 4.5, 4.5 };
                     surface.Children.Add(border); controls[id] = button; borders[id] = (border, stroke);
-                    button.PointerEntered += (_, _) => { border.Stroke = Color(Muted); Highlight(id, true); };
-                    button.PointerExited += (_, _) => { border.Stroke = stroke; Highlight(id, false); };
-                    button.GotFocus += (_, _) => { border.Stroke = Color(Muted); Highlight(id, true); };
-                    button.LostFocus += (_, _) => { border.Stroke = stroke; Highlight(id, false); };
+                    var hovered = false;
+                    void UpdateInteraction()
+                    {
+                        var active = hovered || button.FocusState == FocusState.Keyboard;
+                        border.Stroke = active ? Color(Muted) : stroke;
+                        Canvas.SetZIndex(surface, active ? 2 : 0);
+                        Highlight(id, active); UpdateShadow(active);
+                    }
+                    button.PointerEntered += (_, _) => { hovered = true; UpdateInteraction(); };
+                    button.PointerExited += (_, _) => { hovered = false; UpdateInteraction(); };
+                    button.GotFocus += (_, _) => UpdateInteraction();
+                    button.LostFocus += (_, _) => UpdateInteraction();
+                    button.ActualThemeChanged += (_, _) => UpdateShadow(hovered || button.FocusState == FocusState.Keyboard);
                     if (ended) Grayscale(badge);
                     Canvas.SetLeft(surface, point.X); Canvas.SetTop(surface, point.Y); plane.Children.Add(surface);
                 }

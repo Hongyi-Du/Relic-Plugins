@@ -691,7 +691,18 @@ class MatrixReportTests(unittest.TestCase):
             references = json.loads(copied_json.read_text(encoding="utf-8"))["raw_evidence"]
             for filename in references.values():
                 self.assertEqual((copied_json.parent / filename).read_bytes(), (source / "windows" / filename).read_bytes())
+                self.assertTrue((copied_json.parent / filename).samefile(source / "windows" / filename))
             self.assertEqual((output / "elements" / "reference" / raw_dom.name).read_bytes(), raw_dom.read_bytes())
+            self.assertTrue((output / "elements" / "reference" / raw_dom.name).samefile(raw_dom))
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                for target_folder, suffix in (("elements", ".elements.json"), ("images", ".png")):
+                    original = source / client / (scene + suffix)
+                    retained = output / target_folder / client / original.name
+                    self.assertTrue(retained.samefile(original))
+                    self.assertEqual(retained.read_bytes(), original.read_bytes())
+            # Re-running into the same report reuses immutable inputs; only
+            # generated comparison reports are rewritten.
+            self.assertEqual(run(source, output, spec=spec), result)
             # A dangling raw evidence reference fails even when the projected
             # elements and screenshots otherwise all match.
             (source / "windows" / f"{scene}.uia.json").unlink()

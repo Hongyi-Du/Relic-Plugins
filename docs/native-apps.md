@@ -1,5 +1,52 @@
 # Native Relic App contract
 
+Changes for the clients (full report storage and real text ranges): immutable
+captured PNG/element/raw-tree files now share storage with the report through
+same-filesystem hard links; cross-device copies exclusively create new files.
+Existing conflicting output fails instead of overwriting an input link. All
+bytes, relative paths, generated HTML/heatmaps and all 660 scenes remain required.
+Seven file-system tests plus the matrix fixture check this in CI. Disk usage is
+recorded before and after comparison. The a37467a partial artifact stays partial.
+
+The Windows in-process provider probe now independently measures Format ranges
+inside each actual visible range using the same endpoint operations as COM.
+Original doubles/IEEE754, text, endpoints, operation journals and frame reads are
+retained, including problematic ranges and incomplete enumeration. Twelve pure
+mock cases exercise the production traversal in CI. This adds missing evidence;
+it does not resolve old COM zero-height errors, alter observer exit codes or turn
+the unproven Run.Text/frame continuity into success.
+
+Chart nodes now retain normal/hover/keyboard-focus shadow surfaces and the
+reference's current-node ring precedence. Actual new render results are pending.
+
+Changes for the clients (new actual failures, not acceptance): d88dda9 settings
+captures retain three nonzero selected-tab surfaces but no Composition shadow
+layers or hand-in visual on their real shadowHost children. The production
+renderer now also draws from its real ArrangeOverride result and caches unchanged
+layout/layers. Actual lifecycle counts and child-visual identity are captured;
+requested layers never stand in for rendered layers. Rendering remains unverified
+until the next CI screenshot. The 8801a7c macOS test still exits with signal 11;
+no runner DiagnosticReports files were found by the new upload step. The macOS
+follow-up 9aaf342 corrects unboxed CoreText table-tag access and awaits CI.
+
+Full run 41022572258 (a37467a) did not finish report generation: compare job
+123981691536 exhausted disk at element_parity.py:1009. Its downloaded directory
+`S:\Codex\Outputs\Relic-native-visual\parity-a37467a-full\report` is a partial
+failure artifact with no summary/full parity JSON, not a complete matrix report.
+The shared storage fix above retains every source file while avoiding duplicate
+on-disk copies through same-filesystem evidence links; no scene is exempted.
+
+Changes for the clients (actual tool-card alignment and shape stroke evidence):
+Windows historical action cards now use the existing left-aligned width limiter,
+so their 720px cap does not center them inside a wider conversation column.
+The recorded private/live scenes showed the old 9px/4px horizontal drift.
+The Windows normalizer now projects a continuous measured Ellipse stroke into
+border fields while retaining its original stroke/foreground evidence. It cannot
+substitute Line/Path paint, compound layers, transforms or unknown brushes.
+Actual Ellipse layout/Stretch inputs are additionally captured for subsequent
+contour measurement; this does not infer a radius from the reference or declare
+an unknown contour matched. The recorded-fixture regressions run only in CI.
+
 Changes for the clients (selected tabs and actual CI crash diagnostics): Windows
 Overview/Workspace/Files tabs and detail filters now retain a mounted native
 surface with the reference's selected 0/1/2px shadow. Selection changes update

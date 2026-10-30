@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import difflib
+import errno
 import html
 import json
 import math
@@ -785,6 +786,55 @@ def raw_element_count(data: dict) -> int:
     return len(elements) if isinstance(elements, list) else 0
 
 
+def _require_same_captured_bytes(source: Path, destination: Path) -> None:
+    """Reuse an existing immutable report entry only when its bytes agree."""
+    if destination.is_file():
+        if source.samefile(destination):
+            return
+        if source.stat().st_size == destination.stat().st_size:
+            with source.open("rb") as captured, destination.open("rb") as existing:
+                while True:
+                    block = captured.read(1024 * 1024)
+                    if block != existing.read(1024 * 1024):
+                        break
+                    if not block:
+                        return
+    raise FileExistsError(errno.EEXIST, "Existing report evidence differs from captured source; refusing to overwrite", str(destination))
+
+
+def link_captured_evidence(source: Path, destination: Path) -> None:
+    """Share immutable capture bytes without duplicating them on the runner.
+
+    All logical report paths remain ordinary readable files for artifact upload.
+    Only a cross-device link error falls back to copying, and that copy creates
+    a new file exclusively. Neither path can truncate an existing hard link.
+    Generated reports must not use this helper: their contents are still mutable.
+    """
+    try:
+        os.link(source, destination)
+        return
+    except FileExistsError:
+        _require_same_captured_bytes(source, destination)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV and getattr(exc, "winerror", None) != 17:
+            raise
+    with source.open("rb") as captured:
+        try:
+            target = destination.open("xb")
+        except FileExistsError:
+            _require_same_captured_bytes(source, destination)
+            return
+        try:
+            with target:
+                shutil.copyfileobj(captured, target, length=1024 * 1024)
+        except BaseException:
+            # Only this call's newly created, incomplete destination is removed.
+            # The captured source and pre-existing report entries are untouched.
+            destination.unlink()
+            raise
+
+
 def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data: dict) -> list[dict]:
     """Keep the actual trees beside their JSON's relative basename references."""
     errors = []
@@ -796,7 +846,7 @@ def copy_raw_evidence(source: Path, output: Path, scene: str, client: str, data:
     copied = set()
     for candidate in sorted(source.glob(scene + ".*.json")):
         if candidate.name.endswith(suffixes):
-            shutil.copyfile(candidate, destination / candidate.name)
+            link_captured_evidence(candidate, destination / candidate.name)
             copied.add(candidate.name)
     references = data.get("raw_evidence", {})
     if not isinstance(references, dict):
@@ -956,12 +1006,12 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
             if image_path.is_file():
                 image_copy = output / "images" / client / image_path.name
                 image_copy.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(image_path, image_copy)
+                link_captured_evidence(image_path, image_copy)
                 images[client] = image_copy.relative_to(output).as_posix()
             if capture_path.is_file():
                 tree_copy = output / "elements" / client / capture_path.name
                 tree_copy.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(capture_path, tree_copy)
+                link_captured_evidence(capture_path, tree_copy)
             errors[client] += copy_raw_evidence(capture_root, output, scene, client, captures[client])
         results = {}
         for platform in PLATFORMS:

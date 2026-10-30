@@ -179,11 +179,21 @@ jobs:
           pattern: visual-macos-*
           merge-multiple: true
           path: visual/macos
+      - name: Record actual comparison storage before reports
+        if: always()
+        run: |
+          df -h .
+          du -sh visual/*
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
         continue-on-error: true
       - name: Require every full-matrix scene to have zero element mismatches
         if: always()
         run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full
+      - name: Record actual comparison storage after reports
+        if: always()
+        run: |
+          df -h .
+          du -sh visual/*
       - uses: actions/upload-artifact@v4
         if: always()
         with:
