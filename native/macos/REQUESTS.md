@@ -1,3 +1,16 @@
+## 2026-10-30: scroller crash now has a concrete native stack
+
+The crash upload in visual run `41035817459` worked. The retained
+`Relic-2026-10-30-100410.ips` shows `RelicAXRole` -> AppKit
+`_accessibilityUIElementSpecifierRegisterIfNeeded` ->
+`accessibilityIndexOfChild` -> `ReferenceScroller.accessibilityChildren` ->
+`RelicAXRole`, repeated until stack overflow. A role-only read still triggers
+AppKit registration, so the earlier e5fe085 hypothesis was insufficient.
+The native provider now supplies its original native child list during this
+registration reentry and filters only the completed outer enumeration. Tests
+retain full native thumb snapshots and repeat child-index checks. CI is still
+required; no capture failure or element mismatch has been waived.
+
 ## 2026-10-30: reference CC readiness in every scene
 
 The full `0a1d569` macOS reference quick-start PNG (en-US/light/1024x700)

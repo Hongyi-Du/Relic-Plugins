@@ -33,16 +33,23 @@ struct ScrollAppearance: NSViewRepresentable {
 
 final class ReferenceScroller: NSScroller {
     private var over = false
+    private var registeringNativeParts: [Any]?
     private(set) var lastPaint: [String: Any]?
     override class var isCompatibleWithOverlayScrollers: Bool { true }
     override func accessibilityChildren() -> [Any]? {
         // This scroller draws one thumb. NSScroller's legacy arrow/page-button
         // providers are disabled and have no corresponding painted buttons.
         // Expose the actual native thumb; parent scrolling actions stay native.
-        super.accessibilityChildren()?.filter {
-            // A full AX snapshot also reads navigation/interaction providers,
-            // which can ask this parent for its children again. Read only the
-            // part's role here; retain a part whose role cannot be measured.
+        // AppKit registers each native part's UIElementSpecifier when its role
+        // is first read. Registration calls this parent's accessibilityIndexOfChild,
+        // which enumerates children again. Supply the native list during that
+        // registration; never recursively query the same child's role.
+        // Confirmed by Relic-2026-10-30-100410.ips from CI 41035817459.
+        if let registeringNativeParts { return registeringNativeParts }
+        guard let parts = super.accessibilityChildren() else { return nil }
+        registeringNativeParts = parts
+        defer { registeringNativeParts = nil }
+        return parts.filter {
             guard let role = RelicAXRole($0) else { return true }
             return role == "AXValueIndicator"
         }
