@@ -1,5 +1,18 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+macOS now draws unordered-list discs with NativeListMarkerView's actual
+CGContext.fillEllipse, using its own primary font metrics and device-space
+pixel snapping. Ordered markers keep their actual text renderer. Raw element
+`evidence.native_list_marker` has source `production native disc observation`,
+`current_draw` (provider, current view/window identity, revision, actual local
+ellipse/device ellipse, foreground, actual font metrics, CTM and clip), plus
+the actual screen bounds/ellipse and mounted native_structure. Its real AX
+image retains the spoken alternative `• ` and canonical kind icon. Canonical
+`icon` is deliberately unknown until the shared symbol-shape reader can check
+the actual reference ellipse and this native receipt. Do not relabel it as a
+font glyph or accept a new icon exception. The native actual-circle pixel test
+checks the same 13.5px primary font's 7x19 symbol box and 5x5 painted ellipse.
+
 New reference extraction issue found by looking at the full 1ffe201 matrix:
 `zh-CN-light-1024x700-file-markdown` has three list discs. Reference
 `dom-351::marker` is exported as `source: text-glyph`, glyph `• `, box

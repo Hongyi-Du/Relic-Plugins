@@ -113,8 +113,15 @@ struct RichText: View {
                 .fixedSize(horizontal: false, vertical: true)
         case "list":
             VStack(alignment: .leading, spacing: 0) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top, spacing: 8) {
-                    ReferenceLabel(item.marker + " ", size: baseSize, lineHeight: textLineHeight, alignment: .right, textGlyphIcon: true).frame(width: 14, alignment: .trailing)
+                HStack(alignment: .top, spacing: 0) {
+                    if item.marker == "•" {
+                        let metrics = NativeListMarkerMetrics(font: RelicStyle.nativeFont(baseSize, weight: 400))
+                        NativeListMarker(size: baseSize).frame(width: metrics.width, height: metrics.height)
+                            .offset(x: 22 - metrics.distanceBeforeText, y: (textLineHeight - metrics.height) / 2)
+                            .frame(width: 22, height: textLineHeight, alignment: .topLeading)
+                    } else {
+                        ReferenceLabel(item.marker + " ", size: baseSize, lineHeight: textLineHeight, alignment: .right, textGlyphIcon: true).frame(width: 14, alignment: .trailing).padding(.trailing, 8)
+                    }
                     inline(item.text)
                 }.padding(.leading, item.indented ? 18 : 0)
             } }
