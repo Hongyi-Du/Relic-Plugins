@@ -5,8 +5,12 @@ the XCTest process exited with signal 11 in `FontShapingTests`. The log does
 not contain a native stack. Please add an `if: failure()` upload of existing
 `~/Library/Logs/DiagnosticReports/*.ips` and `*.crash` after the macOS test step
 in `native-apps.yml`, plus the same artifact on native visual capture failure.
-Do not launch a debugger or a process on the person's machine. The native fix
-removes layout-manager reentry from line-fragment callbacks; the tests remain.
+Do not launch a debugger or a process on the person's machine.
+The line-fragment reentry hypothesis did not fix the crash (`f6c73ce` also failed).
+The API error is now identified: `CTFontCopyAvailableTables` returns unboxed table
+tags in CFArray pointer slots, not NSNumber objects. Native code now reads those
+slots through `CFArrayGetValueAtIndex` and integer conversion; the actual
+Regular/Bold draw tests remain and verify the retained table list.
 Keeping the runner's actual crash report will distinguish any remaining font
 API failure from text-layout recursion instead of guessing from the last log line.
 

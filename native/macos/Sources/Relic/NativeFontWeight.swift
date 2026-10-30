@@ -9,6 +9,19 @@ enum NativeFontWeight {
     static let variationTag: UInt32 = 0x66766172 // fvar
     static let weightTag: UInt32 = 0x77676874 // wght
 
+    static func availableTags(_ font: CTFont) -> [UInt32]? {
+        guard let raw = CTFontCopyAvailableTables(font, []) else { return nil }
+        // CoreText returns unboxed integer tags stored in CFArray pointer slots,
+        // not NSNumber objects. Bridging this array to NSArray dereferences a
+        // table tag as an Objective-C object and crashes during actual drawing.
+        var tags: [UInt32] = []
+        for index in 0..<CFArrayGetCount(raw) {
+            guard let tag = UInt32(exactly: UInt(bitPattern: CFArrayGetValueAtIndex(raw, index))) else { return nil }
+            tags.append(tag)
+        }
+        return tags
+    }
+
     static func staticWeight(table: Data?, availableTags: [UInt32]?, hasVariationAxes: Bool) -> Int? {
         guard let tags = availableTags, !tags.contains(variationTag), tags.contains(os2Tag), !hasVariationAxes,
               let table, table.count >= 68 else { return nil }
@@ -18,7 +31,7 @@ enum NativeFontWeight {
     }
 
     static func capture(_ font: CTFont) -> [String: Any] {
-        let tags = (CTFontCopyAvailableTables(font, []) as? [NSNumber])?.map(\.uint32Value)
+        let tags = availableTags(font)
         let table = CTFontCopyTable(font, os2Tag, []).map { $0 as Data }
         let variations = (CTFontCopyVariation(font) as? [NSNumber: NSNumber])?.reduce(into: [String: Double]()) { $0[$1.key.stringValue] = $1.value.doubleValue }
         let axes = (CTFontCopyVariationAxes(font) as? [[String: Any]])?.map { axis -> [String: Any] in

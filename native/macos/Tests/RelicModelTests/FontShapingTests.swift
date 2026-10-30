@@ -18,6 +18,7 @@ import CoreText
                 XCTAssertEqual(measured["postscript_name"] as? String, font["postscript_name"] as? String)
                 XCTAssertEqual(measured["quantity"] as? String, "static-face-os2-usWeightClass")
                 XCTAssertEqual(measured["value"] as? Int, weight)
+                XCTAssertTrue(try XCTUnwrap(measured["available_table_tags"] as? [UInt32]).contains(NativeFontWeight.os2Tag))
                 XCTAssertNotNil(Data(base64Encoded: try XCTUnwrap(measured["os2_base64"] as? String)))
             }
         }
