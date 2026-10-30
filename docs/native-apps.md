@@ -1,9 +1,11 @@
 # Native Relic App contract
 
-Changes for the clients (shared CI): native-element-checks.yml now exposes
-workflow_dispatch as well as its unchanged reusable workflow_call. This runs
-the same full extraction-contract suite while platform jobs wait for runners;
-it does not replace either required native build or the full visual gate.
+Changes for the clients (shared CI): native-element-checks.yml now runs on
+relevant native branch pushes as well as its unchanged reusable workflow_call.
+This runs the same full extraction-contract suite while platform jobs wait for
+runners; it does not replace either required native build or the full visual
+gate. Direct dispatch was rejected because this reusable workflow is absent
+from the default branch; no default-branch change was made.
 c8d6311 ran 944 tests with one provenance assertion failure: the effective
 geometry source should identify the selected actual COM channel, while the
 original source belongs in the immutable audit. The regression now explicitly
