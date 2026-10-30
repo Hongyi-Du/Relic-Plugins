@@ -11,7 +11,7 @@ struct ElementPaintProbe: NSViewRepresentable {
     let color: Color
     let owner: String?
     let opacity: Double
-    var ownedLayer = false
+    var ownedLayer = true
     private static let live = NSHashTable<PaintView>.weakObjects()
     func makeNSView(context: Context) -> PaintView {
         let view = PaintView(frame: .zero); Self.live.add(view); updateNSView(view, context: context)

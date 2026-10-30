@@ -1,3 +1,18 @@
+## 2026-10-30: six hosted icon bitmaps passed; pointer owner binding still under test
+
+Native apps 41089755638 / macOS job 124181361073 (`7ce27b4`) builds and executes
+227 tests. Six actual hosted icon bitmap comparisons, source invalidation,
+nonempty strokes and no-extra-child-layer assertions pass. The icon image path
+is now enabled in production, with light/dark comparisons still pending the
+next run. The initial multiline-editor focus test also passes.
+
+The run has two failed pointer assertions: the chain did not contain the
+NSButton objects themselves. Native buttons can expose their actual NSButtonCell
+instead, so the test now accepts only that exact control or its exact owned cell
+and retains the negative covered-control checks. Each assertion prints its raw
+hit chain if it still fails. The capture additionally reads NSCell.controlView
+identity; no hover value is synthesized and no success is claimed until rerun.
+
 ## 2026-10-30: actual accessibility navigation order, with inventory preservation
 
 `528fcdb` completes 22 actual native captures with visible label text and current

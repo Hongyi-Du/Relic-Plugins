@@ -23,7 +23,8 @@ import RelicAX
             let parent = RelicAXParent(current) as AnyObject?
             chain.append(["identity": identity(current), "class": String(describing: type(of: current)),
                 "role": values["role"] ?? NSNull(), "identifier": values["identifier"] ?? NSNull(),
-                "label": values["label"] ?? NSNull(), "parent": parent.map(identity) as Any? ?? NSNull()])
+                "label": values["label"] ?? NSNull(), "parent": parent.map(identity) as Any? ?? NSNull(),
+                "cell_control_view": (current as? NSCell)?.controlView.map(identity) as Any? ?? NSNull()])
             if current === front { reachedWindow = true; break }
             next = parent
         }
