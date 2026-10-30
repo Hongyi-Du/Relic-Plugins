@@ -227,7 +227,7 @@ import CoreText
             let breaks = NativeLineBreaks.inspect(view, range: range)
             let accessibleSpan = RelicAXText(view, range)
             let accessibleText = accessibleSpan.map { NativeInlineCode.source($0) }
-            var measuredLayout: [String: Any] = ["wrap": wrap, "truncation": truncation, "line_count": lines.count]
+            var measuredLayout: [String: Any] = ["wrap": wrap, "truncation": truncation, "line_count": lines.filter { ($0["width"] ?? 0) > 0 && ($0["height"] ?? 0) > 0 }.count]
             measuredLayout.merge(breaks.layout, uniquingKeysWith: { _, actual in actual })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,

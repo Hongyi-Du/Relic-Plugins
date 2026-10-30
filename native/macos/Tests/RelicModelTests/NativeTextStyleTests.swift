@@ -4,6 +4,20 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class NativeTextStyleTests: XCTestCase {
+    func testDocumentLineAdvancesDoNotIncludeTheNewlineEditingCaret() throws {
+        let source = "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n"
+        let storage = NSTextStorage(attributedString: NativeTextStyle.render(AttributedString(source), size: 12.5, lineHeight: 20.625, monospaced: true, uniformSource: true))
+        let manager = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: 664, height: 200))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        let measured = NativeTextGeometry.advances(manager, container: container, characters: NSRange(location: 0, length: storage.length))
+        XCTAssertTrue(measured.complete)
+        XCTAssertEqual(measured.rectangles.count, 3, "The empty source line remains in the raw geometry receipt")
+        for (rect, width) in zip(measured.rectangles, [CGFloat(143), 0, 496.703125]) { XCTAssertEqual(rect.width, width, accuracy: 0.5) }
+        XCTAssertEqual(try XCTUnwrap(measured.envelope).width, 496.703125, accuracy: 0.5)
+        XCTAssertEqual(storage.string, source)
+    }
+
     func testReadOnlyDocumentDoesNotReserveATerminalInsertionLine() {
         // Actual 0a1d569 en-US/dark/1024x700 document: 14 lines at 20.625px,
         // including four empty interior lines. The 318.75px reference card

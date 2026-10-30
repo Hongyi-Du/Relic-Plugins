@@ -28,8 +28,17 @@ import AppKit
             var positions = [CGFloat](repeating: 0, count: count), indexes = [Int](repeating: 0, count: count)
             let received = manager.getLineFragmentInsertionPoints(forCharacterAt: range.location, alternatePositions: false, inDisplayOrder: false, positions: &positions, characterIndexes: &indexes)
             row["positions"] = positions; row["character_indexes"] = indexes; row["received_count"] = received
-            let selected = zip(indexes, positions).filter { $0.0 >= range.location && $0.0 <= NSMaxRange(range) }
-            guard received == count, indexes.contains(range.location), indexes.contains(NSMaxRange(range)),
+            // TextKit places the caret after a paragraph terminator at the far
+            // edge of the container. That editing position is not horizontal
+            // advance painted by the source newline. Retain the source range,
+            // and measure through the actual insertion point before CR/LF only.
+            var advanceEnd = NSMaxRange(range)
+            if let source = manager.textStorage?.string as NSString? {
+                while advanceEnd > range.location && [UInt16(0x0a), 0x0d, 0x2028, 0x2029].contains(source.character(at: advanceEnd - 1)) { advanceEnd -= 1 }
+            }
+            row["advance_character_range"] = ["location": range.location, "length": advanceEnd - range.location]
+            let selected = zip(indexes, positions).filter { $0.0 >= range.location && $0.0 <= advanceEnd }
+            guard received == count, indexes.contains(range.location), indexes.contains(advanceEnd),
                   truncated.location == NSNotFound || truncated.length == 0,
                   let lower = selected.map({ $0.1 }).min(), let upper = selected.map({ $0.1 }).max() else {
                 row["error"] = "Truncation or missing native insertion boundaries leaves text advance unmeasured"
