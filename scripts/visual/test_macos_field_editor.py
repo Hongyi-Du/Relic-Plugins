@@ -1,4 +1,4 @@
-"""Synthetic 1097cdf/f462776 v2 contracts, not recorded AppKit captures.
+"""Synthetic v2 and ordinary-native-field v3 contracts, not recorded AppKit captures.
 
 The tests launch no application. Actual producer tests/captures remain in CI.
 """
@@ -6,7 +6,7 @@ from copy import deepcopy
 import unittest
 
 from element_parity import validate_capture
-from macos_field_editor import (CELL_FRAME_SOURCE, CONTENT_FRAME_SOURCE, CONTRACT, PROVIDER, SCREEN_SPACE,
+from macos_field_editor import (CELL_FRAME_SOURCE, CONTENT_FRAME_SOURCE, CONTRACT, STANDARD_CONTRACT, PROVIDER, SCREEN_SPACE,
                                SOURCE, field_editor_aliases, retained_editor_measurements)
 
 
@@ -79,7 +79,116 @@ def synthetic_measured_screen_alias():
     return item
 
 
+def synthetic_standard_alias(owner_class="SyntheticNativeFieldCell", editor_class="SyntheticNativeFieldEditor"):
+    """V3 producer-shaped synthetic data; class strings are not observed Cocoa classes."""
+    item = synthetic_measured_screen_alias()
+    raw = item["evidence"]
+    raw["class"] = owner_class
+    raw["owned_editor_evidence"]["class"] = editor_class
+    raw["native_field_editor"].update(
+        contract=STANDARD_CONTRACT, owner_class=owner_class, editor_class=editor_class,
+        control_class="SyntheticNativeTextField", owner_is_text_field_cell=True,
+        control_is_text_field=True, editor_is_text_view=True)
+    return item
+
+
 class MacFieldEditorTests(unittest.TestCase):
+    def test_v3_actual_base_observations_and_retained_classes_do_not_need_an_allowlist(self):
+        for owner_class, editor_class in (("SyntheticNativeFieldCell", "SyntheticNativeFieldEditor"),
+                                          ("_SystemTextFieldCell", "_SystemTextFieldFieldEditor")):
+            with self.subTest(owner_class=owner_class, editor_class=editor_class):
+                item = synthetic_standard_alias(owner_class, editor_class)
+                original = deepcopy(item)
+                result, = field_editor_aliases([item])
+                self.assertTrue(result["binding_valid"], result["issues"])
+                self.assertEqual(result["measurement_issues"], [])
+                self.assertEqual(result["retained_measurements"]["evidence"],
+                                 retained_editor_measurements(item["evidence"]["owned_editor_evidence"])["evidence"])
+                self.assertFalse(result["retained_measurements"]["state"]["focused"])
+                self.assertIsNone(result["retained_measurements"]["style"]["background"])
+                self.assertEqual(item, original)
+
+    def test_v3_each_actual_base_observation_is_required_and_must_be_boolean_true(self):
+        for key in ("owner_is_text_field_cell", "control_is_text_field", "editor_is_text_view"):
+            for value in (None, False, 0, 1, "true", [], "missing"):
+                with self.subTest(key=key, value=value):
+                    item = synthetic_standard_alias()
+                    receipt = item["evidence"]["native_field_editor"]
+                    if value == "missing":
+                        del receipt[key]
+                    else:
+                        receipt[key] = value
+                    original = deepcopy(item)
+                    result, = field_editor_aliases([item])
+                    self.assertFalse(result["binding_valid"])
+                    self.assertTrue(any("base-type" in issue for issue in result["issues"]))
+                    self.assertIsNotNone(result["retained_measurements"])
+                    self.assertEqual(item, original)
+
+    def test_v3_runtime_classes_cannot_be_missing_or_substituted(self):
+        for key, value in (("owner_class", "ForeignCell"), ("editor_class", "ForeignEditor"),
+                           ("owner_class", ""), ("editor_class", None), ("control_class", None),
+                           ("control_class", ""), ("control_class", True)):
+            with self.subTest(key=key, value=value):
+                item = synthetic_standard_alias()
+                item["evidence"]["native_field_editor"][key] = value
+                self.assertFalse(field_editor_aliases([item])[0]["binding_valid"])
+
+    def test_v3_preserves_all_cell_control_current_editor_value_and_focus_bindings(self):
+        mutations = [("provider", "guessed"), ("owner_identity", "foreign-cell"),
+                     ("editor_identity", "foreign-editor"), ("current_editor_identity", "old-editor"),
+                     ("control_identity", "foreign-control"), ("owner_control_view_identity", "foreign-control"),
+                     ("control_cell_identity", "foreign-cell"), ("window_identity", ""),
+                     ("same_window", False), ("is_field_editor", False),
+                     ("first_responder_is_editor", False), ("owner_value", "foreign-value"),
+                     ("editor_value", "foreign-value"), ("owner_identifier", "foreign-input"),
+                     ("selection", {"location": 1, "length": 3}),
+                     ("selection", {"location": True, "length": 0})]
+        for key, value in mutations:
+            with self.subTest(key=key):
+                item = synthetic_standard_alias()
+                item["evidence"]["native_field_editor"][key] = value
+                original = deepcopy(item)
+                result, = field_editor_aliases([item])
+                self.assertFalse(result["binding_valid"])
+                self.assertIsNotNone(result["retained_measurements"])
+                self.assertEqual(item, original)
+
+    def test_v3_ambiguous_or_still_emitted_editor_is_not_removed_by_reader(self):
+        item = synthetic_standard_alias()
+        editor = retained_editor_measurements(item["evidence"]["owned_editor_evidence"])
+        values = [item, editor]
+        original = deepcopy(values)
+        self.assertFalse(field_editor_aliases(values)[0]["binding_valid"])
+        self.assertEqual(values, original)
+        duplicate = deepcopy(item)
+        duplicate["id"] = "second-owner"
+        self.assertTrue(all(not result["binding_valid"] for result in field_editor_aliases([item, duplicate])))
+
+    def test_v3_geometry_and_retained_paint_failures_are_not_resolved_by_alias(self):
+        item = synthetic_standard_alias()
+        item["evidence"]["native_field_editor"]["owner_ax_frame"]["bounds"]["x"] += 1
+        item["evidence"]["owned_editor_evidence"]["extraction_errors"] = ["Actual editor paint remains unknown"]
+        data = capture(item)
+        original = deepcopy(data)
+        result, = field_editor_aliases(data["elements"])
+        self.assertFalse(result["binding_valid"])
+        self.assertTrue(result["measurement_issues"])
+        errors = validate_capture(data, "macos", data["scene_id"], data["viewport"])
+        self.assertTrue(any("Actual editor paint remains unknown" in error["reason"] for error in errors))
+        self.assertTrue(any("Cell screen-position" in error["reason"] for error in errors))
+        self.assertTrue(any(error.get("source_element") == "synthetic-editor"
+                            and "background" in error["reason"] for error in errors))
+        self.assertEqual(data, original)
+
+    def test_v3_new_contract_does_not_promote_a_standard_cell_under_v2(self):
+        item = synthetic_standard_alias()
+        item["evidence"]["native_field_editor"]["contract"] = CONTRACT
+        self.assertFalse(field_editor_aliases([item])[0]["binding_valid"])
+        legacy = synthetic_measured_screen_alias()
+        self.assertNotIn("owner_is_text_field_cell", legacy["evidence"]["native_field_editor"])
+        self.assertTrue(field_editor_aliases([legacy])[0]["binding_valid"])
+
     def test_complete_actual_cell_and_content_frames_prove_only_position(self):
         item = synthetic_measured_screen_alias()
         original = deepcopy(item)

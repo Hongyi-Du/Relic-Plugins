@@ -28,6 +28,10 @@ public sealed class NativeTextarea : TextBox
     public bool IsResizing { get; private set; }
     public event Action<NativeTextareaResizeEvent>? ResizeObserved;
 
+    // Read only the part from the template that is already applied. Capture
+    // must not call ApplyTemplate or create a visual to obtain this reference.
+    internal DependencyObject? ReadAppliedPlaceholderPart() => GetTemplateChild("PlaceholderTextContentPresenter");
+
     public NativeTextarea()
     {
         DefaultStyleKey = typeof(TextBox);

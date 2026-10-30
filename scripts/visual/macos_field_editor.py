@@ -12,6 +12,7 @@ import math
 
 
 CONTRACT = "appkit-current-field-editor-v2"
+STANDARD_CONTRACT = "appkit-current-field-editor-v3"
 PROVIDER = "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder"
 SOURCE = "live-AppKit-AX-selectors"
 STRUCTURE_SOURCE = "production parent environment and current NSView.subviews ancestry"
@@ -142,7 +143,9 @@ def field_editor_aliases(elements):
     Both pre-be16164 system editors and actual ObservedFieldEditor instances are
     supported by their independently recorded class/identity, not a class-name
     substitution. The v2 owner is the final MemberRenameField.PaddedCell, not
-    its AX-ignored NSTextField Control. V1 is never accepted as a cell binding.
+    its AX-ignored NSTextField Control. V3 records actual NSTextFieldCell,
+    NSTextField and NSTextView base-type observations and the retained runtime
+    classes; it has no private class-name allowlist. V1 is never a cell binding.
     This result proves only the current alias relation, never frame continuity,
     presentation, glyph drawing or absence of independent editor paint.
     """
@@ -186,7 +189,8 @@ def field_editor_aliases(elements):
         if not isinstance(receipt, dict) or not isinstance(editor, dict):
             issues.append("Current-editor receipt and complete retained raw editor are both required")
             continue
-        require(receipt.get("contract") == CONTRACT and receipt.get("provider") == PROVIDER,
+        contract = receipt.get("contract")
+        require(contract in (CONTRACT, STANDARD_CONTRACT) and receipt.get("provider") == PROVIDER,
                 "Unknown or missing actual currentEditor/firstResponder contract")
         owner_id, editor_id = raw.get("id"), editor.get("id")
         owner_object, editor_object = receipt.get("owner_identity"), receipt.get("editor_identity")
@@ -212,8 +216,17 @@ def field_editor_aliases(elements):
                 "Owner and retained editor must both preserve actual input roles")
         require(raw.get("source") == editor.get("source") == SOURCE,
                 "Owner or retained editor has no original live AppKit AX source")
-        require(receipt.get("owner_class") == raw.get("class") == "PaddedCell",
-                "Alias owner is not the contract's actual MemberRenameField.PaddedCell")
+        if contract == STANDARD_CONTRACT:
+            require(receipt.get("owner_is_text_field_cell") is True
+                    and receipt.get("control_is_text_field") is True
+                    and receipt.get("editor_is_text_view") is True,
+                    "V3 current-editor relationship lacks actual NSTextFieldCell/NSTextField/NSTextView base-type observations")
+            require(_string(receipt.get("owner_class")) and receipt["owner_class"] == raw.get("class"),
+                    "V3 retained owner class disagrees with the actual current field cell class")
+            require(_string(receipt.get("control_class")), "V3 current NSTextField runtime class is missing")
+        else:
+            require(receipt.get("owner_class") == raw.get("class") == "PaddedCell",
+                    "Alias owner is not the contract's actual MemberRenameField.PaddedCell")
         require(_string(receipt.get("editor_class")) and receipt["editor_class"] == editor.get("class"),
                 "Retained editor class disagrees with the actual currentEditor class")
         require(_string(receipt.get("owner_identifier")) and receipt["owner_identifier"] == raw.get("identifier"),
@@ -272,7 +285,7 @@ def field_editor_aliases(elements):
         require("native_field_editor" not in editor and "owned_editor_evidence" not in editor,
                 "Nested field-editor alias is not covered by this single-input contract")
         result["binding_valid"] = not issues
-        if receipt.get("contract") == CONTRACT:
+        if contract in (CONTRACT, STANDARD_CONTRACT):
             position = _cell_screen_position(item, raw, receipt, result["binding_valid"])
             result["cell_screen_position"] = position
             if not position["screen_position_relation_proven"]:
