@@ -38,6 +38,37 @@ Provider exceptions are emitted as `extraction_errors`, with exit code 1 after
 the raw file has been written. The orchestration must preserve that file and
 report the failure instead of treating it as an empty/matching scene.
 
+## Observer DPI awareness
+
+The published `Relic.Capture.exe` now embeds an explicit `PerMonitorV2`
+application manifest. CI invokes that executable, rather than `dotnet
+Relic.Capture.dll`, so Windows applies the declaration before managed module
+initialization. This removes dependence on WPF assembly loading: [.NET 8
+PresentationCore's module initializer](https://github.com/dotnet/wpf/blob/v8.0.0/src/Microsoft.DotNet.Wpf/src/PresentationCore/ModuleInitializer.cs)
+calls `SetProcessDPIAware` without requiring an `Application` or `Window`, but
+that is system awareness and its timing depends on when PresentationCore loads.
+The presence of `UseWPF=true` alone therefore did not document the observer's
+actual awareness at its first UIA access. Microsoft recommends [declaring the
+process default in its manifest](https://learn.microsoft.com/en-us/windows/win32/hidpi/setting-the-default-dpi-awareness-for-a-process),
+and requires [UIA clients to account for physical screen coordinates](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-screenscaling).
+
+`observer_dpi_awareness` in the raw UIA JSON retains actual readbacks at Main
+entry, before and after construction of the UIA walker, around the first HWND
+UIA read, and after the capture. Each also appears immediately in the progress
+JSONL. The record includes the native thread ID, QPC, opaque
+`GetThreadDpiAwarenessContext` return, `GetAwarenessFromDpiAwarenessContext`, and
+`AreDpiAwarenessContextsEqual` against PMv2. The equality API is essential:
+awareness value `2` also describes PMv1, and opaque context handles must not be
+compared as integer constants. Getter failures and non-PMv2 observations remain
+extraction errors; no context-switch fallback silently changes the readback.
+
+This is a correction to observer startup configuration, **not evidence that
+DPI virtualization caused the earlier fractional text rectangles to become
+integers**. The observed application, providers, rectangle values, origin
+subtraction, identity checks, and existing failures are unchanged. New CI
+captures must establish whether the actual three-channel readings change.
+The existing raw `viewport.scale` constant is not a DPI-awareness measurement.
+
 ## Native text rectangles and managed `Rect.Empty`
 
 The managed UIA wrapper is not a lossless view of provider rectangles.

@@ -227,7 +227,6 @@ public sealed partial class MainWindow
         }
         else if (dragEvents.Length != 0 || !paneAfter.Equals(paneBefore))
             throw new InvalidOperationException("Hover unexpectedly dragged or changed the actual pane geometry");
-        RequirePanelResizeHover();
         CapturePanelResizeCheckpoint("after_action");
     }
 
@@ -505,6 +504,7 @@ public sealed partial class MainWindow
         if (capturedPanelResizeBaseline != null)
             throw new InvalidOperationException("Panel resize preparation cannot run after its screenshot baseline");
         await AwaitPanelResizeHover("before-readback-settling");
+        RequirePanelResizeHover();
         var tooltipState = PanelResizeToolTipReadiness.Observe(ObservePanelResizeState());
         capturedPanelResizeEvidence["observed_capture_state"] = tooltipState != null
             ? "idle-hover-with-owned-production-tooltip-" + tooltipState : "unresolved";
@@ -529,8 +529,6 @@ public sealed partial class MainWindow
             ["drag_event_count"] = ((JsonArray)capturedPanelResizeEvidence["drag_events"]!).Count,
             ["tooltip_event_count"] = ((JsonArray)capturedPanelResizeEvidence["tooltip_events"]!).Count };
         ((JsonArray)capturedPanelResizeEvidence["checkpoints"]!).Add(current);
-        if (!IsObservedPanelResizeHover(state) || PanelResizeToolTipReadiness.Observe(state) == null)
-            throw new InvalidOperationException("Actual panel resize capture lacks idle hover or a measured owned ToolTip state: " + stage);
         // The completed input gesture precedes the actual NativeLabel render /
         // compositor preparation. In 06b914e that preparation delivered another
         // real PointerMoved and opened an owned ToolTip before any screenshot.
@@ -542,6 +540,8 @@ public sealed partial class MainWindow
             current["phase"] = "input-preparation";
             return;
         }
+        if (!IsObservedPanelResizeHover(state) || PanelResizeToolTipReadiness.Observe(state) == null)
+            throw new InvalidOperationException("Actual panel resize capture lacks idle hover or a measured owned ToolTip state: " + stage);
         var delivery = PanelResizeToolTipReadiness.DeliveryStatus(state, (JsonArray)capturedPanelResizeEvidence["tooltip_events"]!);
         current["tooltip_event_delivery_status"] = delivery;
         if (!PanelResizeToolTipReadiness.IsDelivered(delivery))

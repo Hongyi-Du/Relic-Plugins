@@ -23,6 +23,10 @@ internal static class Program
             Console.Error.WriteLine("UI Automation capture is CI-only; no local app is inspected.");
             return 2;
         }
+        // The manifest establishes PMv2 before any managed/module startup. This
+        // first observation is Main-entry evidence, not a claim that managed
+        // code can observe a point before the operating system starts us.
+        var dpiObservations = new JsonArray(ObserverDpiAwareness.Read("main-entry-before-capture-initialization"));
 
         string? requestPath = null, outputPath = null, holdReadyPath = null, holdReleasePath = null;
         for (var index = 0; index < args.Length; index++)
@@ -41,14 +45,26 @@ internal static class Program
         if ((holdReadyPath == null) != (holdReleasePath == null)) return Usage();
 
         using var progress = new CaptureProgress(outputPath);
+        progress.Record("observer-dpi", dpiObservations[0]!["status"]!.GetValue<string>(), dpiObservations[0]!.AsObject());
+        void ObserveDpi(string stage)
+        {
+            var observed = ObserverDpiAwareness.Read(stage);
+            dpiObservations.Add(observed);
+            progress.Record("observer-dpi", observed["status"]!.GetValue<string>(), observed);
+        }
         JsonObject? request = null;
         Capture? capture = null;
         JsonObject result;
         try
         {
             request = JsonNode.Parse(File.ReadAllText(requestPath))!.AsObject();
-            capture = new Capture(request, progress, retainOwners: holdReadyPath != null);
-            result = progress.Measure("capture.run", capture.Run);
+            // Capture's TreeWalker field initializer is itself an early UIA
+            // access, so observe before constructing the instance.
+            ObserveDpi("before-first-uia-construction");
+            capture = new Capture(request, progress, retainOwners: holdReadyPath != null, observeDpi: ObserveDpi);
+            ObserveDpi("after-uia-construction");
+            try { result = progress.Measure("capture.run", capture.Run); }
+            finally { ObserveDpi("after-uia-capture"); }
         }
         catch (Exception error)
         {
@@ -59,6 +75,22 @@ internal static class Program
                 ["extraction_errors"] = new JsonArray("UIA initialization failed: " + error)
             };
         }
+        var dpiErrors = new JsonArray();
+        foreach (var observation in dpiObservations.OfType<JsonObject>())
+            foreach (var error in observation["errors"]!.AsArray())
+            {
+                var message = "Observer DPI awareness " + observation["stage"]!.GetValue<string>() + ": " + error!.GetValue<string>();
+                dpiErrors.Add(message); result["extraction_errors"]!.AsArray().Add(message);
+            }
+        result["observer_dpi_awareness"] = new JsonObject
+        {
+            ["contract"] = "observer-manifest-pmv2-readback-v1",
+            ["status"] = dpiErrors.Count == 0 ? "measured-per-monitor-v2" : "failed",
+            ["declared_source"] = "Relic.Capture.exe ApplicationManifest app.manifest: PerMonitorV2",
+            ["purpose"] = "Remove dependence on PresentationCore module-load timing; no fractional-loss cause is asserted",
+            ["provider_rectangles_modified"] = false,
+            ["observations"] = dpiObservations, ["errors"] = dpiErrors
+        };
         NumericEvidence.Sanitize(result, result["extraction_errors"]!.AsArray());
         SeparateKnownOffscreenDiagnostics(result);
         progress.Record("capture", "completed", new JsonObject { ["errors"] = result["extraction_errors"]!.AsArray().Count });
@@ -177,17 +209,19 @@ internal sealed class Capture
     private readonly JsonArray nodes = new(), errors = new();
     private readonly TreeWalker walker = TreeWalker.RawViewWalker;
     private readonly bool retainOwners;
+    private readonly Action<string>? observeDpi;
     private readonly List<AutomationElement> heldElements = new();
     private AutomationElement? heldPrimaryRoot;
     private AutomationElementCollection? heldProcessRoots;
     private NativeTextEvidence? nativeText;
     private int nextId;
 
-    public Capture(JsonObject request, CaptureProgress progress, bool retainOwners = false)
+    public Capture(JsonObject request, CaptureProgress progress, bool retainOwners = false, Action<string>? observeDpi = null)
     {
         this.request = request;
         this.progress = progress;
         this.retainOwners = retainOwners;
+        this.observeDpi = observeDpi;
         processId = request["pid"]!.GetValue<int>();
         if (processId <= 0) throw new ArgumentException("A positive native process ID is required.");
         originX = request["origin"]!["x"]!.GetValue<double>();
@@ -199,7 +233,10 @@ internal sealed class Capture
     public JsonObject Run()
     {
         var handle = request["hwnd"]!.GetValue<long>();
-        var primary = progress.Measure("uia-capture/managed/primary-window", () => AutomationElement.FromHandle(new IntPtr(handle)));
+        observeDpi?.Invoke("before-first-window-uia-read");
+        AutomationElement primary;
+        try { primary = progress.Measure("uia-capture/managed/primary-window", () => AutomationElement.FromHandle(new IntPtr(handle))); }
+        finally { observeDpi?.Invoke("after-first-window-uia-read"); }
         if (retainOwners) heldPrimaryRoot = primary;
         if (primary.Current.ProcessId != processId)
             throw new InvalidOperationException("Requested HWND does not belong to the requested process.");
