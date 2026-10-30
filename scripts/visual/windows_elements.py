@@ -1399,6 +1399,112 @@ def project_ellipse_border(element, node, unmeasured):
     proof["quantity"] = "Actual native centered boundary stroke and circular outer border radius; no raster/frame equivalence asserted"
 
 
+def state_dot_analytic_paint(node, by_id):
+    """Interpret only the bound, concentric, opaque two-ring native primitive.
+
+    The returned CSS quantities describe analytic paint, not sampled pixels.
+    Inner-shadow spread contracts the padding-edge hole (CSS Backgrounds 3,
+    https://drafts.csswg.org/css-backgrounds-3/#shadow-shape). No reference
+    records, expected sizes/colors or screenshot-based fitting are inputs.
+    """
+    proof = {"source": "Actual owned Ellipse rings interpreted as analytic circular border and zero-blur inset paint",
+             "owner_id": node.get("id"), "status": "unmeasured", "layers": [],
+             "parameters": None, "raster_equivalence": None, "antialiasing_equivalence": None,
+             "same_frame_contribution": None, "reasons": []}
+    reasons = proof["reasons"]
+    local_nodes = [node, *(child for child in by_id.values() if child.get("parent") == node.get("id"))]
+    ownership_issues = []
+    layers = state_dot_paint_layers(local_nodes, by_id, ownership_issues).get(node.get("id"), [])
+    proof["ownership"] = copy.deepcopy(node.get("state_dot_evidence"))
+    reasons.extend(issue["reason"] for issue in ownership_issues)
+    if len(layers) != 2:
+        reasons.append("Exactly two reciprocally bound current Surround/VacancyRing paint objects are required")
+    owner_outline, owner_proof, owner_issues = native_outline(node, by_id)
+    proof["owner_outline"] = owner_proof
+    if (node.get("type") != "NativeStateDotView" or owner_outline != "none"
+            or owner_proof.get("absence_proven") is not True or owner_issues
+            or (node.get("outline_owner_evidence") or {}).get("own_paint_contract") != "relic-state-dot-grid-owned-ellipses"):
+        reasons.append("Current exact state-dot Grid own-paint contract is incomplete; old null contracts cannot establish aggregate paint")
+
+    def transparent_brush(style, property_name, color_name):
+        brushes = style.get("brush_evidence")
+        brush = brushes.get(property_name) if isinstance(brushes, dict) else None
+        color = style.get(color_name)
+        if (not isinstance(brush, dict) or "type" not in brush or not isinstance(color, list)
+                or len(color) != 4 or not all(finite(v) and 0 <= v <= 255 for v in color) or color[3] != 0):
+            return False
+        if brush["type"] is None:
+            return color == [0, 0, 0, 0] and brush.get("solid_rgba") == color
+        return (brush["type"] == "Microsoft.UI.Xaml.Media.SolidColorBrush"
+                and brush.get("solid_rgba") == color and finite(brush.get("opacity"))
+                and 0 <= brush["opacity"] <= 1)
+
+    owner_style = node.get("style") or {}
+    owner_widths = owner_style.get("border_widths")
+    if (not transparent_brush(owner_style, "background", "background")
+            or not transparent_brush(owner_style, "border", "border_color")
+            or not finite(owner_style.get("border_width")) or owner_style["border_width"] != 0
+            or not isinstance(owner_widths, list) or len(owner_widths) != 4
+            or not all(finite(width) and width == 0 for width in owner_widths)):
+        reasons.append("The actual Grid must have measured transparent background and no independent border paint")
+    for painted_node in [node, *layers]:
+        actual_style = painted_node.get("style") or {}
+        if (not finite(actual_style.get("opacity")) or actual_style["opacity"] != 1
+                or not finite(painted_node.get("opacity")) or painted_node["opacity"] != 1
+                or actual_style.get("shadow") != [] or actual_style.get("background_image") != "none"
+                or actual_style.get("paint_diagnostics") != []):
+            reasons.append(painted_node["id"] + ": opacity, effects or brush diagnostics do not establish the supported unmodified paint")
+    contours = []
+    for layer in layers:
+        local_issues = []
+        projected = {"style": copy.deepcopy(layer.get("style") or {}), "evidence": {}}
+        project_ellipse_border(projected, layer, local_issues)
+        ellipse = projected["evidence"].get("ellipse_border") or {}
+        contour = ellipse.get("geometry_derivation")
+        layer_outline, layer_proof, layer_issues = native_outline(layer, by_id)
+        proof["layers"].append({"id": layer["id"], "ellipse": ellipse, "own_outline": layer_proof})
+        if (local_issues or ellipse.get("stroke_fields_measured") is not True
+                or ellipse.get("contour_measured") is not True or not isinstance(contour, dict)
+                or layer_outline != "none" or layer_issues):
+            reasons.append(layer["id"] + ": actual solid undashed circular stroke/geometry or own paint is incomplete")
+        if not transparent_brush(layer.get("style") or {}, "background", "background"):
+            reasons.append(layer["id"] + ": an opaque, unknown or unsupported Fill cannot be treated as an empty ring")
+        color = projected["style"].get("border_color")
+        if not isinstance(color, list) or len(color) != 4 or color[3] != 255:
+            reasons.append(layer["id"] + ": this bounded analytic case requires an actual opaque stroke")
+        contours.append(contour)
+    if len(contours) == 2 and all(isinstance(contour, dict) for contour in contours):
+        surround, vacancy = contours
+        if (surround["center"] != vacancy["center"]
+                or surround["inner_radius"] != vacancy["outer_radius"]):
+            reasons.append("Actual rings are not concentric or the inner ring does not meet the padding edge")
+        if (node.get("bounds") != surround["outer_bounds"] or node.get("visible_bounds") != node.get("bounds")
+                or node.get("local_bounds") != layers[0].get("local_bounds")
+                or node.get("transform") != layers[0].get("transform")
+                or "clip" not in node or node["clip"] is not None
+                or "hidden_reason" not in node or node["hidden_reason"] is not None):
+            reasons.append("Actual Grid box/transform/visibility is not the complete Surround outer box")
+        if not reasons:
+            border_width = surround["outer_radius"] - surround["inner_radius"]
+            spread = vacancy["outer_radius"] - vacancy["inner_radius"]
+            border_color = copy.deepcopy(layers[0]["style"]["foreground"])
+            parameters = {"background": copy.deepcopy(owner_style["background"]),
+                          "border_color": border_color, "border_width": border_width,
+                          "border_widths": [border_width] * 4, "border_colors": [copy.deepcopy(border_color) for _ in range(4)],
+                          "border_styles": ["solid"] * 4, "corner_radius": surround["outer_radius"],
+                          "corner_radii": [surround["outer_radius"]] * 4,
+                          "shadow": [{"inset": True, "offset_x": 0, "offset_y": 0, "blur_radius": 0,
+                                      "spread_radius": spread, "color": copy.deepcopy(layers[1]["style"]["foreground"])}]}
+            proof.update(status="measured-analytic-parameters", parameters=copy.deepcopy(parameters),
+                         quantity="Actual native annular paint parameters only; no pixel, antialiasing or frame-equivalence claim")
+    issues = [{"id": node.get("id"), "property": "style.compound_paint", "reason": "; ".join(reasons)}] if reasons else []
+    # Even complete primitive parameters do not bind this paint to the final PNG.
+    # Keep this independent coverage failure rather than marking the dot passed.
+    issues.append({"id": node.get("id"), "property": "paint.compound_raster",
+                   "reason": "Actual ring parameters do not measure final PNG contribution, antialiasing or same-frame equivalence"})
+    return proof["parameters"], proof, issues
+
+
 def measured_dialog_surfaces(raw, by_id, unmeasured):
     """Bind an actual modal surface, not a same-sized/name-matched descendant.
 
@@ -2037,14 +2143,15 @@ def project(xaml_path, uia_path, png_path):
                            for layer in state_dot_layers[node["id"]]],
                 "css_paint_equivalence": None,
             }
-            # A Grid's absent border/shadow is not the appearance of its two
-            # Ellipse layers. Keep their real paint, and leave aggregate CSS
-            # quantities unknown rather than inventing an inset shadow.
+            parameters, analytic_evidence, paint_issues = state_dot_analytic_paint(node, by_id)
+            compound_paint["analytic_parameters"] = analytic_evidence
+            # The old Grid defaults are not the appearance of its children.
+            # Only independently bound analytic quantities replace these nulls;
+            # pixel/AA/frame equivalence remains unknown even on that path.
             for prop in ("background", "border_color", "border_width", "border_widths", "border_colors",
                          "border_styles", "corner_radius", "corner_radii", "shadow"):
-                style[prop] = None
-            unmeasured.append({"id": node["id"], "property": "style.compound_paint",
-                               "reason": "Actual indicator layers are retained; their aggregate CSS border/radius/inset-shadow equivalence has not been independently measured"})
+                style[prop] = copy.deepcopy(parameters[prop]) if parameters is not None else None
+            unmeasured.extend(paint_issues)
         bounds = scrollbar_bounds or paint_node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]

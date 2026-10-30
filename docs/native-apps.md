@@ -1,5 +1,39 @@
 # Native Relic App contract
 
+Changes for the clients (strict state-dot annular paint): the Windows projector
+can now derive circular border/radius and zero-blur inset parameters from the
+actual two owned Ellipses, only when the new exact Grid own-paint contract and
+both independent primitive receipts are complete. Geometry and colors come
+from those native objects. Historical null contracts still fail, eccentric or
+incomplete rings remain unknown, and final PNG/AA/frame equivalence stays a
+separate failure. Five pure CI tests cover recorded old inputs, an explicitly
+synthetic new contract, actual-color propagation and 19 negative conditions.
+Only py_compile and diff-check ran locally; actual CI verification is pending.
+
+Read macOS REQUESTS through 86b52e7: its b63cd2f diagnostic subset retains
+measured scroll/typography improvements but still fails the strict full gate.
+The following native popup-title padding and member-card border-layout fixes
+need their own new captures; they request no shared API or tolerance change.
+
+Changes for the clients (actual e469311 CI feedback): Windows build and both
+native test projects pass; shared element-contract tests pass. The Mac job
+124030056997 in run 41045973032 executes 186 tests with two failed assertions
+in OutlineDrawTests.testTextOutlineContractRequiresItsActualCurrentNativeDrawAndRejectsAdditionalPaint
+(lines 27/28). Its actual NSViewBackingLayer and presentation layer each have
+one sublayer, so the new text-own-outline contract correctly stays unknown;
+the test expected absence. The macOS owner must determine that actual sublayer's
+identity and drawing duty before changing the contract or expectation. The raw
+CI log is retained at `S:\Codex\Temp\relic-native\macos-e469311.log`.
+
+The efeaf76 actual cwd diagnostic independently measures DWrite emergency-break
+mode 2 as two 32-unit lines. System ICU provides opportunities at UTF-16 offsets
+0, 2, 11, 25, 56 and 64; using the actual cluster advances and 238px allocation
+would choose 25/56/64, matching the reference's three captured spans. This is
+a production wrapping direction, not evidence of a rendered replacement. The
+original source text, selection/copy behavior and actual font/strut inputs must
+survive that change. The diagnostic reports remain downloaded under
+`S:\Codex\Outputs\Relic-native-visual\parity-efeaf76\windows`.
+
 Changes for the clients (native build scheduling): read the macOS request to
 preserve queued build feedback. The native-apps workflow now keeps its active
 per-branch run, including a queued Mac job, while GitHub replaces the next
