@@ -7,6 +7,9 @@ import CoreText
 class NativeGlyphLayoutManager: NSLayoutManager {
     var recordDraws = false
     var drawsGlyphsIntoCurrentContext = false
+    // Unit-test diagnostics only; normal capture never snapshots a draw callback.
+    var captureCallbackBitmap = false
+    private(set) var lastCallbackBitmap: CGImage?
     private var sequence = 0
     private var calls: [[String: Any]] = []
     private var activeRange: NSRange?
@@ -124,7 +127,10 @@ class NativeGlyphLayoutManager: NSLayoutManager {
     override func showCGGlyphs(_ glyphs: UnsafePointer<CGGlyph>, positions: UnsafePointer<CGPoint>, count glyphCount: Int,
                               font: NSFont, textMatrix: CGAffineTransform, attributes: [NSAttributedString.Key: Any] = [:], in context: CGContext) {
         NativeTextRasterization.begin(context)
-        defer { context.restoreGState() }
+        defer {
+            if captureCallbackBitmap { lastCallbackBitmap = context.makeImage() }
+            context.restoreGState()
+        }
         if recordDraws, activeRange != nil {
             func transform(_ t: CGAffineTransform) -> [String: Double] { ["a": t.a, "b": t.b, "c": t.c, "d": t.d, "tx": t.tx, "ty": t.ty] }
             func box(_ rect: CGRect) -> Any {
@@ -153,18 +159,18 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
                 "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
                 "bitmap_width": context.width, "bitmap_height": context.height,
-                "renderer": drawsGlyphsIntoCurrentContext ? "CTFontDrawGlyphs with the actual TextKit font, matrix and glyph positions" : "NSLayoutManager.showCGGlyphs"])
+                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with explicit actual TextKit font, size, matrix and positions" : "NSLayoutManager.showCGGlyphs"])
         }
         if drawsGlyphsIntoCurrentContext {
-            // Use the actual substituted font and shaped glyphs from TextKit.
-            // A bare CGContext.showGlyphs produced no ink on macOS CI despite
-            // this callback's documented configured-context contract. Core Text
-            // applies the font explicitly and retains color-font rendering.
-            // Its font matrix must be this draw's supplied text-to-user matrix;
-            // positions are already in user space and must not be transformed.
+            // Explicitly configure the callback's actual substituted font,
+            // point size and text-to-user matrix. Both the inherited-state
+            // primitive and CTFontDrawGlyphs produced empty CI rasters. Do not
+            // infer any of these values from the attributed font request.
             var matrix = textMatrix
             matrix.tx = 0; matrix.ty = 0
-            let drawingFont = CTFontCreateCopyWithAttributes(font as CTFont, 0, &matrix, nil)
+            context.setFont(CTFontCopyGraphicsFont(font as CTFont, nil))
+            context.setFontSize(font.pointSize)
+            context.textMatrix = matrix
             // AppKit's callback context does not guarantee a usable inherited
             // text drawing mode for a custom primitive. These plain labels have
             // foreground ink, not stroked glyphs or a text clipping operation.
@@ -172,7 +178,8 @@ class NativeGlyphLayoutManager: NSLayoutManager {
             if let foreground = attributes[.foregroundColor] as? NSColor {
                 context.setFillColor(foreground.cgColor)
             }
-            CTFontDrawGlyphs(drawingFont, glyphs, positions, glyphCount, context)
+            context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)),
+                               at: Array(UnsafeBufferPointer(start: positions, count: glyphCount)))
         } else {
             super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
         }

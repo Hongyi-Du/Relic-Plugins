@@ -6,15 +6,21 @@ import AppKit
     func testDirectLabelPrimitivePreservesTextKitsActualGlyphBitmap() throws {
         for (index, text) in ["Relic → 组织", "A long label that must end in an ellipsis", "Done 任务", "🙂 Relic"].enumerated() {
             var images: [Data] = []
+            var callbackImages: [Data?] = []
+            var receipts: [[String: Any]] = []
             for direct in [false, true] {
                 let view = ReferenceLabel(text, size: 14, lines: 1, struck: text.hasPrefix("Done")).makeLabelView()
                 let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
                 layout.drawsGlyphsIntoCurrentContext = direct
+                layout.recordDraws = true
+                layout.captureCallbackBitmap = true
                 view.frame = NSRect(x: 0, y: 0, width: 120, height: 30)
                 view.textContainer?.containerSize = view.bounds.size
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+                callbackImages.append(layout.lastCallbackBitmap.flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) })
+                receipts.append(layout.lastDraw ?? [:])
             }
             if images[0] != images[1] {
                 // Retain the actual failed CI renders, never synthetic expected
@@ -25,6 +31,11 @@ import AppKit
                 try images[0].write(to: directory.appendingPathComponent("glyph-\(index)-appkit.png"))
                 try images[1].write(to: directory.appendingPathComponent("glyph-\(index)-direct.png"))
                 try text.write(to: directory.appendingPathComponent("glyph-\(index)-source.txt"), atomically: true, encoding: .utf8)
+                for mode in images.indices {
+                    let renderer = mode == 0 ? "appkit" : "direct"
+                    try callbackImages[mode]?.write(to: directory.appendingPathComponent("glyph-\(index)-\(renderer)-callback.png"))
+                    try JSONSerialization.data(withJSONObject: receipts[mode], options: [.sortedKeys]).write(to: directory.appendingPathComponent("glyph-\(index)-\(renderer)-draw.json"))
+                }
             }
             XCTAssertEqual(images[0], images[1], "The drawing primitive must preserve shaping, truncation, fallback and decorations: \(text)")
         }

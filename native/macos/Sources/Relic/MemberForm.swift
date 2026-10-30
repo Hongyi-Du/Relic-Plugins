@@ -115,7 +115,7 @@ struct MemberForm: View {
                         }.padding(.horizontal, 8).padding(.vertical, 6)
                             .modifier(RecordedSurface(background: sessionIndex == String(index) ? RelicStyle.accent.opacity(0.14) : .clear, radius: 8, kind: "list-row", owner: identity, selected: sessionIndex == String(index)))
                     }.buttonStyle(.plain).help(sessionLabel(session))
-                        .accessibilityIdentifier(identity).accessibilityLabel("")
+                        .accessibilityIdentifier(identity).accessibilityLabel(sessionAccessibleName(session))
                         .environment(\.nativeElementParent, identity)
                 }
                 if !problems.isEmpty { ReferenceLabel(problems.map(\.text).joined(separator: m.t("member.problem_sep")), size: 11.5, color: RelicStyle.muted, lines: 0) }
@@ -213,6 +213,16 @@ struct MemberForm: View {
         var parts = [session["title"].text.isEmpty ? session["id"].text : session["title"].text, session["harness"].text, session["cwd"].text, m.ago(session["updated"])]
         if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) { parts.append(m.t("member.manual_delivery")) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+    private func sessionAccessibleName(_ session: Node) -> String {
+        var parts = [sessionHarnessLabel(session),
+                     session["title"].text.isEmpty ? session["id"].text : session["title"].text,
+                     ReferenceText.clip(session["cwd"].text, to: 40)]
+        if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) {
+            parts.append(m.t("member.manual_delivery"))
+        }
+        if session["updated"].integer > 0 { parts.append(m.ago(Node(session["updated"].integer))) }
+        return parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
 }

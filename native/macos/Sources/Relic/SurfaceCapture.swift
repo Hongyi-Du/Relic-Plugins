@@ -105,7 +105,7 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).allowsHitTesting(false))
+            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).padding(-(outline?.outset ?? 0)).allowsHitTesting(false))
     }
 }
 
@@ -119,6 +119,11 @@ struct SurfaceOutline: Equatable {
     let color: Color
     let dash: [CGFloat]
     var phase: CGFloat = 0
+    // CSS outline-offset measures from the owner's outside edge to the
+    // outline's inside edge. Existing avatar outlines remain wholly inset.
+    var offset: CGFloat? = nil
+    var effectiveOffset: CGFloat { offset ?? -width }
+    var outset: CGFloat { max(0, effectiveOffset + width) }
 }
 
 struct SurfaceShadow {
@@ -190,8 +195,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
             guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return nil }
-            let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.bounds, to: nil)), in: content)
-            let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content) } ?? .null
+            let rect = ElementCapture.topLeft(window.convertToScreen(view.convert(view.surfaceBounds, to: nil)), in: content)
+            let clip = NativeVisibility.screenClip(view).map { $0.isNull ? NSRect.null : ElementCapture.topLeft($0, in: content).intersection(rect) } ?? .null
             var fill: Any = NSNull(), border: Any = NSNull(), shadows: [[String: Any]] = [], outline: Any = NSNull()
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 fill = ElementCapture.rgba(view.fill); border = ElementCapture.rgba(view.border)
@@ -202,8 +207,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
                 shadows.append(contentsOf: view.rings.map { ["inset": false, "offset_x": 0, "offset_y": 0, "blur_radius": 0, "spread_radius": Double($0.width), "color": ElementCapture.rgba(NSColor($0.color))] })
                 if let value = view.outline {
                     outline = ["width": Double(value.width), "color": ElementCapture.rgba(NSColor(value.color)),
-                        "dash": value.dash.map(Double.init), "offset": -Double(value.width),
-                        "renderer": "Separate inward outline stroke; not a layout border"]
+                        "dash": value.dash.map(Double.init), "offset": Double(value.effectiveOffset),
+                        "renderer": "Separate native outline stroke; not a layout border"]
                 }
             }
             let outlineDraw = view.outlineReceipt(in: content)
@@ -221,7 +226,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
                               "border_styles": view.widths.map { $0 == 0 ? "none" : view.borderDash.isEmpty ? "solid" : "dashed" },
                               "border_colors": Array(repeating: border, count: 4), "corner_radii": view.cornerRadii.map { Double($0) },
                               "opacity": opacity, "background_image": "none", "shadow": shadows, "native_outline": outline, "outline": outlineDraw.paint],
-                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius", "outline": outlineDraw.evidence]]
+                    "evidence": ["source": "live-native-surface-probe", "renderer": "UnevenRoundedRectangle.fill/strokeBorder, optional edge Rectangles and clipped leading inset", "attachment": "production ViewModifier", "identity": view.identity, "probe_local_bounds": ElementCapture.box(view.bounds), "surface_local_bounds": ElementCapture.box(view.surfaceBounds), "outline_draw_outset": Double(view.outline?.outset ?? 0), "declared_swiftui_opacity": view.opacity, "native_opacity_ancestry": NativeVisibility.opacityAncestry(view), "native_shadow_radii": view.shadows.map { Double($0.radius) }, "border_dash": view.borderDash.map { Double($0) }, "shadow_radius_unit": "SwiftUI Gaussian radius; CSS blur diameter is twice the radius", "outline": outlineDraw.evidence]]
         }
     }
     final class SurfaceView: NSView {
@@ -242,6 +247,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var insetRingWidth: CGFloat = 0, outerRingWidth: CGFloat = 0
         var rings: [SurfaceRing] = []
         private(set) var outline: SurfaceOutline?
+        var surfaceBounds: NSRect { bounds.insetBy(dx: outline?.outset ?? 0, dy: outline?.outset ?? 0) }
         private var outlineCorners: [CGFloat] = [0,0,0,0]
         private(set) var outlineRevision = 0
         private var drawSequence = 0
@@ -263,7 +269,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             let corners = outlineCorners
             let path = UnevenRoundedRectangle(topLeadingRadius: corners[0], bottomLeadingRadius: corners[3],
                 bottomTrailingRadius: corners[2], topTrailingRadius: corners[1], style: .circular)
-                .inset(by: outline.width / 2).path(in: bounds).cgPath
+                .inset(by: -(outline.effectiveOffset + outline.width / 2)).path(in: surfaceBounds).cgPath
             context.saveGState()
             context.setLineWidth(outline.width); context.setLineDash(phase: outline.phase, lengths: outline.dash)
             context.setLineCap(.butt); context.setLineJoin(.miter); context.setStrokeColor(color.cgColor)
@@ -271,7 +277,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
             context.addPath(path); context.strokePath(); context.restoreGState()
             if recordDraws {
                 drawSequence += 1
-                lastOutlineDraw = OutlineDrawReceipt(path: path, bounds: bounds, width: outline.width,
+                lastOutlineDraw = OutlineDrawReceipt(path: path, bounds: bounds, ownerBounds: surfaceBounds, width: outline.width, offset: outline.effectiveOffset,
                     dash: outline.dash, phase: outline.phase,
                     color: [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent].map { Double($0 * 255) },
                     contextTransform: transform, contextClip: clip, revision: outlineRevision, sequence: drawSequence,
