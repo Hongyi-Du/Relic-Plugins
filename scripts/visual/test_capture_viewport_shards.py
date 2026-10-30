@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import capture
+from download_comparison_inputs import artifact_client
 
 
 class CaptureViewportShardTests(unittest.TestCase):
@@ -87,9 +88,36 @@ class CaptureViewportShardTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 45", macos)
         compare = self.workflow.split("  compare:\n", 1)[1]
         self.assertIn("--output visual/parity --matrix full", compare)
-        self.assertIn("pattern: visual-windows-*", compare)
-        self.assertIn("pattern: reference-windows-*", compare)
-        self.assertIn("merge-multiple: true", compare)
+        self.assertIn("python scripts/visual/download_comparison_inputs.py --output visual", compare)
+        self.assertIn("--report-output visual/parity --report-output visual/comparisons", compare)
+        self.assertIn("--reference-root visual/reference --macos-reference-root visual/reference-macos", compare)
+
+    def test_actual_capture_artifact_names_route_all_four_complete_input_families(self):
+        # Exercise the production downloader against every actual producer shard,
+        # rather than asserting the retired download-artifact YAML implementation.
+        routes = []
+        for job in self.full_jobs:
+            suffix = f"{job['lang']}-{job['theme']}-{job['viewport']}"
+            for prefix, expected in (("visual-windows", "windows"), ("reference-windows", "reference")):
+                name = prefix + "-" + suffix
+                with self.subTest(artifact=name):
+                    self.assertEqual(artifact_client(name), expected)
+                routes.append(artifact_client(name))
+        macos = self.workflow.split("  macos:\n", 1)[1].split("  compare:\n", 1)[0]
+        expression = re.search(r"include: \$\{\{ fromJSON\(inputs\.matrix != 'smoke' && '([^']+)' \|\| '([^']+)'\) \}\}", macos)
+        self.assertIsNotNone(expression, "Every macOS producer shard must remain in the transport inventory")
+        macos_jobs = json.loads(expression.group(1))
+        self.assertEqual(macos_jobs, [{"lang": lang, "theme": theme}
+                                     for lang in self.spec["languages"] for theme in self.spec["themes"]])
+        for prefix in ("visual-macos", "reference-macos"):
+            self.assertIn("name: " + prefix + "-${{ matrix.lang }}-${{ matrix.theme }}", macos)
+        for job in macos_jobs:
+            for prefix, expected in (("visual-macos", "macos"), ("reference-macos", "reference-macos")):
+                name = f"{prefix}-{job['lang']}-{job['theme']}"
+                with self.subTest(artifact=name):
+                    self.assertEqual(artifact_client(name), expected)
+                routes.append(artifact_client(name))
+        self.assertEqual(Counter(routes), {"windows": 12, "reference": 12, "macos": 4, "reference-macos": 4})
 
     def test_main_threads_viewport_through_manifest_fixture_and_both_completion_receipts(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):

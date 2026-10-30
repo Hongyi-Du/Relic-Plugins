@@ -480,7 +480,8 @@ public sealed partial class MainWindow
                     foreach (var picture in avatarLayout.Children.OfType<PersonPicture>())
                         if (picture.Tag is Border { Child: TextBlock initials } && initials.Text.Length > 0)
                             replyNameParts.Add(initials.Text);
-                faces.Children.Add(new Border { Child = replyAvatar, BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, -4, 0) });
+                var replyLayout = (Grid)replyAvatar;
+                faces.Children.Add(replyLayout.Children.OfType<NativeAvatarPicture>().Single().WrapReply(replyLayout, Paint("FFFFFF", "1F1F1E")));
             }
             row.Children.Add(faces);
             var count = Text(T("thread.replies", ("n", item["thread"].Text("count"))), 12.5); count.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; count.Foreground = Accent; row.Children.Add(count);

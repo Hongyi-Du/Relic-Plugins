@@ -107,7 +107,7 @@ public sealed partial class MainWindow
                         case "documents": dialog = Details("docs"); break;
                         case "trajectory": dialog = Details("trace", fixture.Text("member")); break;
                         case "shortcuts": dialog = Shortcuts(); break;
-                        case "recipients": dialog = PickRecipients(); break;
+                        case "recipients": await CaptureRecipientsScene(manifest.Text("output"), shot.Text("id")); break;
                         case "quote": Quote(Display(fixture.Text("member")), fixture.Text("quote")); break;
                         case "mention": editor.Text = "@"; editor.SelectionStart = 1; MentionMenu(); break;
                         case "digest": digest = fixture["digest"]!.DeepClone(); digestOpen = true; DrawConversation(); break;

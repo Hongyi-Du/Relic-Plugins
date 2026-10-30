@@ -191,7 +191,7 @@ public sealed partial class MainWindow
                             && ReferenceEquals(VisualTreeHelper.GetParent(dot.VacancyRing), dot)
                     };
                 }
-                if (actual == typeof(PersonPicture))
+                if (actual == typeof(PersonPicture) || actual == typeof(NativeAvatarPicture))
                 {
                     var picture = (PersonPicture)value;
                     var template = picture.Template;
@@ -205,11 +205,15 @@ public sealed partial class MainWindow
                     // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1498
                     receipt["person_picture_template"] = new JsonObject
                     {
-                        ["source"] = "actual exact PersonPicture runtime, Control.Template and current visual children",
+                        ["source"] = actual == typeof(NativeAvatarPicture)
+                            ? "actual sealed NativeAvatarPicture retained paint/template and PersonPicture base type"
+                            : "actual exact PersonPicture runtime, Control.Template and current visual children",
                         ["status"] = "measured", ["owner_id"] = ids[value],
                         ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
                         ["template_present"] = template != null, ["template_type"] = template?.GetType().FullName,
                         ["visual_child_count"] = count,
+                        ["audited_local_source"] = actual == typeof(NativeAvatarPicture) ? "native/windows/Relic/NativeAvatarParts.cs#NativeAvatarPicture" : null,
+                        ["current_paint_same_object"] = value is NativeAvatarPicture retained ? retained.HasCurrentPaint : null,
                         ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
                     };
                 }
@@ -309,6 +313,7 @@ public sealed partial class MainWindow
         // This unsealed SDK class is accepted only by exact runtime equality,
         // with its actual present template and complete nonempty child set.
         : actual == typeof(PersonPicture) ? "native-personpicture-control-template-children-only"
+        : actual == typeof(NativeAvatarPicture) ? "relic-native-avatar-personpicture-template-only"
         : actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView) ? "relic-overview-token-template-content"
         : actual == typeof(NativeStateDotView) ? "relic-state-dot-grid-owned-ellipses"
         // Exact sealed app renderer: native Panel paint plus an independently
@@ -325,7 +330,8 @@ public sealed partial class MainWindow
         || actual == typeof(ScrollViewer) || actual == typeof(ListViewItem)
         || actual == typeof(ListView) || actual == typeof(ComboBox) || actual == typeof(TextBox);
 
-    // These six exact sealed production types add layout or a region peer only.
+    // These exact sealed production types add layout, retained child ownership
+    // or a region peer only. Every child renderer is captured independently.
     // Their own background/border follows the fixed SDK's CPanel path:
     // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1508
     // This is not a contract for arbitrary Panel subclasses. Actual focus,
@@ -336,5 +342,7 @@ public sealed partial class MainWindow
         : actual == typeof(MessageHeaderRow) ? ("relic-message-header-panel-layout-only", "native/windows/Relic/MessageHeaderRow.cs#MessageHeaderRow")
         : actual == typeof(ActionRow) ? ("relic-action-row-panel-layout-only", "native/windows/Relic/Design.cs#ActionRow")
         : actual == typeof(DetailsFilterRow) ? ("relic-details-filter-panel-layout-only", "native/windows/Relic/DetailsStyles.cs#DetailsFilterRow")
-        : actual == typeof(NativeRegionGrid) ? ("relic-region-grid-peer-only", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid") : null;
+        : actual == typeof(NativeRegionGrid) ? ("relic-region-grid-peer-only", "native/windows/Relic/NativeRegion.cs#NativeRegionGrid")
+        : actual == typeof(NativeOrganizationAvatarPaint) ? ("relic-organization-avatar-grid-owned-children", "native/windows/Relic/NativeAvatarParts.cs#NativeOrganizationAvatarPaint")
+        : actual == typeof(NativeSettingsNavigationLabel) ? ("relic-settings-label-grid-owned-child", "native/windows/Relic/NativeSettingsNavigationLabel.cs#NativeSettingsNavigationLabel") : null;
 }

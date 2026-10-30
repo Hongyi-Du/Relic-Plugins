@@ -23,6 +23,7 @@ from windows_text_precision import analyze_text_precision
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 from windows_toggle_parts import windows_toggle_parts
+from windows_avatar_parts import windows_avatar_parts
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -56,7 +57,8 @@ CONTROL_KINDS = {
     "NativeRegionGrid": "region",
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
-PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
+AVATAR_TYPES = {"PersonPicture", "NativeAvatarPicture"}
+PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", **{typ: "avatar" for typ in AVATAR_TYPES}}
 TEXT_TYPES = {"TextBlock", "RichTextBlock", "WorkspaceCodeView", "NativeLabel", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "current", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
@@ -200,7 +202,7 @@ def scrollbar_page_hit_regions(raw, bars, by_id):
     def no_visible_paint(node):
         if node.get("hidden_reason"):
             return True
-        if node.get("text") != "" or node.get("icon") or node.get("type") in ICON_TYPES | {"Image", "PersonPicture"}:
+        if node.get("text") != "" or node.get("icon") or node.get("type") in ICON_TYPES | {"Image"} | AVATAR_TYPES:
             return False
         if node.get("paint_kind") == "template":
             return bool(children[node["id"]])
@@ -1949,6 +1951,11 @@ def project(xaml_path, uia_path, png_path):
     for issue in toggle_parts["unresolved"]:
         unmeasured.append({"id": issue["owner_id"], "property": "state.originating_toggle",
                            "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
+    avatar_parts = windows_avatar_parts(source_raw, uia)
+    unmeasured.extend(avatar_parts["unmeasured"])
+    for issue in avatar_parts["unresolved"]:
+        unmeasured.append({"id": issue["owner_id"], "property": "avatar.retained_parts",
+                           "reason": issue["reason"], "evidence": copy.deepcopy(issue["evidence"])})
     owner_by_provider = {pair["uia_id"]: pair["xaml_id"] for pair in identity_bindings["pairs"]}
     provider_by_owner = {pair["xaml_id"]: pair["uia_id"] for pair in identity_bindings["pairs"]}
     provider_records = defaultdict(list)
@@ -2059,7 +2066,7 @@ def project(xaml_path, uia_path, png_path):
             if child["type"] in TEXT_TYPES and child.get("text") and not ancestor(child, {n["id"] for n in raw if n["type"] in ICON_TYPES}):
                 labels.append(child)
             if child["type"] in {"Border", "Grid", "Rectangle", "ContentPresenter"}:
-                if node["type"] == "PersonPicture":
+                if node["type"] in AVATAR_TYPES:
                     # A letter/avatar background is one semantic surface. Its
                     # decorative rings, image and icon content remain separate.
                     if distance(child["bounds"], node["bounds"]) <= 1e-6 and painted(child.get("style", {}).get("background")):
@@ -2095,7 +2102,7 @@ def project(xaml_path, uia_path, png_path):
                                           and finite(child.get("style", {}).get("border_width"))
                                           and child["style"]["border_width"] > 0)
                                      for child in descendants(node))
-        compound = distinct_semantics or distinct_content_paint and node["type"] != "PersonPicture"
+        compound = distinct_semantics or distinct_content_paint and node["type"] not in AVATAR_TYPES
         if len(labels) == 1 and not compound and (control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
@@ -2112,6 +2119,15 @@ def project(xaml_path, uia_path, png_path):
         owned[layer] = (owner, "actual compound state-dot paint layer")
     for region_id, (owner, _) in scrollbar_page_hits.items():
         owned[region_id] = (owner, "actual nonpainted non-tab-stop ScrollBar template input region")
+    avatar_owners = {}
+    for owner, parts in avatar_parts["owners"].items():
+        if not visible(by_id[owner]) or any(part in owned and owned[part][0] != owner for part in parts["owned_ids"]):
+            unmeasured.append({"id": owner, "property": "avatar.retained_parts",
+                               "reason": "Actual avatar is not visible or a retained decoration has conflicting ownership"})
+            continue
+        avatar_owners[owner] = parts
+        for part in parts["owned_ids"]:
+            owned[part] = (owner, "actual retained production avatar decoration")
 
     host_ownership = host_container_ownership(uia, raw)
     projection.extend(host_ownership)
@@ -2208,8 +2224,8 @@ def project(xaml_path, uia_path, png_path):
                 kind = "text" if text else None
         elif typ in ICON_TYPES:
             kind = "icon"
-        elif typ in {"Image", "PersonPicture"}:
-            kind = "avatar" if typ == "PersonPicture" else "image"
+        elif typ == "Image" or typ in AVATAR_TYPES:
+            kind = "avatar" if typ in AVATAR_TYPES else "image"
         elif typ in {"Line", "Path", "Polyline"}:
             kind = "chart-edge" if ancestor(node, {n["id"] for n in raw if n["type"] == "Canvas"}) else "divider"
         elif typ == "Ellipse":
@@ -2272,7 +2288,13 @@ def project(xaml_path, uia_path, png_path):
         state = {k: node.get("state", {}).get(k) for k in STATE_KEYS}
         if dialog_surface is not None:
             state["hovered"] = dialog_surface.get("state", {}).get("hovered")
-        if node["id"] in group_regions:
+        if typ in AVATAR_TYPES and node["id"] in provider_by_owner:
+            # PersonPicture's real provider can report Text while the actual
+            # native control owns an avatar. Bind only by full RuntimeId here;
+            # unrelated Text providers are never reclassified by proximity.
+            provider_id = provider_by_owner[node["id"]]
+            matching = [n for n in uia_nodes if n["id"] == provider_id and n["id"] not in used_uia]
+        elif node["id"] in group_regions:
             # Keep the measured identity even if independent bounds/names
             # differ. Those values remain actual evidence, not pairing keys.
             provider_id = group_regions[node["id"]]["uia_id"]
@@ -2460,7 +2482,14 @@ def project(xaml_path, uia_path, png_path):
                          "border_styles", "corner_radius", "corner_radii", "shadow"):
                 style[prop] = copy.deepcopy(parameters[prop]) if parameters is not None else None
             unmeasured.extend(paint_issues)
-        bounds = scrollbar_bounds or paint_node["bounds"]
+        avatar_parts_evidence = avatar_owners.get(node["id"])
+        avatar_surface = by_id[avatar_parts_evidence["bounds_source"]] if avatar_parts_evidence else None
+        if avatar_parts_evidence is not None:
+            if avatar_parts_evidence["border_source"] is not None:
+                style.update(copy.deepcopy(avatar_parts_evidence["border_style"]))
+            if avatar_parts_evidence["outline_source"] is not None:
+                style["outline"] = copy.deepcopy(avatar_parts_evidence["outline"])
+        bounds = avatar_surface["bounds"] if avatar_surface is not None else scrollbar_bounds or paint_node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
         break_fields, break_evidence = project_line_break_strategies(layout, text, kind, (label or node)["id"])
@@ -2480,7 +2509,7 @@ def project(xaml_path, uia_path, png_path):
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
                    "text": text, "name": reported_name if isinstance(reported_name, str) else "",
-                   "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
+                   "bounds": bounds, "visible_bounds": avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
                                 "uia_group_region": copy.deepcopy(group_regions.get(node["id"])),
@@ -2536,6 +2565,7 @@ def project(xaml_path, uia_path, png_path):
                                 "compound_paint": compound_paint,
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "originating_toggle": copy.deepcopy(originating_toggle),
+                                "avatar_retained_parts": copy.deepcopy(avatar_parts_evidence),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),
                                 "brush_evidence": copy.deepcopy(paint_node.get("style", {}).get("brush_evidence")),

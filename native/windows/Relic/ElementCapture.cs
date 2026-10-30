@@ -293,6 +293,7 @@ public sealed partial class MainWindow
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
         CaptureNativeDialogSurfaces(renderIds, renderNodes);
         CaptureNativeToggleParts(renderIds, renderNodes);
+        CaptureNativeAvatarParts(renderIds, renderNodes);
         BindTextRangeFrameOwners(renderIds);
         // Second pass: bind retained production line objects only after every
         // actual popup/visual child has its independent traversal id.

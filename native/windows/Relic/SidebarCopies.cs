@@ -289,11 +289,7 @@ public sealed partial class MainWindow
         }
         return result;
     }
-    private PersonPicture SidebarPicture(string label, UIElement paint, int size) => new()
-    {
-        DisplayName = label, Tag = paint, Width = size, Height = size, IsTabStop = false,
-        Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='PersonPicture'><ContentPresenter Content='{TemplateBinding Tag}'/></ControlTemplate>")
-    };
+    private PersonPicture SidebarPicture(string label, UIElement paint, int size) => new NativeAvatarPicture(label, paint, size);
     private async Task ShowCopies()
     {
         expandedCopies.Clear();
