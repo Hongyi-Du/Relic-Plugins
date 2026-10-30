@@ -5,19 +5,28 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
-    func testPaddedTextButtonExposesItsWholeInteractiveBox() throws {
+    func testPaddedTextButtonExposesItsWholeInteractiveBox() async throws {
         let owner = "relic-tab/padded-button-test"
         let sample = TextButton("Tab", size: 12, weight: 400, height: 24, padding: 9, fillsWidth: true, identifier: owner) {}.buttonStyle(.plain)
         let host = NSHostingView(rootView: sample)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 100, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        // SwiftUI publishes hosted accessibility nodes on its next transaction.
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        var seen = Set<ObjectIdentifier>(), observed: [String] = []
         func find(_ value: AnyObject) -> NSRect? {
+            guard seen.insert(ObjectIdentifier(value)).inserted else { return nil }
             let ax = RelicAXRead(value)
+            observed.append(String(describing: type(of: value)) + ":" + (ax["identifier"] as? String ?? ""))
             if ax["identifier"] as? String == owner { return (ax["frame"] as? NSValue)?.rectValue }
-            return RelicAXChildren(value).lazy.compactMap { find($0 as AnyObject) }.first
+            for child in RelicAXChildren(value) { if let frame = find(child as AnyObject) { return frame } }
+            if let view = value as? NSView { for child in view.subviews { if let frame = find(child) { return frame } } }
+            return nil
         }
-        let actual = try XCTUnwrap(find(host))
+        let measured = find(host)
+        let actual = try XCTUnwrap(measured, observed.joined(separator: ", "))
         XCTAssertEqual(actual.size, NSSize(width: 100, height: 24), "The button's padding participates in native interaction and accessibility")
     }
 
