@@ -25,7 +25,8 @@ struct Sidebar: View {
                     Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
                     if m.organizations.isEmpty { Text(m.t("side.no_orgs")).foregroundStyle(RelicStyle.muted).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
-            }.frame(maxHeight: .infinity)
+            }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
+                .modifier(RecordedSurface(background: .clear, kind: "region"))
             RelicStyle.line.frame(height: 1)
             HStack(spacing: 4) {
                 Button { m.sheet = .settings } label: {

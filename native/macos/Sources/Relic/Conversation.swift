@@ -256,7 +256,8 @@ struct ConversationStream: View {
                             Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
-                    }.defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
+                    }.modifier(RecordedSurface(background: .clear, kind: "region"))
+                        .defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             // A digest, inspector resize, or late text measurement
                             // changes geometry without the person scrolling away.
@@ -523,6 +524,7 @@ struct ComposerView: View {
         }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
             .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "card", shadows: SurfaceShadow.small))
             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)
+            .modifier(RecordedSurface(background: .clear, kind: "region"))
             .onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
 }
