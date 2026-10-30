@@ -10,5 +10,7 @@
     <Compile Include="../TextRangeEvidence.cs" Link="TextRangeEvidence.cs" />
     <Compile Include="../../Relic/NativeLabelInterop.cs" Link="NativeLabelInterop.cs" />
     <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
+    <Compile Include="../../Relic/AutomationIdentityCapture.cs" Link="AutomationIdentityCapture.cs" />
+    <Compile Include="../../Relic/MessageHeaderRow.cs" Link="MessageHeaderRow.cs" />
   </ItemGroup>
 </Project>

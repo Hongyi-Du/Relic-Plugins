@@ -287,6 +287,34 @@ public sealed partial class MainWindow
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
         }
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
+        foreach (var (value, record) in renderNodes)
+        {
+            if (value is not MessageHeaderRow header) continue;
+            var metrics = new JsonArray();
+            var current = header.LastLayout != null && header.MeasuredChildren.Count == header.Children.Count;
+            for (var index = 0; index < header.Children.Count; index++)
+            {
+                var child = header.Children[index];
+                var baseline = child is TextBlock text ? text.BaselineOffset : double.NaN;
+                var measured = index < header.MeasuredChildren.Count ? header.MeasuredChildren[index] : (MessageHeaderMetric?)null;
+                var sameMetrics = measured is { } prior && prior.Width == child.DesiredSize.Width
+                    && prior.Height == child.DesiredSize.Height && prior.Baseline.Equals(baseline);
+                current &= sameMetrics;
+                metrics.Add(new JsonObject { ["index"] = index, ["id"] = renderIds.GetValueOrDefault(child),
+                    ["same_parent_object"] = ReferenceEquals(VisualTreeHelper.GetParent(child), header),
+                    ["desired_width"] = child.DesiredSize.Width, ["desired_height"] = child.DesiredSize.Height,
+                    ["baseline"] = double.IsFinite(baseline) ? baseline : null,
+                    ["baseline_finite"] = double.IsFinite(baseline), ["matches_last_layout_metrics"] = sameMetrics });
+            }
+            record["message_header_baseline_evidence"] = new JsonObject
+            {
+                ["source"] = "Actual MessageHeaderRow layout with each current TextBlock.BaselineOffset",
+                ["current_metrics_match"] = current, ["uses_measured_baselines"] = header.LastLayout?.UsesMeasuredBaselines,
+                ["layout_width"] = header.LastLayout?.Width, ["layout_height"] = header.LastLayout?.Height,
+                ["spacing"] = header.Spacing, ["children"] = metrics
+            };
+        }
+        await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes);
         foreach (var (owner, ownerNode, visible) in scrollbarOwners)
         {
             var ownerId = renderIds[owner]; var edges = new JsonArray(); var roots = new JsonArray();

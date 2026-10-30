@@ -16,6 +16,7 @@ from paint_patterns import MeasurementError, captured_pattern, pattern_measureme
 from image_projection import project_windows_image
 from windows_outline import native_outline
 from native_label_geometry import native_label_geometry
+from windows_automation_identity import bind_automation_identities
 
 
 CONTROL_KINDS = {
@@ -1738,6 +1739,7 @@ def project(xaml_path, uia_path, png_path):
             parent = by_id.get(parent, {}).get("parent")
         element["parent"] = parent
     capture_evidence = copy.deepcopy(xaml.get("capture_evidence", {}))
+    capture_evidence["automation_identity_bindings"] = bind_automation_identities(source_raw, uia)
     if range_failures:
         capture_evidence["uia_text_range_failures"] = range_failures
     return {"schema_version": 1, "scene_id": xaml["scene_id"], "client": "windows", "viewport": xaml["viewport"],

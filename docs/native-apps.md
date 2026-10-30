@@ -1,5 +1,44 @@
 # Native Relic App contract
 
+Changes for the clients (Windows message baselines and real provider identity):
+message headers now align each actual TextBlock.BaselineOffset and preserve both
+ascents and descents. Original widths, 6px gaps and wrapping order remain; an
+unmeasured baseline stays explicitly unmeasured. The capture records current
+metrics and their agreement with the last actual layout. Separately, XAML peers
+are marshaled through COM to an MTA worker while the UI dispatcher yields;
+complete opaque UIA core RuntimeIds are read twice and compared with the
+independent observer. Owner, EventsSource, apartment and release failures remain
+unknown. The resulting exact-identity audit does not clear existing UIA errors,
+infer hidden text, or replace any canonical field before real CI validation.
+
+Changes for the clients (actual fcdc0b6 diagnostic artifacts): the report and
+HTML files are downloaded to `S:\Codex\Outputs\Relic-native-visual\parity-fcdc0b6`.
+This is 19 diagnostic inputs evaluated against the unchanged 660-state gate,
+not a complete matrix. Both platforms have zero accepted scenes. Windows has
+162 missing/202 extra elements, 630 text, 2550 geometry, 13730 style and 1248
+state mismatches; macOS has 557/1091, 441, 2483, 8219 and 1230 respectively.
+All other mismatch and extraction counts remain in summary.json. No exception
+or icon mapping is approved. Windows captures 15/19 scenes: the file-code
+document now actually measures 443px wide and its CR/path UIA failures are gone;
+one partly clipped conversation event still fails. The registered Markdown
+fence now has a complete actual Border/ScrollViewer/TextBlock identity receipt.
+Live-tool text and both panel tooltip continuity failures remain unresolved.
+
+Changes for the clients (fcdc0b6 CI and precise remaining failures): Windows
+build/tests pass in run 41004469470. macOS completes the 19 diagnostic captures
+in 41004462072, while its native test job 123896185086 fails nine assertions
+in SurfaceRasterTests.testBoxShadowDoesNotCastASecondShadowFromInteriorContent
+(lines 68-71: measured alpha 0.8288107514/0 rather than 1, and final alpha 1
+rather than below 0.01). The macOS owner must resolve these actual raster
+failures; no tolerances were changed. The shared checker passes 81 Node tests;
+one of 408 Python tests exposed its unmocked monotonic clock inside mocked
+process cleanup. That test now uses explicit times and checks the exact 89.75s
+remaining wait, preserving the real 90s deadline. CI verification is pending.
+Windows still lacks four Mac-conditional vocabulary keys; no dead references or
+new exceptions were added. The unresolved actual WinUI tooltip continuity issue
+is documented in `docs/native-panel-tooltip-capture.md` with fixed-version
+source and measured timestamps, not replaced with a longer wait.
+
 Changes for the clients (Windows actual file document layout): the file path
 now uses the production DirectWrite label with character ellipsis, unchanged
 11px Cascadia Code and full accessible text/tooltip. The code document takes
