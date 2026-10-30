@@ -397,7 +397,10 @@ public sealed partial class MainWindow
         var after = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (originalAfter != null) after.Children.Add(originalAfter);
         if (pendingAfter != null) after.Children.Add(pendingAfter);
-        if (from == "human" && item.Rows("to").Count > 0)
+        // Session transcript turns have recipients but no delivery receipts.
+        // An absent read_by is unknown, whereas an actual empty receipt array
+        // means nobody has read the Relic message yet (renderItem's contract).
+        if (from == "human" && item["read_by"] is JsonArray && item["to"] is JsonArray)
         {
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
             var receipt = Quiet(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 11);

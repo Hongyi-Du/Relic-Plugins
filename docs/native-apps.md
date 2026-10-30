@@ -1,5 +1,38 @@
 # Native Relic App contract
 
+Changes for the clients (actual pseudo quantities): the file-code reading-order
+request was already fixed by the source-tree traversal. New 2cb073c evidence
+instead showed two different quantities sharing one pseudo node: a CSS inline
+box and anonymous LayoutText. The reference extractor now distinguishes them
+using actual transformed-text indexes and owned DOMSnapshot textBoxes. Text
+fragments must cover each actual UTF-16 source completely, without gaps,
+overlaps or cross-row borrowing. CSS boxes never supply text geometry. Twelve
+new Node regressions retain the old actual elements and both quantities; missing
+or ambiguous evidence still fails. This addresses the macOS REQUESTS finding
+without removing line numbers, inventing glyph ink or changing tolerances.
+
+Changes for the clients (measured Windows content fixes): a transcript without
+an actual read_by array no longer invents an unread receipt. The copies window
+uses its existing content-owned padding, removing the extra 22px per side, and
+its summary uses the existing document Markdown typography (13.5px instead of
+chat 14px). All underlying messages and action payloads are unchanged.
+
+The resize capture now waits for the retained production tooltip to actually
+open before its single baseline, within the existing 1000ms final-hover wait.
+Initial hover/drag and all later strict continuity checks remain. Actual
+ToolTip/Thumb/Popup identities and Opened/Closed events are retained. The capture
+explicitly states tooltip-open readiness, not equivalence to the tooltip-free
+headless reference; those visible extras are not waived. No delay, duration,
+IsOpen, pointer action, scene count or matching threshold was changed.
+
+Verified e784186 CI: 89 Node/515 Python checks pass. Its Windows capture retains
+15/19 completed scenes and all four original failures. For file-code and live
+tool output the new frame observer retains 74/159 actual TextBlock owners,
+respectively, with zero recorded changes/errors and matching object references
+at all four checkpoints. Run.Text has no public dependency-property callback;
+this missing notification is retained and its actual getter values are now
+recorded as well. No receipt claims full frame or paint continuity.
+
 Changes for the clients (measured 2e42376 product gaps): Windows private/live
 session banners now have the reference's native card, information icon, 12.5px
 wrapping text and 20px line height instead of a single 11px muted caption.

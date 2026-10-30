@@ -310,7 +310,7 @@ public sealed partial class MainWindow
             if (DialogPart<ScrollViewer>(dialog, "ContentScrollViewer") is { } wrapper) { wrapper.Padding = new Thickness(0); wrapper.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; }
             if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
         };
-        await Dialog(dialog); if (copiesBody == body) copiesBody = null;
+        await Dialog(dialog, contentOwnsPadding: true); if (copiesBody == body) copiesBody = null;
     }
     private void CopyNotifications()
     {
@@ -350,7 +350,7 @@ public sealed partial class MainWindow
             var paragraph = new Paragraph(); paragraph.Inlines.Add(new Run { Text = c.Text("protocol_id"), FontFamily = new FontFamily("Cascadia Code"), FontSize = 12.88, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Paint("5A5853", "B8B5AE") }); paragraph.Inlines.Add(new Run { Text = " " + c.Text("title") }); title.Blocks.Add(paragraph); titles.Children.Add(title);
             Grid.SetColumn(titles, 1); top.Children.Add(titles); Grid.SetColumn(badges, 2); top.Children.Add(badges);
             top.SizeChanged += (_, args) => badges.MaxWidth = args.NewSize.Width * .45; card.Children.Add(top);
-            card.Children.Add(new Border { Child = Rich(c.Text("summary")), Background = live ? Paint("F8F7F5", "191918") : Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10), Opacity = live ? 1 : .8 });
+            card.Children.Add(new Border { Child = Rich(c.Text("summary"), documentStyle: true), Background = live ? Paint("F8F7F5", "191918") : Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10), Opacity = live ? 1 : .8 });
             var metadata = new List<string> { T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))) };
             if (c.Rows("approved_display").Count > 0) metadata.Add(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))));
             if (c.Text("activated_at").Length > 0) metadata.Add(T("cc.effective", ("when", When(c.Text("activated_at")))));

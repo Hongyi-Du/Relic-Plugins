@@ -112,33 +112,91 @@
   // CDP supplies actual pseudo/UA-shadow layout boxes that the standard DOM
   // cannot expose. Resolve snapshot ancestry to real elements without adding
   // attributes or otherwise changing the page being measured.
-  const pseudoLayoutMeasurement = (index, layout, document) => {
+  const pseudoLayoutMeasurement = (index, layout, document, strings = []) => {
+    const actualRect = raw => Array.isArray(raw) && raw.length === 4 && raw.every(Number.isFinite) && raw[2] >= 0 && raw[3] >= 0
+      ? { x: raw[0] - (document.scrollOffsetX || 0), y: raw[1] - (document.scrollOffsetY || 0), width: raw[2], height: raw[3] } : null;
     const rows = layout.nodeIndex.flatMap((node, position) => {
       if (node !== index) return [];
-      const raw = layout.bounds?.[position], valid = Array.isArray(raw) && raw.length === 4 && raw.every(Number.isFinite) && raw[2] >= 0 && raw[3] >= 0;
+      const raw = layout.bounds?.[position], textIndex = layout.text?.[position] ?? null;
+      const text = Number.isInteger(textIndex) && textIndex >= 0 && typeof strings[textIndex] === 'string' ? strings[textIndex] : null;
+      const textBoxes = document.textBoxes, fragments = (textBoxes?.layoutIndex || []).flatMap((owner, fragment) => owner === position ? [{
+        text_box_index: fragment, layout_index: owner, source_bounds: textBoxes.bounds?.[fragment] ?? null,
+        bounds: actualRect(textBoxes.bounds?.[fragment]), start: textBoxes.start?.[fragment] ?? null, length: textBoxes.length?.[fragment] ?? null }] : []);
+      // Chromium emits anonymous LayoutText children using their pseudo node's
+      // SAME nodeIndex. Only actual transformed text / textBoxes distinguish
+      // their text-layout quantity from the containing CSS layout box.
+      const quantity = text?.length ? 'text-layout' : textIndex === -1 && !fragments.length ? 'layout-without-transformed-text' : 'unknown-layout-kind';
       return [{ layout_index: position, source_bounds: raw ?? null,
-        bounds: valid ? { x: raw[0] - (document.scrollOffsetX || 0), y: raw[1] - (document.scrollOffsetY || 0), width: raw[2], height: raw[3] } : null,
+        bounds: actualRect(raw), layout_quantity: quantity, text, text_fragments: fragments,
         client_rect: layout.clientRects?.[position] ?? null, offset_rect: layout.offsetRects?.[position] ?? null,
         scroll_rect: layout.scrollRects?.[position] ?? null, paint_order: layout.paintOrders?.[position] ?? null,
-        text_index: layout.text?.[position] ?? null }];
+        text_index: textIndex }];
     });
-    const positive = rows.filter(row => row.bounds?.width > 0 && row.bounds?.height > 0), groups = [];
+    const positive = rows.filter(row => row.layout_quantity === 'layout-without-transformed-text' && row.bounds?.width > 0 && row.bounds?.height > 0), groups = [];
     for (const row of positive) {
       const same = groups.find(group => ['x', 'y', 'width', 'height'].every(key => group[0].bounds[key] === row.bounds[key]));
       if (same) same.push(row); else groups.push([row]);
     }
     const problems = [];
     if (rows.some(row => !row.bounds)) problems.push({ property: 'pseudo.bounds', reason: 'An actual pseudo layout row has invalid bounds; no remaining row is selected as a substitute.' });
+    else if (rows.some(row => row.layout_quantity === 'unknown-layout-kind')) problems.push({ property: 'pseudo.bounds', reason: 'Actual text index, string, or fragment ownership cannot distinguish pseudo CSS layout from text layout.' });
     else if (groups.length !== 1) problems.push({ property: 'pseudo.bounds', reason: groups.length ?
-      'Actual pseudo layout has multiple distinct positive-area boxes; their union is not an independently measured pseudo rectangle.' :
+      'Actual pseudo CSS layout has multiple distinct positive-area boxes; their union is not an independently measured pseudo rectangle.' :
       'No actual positive-area pseudo box is available; zero-area layout rows do not establish that visible pseudo paint is absent.' });
     const selected = problems.length ? [] : groups[0];
     const paintOrders = [...new Set(selected.map(row => row.paint_order))];
     const paintOrder = paintOrders.length === 1 ? paintOrders[0] : null;
     if (selected.length && paintOrder === null) problems.push({ property: 'pseudo.paint_order', reason: 'The actual positive pseudo layout rows have no single measured paint order.' });
+    const textRows = rows.filter(row => row.layout_quantity === 'text-layout'), textProblems = [], textGroups = [];
+    const fragments = textRows.flatMap(row => row.text_fragments);
+    // CDP exports LayoutText::TextBoxInfo's String offsets. Blink String
+    // length/substr use UTF-16 code units, as JS String.length/slice do. Test
+    // every row independently: identical rectangles cannot cover missing,
+    // overlapping, duplicated or out-of-range source spans.
+    const sourceRows = textRows.map(row => {
+      const errors = [], spans = row.text_fragments.map(fragment => {
+        const end = fragment.start + fragment.length;
+        const valid = Number.isSafeInteger(fragment.start) && fragment.start >= 0 && Number.isSafeInteger(fragment.length) &&
+          fragment.length > 0 && Number.isSafeInteger(end) && end <= row.text.length;
+        if (!valid) errors.push({ text_box_index: fragment.text_box_index, reason: 'Fragment range is outside its actual LayoutText UTF-16 string.' });
+        return { text_box_index: fragment.text_box_index, layout_index: fragment.layout_index,
+          start: fragment.start, length: fragment.length, end: Number.isFinite(end) ? end : null, valid,
+          source_text: valid ? row.text.slice(fragment.start, end) : null };
+      });
+      let coveredEnd = 0;
+      for (const span of spans.filter(span => span.valid).sort((a, b) => a.start - b.start || a.end - b.end)) {
+        if (span.start !== coveredEnd) errors.push({ text_box_index: span.text_box_index,
+          reason: span.start < coveredEnd ? 'Fragment source spans overlap or duplicate actual text.' : 'Fragment source spans omit actual text.' });
+        coveredEnd = Math.max(coveredEnd, span.end);
+      }
+      if (coveredEnd !== row.text.length) errors.push({ reason: 'Fragment source spans do not reach the actual LayoutText end.' });
+      if (!spans.length) errors.push({ reason: 'No fragments cover this actual LayoutText string.' });
+      return { layout_index: row.layout_index, text_index: row.text_index, text: row.text,
+        length_utf16: row.text.length, spans, complete: !errors.length, errors };
+    });
+    const sourceCoverage = { unit: 'UTF-16 code units', source_text: textRows.map(row => row.text).join(''), rows: sourceRows,
+      complete: textRows.length > 0 && sourceRows.every(row => row.complete),
+      quantity: 'Exact nonoverlapping coverage of actual transformed LayoutText strings; not proof of painted glyph contribution' };
+    for (const row of sourceRows) for (const error of row.errors) textProblems.push({ property: 'pseudo.text_source_span',
+      layout_index: row.layout_index, ...error });
+    if (textRows.some(row => !row.text_fragments.length)) textProblems.push({ property: 'pseudo.text_bounds',
+      reason: 'Actual transformed pseudo text has no independently owned DOMSnapshot textBoxes; its CSS box or LayoutText aggregate cannot replace the fragments.' });
+    if (fragments.some(fragment => !fragment.bounds || !Number.isInteger(fragment.start) || fragment.start < 0 ||
+      !Number.isInteger(fragment.length) || fragment.length <= 0)) textProblems.push({ property: 'pseudo.text_bounds', reason: 'Actual pseudo text fragment bounds or source offsets are unavailable.' });
+    for (const fragment of fragments.filter(fragment => fragment.bounds?.width > 0 && fragment.bounds?.height > 0)) {
+      const same = textGroups.find(group => ['x', 'y', 'width', 'height'].every(key => group[0].bounds[key] === fragment.bounds[key]));
+      if (same) same.push(fragment); else textGroups.push([fragment]);
+    }
+    if (textRows.length && textGroups.length !== 1) textProblems.push({ property: 'pseudo.text_bounds',
+      reason: 'Pseudo text does not have one independently measured fragment box; no containing CSS box or guessed union supplies text geometry.' });
     return { bounds: selected.length ? selected[0].bounds : null, layout_index: selected.length === 1 ? selected[0].layout_index : null,
       paint_order: paintOrder, layout_rows: rows, selected_layout_indices: selected.map(row => row.layout_index),
-      layout_measurement: 'All actual CDP layout rows retained; only one distinct positive-area box may supply geometry, never last-row overwrite or a guessed union', problems };
+      text_layout_indices: textRows.map(row => row.layout_index), text_fragments: fragments,
+      text_source_span_coverage: sourceCoverage,
+      text_element_bounds: !textProblems.length && textGroups.length === 1 ? textGroups[0][0].bounds : null,
+      text_geometry_problems: textProblems,
+      text_quantity: 'Actual DOMSnapshot LayoutText fragment rectangles; font-metric layout advances, not painted glyph ink',
+      layout_measurement: 'All actual CDP rows retained; transformed text/textBoxes identify anonymous text layouts separately from one unique positive CSS layout box. Neither quantity substitutes for the other.', problems };
   };
   const snapshot = meta.dom_snapshot, snapshotDocument = snapshot?.documents?.[0];
   const snapshotStrings = snapshot?.strings || [], snapshotNodes = snapshotDocument?.nodes;
@@ -221,10 +279,23 @@
     for (const [index, type] of snapshotPseudo) {
       const owner = snapshotElements.get(snapshotNodes.parentIndex[index]);
       if (!owner) continue;
-      const measurement = pseudoLayoutMeasurement(index, snapshotLayout, snapshotDocument);
+      const measurement = pseudoLayoutMeasurement(index, snapshotLayout, snapshotDocument, snapshotStrings);
       const childLayouts = snapshotLayout.nodeIndex.map((n, l) => ({ n, l })).filter(x => descendantOf(x.n, index));
       const text = childLayouts.map(x => snapshotStrings[snapshotLayout.text[x.l]] || '').join('');
       const boxes = (snapshotTextBoxes?.layoutIndex || []).flatMap((l, k) => childLayouts.some(x => x.l === l) ? [snapshotRect(snapshotTextBoxes.bounds[k])] : []);
+      measurement.text_source_span_coverage.pseudo_text = text;
+      measurement.text_source_span_coverage.pseudo_text_consistent = text === measurement.text_source_span_coverage.source_text;
+      if (text !== measurement.text_source_span_coverage.source_text) {
+        measurement.text_source_span_coverage.complete = false;
+        measurement.text_element_bounds = null;
+        measurement.text_geometry_problems.push({ property: 'pseudo.text_source_span', reason: 'Measured source spans do not cover the complete actual pseudo text.' });
+      }
+      if (childLayouts.some(x => x.n !== index && (snapshotStrings[snapshotLayout.text[x.l]] || '').length)) {
+        measurement.text_source_span_coverage.complete = false;
+        measurement.text_source_span_coverage.pseudo_text_consistent = false;
+        measurement.text_element_bounds = null;
+        measurement.text_geometry_problems.push({ property: 'pseudo.text_bounds', reason: 'A distinct descendant node contributes pseudo text; its complete text-geometry ownership is not independently resolved.' });
+      }
       const data = { type: '::' + type, index, ...measurement, text, text_boxes: boxes,
         backend_node_id: snapshotNodes.backendNodeId?.[index] };
       const list = pseudoByOwner.get(owner) || []; list.push(data); pseudoByOwner.set(owner, list);
@@ -878,9 +949,10 @@
       breaks.evidence.errors.push('Owned text nodes do not establish one uniform actual line-break configuration.');
     }
     for (const reason of breaks.evidence.errors) unmeasured.push({ element: id, property: 'layout.break_strategy', reason });
-    const paintStyle = styleData(el, options.pseudo ? s : styleOf(el), text, options.pseudo || null, options.unclippedBounds);
-    let outline = outlineData(el, options.pseudo ? s : styleOf(el), options.pseudo || null, options.unclippedBounds);
-    const textStyle = styleData(el, s, text, options.pseudo || null, options.unclippedBounds);
+    const styleBox = options.pseudoBox || options.unclippedBounds;
+    const paintStyle = styleData(el, options.pseudo ? s : styleOf(el), text, options.pseudo || null, styleBox);
+    let outline = outlineData(el, options.pseudo ? s : styleOf(el), options.pseudo || null, styleBox);
+    const textStyle = styleData(el, s, text, options.pseudo || null, styleBox);
     for (const field of ['font_size', 'font_weight', 'font_family', 'foreground', 'letter_spacing', 'line_height', 'text_align']) paintStyle[field] = textStyle[field];
     if (!text && !['icon', 'chart-edge'].includes(kind)) paintStyle.foreground = null;
     if (kind === 'icon' && el.localName === 'svg' && el.querySelector('path,circle,ellipse,line,polyline,polygon,rect')) {
@@ -1378,6 +1450,10 @@
         outline: outlineData(el, ps, pseudo, snapshotPseudoElement?.bounds).evidence,
         snapshot_node: snapshotPseudoElement?.index ?? null, bounds: snapshotPseudoElement?.bounds ?? null,
         layout_rows: snapshotPseudoElement?.layout_rows || [], selected_layout_indices: snapshotPseudoElement?.selected_layout_indices || [],
+        text_layout_indices: snapshotPseudoElement?.text_layout_indices || [], text_fragments: snapshotPseudoElement?.text_fragments || [],
+        text_element_bounds: snapshotPseudoElement?.text_element_bounds ?? null, text_quantity: snapshotPseudoElement?.text_quantity || null,
+        text_source_span_coverage: snapshotPseudoElement?.text_source_span_coverage || null,
+        text_geometry_problems: snapshotPseudoElement?.text_geometry_problems || [],
         layout_measurement: snapshotPseudoElement?.layout_measurement || null, layout_problems: snapshotPseudoElement?.problems || [],
         computed_corner_radii: ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(corner => ps['border' + corner + 'Radius']) };
       if (!snapshotPseudoElement?.bounds) { pseudoRecord.style.corner_radius = null; pseudoRecord.style.corner_radii = null; }
@@ -1391,15 +1467,26 @@
         unmeasured.push({ element: id + pseudo, ...problem, layout_rows: p.layout_rows });
         extraction_errors.push({ type: 'pseudo_layout_measurement_unavailable', node: id + pseudo, ...problem });
       }
+      for (const problem of p.text_geometry_problems || []) {
+        unmeasured.push({ element: id + pseudo, ...problem, text_fragments: p.text_fragments });
+        extraction_errors.push({ type: 'pseudo_text_measurement_unavailable', node: id + pseudo, ...problem });
+      }
       if (!p.bounds) { pseudoRecord.projection_reason = 'unresolved-pseudo-layout'; continue; }
       const vb = visibleRect(el, p.bounds);
       const pseudoFragments = vb ? fragmentsOf(el, vb) : [];
       pseudoRecord.visible_bounds = vb; pseudoRecord.visible_fragments = pseudoFragments;
       if (!vb || !pseudoFragments.length) { pseudoRecord.projection_reason = !vb ? 'hidden-or-fully-clipped' : 'fully-occluded'; continue; }
       const pkind = p.text ? pseudo === '::marker' ? 'icon' : 'text' : 'card';
-      const emitted = emit(el, pkind, p.text, vb, parent, pseudo, { style: ps, pseudo, textBoxes: p.text_boxes, unclippedBounds: p.bounds, axBackend: p.backend_node_id,
+      const textBounds = p.text_element_bounds, geometryBox = p.text ? textBounds || { x: null, y: null, width: null, height: null } : p.bounds;
+      const geometryVisible = p.text ? textBounds ? visibleRect(el, textBounds) : geometryBox : vb;
+      if (p.text && textBounds && !geometryVisible) { pseudoRecord.projection_reason = 'text-fully-clipped'; continue; }
+      const emitted = emit(el, pkind, p.text, geometryVisible, parent, pseudo, { style: ps, pseudo, pseudoBox: p.bounds,
+        textBoxes: p.text_boxes, unclippedBounds: geometryBox, axBackend: p.backend_node_id,
         evidence: { source: 'CDP.DOMSnapshot', snapshot_node: p.index, snapshot_layout: p.layout_index,
           snapshot_layout_rows: p.layout_rows, selected_layout_indices: p.selected_layout_indices, layout_measurement: p.layout_measurement,
+          pseudo_outer_bounds: p.bounds, pseudo_text_layout_indices: p.text_layout_indices, pseudo_text_fragments: p.text_fragments,
+          pseudo_text_quantity: p.text_quantity,
+          pseudo_text_source_span_coverage: p.text_source_span_coverage,
           backend_node_id: p.backend_node_id, paint_order: p.paint_order } });
       if (pkind === 'icon') elements[elements.length - 1].icon = { source: 'text-glyph', glyph: p.text };
       pseudoRecord.projection_reason = 'paint-or-text'; pseudoRecord.emitted = emitted;

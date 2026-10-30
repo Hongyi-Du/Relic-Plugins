@@ -14,12 +14,15 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private Thumb? capturedPanelResize;
+    private ToolTip? capturedPanelResizeToolTip;
     private JsonObject? capturedPanelResizeEvidence, capturedPanelResizeBaseline;
     private bool capturedPanelResizePointerOver;
     private DragStartedEventHandler? panelResizeStartedObserver;
     private DragDeltaEventHandler? panelResizeDeltaObserver;
     private DragCompletedEventHandler? panelResizeCompletedObserver;
     private readonly List<(RoutedEvent Event, PointerEventHandler Handler)> panelResizePointerObservers = new();
+    private RoutedEventHandler? panelResizeToolTipOpenedObserver, panelResizeToolTipClosedObserver;
+    private readonly List<Popup> panelResizeObservedPopups = new();
 
     private async Task CapturePanelResizeScene(string scene)
     {
@@ -30,7 +33,12 @@ public sealed partial class MainWindow
         {
             ["scene"] = scene, ["source"] = "Production MainWindow.panelResize Thumb; real SendInput and routed pointer/drag observations",
             ["errors"] = new JsonArray(), ["pointer_events"] = new JsonArray(),
-            ["drag_events"] = new JsonArray(), ["checkpoints"] = new JsonArray()
+            ["drag_events"] = new JsonArray(), ["tooltip_events"] = new JsonArray(), ["checkpoints"] = new JsonArray(),
+            ["qpc_frequency"] = Stopwatch.Frequency,
+            ["desired_capture_state"] = "idle-hover-with-owned-production-tooltip-open",
+            ["observed_capture_state"] = "unresolved",
+            ["tooltip_free_reference_equivalence_claimed"] = false,
+            ["parity_scope"] = "Readiness for an actual tooltip-open capture only; the tooltip remains a visible element and requires its own reference counterpart. This does not pass the tooltip-free reference state."
         };
         // At the narrow size the production pane starts closed. Open it through
         // the actual overview toolbar control, never by assigning panelOpen.
@@ -50,7 +58,12 @@ public sealed partial class MainWindow
         if (!panelOpen || pane != "overview" || panelResize is not { IsLoaded: true } handle)
             throw new InvalidOperationException("The actual overview resize Thumb is not loaded and open");
         capturedPanelResize = handle;
+        if (!paneResizeToolTips.TryGetValue(handle, out var tooltip)
+            || !ReferenceEquals(ToolTipService.GetToolTip(handle), tooltip))
+            throw new InvalidOperationException("The production resize Thumb has no identically bound retained ToolTip");
+        capturedPanelResizeToolTip = tooltip;
         ObservePanelResizeEvents(handle);
+        ObservePanelResizeToolTipEvents(handle, tooltip);
         root.UpdateLayout();
         var before = ObservePanelResizeState(); capturedPanelResizeEvidence["before"] = before;
         var paneBefore = inspectorSurface.TransformToVisual(root).TransformBounds(new Rect(0, 0, inspectorSurface.ActualWidth, inspectorSurface.ActualHeight));
@@ -88,6 +101,8 @@ public sealed partial class MainWindow
         await Task.Delay(150); root.UpdateLayout();
         await AwaitPanelResizeHover("after-action-hover");
         var after = ObservePanelResizeState(); capturedPanelResizeEvidence["after"] = after;
+        capturedPanelResizeEvidence["observed_capture_state"] = IsObservedPanelResizeToolTipOpen(after)
+            ? "idle-hover-with-owned-production-tooltip-open" : "unresolved";
         var paneAfter = inspectorSurface.TransformToVisual(root).TransformBounds(new Rect(0, 0, inspectorSurface.ActualWidth, inspectorSurface.ActualHeight));
         var delta = new JsonObject { ["x"] = paneAfter.X - paneBefore.X, ["y"] = paneAfter.Y - paneBefore.Y,
             ["width"] = paneAfter.Width - paneBefore.Width, ["height"] = paneAfter.Height - paneBefore.Height };
@@ -150,6 +165,35 @@ public sealed partial class MainWindow
         }
     }
 
+    private void ObservePanelResizeToolTipEvents(Thumb handle, ToolTip tooltip)
+    {
+        void Record(string kind, object sender)
+        {
+            ((JsonArray)capturedPanelResizeEvidence!["tooltip_events"]!).Add(new JsonObject
+            {
+                ["kind"] = kind, ["qpc"] = Stopwatch.GetTimestamp(),
+                ["source"] = "Opened/Closed event on the retained production ToolTip passed to ToolTipService for this actual Thumb",
+                ["sender_same_tooltip_object"] = ReferenceEquals(sender, tooltip),
+                ["same_thumb_object"] = ReferenceEquals(handle, panelResize),
+                ["production_map_same_tooltip_object"] = paneResizeToolTips.TryGetValue(handle, out var current) && ReferenceEquals(current, tooltip),
+                ["attached_same_tooltip_object"] = ReferenceEquals(ToolTipService.GetToolTip(handle), tooltip),
+                ["is_open"] = tooltip.IsOpen, ["is_loaded"] = tooltip.IsLoaded
+            });
+        }
+        panelResizeToolTipOpenedObserver = (sender, _) => Record("opened", sender);
+        panelResizeToolTipClosedObserver = (sender, _) => Record("closed", sender);
+        tooltip.Opened += panelResizeToolTipOpenedObserver;
+        tooltip.Closed += panelResizeToolTipClosedObserver;
+    }
+
+    private int ObservePanelResizePopupIdentity(Popup popup)
+    {
+        var index = panelResizeObservedPopups.FindIndex(value => ReferenceEquals(value, popup));
+        if (index >= 0) return index;
+        panelResizeObservedPopups.Add(popup);
+        return panelResizeObservedPopups.Count - 1;
+    }
+
     private JsonObject PanelResizeBox(FrameworkElement element)
     {
         var box = element.TransformToVisual(root).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
@@ -183,10 +227,30 @@ public sealed partial class MainWindow
         var scale = root.XamlRoot.RasterizationScale;
         var location = new Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
         var hits = VisualTreeHelper.FindElementsInHostCoordinates(location, root, true).ToArray();
-        var popups = new JsonArray();
+        var popups = new JsonArray(); var ownedPopups = new JsonArray();
         foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Where(value => value.IsOpen))
-            popups.Add(new JsonObject { ["child_type"] = popup.Child?.GetType().FullName, ["is_open"] = popup.IsOpen,
+        {
+            var popupIndex = ObservePanelResizePopupIdentity(popup);
+            var owned = capturedPanelResizeToolTip != null && ReferenceEquals(popup.Child, capturedPanelResizeToolTip);
+            if (owned) ownedPopups.Add(popupIndex);
+            popups.Add(new JsonObject { ["capture_popup_index"] = popupIndex,
+                ["child_same_owned_tooltip_object"] = owned,
+                ["child_type"] = popup.Child?.GetType().FullName, ["is_open"] = popup.IsOpen,
                 ["bounds"] = popup.Child is FrameworkElement child ? PanelResizeBox(child) : null });
+        }
+        var tip = capturedPanelResizeToolTip;
+        var ownedToolTip = new JsonObject
+        {
+            ["source"] = "Retained production ToolTip + ToolTipService.GetToolTip(actual Thumb) + current Popup.Child ReferenceEquals",
+            ["same_tooltip_instance"] = tip != null && paneResizeToolTips.TryGetValue(handle, out var currentTip) && ReferenceEquals(tip, currentTip),
+            ["attached_same_tooltip_object"] = tip != null && ReferenceEquals(ToolTipService.GetToolTip(handle), tip),
+            ["is_open"] = tip?.IsOpen, ["is_loaded"] = tip?.IsLoaded,
+            ["visibility"] = tip?.Visibility.ToString(), ["opacity"] = tip?.Opacity,
+            ["content"] = tip?.Content is string text ? text : null,
+            ["content_type"] = tip?.Content?.GetType().FullName,
+            ["actual_popup_indices"] = ownedPopups,
+            ["bounds"] = tip is { IsLoaded: true, IsOpen: true } ? PanelResizeBox(tip) : null
+        };
         return new JsonObject
         {
             ["same_thumb_instance"] = true, ["pane"] = pane, ["panel_open"] = panelOpen,
@@ -199,7 +263,7 @@ public sealed partial class MainWindow
                 ["pointer_hit_test_contains_handle"] = hits.Any(hit => ReferenceEquals(hit, handle)), ["visual_states"] = states, ["painted_template_parts"] = paintedParts },
             ["pointer"] = new JsonObject { ["x"] = location.X, ["y"] = location.Y, ["screen_x"] = cursor.x, ["screen_y"] = cursor.y,
                 ["rasterization_scale"] = scale, ["left_button_pressed"] = (PanelResizeAsyncKeyState(1) & 0x8000) != 0 },
-            ["open_popups"] = popups
+            ["open_popups"] = popups, ["owned_tooltip"] = ownedToolTip
         };
     }
 
@@ -212,14 +276,29 @@ public sealed partial class MainWindow
             && handle["visual_states"]!.AsArray().OfType<JsonObject>().Any(item => item["group"]?.ToString() == "CommonStates" && item["current_state"]?.ToString() == "PointerOver");
     }
 
+    private static bool IsObservedPanelResizeToolTipOpen(JsonObject state)
+    {
+        var tip = state["owned_tooltip"];
+        return tip?["same_tooltip_instance"]?.GetValue<bool>() == true
+            && tip["attached_same_tooltip_object"]?.GetValue<bool>() == true
+            && tip["is_open"]?.GetValue<bool>() == true && tip["is_loaded"]?.GetValue<bool>() == true
+            && tip["visibility"]?.ToString() == "Visible" && tip["opacity"]?.GetValue<double>() > 0
+            && tip["actual_popup_indices"] is JsonArray { Count: 1 }
+            && tip["bounds"]?["width"]?.GetValue<double>() > 0 && tip["bounds"]?["height"]?.GetValue<double>() > 0;
+    }
+
     private async Task AwaitPanelResizeHover(string phase)
     {
         // Pointer release/capture-lost and the layout caused by a real drag are
         // queued independently. Wait for their observed result; do not create
         // another input event, assign a visual state or move the cursor again.
+        // Only the final phase also observes the automatic ToolTip opening.
+        // Use the same deadline; an unobserved opening remains a failed scene.
         var observations = new JsonArray();
+        var requireOwnedToolTip = phase == "after-action-hover";
         var wait = new JsonObject { ["phase"] = phase, ["deadline_ms"] = 1000,
-            ["observations"] = observations, ["completed"] = false };
+            ["observations"] = observations, ["completed"] = false,
+            ["requires_owned_tooltip_open"] = requireOwnedToolTip };
         if (capturedPanelResizeEvidence!["hover_waits"] is not JsonArray waits)
             capturedPanelResizeEvidence["hover_waits"] = waits = new JsonArray();
         waits.Add(wait);
@@ -228,10 +307,12 @@ public sealed partial class MainWindow
         {
             root.UpdateLayout();
             var state = ObservePanelResizeState();
-            observations.Add(new JsonObject { ["elapsed_ms"] = timer.Elapsed.TotalMilliseconds, ["state"] = state });
-            if (IsObservedPanelResizeHover(state)) { wait["completed"] = true; return; }
-            if (timer.ElapsedMilliseconds >= 1000)
-                throw new InvalidOperationException("Actual panel resize hover did not settle within its observed deadline: " + phase);
+            var elapsed = timer.Elapsed.TotalMilliseconds;
+            observations.Add(new JsonObject { ["elapsed_ms"] = elapsed, ["qpc"] = Stopwatch.GetTimestamp(), ["state"] = state });
+            if (elapsed <= 1000 && IsObservedPanelResizeHover(state) && (!requireOwnedToolTip || IsObservedPanelResizeToolTipOpen(state)))
+            { wait["completed"] = true; return; }
+            if (elapsed >= 1000)
+                throw new InvalidOperationException("Actual panel resize hover/required owned ToolTip did not settle within its existing deadline: " + phase);
             await Task.Delay(25);
         }
     }
@@ -246,19 +327,28 @@ public sealed partial class MainWindow
     {
         if (capturedPanelResizeEvidence == null) return;
         var state = ObservePanelResizeState();
-        var current = new JsonObject { ["stage"] = stage, ["state"] = state,
+        var current = new JsonObject { ["stage"] = stage, ["qpc"] = Stopwatch.GetTimestamp(), ["state"] = state,
             ["pointer_event_count"] = ((JsonArray)capturedPanelResizeEvidence["pointer_events"]!).Count,
-            ["drag_event_count"] = ((JsonArray)capturedPanelResizeEvidence["drag_events"]!).Count };
+            ["drag_event_count"] = ((JsonArray)capturedPanelResizeEvidence["drag_events"]!).Count,
+            ["tooltip_event_count"] = ((JsonArray)capturedPanelResizeEvidence["tooltip_events"]!).Count };
         ((JsonArray)capturedPanelResizeEvidence["checkpoints"]!).Add(current);
+        if (!IsObservedPanelResizeHover(state) || !IsObservedPanelResizeToolTipOpen(state))
+            throw new InvalidOperationException("Actual panel resize capture is not in its declared tooltip-open idle-hover state: " + stage);
         if (capturedPanelResizeBaseline == null) capturedPanelResizeBaseline = current.DeepClone().AsObject();
         else if (!JsonNode.DeepEquals(state, capturedPanelResizeBaseline["state"])
             || current["pointer_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["pointer_event_count"]!.GetValue<int>()
-            || current["drag_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["drag_event_count"]!.GetValue<int>())
+            || current["drag_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["drag_event_count"]!.GetValue<int>()
+            || current["tooltip_event_count"]!.GetValue<int>() != capturedPanelResizeBaseline["tooltip_event_count"]!.GetValue<int>())
             throw new InvalidOperationException("Actual pane, Thumb, pointer, popup or drag state changed during " + stage);
     }
 
     private void EndPanelResizeCapture()
     {
+        if (capturedPanelResizeToolTip is { } tooltip)
+        {
+            if (panelResizeToolTipOpenedObserver != null) tooltip.Opened -= panelResizeToolTipOpenedObserver;
+            if (panelResizeToolTipClosedObserver != null) tooltip.Closed -= panelResizeToolTipClosedObserver;
+        }
         if (capturedPanelResize is { } handle)
         {
             if (panelResizeStartedObserver != null) handle.DragStarted -= panelResizeStartedObserver;
@@ -267,6 +357,8 @@ public sealed partial class MainWindow
             foreach (var (routedEvent, handler) in panelResizePointerObservers) handle.RemoveHandler(routedEvent, handler);
         }
         panelResizePointerObservers.Clear(); panelResizeStartedObserver = null; panelResizeDeltaObserver = null; panelResizeCompletedObserver = null;
+        panelResizeToolTipOpenedObserver = panelResizeToolTipClosedObserver = null;
+        capturedPanelResizeToolTip = null; panelResizeObservedPopups.Clear();
         capturedPanelResize = null; capturedPanelResizeEvidence = capturedPanelResizeBaseline = null; capturedPanelResizePointerOver = false;
     }
 

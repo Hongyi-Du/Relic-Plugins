@@ -17,6 +17,7 @@ public sealed partial class MainWindow
     private double sideWidth = 276, panelWidth = 340, fileWidth = 520;
     private Thumb? panelResize;
     private readonly List<Thumb> paneResizeHandles = new();
+    private readonly Dictionary<Thumb, ToolTip> paneResizeToolTips = new(ReferenceEqualityComparer.Instance);
     private string viewMode = "direct";
     private readonly List<(string Org, string Member)> history = new();
     private int historyIndex = -1;
@@ -113,6 +114,10 @@ public sealed partial class MainWindow
                 Style = (Style)Application.Current.Resources["RelicResizeThumbStyle"] };
             if (!left) panelResize = thumb;
             paneResizeHandles.Add(thumb);
+            // ToolTipService otherwise wraps the same string in a ToolTip.
+            // Retain that real production object so its lifetime and owner can
+            // also be observed without identifying a popup by its text.
+            paneResizeToolTips.Add(thumb, new ToolTip());
             thumb.Loaded += (_, _) => RefreshResizeLabels();
             Grid.SetColumn(thumb, left ? 0 : 2); columns.Children.Add(thumb);
             thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else if (pane == "files") fileWidth = Math.Clamp(fileWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
@@ -128,7 +133,11 @@ public sealed partial class MainWindow
         foreach (var handle in paneResizeHandles)
         {
             AutomationProperties.SetName(handle, label);
-            ToolTipService.SetToolTip(handle, label.Length > 0 ? label : null);
+            var tooltip = paneResizeToolTips[handle];
+            tooltip.Content = label;
+            var attached = label.Length > 0 ? tooltip : null;
+            if (!ReferenceEquals(ToolTipService.GetToolTip(handle), attached))
+                ToolTipService.SetToolTip(handle, attached);
         }
     }
     private void PushHistory()
