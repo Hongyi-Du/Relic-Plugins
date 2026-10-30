@@ -6,6 +6,16 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testNativeSiblingPathTracksActualViewReorderingAndDetachment() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        let root = NSView(), first = NSView(), second = NSView(), leaf = NSView()
+        window.contentView = root; root.addSubview(first); root.addSubview(second); first.addSubview(leaf)
+        XCTAssertEqual(NativeElementStructure.path(leaf), [0, 0])
+        root.addSubview(first, positioned: .above, relativeTo: second)
+        XCTAssertEqual(NativeElementStructure.path(leaf), [1, 0])
+        leaf.removeFromSuperview()
+        XCTAssertNil(NativeElementStructure.path(leaf))
+    }
     func testActualPopupCellRetainsItsFieldNameAndSelectedValue() throws {
         let popup = ReferencePopUpButton(frame: NSRect(x: 0, y: 0, width: 180, height: 24), pullsDown: false)
         popup.cell = ReferencePopUpCell(textCell: "", pullsDown: false)

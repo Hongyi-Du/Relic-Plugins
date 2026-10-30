@@ -237,6 +237,7 @@ import CoreText
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
+                "native_structure": NativeElementStructure.evidence(view, parent: (view as? ReferenceLabelView)?.productionParent),
                 "native_reshaped_fonts": reshapedFonts(storage.attributedSubstring(from: range)),
                 "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",
                 "style": ["fontSize": measuredSizes.count == 1 ? measuredSizes.first! as Any : NSNull(),
@@ -360,6 +361,7 @@ import CoreText
                     if let parent = run["parent_run"] as? Int { projected["parent"] = path + "/text-" + String(parent) }
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
+                    projected["native_structure"] = run["native_structure"]
                     projected["native_name_evidence"] = ["owner_role": role, "owner_label": label, "owner_value": valueText, "complete_owner_text_matches_run": run["text"] as? String == accessibleName]
                     projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
                         let local = NSRect(x: line["x"]!, y: line["y"]!, width: line["width"]!, height: line["height"]!)
@@ -413,6 +415,7 @@ import CoreText
                 }
                 if let measuredRegion = surface["region"] as? String { elements[index]["region"] = measuredRegion }
                 elements[index]["surface_evidence"] = surface["evidence"]!
+                elements[index]["native_structure"] = surface["native_structure"]
                 elements[index]["native_visible_bounds"] = surface["nativeVisibleBounds"]!
                 if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
@@ -425,6 +428,7 @@ import CoreText
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
                 let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
                     "identifier": owner as Any? ?? NSNull(),
+                    "native_structure": surface["native_structure"] ?? NSNull(),
                     "text": "", "name": "", "region": surface["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                     "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!, "native_visible_bounds": surface["nativeVisibleBounds"]!,
                     "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
@@ -447,6 +451,7 @@ import CoreText
             var evidence = sample["evidence"] as! [String: Any]
             evidence["owner_accessibility_identifier"] = sample["owner"]!
             let node: [String: Any] = ["id": sample["id"]!, "parent": parent, "kind": "icon", "text": "", "name": "",
+                "native_structure": sample["native_structure"] ?? NSNull(),
                 "region": sample["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                 "visible": true, "source": "live-NSView-shape-probe", "projection": evidence, "native_visible_bounds": sample["nativeVisibleBounds"]!,
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
@@ -484,6 +489,7 @@ import CoreText
         // ChartView's native ZStack draws edges before node controls. Preserve
         // that production layer order when supplementing AX with path paint.
         elements.insert(contentsOf: chartEdges, at: elements.firstIndex { $0["kind"] as? String == "chart-node" } ?? elements.count)
+        surfaceGaps.append(contentsOf: ElementOwnership.attachMeasuredChildren(to: &elements))
 
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
