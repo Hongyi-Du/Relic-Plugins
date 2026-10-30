@@ -1,3 +1,78 @@
+## 2026-10-30: retain the actual filter identity behind rejected coverage
+
+The actual chart PNG has the expected visible diagram, while its geometry
+failures include background-pane nodes whose rectangles are covered by the
+dialog. Coverage currently rejects the whole layer tree because some native
+layers have compositing filters. NativeLayerOrder now retains the actual filter
+string or public CIFilter.name/inputKeys, in both model and presentation layers,
+alongside the existing presence flag. Names alone prove no compositing semantics
+and do not remove any element or relax any condition. This provides the missing
+input for deciding which actual paint operations can affect the covered area.
+
+## 2026-10-30: exact viewport focus versus a surrounding SwiftUI focus binding
+
+Actual `86357fe` live-tool-output has one remaining focus error: the button's
+AXFocused is true and the scroll's own AXFocused is false, but the surrounding
+SwiftUI FocusState is still true. The extractor had promoted that binding to
+the exact scroll element. ConversationKeyboardMount now records the scope
+binding separately and reads the actual scroll.isAccessibilityFocused getter
+for exact focus. It retains both observations and makes no production focus
+change. The mounted regression explicitly verifies that a true scope binding
+does not replace a false native AX observation. This needs the next CI result.
+
+## 2026-10-30: 86357fe formal report and passed actual mouse-hit test
+
+Downloaded the unchanged joint report/HTML/heatmaps from 41098292475 into
+`S:\Codex\Outputs\Relic-native-visual\parity-86357fe\report`, plus its visual
+comparison artifact into `comparisons`. Both platforms have 22 paired cases;
+strictly checked/passed remain zero out of 672 expected per platform.
+macOS: 5523 valid native / 4913 paired elements; missing 46, extra 610, text 0,
+geometry 642, style 6749, state 1335, kind 0, region 0, order 685, layout 2451,
+icon 3, extraction 27468. The actual header badge fix removes its six group
+order errors; six outgoing-message errors remain in this pre-2012515 capture.
+Windows: 5124 valid native / 4868 paired; missing 94, extra 256, text 584,
+geometry 1313, style 14444, state 722, kind 15, region 20, order 441,
+layout 1646, icon 1, extraction 76650. No exceptions are accepted.
+
+Native apps 41097832962 / macOS 124209643628 builds and runs 236 tests with
+235 passing. Actual mouse-hit/front-control and covered-control tests now pass.
+The sole failure is the already-fixed shadow bitmap comparison, whose fix is
+in the subsequent production commit and still needs a new result. Some GitHub
+job-state endpoints still report old queued/in-progress values even after logs
+and uploaded report artifacts are available; the actual completed log provides
+this test result.
+
+For our final native search/rename cell classes only, capture now records actual
+NSTextFieldCell drawsBackground/isBordered/isBezeled switches with native owner
+identities. Disabled cell background/border paint supplies those properties;
+shadow, outline and corner properties remain unmeasured. No generic/private cell
+class is treated as known, and the field editor's background is checked. A
+negative test changes the real switches and checks that absence is not supplied.
+
+## 2026-10-30: actual 86357fe focus/badge results and observable search input
+
+Smoke 41098292475 produced 22 macOS captures in `parity-86357fe/macos`.
+The recipient button now owns actual focus; the expanded live-tool button owns
+focus; new-org's ordinary name input is focused. Actual group navigation now
+reads button / icon / count for both header notifications. These observations
+are from the captured tree, not a matcher reorder. The final joint report is
+still pending. This commit also contains the latest native-apps `215a313`.
+
+The search placeholder was visibly rendered but had no measured foreground,
+render-run font, text bounds or line configuration. Sidebar now uses an ordinary
+NSTextField/NSCell with an observed read-only TextKit placeholder child and an
+ObservedFieldEditor. The input retains editing, selection, IME and accessibility;
+the single child label binds to its actual `relic-input/sidebar-search` owner.
+No hidden replacement source or reference-derived font receipt is supplied.
+The actual input height follows the reference's 14px × 1.6 line box. New mounted
+CN/EN glyph/value/selection/focus tests and the same-scene capture must verify it.
+
+Opaque diagnostics: recipients has 25 candidates (16 behind the target, 9 with
+an unmeasured compositing filter); new-org has 16 (8 / 8). None is accepted as
+occluded. The pointer receiver in message-hover is an actual DocumentView whose
+AX hit remains a HostingScrollView; virtual child hover stays unknown. Raw
+measurements remain in the artifacts. No tolerance, exception or matrix change.
+
 ## 2026-10-30: 236-test results and the shadow composition regression
 
 Native apps 41097402930 / macOS 124209280678 (`663ced3`) builds and runs 236 tests.

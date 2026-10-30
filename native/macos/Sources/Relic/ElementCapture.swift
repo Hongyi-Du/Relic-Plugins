@@ -341,6 +341,7 @@ import CoreText
                 node["native_keyboard_scroll"] = binding
             }
             node["style"] = style(object, text: text)
+            NativeFieldPaint.attach(to: &node, object: object)
             if let marker = object as? NativeListMarkerView {
                 let observation = marker.observation()
                 node["native_list_marker"] = observation

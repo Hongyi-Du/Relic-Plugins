@@ -77,7 +77,10 @@ import SwiftUI
         XCTAssertFalse(keyboard.enabled); XCTAssertFalse(scroll.isAccessibilityEnabled())
         actual.update(enabled: true, focused: true)
         XCTAssertTrue(keyboard.enabled); XCTAssertTrue(scroll.isAccessibilityEnabled())
-        XCTAssertEqual(actual.observation()["focused"] as? Bool, true)
+        XCTAssertEqual(actual.observation()["focus_scope_binding"] as? Bool, true)
+        XCTAssertFalse(scroll.isAccessibilityFocused())
+        XCTAssertEqual(actual.observation()["focused"] as? Bool, false,
+            "A surrounding focus binding must not become the exact scroll element's AX focus")
         XCTAssertEqual(actual.observation()["controller_bound"] as? Bool, true)
         let position = scroll.contentView.bounds.origin
         actual.removeFromSuperview()

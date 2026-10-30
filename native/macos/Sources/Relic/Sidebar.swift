@@ -3,7 +3,7 @@ import RelicCore
 
 struct Sidebar: View {
     @EnvironmentObject var m: Model
-    @FocusState private var focused: Bool
+    @State private var focused = false
     @State private var profileImageVisible = false
     private let newOrganizationOwner = "relic-text-button/sidebar-new-organization"
     var body: some View {
@@ -14,8 +14,9 @@ struct Sidebar: View {
                 }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier(newOrganizationOwner)
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "search", size: 15, color: RelicStyle.muted, owner: "relic-card/sidebar-search")
-                    TextField(m.t("page.search"), text: $m.search, prompt: Text(m.t("page.search")).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).focused($focused)
-                        .accessibilityLabel(m.preferences["voice"].text == "off" ? "" : m.t("common.voice_input"))
+                    ObservedSearchField(placeholder: m.t("page.search"),
+                        accessibleName: m.preferences["voice"].text == "off" ? "" : m.t("common.voice_input"),
+                        text: $m.search, focused: $focused)
                     VoiceButton(text: $m.search, size: 32).labelStyle(.iconOnly)
                 }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/sidebar-search"))
                     .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")
