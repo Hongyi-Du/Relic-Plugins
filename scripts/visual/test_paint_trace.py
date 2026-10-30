@@ -332,11 +332,22 @@ class PaintTraceTests(unittest.TestCase):
                 self.assertIn("Tracing.start", starts)
                 self.assertIn("Tracing.end", starts)
                 self.assertIn("trace-stream", starts)
+                self.assertEqual(starts.count("Tracing.end"), 1)
+                self.assertLess(starts.index("page/screenshot"), starts.index("Tracing.end"))
+                self.assertLess(starts.index("trace-stream"), starts.index("DOMSnapshot.captureSnapshot"))
+                markers = json.loads((Path(folder) / "scene" / "trace-markers.json").read_text())
+                self.assertEqual([row["id"].split(":")[-1] for row in markers],
+                    ["before_navigation", "post_navigation_layer_enable", "before_screenshot", "after_screenshot"])
+                phases = json.loads((Path(folder) / "scene" / "diagnostic-phases.json").read_text())
+                self.assertEqual([row["name"] for row in phases],
+                    ["before_layer_snapshots", "after_layer_snapshots", "after_source_evidence"])
+                self.assertTrue(all(row["trace_end_acknowledged"] is True for row in phases))
                 self.assertLess(starts.index("page/navigation-and-real-scene"), starts.index("DOM.getDocument"))
                 self.assertLess(starts.index("DOM.getDocument"),
                                 [index for index, value in enumerate(starts) if value == "LayerTree.enable"][-1])
                 if fixture.get("has_layers", True):
                     self.assertLess(starts.index("page/screenshot"), starts.index("LayerTree.makeSnapshot"))
+                    self.assertLess(starts.index("trace-stream"), starts.index("LayerTree.makeSnapshot"))
                     self.assertLess(starts.index("LayerTree.makeSnapshot"), starts.index("LayerTree.snapshotCommandLog"))
                     self.assertLess(starts.index("LayerTree.snapshotCommandLog"), starts.index("LayerTree.releaseSnapshot"))
                     layer_receipt = json.loads((Path(folder) / "scene" / "layer-snapshots.json").read_text())
@@ -361,6 +372,141 @@ class PaintTraceTests(unittest.TestCase):
                     self.assertIn(("DOM.getDocument", {"depth": -1, "pierce": True}), [call.args for call in cdp.send.call_args_list])
                     page.locator.assert_called_with("#panel .file-md")
                     self.assertEqual(json.loads((Path(folder) / "scene" / "scene-action.json").read_text())["status"], "actual_preview_observed")
+
+
+class TraceBoundaryTests(unittest.TestCase):
+    def collect(self, output, fault):
+        """Entire protocol is mocked; no real process, browser or sleep."""
+        browser, context, cdp, trace_cdp, page = Mock(), Mock(), Mock(), Mock(), Mock()
+        browser.version = "synthetic fixture version"
+        browser.new_browser_cdp_session.return_value = trace_cdp
+        context.new_cdp_session.return_value = cdp
+        context.new_page.return_value = page
+        page.evaluate.return_value = {"quantity": "synthetic DOM fixture"}
+        callbacks, calls = {}, []
+        clock = [100.0]
+        ends = [0]
+        trace_cdp.on.side_effect = lambda name, handler: callbacks.update({name: handler})
+        cdp.on.side_effect = lambda name, handler: callbacks.update({name: handler})
+        page.wait_for_timeout.side_effect = lambda millis: clock.__setitem__(0, clock[0] + millis / 1000)
+        trace = {"metadata": {"command_line": "fixture-browser"}, "traceEvents": [
+            {"args": {"skp64": base64.b64encode(b"synthetic SKP transport bytes").decode()}}]}
+        payload = "invalid JSON retained unchanged" if fault == "parse" else json.dumps(trace)
+        def page_send(method, parameters=None):
+            calls.append(method)
+            if method == "LayerTree.enable":
+                callbacks["LayerTree.layerTreeDidChange"]({"layers": [{"layerId": "fixture-layer",
+                    "drawsContent": True, "paintCount": 2, "backendNodeId": 17,
+                    "offsetX": 0, "offsetY": 0, "width": 1440, "height": 900}]})
+            if method == "DOM.getDocument":
+                return {"root": {"nodeId": 1, "backendNodeId": 2, "nodeType": 9}}
+            if method == "DOM.describeNode":
+                return {"node": {"backendNodeId": parameters["backendNodeId"]}}
+            if method == "LayerTree.makeSnapshot":
+                return {"snapshotId": "fixture-snapshot"}
+            if method == "LayerTree.snapshotCommandLog":
+                return {"commandLog": [{"method": "fixture-record"}]}
+            return {}
+        cdp.send.side_effect = page_send
+        def trace_send(method, parameters=None):
+            calls.append(method)
+            if method == "Tracing.end":
+                ends[0] += 1
+                if fault in ("end", "end-expired") and ends[0] == 1:
+                    raise RuntimeError("synthetic end acknowledgement failure")
+                if fault != "completion":
+                    callbacks["Tracing.tracingComplete"]({"stream": "fixture-stream", "dataLossOccurred": False})
+            if method == "IO.read":
+                if fault == "stream":
+                    raise RuntimeError("synthetic stream read failure")
+                return {"data": payload, "eof": True}
+            return {}
+        trace_cdp.send.side_effect = trace_send
+        if fault == "scene":
+            page.screenshot.side_effect = RuntimeError("synthetic screenshot failure")
+        def fonts(*args):
+            calls.append("font-evidence")
+            if fault == "end-expired":
+                clock[0] += 46
+            return {"errors": []}
+        with patch.object(paint_trace.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(paint_trace, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
+                patch.object(paint_trace, "font_evidence", side_effect=fonts):
+            result = paint_trace.collect_scene(browser, context,
+                {"fixture": {"clock": "2026-10-29T11:02:00Z", "port": 1}},
+                {"id": "fixture-group", "scene": "group", "width": 1440, "height": 900},
+                output, "synthetic source")
+        page.close.assert_called_once()
+        return result, calls, payload
+
+    def test_failed_end_does_not_stop_independent_diagnostics_or_erase_failure_after_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "case"
+            result, calls, payload = self.collect(output, "end")
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(any(row.get("operation") == "Tracing.end" for row in result["errors"]))
+            self.assertEqual(calls.count("Tracing.end"), 2)
+            self.assertLess(calls.index("Tracing.end"), calls.index("LayerTree.makeSnapshot"))
+            self.assertLess(calls.index("font-evidence"), len(calls) - 1 - calls[::-1].index("Tracing.end"))
+            phases = json.loads((output / "diagnostic-phases.json").read_text())
+            self.assertTrue(all(row["trace_end_acknowledged"] is False for row in phases))
+            self.assertEqual((output / "trace.json").read_text(), payload)
+
+    def test_stream_parse_and_completion_failures_keep_later_diagnostics_and_do_not_end_twice(self):
+        for fault, operation in [("stream", "trace-stream"), ("parse", "trace-parse"),
+                                 ("completion", "Tracing.tracingComplete")]:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "case"
+                result, calls, payload = self.collect(output, fault)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(calls.count("Tracing.end"), 1)
+                self.assertTrue(any(row.get("operation") == operation for row in result["errors"]))
+                self.assertIn("LayerTree.snapshotCommandLog", calls)
+                self.assertIn("DOMSnapshot.captureSnapshot", calls)
+                self.assertIn("Accessibility.getFullAXTree", calls)
+                self.assertIn("font-evidence", calls)
+                self.assertTrue((output / "fonts.json").exists())
+                if fault == "parse":
+                    self.assertEqual((output / "trace.json").read_text(), payload)
+                if fault == "completion":
+                    self.assertNotIn("IO.read", calls)
+                    self.assertFalse((output / "trace-complete.json").exists())
+                else:
+                    self.assertIn("IO.close", calls)
+
+    def test_pre_png_scene_failure_still_exports_trace_in_finally_without_claiming_png_boundary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "case"
+            result, calls, payload = self.collect(output, "scene")
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(any(row["source"] == "scene_capture" for row in result["errors"]))
+            self.assertEqual(calls.count("Tracing.end"), 1)
+            self.assertEqual((output / "trace.json").read_text(), payload)
+            self.assertNotIn("LayerTree.makeSnapshot", calls)
+            self.assertFalse((output / "diagnostic-phases.json").exists())
+            markers = json.loads((output / "trace-markers.json").read_text())
+            self.assertFalse(any(row["id"].endswith(":after_screenshot") for row in markers))
+
+    def test_finally_cleanup_cannot_restart_the_original_failed_end_deadline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result, calls, _ = self.collect(Path(folder) / "case", "end-expired")
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(calls.count("Tracing.end"), 2)
+            self.assertIn("font-evidence", calls)
+            self.assertNotIn("IO.read", calls)
+            self.assertIn("IO.close", calls)
+            self.assertTrue(any("original stop/export deadline" in row["reason"] for row in result["errors"]))
+
+    def test_stream_deadline_preserves_received_bytes_and_closes_handle_without_another_read(self):
+        cdp = Mock()
+        cdp.send.side_effect = [{"data": "original partial bytes", "eof": False}, {}]
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(paint_trace.time, "monotonic", side_effect=[9.0, 9.5, 10.0]):
+            path = Path(folder) / "trace.json"
+            with self.assertRaisesRegex(TimeoutError, "original stop/export deadline"):
+                paint_trace.read_trace_stream(cdp, "actual-handle", path, deadline=10)
+            self.assertEqual(path.read_bytes(), b"original partial bytes")
+        self.assertEqual([call.args[0] for call in cdp.send.call_args_list], ["IO.read", "IO.close"])
 
 
 class LayerSnapshotTests(unittest.TestCase):

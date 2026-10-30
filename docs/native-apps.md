@@ -1,5 +1,34 @@
 # Native Relic App contract
 
+Changes for the clients (resumed measurement fixes): Windows tab paint now has
+an independent actual Tag/Border.Child identity receipt. Only a coextensive,
+unchanged simple surface can supply its owner's measured paint; independent
+content and unresolved Composition shadows remain in the evidence and gate.
+The inset-shadow reader compares local dimensions to local dimensions and
+window bounds to window bounds, and reads a filled Shape's actual Fill rather
+than its Stroke. The reduced 67ed20d receipt is a regression fixture; no native
+geometry or expected reference values are manufactured. The custom avatar host
+now explicitly has zero border thickness because its retained paint owns rings.
+
+Changes for the clients (reference trace boundary): tracing ends directly after
+the actual screenshot marker, before supplementary LayerTree/font diagnostics.
+Stop/export keeps its original deadline and every loss/error. Later diagnostics
+have a separate retained host-clock phase receipt, not fabricated trace markers.
+The existing archived paint decode completed all 134 unique SKPs, but text-to-DOM
+attribution and final screenshot paint ownership remain unproven; these records
+do not replace canonical measurements or satisfy the parity gate.
+
+Resume evidence: native build/test workflow 41100569170 and package workflow
+41100569283 passed at 215a313. Its smoke 41100562213 and full 41100560921 both
+failed; build success is not element parity. PR #4 remains draft and unmerged.
+
+Changes for the clients (macOS requests consumed): the latest owner branch
+records real NSCell paint switches and exact scroll AX focus separately from
+the surrounding SwiftUI focus binding, and retains actual layer filter names.
+Those observations do not establish generic filter/occlusion semantics or hide
+elements. Its search field changes and field-editor observations need the next
+merged CI capture. No tolerance, exception or matrix change is accepted.
+
 Changes for the clients (settings surface ownership): only the Windows settings
 dialog now uses its real BackgroundElement as the overall light/dark fill. Its
 SDK TopOverlay and authored body retain hit testing with transparent brushes.

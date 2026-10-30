@@ -91,6 +91,46 @@ public sealed partial class MainWindow
                     && owner.DispatcherQueue.HasThreadAccess && template != null;
                 if (!complete) errors.Add("Current template, Tag/Content reference, text source or visual-tree binding is incomplete or changed");
                 receipt["status"] = complete ? "measured" : "incomplete";
+                // A simple authored tab surface is a different contract from
+                // its label. Do not treat arbitrary Tag content as decoration.
+                // NativeShadowPanel subclasses (toast/message surfaces) are
+                // deliberately not covered by this exact production relation.
+                var shadowPanel = tag.GetType() == typeof(NativeShadowPanel) ? (NativeShadowPanel)tag : null;
+                var surface = tag.GetType() == typeof(Border) ? (Border)tag : shadowPanel?.Surface;
+                if (surface != null)
+                {
+                    var labels = before.Select(entry => entry.Value).OfType<FrameworkElement>()
+                        .Where(text => text is TextBlock or RichTextBlock or NativeLabel)
+                        .Where(text => CaptureText(text).Length != 0).ToArray();
+                    var child = surface.Child;
+                    var sameLabel = labels.Length == 1 && ReferenceEquals(child, labels[0]);
+                    var surfaceFound = ids.TryGetValue(surface, out var surfaceId) && records.ContainsKey(surface);
+                    var childFound = child != null && ids.TryGetValue(child, out _) && records.ContainsKey(child);
+                    var childId = childFound ? ids[child!] : null;
+                    var sameChildParent = childFound && ReferenceEquals(VisualTreeHelper.GetParent(child!), surface)
+                        && records[child!]["parent"]?.GetValue<string>() == surfaceId;
+                    var sameSurface = ReferenceEquals(owner.Tag, tag) && (shadowPanel == null
+                        ? ReferenceEquals(tag, surface) : ReferenceEquals(shadowPanel.Surface, surface)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(surface), shadowPanel));
+                    var stableChild = ReferenceEquals(surface.Child, child);
+                    var paintComplete = complete && surface.GetType() == typeof(Border) && surfaceFound
+                        && sameLabel && sameChildParent && sameSurface && stableChild;
+                    receipt["paint_surface"] = new JsonObject
+                    {
+                        ["contract"] = "selectorbar-current-paint-surface-v1",
+                        ["source"] = "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+                        ["status"] = paintComplete ? "measured" : "incomplete", ["owner_id"] = ids[owner],
+                        ["content_form"] = shadowPanel == null ? "direct-border" : "shadow-surface",
+                        ["tag_content_id"] = ids.GetValueOrDefault(tag), ["surface_id"] = surfaceId,
+                        ["surface_runtime_type"] = surface.GetType().FullName,
+                        ["shadow_id"] = shadowPanel == null ? null : ids.GetValueOrDefault(shadowPanel),
+                        ["shadow_runtime_type"] = shadowPanel?.GetType().FullName,
+                        ["label_id"] = childId, ["surface_child_is_unique_label"] = sameLabel,
+                        ["current_child_parent_matches"] = sameChildParent,
+                        ["same_surface_after"] = sameSurface, ["same_child_after"] = stableChild,
+                        ["errors"] = paintComplete ? new JsonArray() : new JsonArray("Actual simple tab surface/child identity is incomplete or changed")
+                    };
+                }
             }
             catch (Exception error)
             {

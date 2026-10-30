@@ -25,7 +25,9 @@ public sealed class NativeAvatarPicture
         Paint = paint;
         PaintTemplate = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='PersonPicture'><ContentPresenter Content='{TemplateBinding Tag}'/></ControlTemplate>");
         Picture = new PersonPicture { DisplayName = label, Tag = Paint, Width = size, Height = size,
-            IsTabStop = false, Template = PaintTemplate };
+            // The retained paint owns any real avatar border/ring. This native
+            // host is borderless, including its otherwise inherited SDK value.
+            BorderThickness = new Thickness(0), IsTabStop = false, Template = PaintTemplate };
         NativeAvatarLifetimeHolder.Attach(this);
     }
 

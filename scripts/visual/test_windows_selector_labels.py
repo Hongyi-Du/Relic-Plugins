@@ -8,7 +8,8 @@ from pathlib import Path
 import unittest
 
 import test_windows_elements as projection_fixtures
-from windows_selector_labels import CONTRACT, SOURCE, selector_content_labels, selector_label_candidate
+from windows_selector_labels import (CONTRACT, SOURCE, PAINT_CONTRACT, PAINT_SOURCE,
+                                     selector_content_labels, selector_label_candidate, selector_paint_surfaces)
 
 
 def fixture(extra=None):
@@ -156,6 +157,169 @@ class SelectorLabelsTests(unittest.TestCase):
                 self.assertEqual(audit["owners"], {})
                 if mutation is not None:
                     self.assertTrue(audit["unmeasured"])
+
+
+def paint_fixture(extra=None, direct=False):
+    nodes = fixture(extra)
+    by_id = {node["id"]: node for node in nodes}
+    parent = nodes[0]["selector_content_evidence"]
+    by_id["surface"]["style"]["corner_radius"] = 6
+    by_id["surface"]["style"]["corner_radii"] = [6] * 4
+    by_id["content"]["style"]["shadow"] = None
+    by_id["content"]["composition_shadow_evidence"] = {
+        "source": "Synthetic actual production Composition DropShadow receipt",
+        "layers": [{"blur_radius": 2, "offset": [0, 1, 0], "opacity": .06}],
+        "quantity": "Live Composition parameters; raster/CSS equivalence remains unknown",
+    }
+    if direct:
+        nodes.remove(by_id["content"])
+        parent["tag_content_id"] = "surface"
+        by_id["surface"]["parent"] = "presenter"
+        by_id["surface"]["declared_content_owner"] = "tab"
+        by_id["surface"]["declared_content_source"] = "FrameworkElement.Tag UIElement in the actual visual tree"
+        parent["actual_subtree"] = [entry for entry in parent["actual_subtree"] if entry["id"] != "content"]
+        next(entry for entry in parent["actual_subtree"] if entry["id"] == "surface")["parent_id"] = "presenter"
+    parent["paint_surface"] = {
+        "contract": PAINT_CONTRACT, "source": PAINT_SOURCE, "status": "measured", "errors": [],
+        "owner_id": "tab", "content_form": "direct-border" if direct else "shadow-surface",
+        "tag_content_id": parent["tag_content_id"], "surface_id": "surface",
+        "surface_runtime_type": "Microsoft.UI.Xaml.Controls.Border", "label_id": "label",
+        "shadow_id": None if direct else "content",
+        "shadow_runtime_type": None if direct else "Relic.NativeShadowPanel",
+        "surface_child_is_unique_label": True, "current_child_parent_matches": True,
+        "same_surface_after": True, "same_child_after": True,
+    }
+    return nodes
+
+
+class SelectorPaintTests(unittest.TestCase):
+    def audit(self, nodes):
+        return selector_paint_surfaces(nodes, selector_content_labels(nodes))
+
+    def capture(self, nodes, **changes):
+        f = projection_fixtures
+        by_id = {node["id"]: node for node in nodes}
+        providers = [f.uia_node("uia-tab", "TabItem", "Light", bounds=by_id["tab"]["bounds"]),
+                     f.uia_node("uia-label", "Text", "Light", parent="uia-tab", bounds=by_id["label"]["bounds"])]
+        return f.ProjectionTests.capture(self, nodes, providers, **changes)
+
+    def test_actual_surface_values_are_used_without_expected_color_or_radius(self):
+        nodes = paint_fixture()
+        surface = next(node for node in nodes if node["id"] == "surface")
+        surface["style"]["background"] = [12, 34, 56, 200]
+        surface["style"]["corner_radius"] = 3
+        surface["style"]["corner_radii"] = [3] * 4
+        before = deepcopy(nodes)
+        audit = self.audit(nodes)
+        self.assertEqual(audit["owners"]["tab"]["style"]["background"], [12, 34, 56, 200])
+        self.assertEqual(audit["owners"]["tab"]["style"]["corner_radius"], 3)
+        self.assertEqual(nodes, before)
+
+    def test_projection_owns_surface_but_retains_shadow_and_outline_unknown(self):
+        nodes = paint_fixture()
+        result = self.capture(nodes, xaml_changes={"extraction_errors": ["actual shadow/clip unresolved"]})
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertEqual(elements["tab"]["text"], "Light")
+        self.assertNotIn("surface", elements)
+        self.assertIn("surface", elements["tab"]["evidence"]["paint_sources"])
+        self.assertEqual(elements["tab"]["style"]["background"], [255, 255, 255, 255])
+        self.assertEqual(elements["tab"]["style"]["corner_radii"], [6] * 4)
+        self.assertIsNone(elements["tab"]["style"]["shadow"])
+        self.assertEqual(elements["tab"]["evidence"]["selector_paint_surface"]["raw_shadow"]["id"], "content")
+        self.assertIn("actual shadow/clip unresolved", result["extraction_errors"])
+        self.assertTrue(any(issue["id"] == "surface" and issue["property"] == "style.outline"
+                            for issue in result["coverage"]["unmeasured"]))
+        retained = next(item for item in result["projection"] if item.get("source") == "surface")
+        self.assertEqual(retained["paint_evidence"]["style"], next(n for n in nodes if n["id"] == "surface")["style"])
+
+    def test_direct_tag_border_has_independent_binding_without_shadow_assumption(self):
+        nodes = paint_fixture(direct=True)
+        audit = self.audit(nodes)
+        self.assertEqual(audit["unmeasured"], [])
+        self.assertEqual(audit["owners"]["tab"]["surface_id"], "surface")
+        self.assertIsNone(audit["owners"]["tab"]["raw_shadow"])
+        self.assertEqual(audit["owners"]["tab"]["style"]["shadow"], [])
+        result = self.capture(nodes)
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertNotIn("surface", elements)
+        self.assertEqual(elements["tab"]["style"]["background"], [255, 255, 255, 255])
+
+    def test_native_box_or_transform_difference_never_uses_nearby_paint_heuristic(self):
+        for difference in ("bounds", "visible_bounds", "transform", "opacity", "unknown-box"):
+            with self.subTest(difference=difference):
+                nodes = paint_fixture()
+                surface = next(node for node in nodes if node["id"] == "surface")
+                if difference in ("bounds", "visible_bounds"):
+                    surface[difference] = dict(surface[difference], x=surface[difference]["x"] + .01)
+                elif difference == "transform":
+                    surface["transform"]["offset_x"] += .01
+                elif difference == "opacity":
+                    surface["opacity"] = .5
+                else:
+                    surface["bounds"] = None
+                self.assertEqual(self.audit(nodes)["owners"], {})
+
+    def test_wrong_actual_child_surface_or_shadow_class_cannot_merge(self):
+        for difference in ("label", "surface", "child", "subclass", "form"):
+            with self.subTest(difference=difference):
+                nodes = paint_fixture()
+                proof = nodes[0]["selector_content_evidence"]["paint_surface"]
+                if difference == "label":
+                    proof["label_id"] = "foreign"
+                elif difference == "surface":
+                    proof["surface_id"] = "root"
+                elif difference == "child":
+                    proof["same_child_after"] = False
+                elif difference == "subclass":
+                    proof["shadow_runtime_type"] = "Relic.NativeToastNotice"
+                else:
+                    proof["content_form"] = "guessed-painted-descendant"
+                self.assertEqual(self.audit(nodes)["owners"], {})
+                result = self.capture(nodes)
+                self.assertIn("surface", {item["id"] for item in result["elements"]})
+
+    def test_hidden_surface_and_nested_interactive_content_are_not_absorbed(self):
+        nodes = paint_fixture()
+        next(node for node in nodes if node["id"] == "surface")["hidden_reason"] = "collapsed"
+        self.assertEqual(self.audit(nodes)["owners"], {})
+        f = projection_fixtures
+        nodes = paint_fixture([f.xaml_node("action", "Button", parent="content", bounds=f.box(65, 25, 18, 15))])
+        result = self.capture(nodes)
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertIn("surface", elements)
+        self.assertIn("action", elements)
+
+    def test_independent_painted_content_remains_separate(self):
+        f = projection_fixtures
+        extra = f.xaml_node("decoration", "Border", parent="content", bounds=f.box(65, 24, 12, 12))
+        extra["style"]["background"] = [200, 60, 40, 255]
+        nodes = paint_fixture([extra])
+        result = self.capture(nodes)
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertNotIn("surface", elements)
+        self.assertIn("decoration", elements)
+        self.assertEqual(elements["decoration"]["style"]["background"], [200, 60, 40, 255])
+
+    def test_label_v1_without_new_paint_receipt_keeps_surface_independent(self):
+        nodes = fixture()
+        self.assertEqual(self.audit(nodes)["owners"], {})
+        result = self.capture(nodes)
+        self.assertIn("surface", {item["id"] for item in result["elements"]})
+
+    def test_additional_owner_background_is_not_flattened_behind_surface(self):
+        nodes = paint_fixture()
+        nodes[0]["style"]["background"] = [10, 20, 30, 255]
+        self.assertEqual(self.audit(nodes)["owners"], {})
+        result = self.capture(nodes)
+        self.assertIn("surface", {item["id"] for item in result["elements"]})
+
+    def test_unknown_surface_style_stays_unknown_instead_of_owner_defaults(self):
+        nodes = paint_fixture()
+        surface = next(node for node in nodes if node["id"] == "surface")
+        surface["style"].update(background=None, border_width=None, corner_radius=None)
+        style = self.audit(nodes)["owners"]["tab"]["style"]
+        for key in ("background", "border_width", "corner_radius", "shadow"):
+            self.assertIsNone(style[key])
 
 
 if __name__ == "__main__":
