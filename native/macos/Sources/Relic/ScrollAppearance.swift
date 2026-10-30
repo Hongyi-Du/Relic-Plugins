@@ -59,9 +59,14 @@ final class ReferenceScroller: NSScroller {
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
     override func updateTrackingAreas() {
         for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeAlways, .mouseEnteredAndExited], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeAlways, .mouseEnteredAndExited, .mouseMoved], owner: self))
         super.updateTrackingAreas()
     }
-    override func mouseEntered(with event: NSEvent) { over = true; needsDisplay = true }
+    private func updateHover(_ event: NSEvent) {
+        let hovered = rect(for: .knob).intersection(bounds).contains(convert(event.locationInWindow, from: nil))
+        if hovered != over { over = hovered; needsDisplay = true }
+    }
+    override func mouseEntered(with event: NSEvent) { updateHover(event) }
+    override func mouseMoved(with event: NSEvent) { updateHover(event) }
     override func mouseExited(with event: NSEvent) { over = false; needsDisplay = true }
 }

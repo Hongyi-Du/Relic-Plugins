@@ -78,6 +78,8 @@ NSDictionary<NSString *, id> *RelicAXRead(id object) {
         @"label": @[@"accessibilityLabel", NSAccessibilityDescriptionAttribute],
         @"title": @[@"accessibilityTitle", NSAccessibilityTitleAttribute],
         @"value": @[@"accessibilityValue", NSAccessibilityValueAttribute],
+        @"minimum": @[@"accessibilityMinValue", NSAccessibilityMinValueAttribute],
+        @"maximum": @[@"accessibilityMaxValue", NSAccessibilityMaxValueAttribute],
         @"identifier": @[@"accessibilityIdentifier", NSAccessibilityIdentifierAttribute],
         @"help": @[@"accessibilityHelp", NSAccessibilityHelpAttribute],
         @"placeholder": @[@"accessibilityPlaceholderValue", NSAccessibilityPlaceholderValueAttribute]

@@ -3,6 +3,14 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ScrollAppearanceTests: XCTestCase {
+    func testScrollbarPositionUsesActualProviderRangeWithoutClampingUnknownValues() {
+        XCTAssertEqual(ScrollbarCapture.normalized(value: 35, minimum: 10, maximum: 110), 0.25)
+        XCTAssertEqual(ScrollbarCapture.normalized(value: 10, minimum: 10, maximum: 10), 0)
+        XCTAssertNil(ScrollbarCapture.normalized(value: NSNull(), minimum: 0, maximum: 1))
+        XCTAssertNil(ScrollbarCapture.normalized(value: 1.2, minimum: 0, maximum: 1))
+        XCTAssertNil(ScrollbarCapture.normalized(value: 0, minimum: 2, maximum: 1))
+    }
+
     func testOverflowReservesTheActualTenPointScrollerWidth() {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         scroll.borderType = .noBorder; scroll.hasVerticalScroller = true

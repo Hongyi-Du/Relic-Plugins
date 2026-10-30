@@ -226,19 +226,24 @@ import CoreText
             let point = NSPoint(x: rect.midX, y: rect.midY)
             return regions.filter { $0.rect.contains(point) }.min(by: { $0.rect.width * $0.rect.height < $1.rect.width * $1.rect.height })?.name ?? fallback
         }
-        func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false) {
+        func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false, scrollbarOwner: ReferenceScroller? = nil) {
             let object = value as AnyObject
             let attributes = RelicAXRead(object)
             let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
-            let role = ax["role"].text, rect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
-            let nativeClip = (object as? NSView).flatMap { NativeVisibility.screenClip($0, limitingToBounds: false) }
+            let role = ax["role"].text
+            let scroller = (object as? ReferenceScroller) ?? scrollbarOwner
+            let isThumb = role == "AXValueIndicator" && scroller != nil
+            let axRect = topLeft((attributes["frame"] as? NSValue)?.rectValue ?? .zero, in: contentScreen)
+            let paintedScreen = (role == "AXScrollBar" || isThumb) ? scroller.flatMap { ScrollbarCapture.screenBounds($0, thumb: isThumb) } : nil
+            let rect = paintedScreen.map { topLeft($0, in: contentScreen) } ?? axRect
+            let nativeClip = ((object as? NSView) ?? scroller).flatMap { NativeVisibility.screenClip($0, limitingToBounds: false) }
             let activeClip = nativeClip.map { $0.isNull ? NSRect.null : clip.intersection(topLeft($0, in: contentScreen)) } ?? clip
             let visibleRect = rect.intersection(activeClip)
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
+            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
             if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
@@ -250,6 +255,10 @@ import CoreText
             var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
             node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "indeterminate": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 2 } as Any? ?? NSNull() : NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
             node["style"] = style(object, text: text)
+            if let scroller, role == "AXScrollBar" || isThumb {
+                node["ax_hit_bounds"] = box(axRect)
+                ScrollbarCapture.apply(to: &node, scroller: scroller, thumb: isThumb)
+            }
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
@@ -300,13 +309,13 @@ import CoreText
                 }
             }
             let childClip = role == "AXScrollArea" ? activeClip.intersection(rect) : activeClip
-            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil) }
+            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil, scrollbarOwner: scroller) }
             // Embedded AppKit controls can be absent from the hosting view's AX
             // children. Inspect their real view ancestry too; identity deduplication
             // prevents emitting a control twice when AX already exposed it.
             if let view = object as? NSView {
                 for (index, child) in view.subviews.enumerated() {
-                    visit(child, path: path + "/view-" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil)
+                    visit(child, path: path + "/view-" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil, scrollbarOwner: scroller)
                 }
             }
         }
@@ -469,11 +478,15 @@ import CoreText
                     if sourceStyle[key] == nil || sourceStyle[key] is NSNull { unmeasured.append(id + ":style." + key) }
                 }
             }
-            let isControl = ["button", "icon-button", "input", "checkbox", "toggle", "tab", "dropdown", "link", "menu-item", "chart-node"].contains(kind)
+            let isControl = ["button", "icon-button", "input", "checkbox", "toggle", "tab", "dropdown", "link", "menu-item", "chart-node", "list-row", "resize-handle", "scrollbar", "scrollbar-thumb"].contains(kind)
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            let state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": ["checkbox", "toggle"].contains(kind) ? sourceState["checked"]! : NSNull(), "indeterminate": ["checkbox", "toggle"].contains(kind) ? sourceState["indeterminate"] ?? NSNull() : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
+            var state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": ["checkbox", "toggle"].contains(kind) ? sourceState["checked"]! : NSNull(), "indeterminate": ["checkbox", "toggle"].contains(kind) ? sourceState["indeterminate"] ?? NSNull() : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
+            if ["scrollbar", "scrollbar-thumb"].contains(kind) {
+                state["orientation"] = sourceState["orientation"] ?? NSNull()
+                state["scroll_position"] = sourceState["scroll_position"] ?? NSNull()
+            }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             var evidence = node
