@@ -1,5 +1,15 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Confirmed large-window raster recovery: `25f57f2` / diagnostic `40997958370`
+has actual opaque 1440x900 native PNGs, including both new panel gestures.
+The previous all-transparent composite failure is absent. All 19 native cases
+were attempted; 18 complete and Copy fails because its model toast was observed
+at 6ms before SwiftUI mounted the actual text/surface (both measured counts zero).
+The clipboard and same running timer were correct. Native now waits for that
+same real mounted toast while its original clock runs, then pauses; no extra
+Copy, toast replacement, lifetime extension or removed continuity assertion.
+Source and report are under `smoke-25f57f2` / `parity-25f57f2` in the output folder.
+
 Consumed shared `d8f74ff` image contract and scrollbar-fixture fix. NativeLogoView
 now retains the actual parameters used by its CG calls: rectangle bounds/radii,
 gradient stop locations/colors, sRGB space, both extension flags, parsed CGPath
