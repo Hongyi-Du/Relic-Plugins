@@ -1417,9 +1417,11 @@ def native_process(manifest_path, manifest, exe):
     with (manifest_path.parent / "client.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
         completed_requests, capture_errors = set(), []
+        early_cleanup = None
         expected_ids = {case["id"] for case in manifest["cases"]}
         progress_observations = []
         def capture_elements():
+            nonlocal early_cleanup
             if manifest["client"] != "windows":
                 progress_path = manifest_path.parent / "current-case.txt"
                 if progress_path.is_file():
@@ -1450,15 +1452,28 @@ def native_process(manifest_path, manifest, exe):
                 publish_observer_receipt(held["observer_pid"])
                 wait_native_probe_receipt(receipt.with_name(last_request + ".probes.json"),
                     request, held["observer_pid"], process, deadline)
+            observer_completed = False
             try:
                 from uia_observer import observe
                 result = observe(manifest["uia_exe"], request_path, raw, process, observer_ready)
+                observer_completed = True
                 with (manifest_path.parent / "uia.log").open("a", encoding="utf-8") as observer_log:
                     observer_log.write(f"case={last_request} pid={process.pid} returncode={result.returncode}\n{result.stdout}\n{result.stderr}\n")
                 if result.returncode:
                     raise RuntimeError(f"UIA extractor exited {result.returncode}: {result.stderr}")
             except Exception as error:
                 capture_errors.append("UIA capture failed: " + str(error))
+                if not observer_completed:
+                    # A failed/expired handshake can leave the native async
+                    # identity read in flight. Stop/reap that exact owned client
+                    # before projecting its files, so a later write cannot
+                    # replace the raw evidence referenced by the failed report.
+                    try:
+                        early_cleanup = stop_native_process(process)
+                        early_cleanup["reason"] = "UIA observer handshake failed: " + str(error)
+                    except Exception as cleanup_error:
+                        raise RuntimeError("UIA observer failed and native evidence could not be frozen: "
+                            + str(error) + "; " + str(cleanup_error)) from error
                 partial = json.loads(raw.read_text(encoding="utf-8-sig")) if raw.exists() else {"raw_nodes": []}
                 partial.setdefault("extraction_errors", []).append(str(error))
                 raw.write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
@@ -1497,7 +1512,7 @@ def native_process(manifest_path, manifest, exe):
             return receipt
         finally:
             try:
-                cleanup = stop_native_process(process)
+                cleanup = early_cleanup if early_cleanup is not None else stop_native_process(process)
             except Exception as error:
                 cleanup = {"pid": process.pid, "status": "failed", "error": str(error),
                            "error_type": type(error).__name__, "returncode": process.returncode}

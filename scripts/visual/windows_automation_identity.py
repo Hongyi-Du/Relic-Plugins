@@ -10,6 +10,48 @@ import re
 OWNER_SOURCE = "Actual FrameworkElementAutomationPeer.FromElement owner binding"
 NATIVE_SOURCE = "Actual AutomationPeer QI to native UIA fragment and UIA core node"
 TRANSPORT_SOURCE = "Actual COM inter-apartment marshal stream and MTA UIA core read"
+COLLECTION_PHASE = "while-independent-uia-observer-held"
+
+
+def held_observer_binding(evidence, uia):
+    """Validate the actual hold receipt, not its capture/test success.
+
+    An observer may finish with exit code 1 because other text/paint evidence
+    failed, while still retaining the real objects used for this identity read.
+    Those original errors remain owned by the independent capture and gate.
+    """
+    if evidence.get("collection_phase") != COLLECTION_PHASE:
+        return "Actual peer identity was not collected while the independent UIA observer was held"
+    observer, hold = evidence.get("observer"), uia.get("observer_hold")
+    if not isinstance(observer, dict) or not isinstance(hold, dict):
+        return "Actual independent UIA observer identity or hold receipt is missing"
+    case_id, app_pid = uia.get("case_id"), uia.get("pid")
+    if (not isinstance(case_id, str) or not case_id
+            or type(app_pid) is not int or app_pid <= 0
+            or observer.get("case_id") != case_id or hold.get("case_id") != case_id
+            or type(observer.get("app_pid")) is not int or observer["app_pid"] != app_pid
+            or type(hold.get("app_pid")) is not int or hold["app_pid"] != app_pid
+            or type(observer.get("observer_pid")) is not int or observer["observer_pid"] <= 0
+            or type(hold.get("observer_pid")) is not int
+            or hold["observer_pid"] != observer["observer_pid"]):
+        return "Actual observer case/app/observer process binding is missing or foreign"
+    if hold.get("status") != "released":
+        return "Independent UIA observer did not complete the held-object release handshake"
+    release = hold.get("release")
+    if (hold.get("errors") != [] or not isinstance(release, dict)
+            or release.get("action") != "release" or release.get("status") != "observed"
+            or release.get("case_id") != case_id
+            or type(release.get("observer_pid")) is not int
+            or release["observer_pid"] != observer["observer_pid"]):
+        return "Observer release was failed cleanup, foreign, malformed or accompanied by hold errors"
+    retained = hold.get("retained_owners")
+    required = ("capture_instance_retained", "retention_requested", "primary_root_retained",
+                "native_text_evidence_retained")
+    if (not isinstance(retained, dict) or any(retained.get(key) is not True for key in required)
+            or type(retained.get("retained_element_reference_count")) is not int
+            or retained["retained_element_reference_count"] <= 0):
+        return "Actual independent UIA owners/native text objects were not proven retained"
+    return None
 
 
 def measured_id(array):
@@ -70,6 +112,10 @@ def bind_automation_identities(raw_nodes, uia):
                 or evidence["process_id"] != uia["pid"]):
             unknown("Actual peer owner, current identity or process binding is not measured")
             continue
+        hold_error = held_observer_binding(evidence, uia)
+        if hold_error is not None:
+            unknown(hold_error)
+            continue
         events_null, events_same, events_type = (evidence.get("events_source_is_null"),
             evidence.get("events_source_same_peer"), evidence.get("events_source_type"))
         absent_source = (events_null is True and events_same is False
@@ -109,6 +155,10 @@ def bind_automation_identities(raw_nodes, uia):
                     "xaml_candidates": [candidate.get("id") for candidate in nodes],
                     "uia_candidates": [candidate.get("id") for candidate in observed]})
             continue
+        evidence = nodes[0]["automation_identity_evidence"]
         result["pairs"].append({"xaml_id": nodes[0]["id"], "uia_id": observed[0]["id"], "runtime_id": list(identity),
-                               "method": "Full opaque RuntimeId equality; no name, bounds or suffix inference"})
+                               "method": "Full opaque RuntimeId equality; no name, bounds or suffix inference",
+                               "collection_phase": evidence["collection_phase"],
+                               "observer": {key: evidence["observer"][key]
+                                            for key in ("case_id", "app_pid", "observer_pid")}})
     return result

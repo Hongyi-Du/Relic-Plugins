@@ -413,7 +413,7 @@ internal sealed class AutomationIdentityMarshal
 public sealed partial class MainWindow
 {
     private async Task CaptureAutomationIdentities(string directory, string caseId, Dictionary<DependencyObject, string> ids,
-        Dictionary<DependencyObject, JsonObject> nodes)
+        Dictionary<DependencyObject, JsonObject> nodes, JsonObject observer)
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Automation identity capture is CI-only");
         // Flush to the OS cache after each entered/returned native API. A UIA
@@ -429,6 +429,7 @@ public sealed partial class MainWindow
             var receipt = new JsonObject { ["source"] = "Actual FrameworkElementAutomationPeer.FromElement owner binding",
                 ["status"] = "unknown", ["owner_id"] = ownerId, ["process_id"] = Environment.ProcessId,
                 ["api"] = "FrameworkElementAutomationPeer.FromElement(actual captured UIElement)",
+                ["collection_phase"] = "while-independent-uia-observer-held", ["observer"] = observer.DeepClone(),
                 ["metadata_modified"] = false,
                 ["peer_creation_note"] = "WinUI FromElement may lazily create its existing production peer/provider infrastructure; CreatePeerForElement is not called" };
             record["automation_identity_evidence"] = receipt;

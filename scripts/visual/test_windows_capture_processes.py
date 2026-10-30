@@ -90,7 +90,7 @@ class WindowsCaptureProcessTests(unittest.TestCase):
         self.assertEqual([call.kwargs["timeout"] for call in process.wait.call_args_list], [20, 10])
         self.assertTrue(result["forced_kill"])
 
-    def run_single_mock(self, root, wrong_pid=False, reader_error=False):
+    def run_single_mock(self, root, wrong_pid=False, reader_error=False, handshake_error=False):
         manifest = self.manifest(root)
         work = root / "one-process"
         work.mkdir()
@@ -123,6 +123,8 @@ class WindowsCaptureProcessTests(unittest.TestCase):
             self.assertEqual(request["pid"], process.pid)
             self.assertEqual(request["hwnd"], 123456, "Never replace the actual native HWND")
             Path(raw_path).write_text('{"raw_nodes":[]}')
+            if handshake_error:
+                raise TimeoutError("actual held-observer deadline fixture")
             on_ready({"case_id": case["id"], "app_pid": process.pid, "observer_pid": 9876,
                       "exit_code": 1 if reader_error else 0}, 75)
             return SimpleNamespace(returncode=1 if reader_error else 0, stdout="real reader stdout fixture", stderr="provider error" if reader_error else "")
@@ -135,12 +137,17 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                                             "observer_pid": observer_pid, "status": "observed"}))
         observer = Mock(side_effect=observe)
         native_probe_wait = Mock(side_effect=native_ack)
-        projector = Mock(return_value={"elements": [], "extraction_errors": []})
+        def project(*args):
+            if handshake_error:
+                process.terminate.assert_called_once()
+                process.wait.assert_called_once_with(timeout=20)
+            return {"elements": [], "extraction_errors": []}
+        projector = Mock(side_effect=project)
         with patch.object(capture.subprocess, "Popen", return_value=process) as launch, \
                 patch.object(capture, "wait_file", side_effect=wait), \
                 patch.dict("sys.modules", {"windows_elements": SimpleNamespace(project=projector),
                     "uia_observer": SimpleNamespace(observe=observer, wait_native_probe_receipt=native_probe_wait)}):
-            if wrong_pid or reader_error:
+            if wrong_pid or reader_error or handshake_error:
                 with self.assertRaisesRegex(RuntimeError, "not bound" if wrong_pid else "UIA capture failed"):
                     capture.native_process(work / "manifest.json", manifest, Path("Relic.exe"))
             else:
@@ -155,7 +162,11 @@ class WindowsCaptureProcessTests(unittest.TestCase):
                 projector.assert_not_called()
             else:
                 observer.assert_called_once()
-                native_probe_wait.assert_called_once()
+                if handshake_error:
+                    native_probe_wait.assert_not_called()
+                    self.assertIn("held-observer deadline", json.loads((work / "process-exit.json").read_text())["reason"])
+                else:
+                    native_probe_wait.assert_called_once()
                 self.assertTrue((work / "element-receipts" / (case["id"] + ".json")).exists())
                 self.assertTrue((output / (case["id"] + ".elements.json")).exists())
             self.assertEqual(json.loads((work / "process-exit.json").read_text())["pid"], process.pid)
@@ -171,6 +182,10 @@ class WindowsCaptureProcessTests(unittest.TestCase):
     def test_reader_failure_preserves_evidence_and_receipt_but_fails_case(self):
         with tempfile.TemporaryDirectory() as folder:
             self.run_single_mock(Path(folder), reader_error=True)
+
+    def test_failed_handshake_stops_native_before_projection_and_preserves_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.run_single_mock(Path(folder), handshake_error=True)
 
     def test_main_writes_failed_aggregate_then_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as folder:

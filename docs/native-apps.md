@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (observed provider-lifetime result): a3ca2a3 group held
+648 actual observer references. All 391 peer QIs failed before the independent
+walk; while the same observer remained alive, 303 succeeded and 88 remained
+E_NOINTERFACE, identically for both public outlets. Complete UIA-core RuntimeId
+reads now occur in that measured lifetime interval. The before/after diagnostic
+is retained. Identity pairing requires the same case/app/observer IDs, actual
+retained owners, successful observed release and no hold error, in addition to
+the existing exact full-ID, COM, EventsSource and uniqueness requirements.
+Unrelated provider errors still fail their own checks even if an ID is measured.
+
+The final XAML snapshot is atomically replaced before the native completion ack.
+If observer coordination fails, its exact owned native client is stopped/reaped
+before projection, preserving a fixed failed snapshot and the actual cleanup
+receipt. New mocked regressions exercise this failure path. The headless build
+passes; full core-ID evidence and these new tests await fresh CI.
+
 Changes for the clients (macOS production glyph-range merge): actual TextKit
 draw invocations now retain their original attributed ranges without splitting
 overlapping shaped clusters. Font projection requires complete callback coverage;

@@ -318,7 +318,6 @@ public sealed partial class MainWindow
         // This sidecar diagnoses provider initialization/COM aggregation only;
         // it never supplies or substitutes canonical element identities.
         using var providerProbe = AutomationProviderProbe.Begin(directory, caseId, renderIds);
-        await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes);
         foreach (var (owner, ownerNode, visible) in scrollbarOwners)
         {
             var ownerId = renderIds[owner]; var edges = new JsonArray(); var roots = new JsonArray();
@@ -544,6 +543,20 @@ public sealed partial class MainWindow
         try
         {
             providerProbe.CaptureAfter();
+            var identityObserver = new JsonObject { ["case_id"] = caseId,
+                ["app_pid"] = Environment.ProcessId, ["observer_pid"] = observerPid };
+            // a3ca2a3 measured that the actual provider interfaces become
+            // available while this independent observer holds its references.
+            // Read the complete UIA-core IDs here, from the retained XAML owners;
+            // the earlier QI failures remain in the separate before/after probe.
+            await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes, identityObserver);
+            result["capture_evidence"]!["automation_identity_observer"] = identityObserver.DeepClone();
+            // Python has published the held-observer receipt and waits for the
+            // native probes before reading/projecting this file. Close this
+            // write before acknowledging that those reads have completed.
+            var finalXamlPath = System.IO.Path.Combine(directory, caseId + ".xaml.json");
+            await System.IO.File.WriteAllTextAsync(finalXamlPath + ".tmp", result.ToJsonString());
+            System.IO.File.Move(finalXamlPath + ".tmp", finalXamlPath, overwrite: true);
             TextRangeProviderProbe.Capture(directory, caseId, renderIds);
             probeStatus = "observed";
         }
