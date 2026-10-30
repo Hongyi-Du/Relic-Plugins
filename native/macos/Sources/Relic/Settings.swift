@@ -17,7 +17,7 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: 0)
             }.padding(.vertical, 14).padding(.horizontal, 10).frame(width: 220)
-                .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
+                .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "card"))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ReferenceLabel(m.t(sections.first { $0.0 == m.settingsSection }?.1 ?? "settings.about"), size: 18, weight: 650).padding(.bottom, 14)
@@ -127,7 +127,7 @@ private struct SettingsRow<Content: View>: View {
             content().fixedSize(horizontal: true, vertical: false)
         }.padding(.vertical, 14).padding(.bottom, last ? 0 : 1)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: last ? 0 : 1, trailing: 0), kind: "region"))
+            .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: last ? 0 : 1, trailing: 0), kind: "card"))
     }
 }
 
