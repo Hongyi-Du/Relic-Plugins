@@ -15,6 +15,14 @@ relative to each allegedly covered element. Do not suppress elements merely
 because they fall inside the reference dialog or its native bounding rectangle.
 No tolerance or exception change is requested.
 
+The same AX audit now includes `native_layer_order` with actual view-to-layer
+identities, roots, ordered sublayers, sibling indices, z positions, model and
+presentation transforms/opacity/clipping, masks/filters/animations and contents
+presence. The existing before/after geometry guard records each view's actual
+`layer_order` too, so capture changes remain failures. This does not equate
+NSView order with compositing order, sort children by expected visual positions,
+or claim that private layer contents have known drawing duties.
+
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
 20e61cf passes all eight unchanged glyph-image comparisons, but the mounted

@@ -19,10 +19,11 @@ struct ReferenceLabel: NSViewRepresentable {
     var controlLabel = false
     var stateOwner: String? = nil
     var textGlyphIcon = false
+    var truncates = true
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -32,7 +33,9 @@ struct ReferenceLabel: NSViewRepresentable {
         self.controlLabel = controlLabel
         self.stateOwner = stateOwner
         self.textGlyphIcon = textGlyphIcon
+        self.truncates = truncates
     }
+    private var containerBreakMode: NSLineBreakMode { lines > 0 ? (truncates ? .byTruncatingTail : .byClipping) : .byWordWrapping }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = makeLabelView()
         updateNSView(view, context: context); return view
@@ -57,7 +60,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.heightTracksTextView = false
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.textContainer?.maximumNumberOfLines = lines
-        view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
+        view.textContainer?.lineBreakMode = containerBreakMode
         view.textStorage?.setAttributedString(attributedText)
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
@@ -68,7 +71,7 @@ struct ReferenceLabel: NSViewRepresentable {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
-        paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
+        paragraph.lineBreakMode = lines == 1 ? containerBreakMode : .byWordWrapping
         let font = monospaced ? (weight >= 600 ? RelicStyle.convertedFont(RelicStyle.monoFont(size), trait: .boldFontMask) : RelicStyle.monoFont(size)) : RelicStyle.nativeFont(size, weight: weight)
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0,
             .baselineOffset: NativeLineMetrics.baselineOffset(font: font, lineHeight: paragraph.minimumLineHeight),
@@ -80,7 +83,7 @@ struct ReferenceLabel: NSViewRepresentable {
         let value = attributedText
         view.pathLineBreaks.enabled = pathWrapping
         view.textContainer?.maximumNumberOfLines = lines
-        view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
+        view.textContainer?.lineBreakMode = containerBreakMode
         view.measuredOpacity = opacity; view.productionOwner = owner
         view.productionControlLabelOwner = stateOwner ?? (controlLabel ? owner : nil)
         view.productionParent = nativeParent
@@ -96,7 +99,7 @@ struct ReferenceLabel: NSViewRepresentable {
         layout.delegate = nsView.pathLineBreaks
         let container = NSTextContainer(containerSize: CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; container.maximumNumberOfLines = lines
-        container.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
+        container.lineBreakMode = containerBreakMode
         storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
         return CGSize(width: min(width, ceil(used.width)), height: max(lineHeight ?? size * 1.6, used.height))
@@ -229,7 +232,7 @@ struct TextButton: View {
     }
     var body: some View {
         Button(role: role, action: action) {
-            ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity)
+            ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity, truncates: false)
                 .padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil)
                 .contentShape(Rectangle())
         }
