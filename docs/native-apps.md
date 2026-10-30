@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (bounded reference capture): the original Copy PNG is
+now requested while the real toast timer and renderer are running. Immediately
+after its reply, the isolated page's actual clock is paused for source collection;
+the same toast, message, toolbar, pointer and visible state must still match the
+pre-PNG checkpoint. Expiry or replacement fails, with no repeated Copy or extended
+timer. `clock_pause.phase` records `after_original_png_before_source_collection`.
+Each original reference case has an owned CI browser worker with a 90-second
+deadline; timeout/error receipts retain its last pending step and process cleanup,
+then the remaining cases are attempted. The shared server/fixture and workflow
+deadline remain unchanged. Completion counts come from actual worker receipts.
+This addresses the macOS request's confirmed `Page.captureScreenshot` stall;
+successful execution still requires new CI evidence. macOS's 55-scene real panel
+gesture implementation is merged in `ac1fc0c` and awaits its own capture receipts.
+
 Changes for the clients (1c66b83 CI): the Windows build and its 28 core plus
 9 mock UIA tests pass again. macOS runs 127 tests but has four assertions failing
 in `SurfaceRasterTests.testComposerDisabledOpacityIsAppliedExactlyOnce`: light
