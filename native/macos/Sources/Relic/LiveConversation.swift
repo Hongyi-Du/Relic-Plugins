@@ -7,9 +7,9 @@ struct LiveTurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let prompt = turn.prompt {
-                HStack(alignment: .top, spacing: 10) {
-                    liveBubble(prompt["text"].text, mine: true).frame(maxWidth: .infinity, alignment: .trailing)
+                MessageColumns(mine: true) {
                     Avatar(member: "human", size: 36)
+                    liveBubble(prompt["text"].text, mine: true).frame(maxWidth: .infinity, alignment: .trailing)
                 }.padding(.top, messageGap).environment(\.selectedAuthor, "human")
             }
             HStack(alignment: .top, spacing: 10) {
