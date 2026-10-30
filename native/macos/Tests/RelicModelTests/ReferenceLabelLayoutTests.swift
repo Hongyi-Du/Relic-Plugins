@@ -3,6 +3,19 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ReferenceLabelLayoutTests: XCTestCase {
+    func testQuotedPreviewKeepsHeadingAndBodyAttributeBoundariesWhileClampingHeight() {
+        var heading = AttributedString("Quoting ana: "); heading.inlinePresentationIntent = .stronglyEmphasized
+        heading.append(AttributedString(String(repeating: "Selected passage with several words. ", count: 12)))
+        let rendered = NativeTextStyle.render(heading, size: 12.5, lineHeight: 20)
+        let full = NativeTextStyle.contentSize(rendered, available: 220)
+        let clamped = NativeTextStyle.contentSize(rendered, available: 220, maximumLines: 3)
+        XCTAssertGreaterThan(full.height, 60)
+        XCTAssertEqual(clamped.height, 60, accuracy: 0.01)
+        var spans: [String] = []
+        NativeTextSpans.enumerate(rendered) { _, range, _, _ in spans.append((rendered.string as NSString).substring(with: range)) }
+        XCTAssertEqual(spans.first, "Quoting ana: ")
+        XCTAssertEqual(spans.dropFirst().joined(), String(repeating: "Selected passage with several words. ", count: 12))
+    }
     func testMemberCardModelNoteWrapsInsideItsActualBorderAndPadding() throws {
         // b63cd2f macOS reference, member-card-model, zh-CN/light/1440x900:
         // 340px border box - 2px border - 36px padding - 52px term - 12px gap.

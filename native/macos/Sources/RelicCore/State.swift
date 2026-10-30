@@ -74,6 +74,8 @@ public struct ChatSelection: Hashable, Codable {
 public struct ChatDraft: Codable, Equatable {
     public var text = ""
     public var quote = ""
+    public var quoteAuthor: String? = nil
+    public var quoteText: String? = nil
     public var recipients = ["all"]
     public init() {}
 }

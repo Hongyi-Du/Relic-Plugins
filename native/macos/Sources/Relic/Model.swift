@@ -20,7 +20,12 @@ import RelicCore
     @Published var member = ""
     @Published var draft = ""
     @Published var recipients = ["all"]
-    @Published var quote = ""
+    @Published var quote = "" {
+        didSet { if quote != oldValue { quoteAuthor = ""; quoteText = "" } }
+    }
+    @Published var quoteAuthor = ""
+    @Published var quoteText = ""
+    var quotePreviewText: String { quoteText.isEmpty ? quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression) : quoteText }
     var selectedText = ""
     var selectedAuthor = ""
     weak var selectedTextView: NSTextView?
@@ -181,6 +186,8 @@ import RelicCore
     func persistDraft() {
         guard !organization.isEmpty else { return }
         var value = ChatDraft(); value.text = draft; value.quote = quote; value.recipients = recipients
+        value.quoteAuthor = quoteAuthor.isEmpty ? nil : quoteAuthor
+        value.quoteText = quoteText.isEmpty ? nil : quoteText
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
@@ -252,6 +259,7 @@ import RelicCore
         plainTask?.cancel(); plainTask = nil; plainQueue = []
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
+        quoteAuthor = saved.quoteAuthor ?? ""; quoteText = saved.quoteText ?? ""
         messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
         selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
@@ -334,9 +342,11 @@ import RelicCore
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var lines = trimmed.components(separatedBy: "\n"); if stripExisting { while lines.first?.hasPrefix(">") == true { lines.removeFirst() } }
         while lines.first?.isEmpty == true { lines.removeFirst() }; guard !lines.isEmpty else { return }
-        let text = lines.joined(separator: "\n"); lines = (text.count > 1200 ? String(text.prefix(1200)) + "…" : text).components(separatedBy: "\n")
+        let text = lines.joined(separator: "\n"); let preview = text.count > 1200 ? String(text.prefix(1200)) + "…" : text
+        lines = preview.components(separatedBy: "\n")
         lines[0] = t("sel.quote_line", ["who": name(from), "text": lines[0]])
-        quote = lines.map { "> " + $0 }.joined(separator: "\n"); persistDraft()
+        quote = lines.map { "> " + $0 }.joined(separator: "\n")
+        quoteAuthor = name(from); quoteText = preview; persistDraft()
     }
     func openThread(_ id: String) async throws { if pane != "thread" { threadPreviousPane = pane }; threadID = id; threadDraft = defaults.string(forKey: "thread." + organization + "/" + id) ?? ""; setPane("thread"); try await loadThread() }
     func closeThread() { threadID = ""; threadData = Node(); setPane(threadPreviousPane) }

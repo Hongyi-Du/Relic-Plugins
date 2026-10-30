@@ -277,6 +277,22 @@ final class ModelTransport: URLProtocol {
         model.setQuote("> old", from: "ana"); XCTAssertEqual(model.quote, "> ana: > old")
         model.setQuote(String(repeating: "字", count: 1300), from: "ana"); XCTAssertTrue(model.quote.hasSuffix("…")); XCTAssertLessThan(model.quote.count, 1250)
     }
+    func testQuotePreviewKeepsAuthorAndBodySeparateAcrossDraftRestorationAndClear() throws {
+        let model = try model(); model.setSelection(ChatSelection("a"))
+        model.words.load(Node(["lang": "en-US", "strings": ["sel.quote_line": "{who}: {text}"]]))
+        model.setQuote("First line\nSecond line", from: "ana")
+        XCTAssertEqual(model.quote, "> ana: First line\n> Second line")
+        XCTAssertEqual(model.quoteAuthor, "ana")
+        XCTAssertEqual(model.quotePreviewText, "First line\nSecond line")
+        model.setSelection(ChatSelection("b")); XCTAssertEqual(model.quoteAuthor, "")
+        model.setSelection(ChatSelection("a")); XCTAssertEqual(model.quoteAuthor, "ana")
+        XCTAssertEqual(model.quotePreviewText, "First line\nSecond line")
+        model.persistDraft()
+        let reopened = Model(defaults: model.defaults); reopened.setSelection(ChatSelection("a"))
+        XCTAssertEqual(reopened.quoteAuthor, "ana"); XCTAssertEqual(reopened.quotePreviewText, "First line\nSecond line")
+        reopened.quote = ""
+        XCTAssertEqual(reopened.quoteAuthor, ""); XCTAssertEqual(reopened.quoteText, "")
+    }
     func testQuoteOnlyThreadSendLocksDuplicateEnterAndPreservesReplyTo() async throws {
         let model = try model(); model.setSelection(ChatSelection("a")); model.threadID = "7"; model.quote = "> quote only"
         let requested = expectation(description: "single quoted reply sent")
