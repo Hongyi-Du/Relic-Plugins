@@ -1,5 +1,15 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The overview toggle previously exposed its entire 257px switch-and-label row
+as one checkbox while the reference has a 32px control, separate visible text
+and a 14px knob. The production SwiftUI style now scopes its native checkbox
+representation to the actual 32x18 switch, preserves the visible label beside
+it and allows label clicks only while enabled. The knob is an independently
+painted/owned card with the unchanged 14px/white/1px shadow parameters. Hidden
+labels in settings likewise keep the switch frame. Toggle canonical text is
+empty because its actual visible label is now a separate native text element;
+its accessible name/checked state remain on the real toggle. Capture pending.
+
 Consumed `74b14eb` evidence-shape follow-up: macOS retains the original native
 line-break properties under `raw`, with `source`, actual `owner`, and
 `applicable:true` for `bool(text) || kind == "text"`. Non-text elements emit
