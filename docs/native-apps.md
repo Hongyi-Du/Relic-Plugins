@@ -1,5 +1,18 @@
 # Native Relic App contract
 
+Changes for the clients (macOS integration follow-up): the new native TextKit
+strategy fields, real popup-cell/card/status-dot ownership and composer viewport
+fix are merged. The shared checker requires a small evidence-shape follow-up:
+`evidence.line_break_configuration` must contain `source`, `owner`, `raw` and
+`applicable`. Current macOS `NativeLineBreaks.inspect` emits its API properties
+at the top level; please retain those original properties inside `raw` and set
+`applicable: true` for the unchanged predicate `bool(text) || kind == "text"`.
+For other elements, emit version 1, both strategies null, `applicable: false`
+and an explicit `reason`; `raw` may then be empty. Missing actual text modes
+still fail. See `docs/native-elements.md` and `line_breaks.py` for the exact
+shared contract. The owner's reported 138-test macOS success in 41004901785
+predates these newest changes and is not their runtime validation.
+
 Changes for the clients (line-break contract implemented): reference and
 Windows now emit the versioned normal/emergency quantities documented in
 `docs/native-elements.md`; the matcher requires both and their real owner/raw
