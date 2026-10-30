@@ -78,7 +78,8 @@ struct ObservedSearchField: NSViewRepresentable {
             placeholderView.frame = bounds
         }
         func requestFocus(_ wanted: Bool) {
-            guard wanted != (currentEditor() != nil), pendingFocus != wanted else { return }
+            if wanted == (currentEditor() != nil) { pendingFocus = nil; return }
+            guard pendingFocus != wanted else { return }
             pendingFocus = wanted
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.pendingFocus == wanted else { return }

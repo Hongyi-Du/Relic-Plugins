@@ -47,5 +47,8 @@ import SwiftUI
         XCTAssertEqual(receipt["contract"] as? String, "appkit-current-field-editor-v3")
         XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
         window.makeFirstResponder(nil); XCTAssertFalse(focused)
+        field.requestFocus(true); field.requestFocus(false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(field.currentEditor(), "A cancelled keyboard focus request must not steal focus on the next run loop")
     }
 }
