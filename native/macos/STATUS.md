@@ -26,7 +26,15 @@ macOS 构建和 **132 个测试通过**，包含真实头像双环像素及头�
 多余 55978、文字差异 21812、几何差异 159363、样式差异 195544、状态差异 17944，完整类别以原 JSON 为准。
 没有例外、容差变更或场景删减。
 
-**最新采集回归待验证修复**：`ee478c5` 的 [40993478737](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40993478737)
+**最新实际截图**：`25f57f2` 的 [40997958370](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40997958370)
+已下载到 `S:\Codex\Outputs\Relic-native-visual\smoke-25f57f2\`，群聊与拖拽后的真实窗口 PNG 为 1440×900、
+alpha 全部 255，最终合成的透明图回归已修复。19 个 native case 中 18 个 captured、1 个 failed-state-captured；
+复制失败发生在模型产生提示条后约 6 ms，真实提示文字/表面尚未挂载，剪贴板和原计时器正确。
+`f0dad28` 等待同一个实际提示条挂载，原计时器持续运行，随后才暂停并保留全部连续性断言；新 CI 待验。
+两个右栏拖拽场景的真实输入和持续状态检查已完成。此轮报告在 `S:\Codex\Outputs\Relic-native-visual\parity-25f57f2\report\`，
+仍然失败，不能以 19 个诊断 case 代替完整 660 case 验收。
+
+**保留的历史透明截图回归**：`ee478c5` 的 [40993478737](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40993478737)
 虽然旧 17 个动作完成、两个新增动作尚未实现，但其原生 PNG 的所有 RGBA 通道都是 0，不能作为有效截图。
 文件保留在 `S:\Codex\Outputs\Relic-native-visual\smoke-ee478c5\`。`9990d4f` 修正最终画布的合成路径，
 在真实 sRGB CGContext 绘制完成后才生成图像快照，测试覆盖相同的最终合成和 PNG 编解码；
