@@ -35,13 +35,16 @@ internal sealed class NativeLabelRenderer : IDisposable
     private bool disposed;
     internal IntPtr Pointer { get; private set; }
     internal JsonArray Runs { get; } = new();
+    internal JsonArray InlineDraws { get; } = new();
     internal JsonArray Limitations { get; } = new();
     internal string? CallbackFailure { get; private set; }
-    private int inlineDepth;
+    private readonly string? trimmingSignIdentity;
+    private readonly Stack<int> inlineStack = new();
 
-    internal NativeLabelRenderer(IntPtr context, IntPtr brush, float pixelsPerDip, Matrix transform)
+    internal NativeLabelRenderer(IntPtr context, IntPtr brush, float pixelsPerDip, Matrix transform, IntPtr trimmingSign = default)
     {
         this.context = context; this.brush = brush; this.pixelsPerDip = pixelsPerDip; this.transform = transform;
+        trimmingSignIdentity = trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
         Pointer = Marshal.AllocHGlobal(2 * IntPtr.Size);
         Marshal.WriteIntPtr(Pointer, Vtable);
         Marshal.WriteIntPtr(Pointer, IntPtr.Size, GCHandle.ToIntPtr(GCHandle.Alloc(this)));
@@ -87,13 +90,51 @@ internal sealed class NativeLabelRenderer : IDisposable
     private static int Inline(IntPtr self, IntPtr context, float x, float y, IntPtr inline, int sideways, int rightToLeft, IntPtr effect)
     {
         var owner = Owner(self);
+        var ordinal = owner.InlineDraws.Count;
+        var record = new JsonObject
+        {
+            ["ordinal"] = ordinal, ["source"] = "Actual IDWriteTextRenderer.DrawInlineObject callback and IDWriteInlineObject.Draw forwarding",
+            ["parent_inline_draw_ordinal"] = owner.inlineStack.Count == 0 ? null : owner.inlineStack.Peek(),
+            ["origin_x"] = x, ["origin_y"] = y, ["sideways"] = sideways != 0, ["right_to_left"] = rightToLeft != 0,
+            ["inline_com_identity"] = null, ["is_configured_trimming_sign"] = null,
+            ["inline_metrics"] = null, ["draw_hresult"] = null, ["draw_succeeded"] = false,
+            ["first_glyph_run_ordinal"] = owner.Runs.Count
+        };
+        owner.InlineDraws.Add(record);
         try
         {
-            owner.inlineDepth++;
-            return Method<DrawInline>(inline, 3)(inline, context, self, x, y, sideways, rightToLeft, effect);
+            // Metadata failures remain explicit but must not suppress a valid
+            // inline object's actual paint. Never infer identity from its size.
+            try
+            {
+                var identity = ComIdentity(inline); record["inline_com_identity"] = identity;
+                record["is_configured_trimming_sign"] = owner.trimmingSignIdentity != null && identity == owner.trimmingSignIdentity;
+                Check(Method<GetInlineMetrics>(inline, 4)(inline, out var metrics));
+                record["inline_metrics"] = new JsonObject { ["width"] = metrics.Width, ["height"] = metrics.Height,
+                    ["baseline"] = metrics.Baseline, ["supports_sideways"] = metrics.SupportsSideways != 0,
+                    ["quantity"] = "IDWriteInlineObject.GetMetrics layout extent; not glyph ink" };
+            }
+            catch (Exception ex)
+            {
+                record["metadata_failure"] = ex.ToString();
+                owner.Limitations.Add("Actual inline-object identity/metrics are incomplete: " + ex.Message);
+            }
+            owner.inlineStack.Push(ordinal);
+            var hr = Method<DrawInline>(inline, 3)(inline, context, self, x, y, sideways, rightToLeft, effect);
+            record["draw_hresult"] = hr; record["draw_succeeded"] = hr >= 0;
+            if (hr < 0) owner.CallbackFailure ??= "Actual IDWriteInlineObject.Draw failed: 0x" + hr.ToString("x8");
+            return hr;
         }
-        catch (Exception ex) { owner.CallbackFailure = ex.ToString(); return Marshal.GetHRForException(ex); }
-        finally { owner.inlineDepth--; }
+        catch (Exception ex)
+        {
+            owner.CallbackFailure = ex.ToString(); var hr = Marshal.GetHRForException(ex);
+            record["draw_hresult"] = hr; record["draw_failure"] = ex.ToString(); return hr;
+        }
+        finally
+        {
+            if (owner.inlineStack.Count > 0 && owner.inlineStack.Peek() == ordinal) owner.inlineStack.Pop();
+            record["glyph_run_count"] = owner.Runs.Count - record["first_glyph_run_ordinal"]!.GetValue<int>();
+        }
     }
     private int DrawGlyph(float x, float y, uint mode, IntPtr originalRun, IntPtr descriptionPointer, IntPtr effect)
     {
@@ -146,7 +187,8 @@ internal sealed class NativeLabelRenderer : IDisposable
             ["source"] = "IDWriteTextLayout.Draw -> IDWriteTextRenderer.DrawGlyphRun -> ID2D1RenderTarget.DrawGlyphRun",
             ["baseline_x"] = x, ["baseline_y"] = y, ["em_size"] = run.FontEmSize,
             ["bidi_level"] = run.BidiLevel, ["sideways"] = false, ["measuring_mode"] = mode,
-            ["from_inline_object"] = inlineDepth > 0, ["description"] = description,
+            ["from_inline_object"] = inlineStack.Count > 0,
+            ["inline_draw_ordinal"] = inlineStack.Count == 0 ? null : inlineStack.Peek(), ["description"] = description,
             ["glyph_indices"] = glyphs, ["glyph_advances"] = run.GlyphAdvances == IntPtr.Zero ? null : advances,
             ["glyph_offsets"] = run.GlyphOffsets == IntPtr.Zero ? null : offsets,
             ["face"] = face, ["ink_bounds_world_dip"] = boundsHr >= 0 ? Box(inkBounds) : null,

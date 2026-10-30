@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (actual sidebar preview trimming): the Windows group and
+private preview entry now uses its production DirectWrite layout for CHARACTER
+trimming, the real ellipsis inline object, and recorded DrawInlineObject/glyph
+callbacks. Its native Text peer and parent row retain the full accessible text;
+the actual muted foreground and row tooltip remain. ABI and real layout tests
+run only in CI. The headless app build passes; screenshot attribution, projected
+font/ellipsis geometry and complete element coverage still require evidence.
+The `d8f74ff` diagnostic shared checker passes with the image-byte comparison
+integration. The latest macOS outline and measured-icon pairing requests are in
+progress; missing/extra/order failures and all tolerances remain unchanged.
+
 Changes for the clients (actual image content comparison): the reference now
 collects only the page's actual completed Image responses and retains the real
 DOM backend/object identity through PNG and extraction. Windows records its
