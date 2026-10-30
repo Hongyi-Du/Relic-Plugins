@@ -1188,7 +1188,8 @@ def reference(manifest):
     """Attempt every original case with a bounded independent browser owner."""
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Reference capture is CI-only; no local process is launched.")
-    work = Path(manifest["output"]) / "data" / manifest["lang"] / manifest["theme"]
+    work = capture_metadata_directory(Path(manifest["output"]), manifest["lang"], manifest["theme"],
+                                      manifest.get("viewport_filter"))
     work.mkdir(parents=True, exist_ok=True)
     aggregate = {"expected_count": len(manifest["cases"]), "attempted_count": 0, "count": 0, "cases": [], "errors": []}
     for case in manifest["cases"]:
@@ -1438,8 +1439,20 @@ def native_process(manifest_path, manifest, exe):
                 raise RuntimeError(f"Element request is not bound to this case/process: {last_request}, request PID {request.get('pid')}, client PID {process.pid}")
             output = Path(manifest["output"])
             raw = output / (last_request + ".uia.json")
+            receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
+            def publish_observer_receipt(observer_pid=None):
+                receipt.parent.mkdir(exist_ok=True)
+                receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request,
+                    "observer_pid": observer_pid, "observer_held": observer_pid is not None}), encoding="utf-8")
+                receipt.with_suffix(".tmp").replace(receipt)
+            def observer_ready(held, deadline):
+                from uia_observer import wait_native_probe_receipt
+                publish_observer_receipt(held["observer_pid"])
+                wait_native_probe_receipt(receipt.with_name(last_request + ".probes.json"),
+                    request, held["observer_pid"], process, deadline)
             try:
-                result = subprocess.run([manifest["uia_exe"], "--request", str(request_path), "--output", str(raw)], timeout=75, capture_output=True, text=True)
+                from uia_observer import observe
+                result = observe(manifest["uia_exe"], request_path, raw, process, observer_ready)
                 with (manifest_path.parent / "uia.log").open("a", encoding="utf-8") as observer_log:
                     observer_log.write(f"case={last_request} pid={process.pid} returncode={result.returncode}\n{result.stdout}\n{result.stderr}\n")
                 if result.returncode:
@@ -1456,10 +1469,8 @@ def native_process(manifest_path, manifest, exe):
                 capture_errors.append("Projection failed: " + str(error))
                 projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
             (output / (last_request + ".elements.json")).write_text(json.dumps(projected, ensure_ascii=False), encoding="utf-8")
-            receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
-            receipt.parent.mkdir(exist_ok=True)
-            receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request}), encoding="utf-8")
-            receipt.with_suffix(".tmp").replace(receipt)
+            if not receipt.exists():
+                publish_observer_receipt()
             completed_requests.add(last_request)
         try:
             (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,
@@ -1591,6 +1602,45 @@ def capture_components(manifest_path, manifest, exe=None, reference_output=None)
     return result
 
 
+def capture_sizes(spec, matrix, viewport=None):
+    """Filter only this capture job; the full comparison contract is unchanged."""
+    sizes = spec["sizes"] if matrix == "full" else [[1440, 900]]
+    if viewport is None:
+        return sizes
+    known = {f"{width}x{height}": [width, height] for width, height in spec["sizes"]}
+    if viewport not in known:
+        raise ValueError("--viewport must be one of the existing scenes.json sizes: " + ", ".join(known))
+    selected = known[viewport]
+    if selected not in sizes:
+        raise ValueError("--viewport is not part of the selected capture matrix; smoke remains 1440x900")
+    return [selected]
+
+
+def capture_metadata_directory(output, lang, theme, viewport=None):
+    directory = Path(output) / "data" / lang / theme
+    return directory / viewport if viewport is not None else directory
+
+
+def capture_fixture_groups(output, languages, themes, viewport=None):
+    if viewport is None:
+        # Keep the unsharded reference/macOS fixture lifecycle and paths intact.
+        return [(lang, themes, Path(output) / "data" / lang) for lang in languages]
+    # Every viewport job owns all fixture/IPC/log metadata below its shard path.
+    return [(lang, [theme], capture_metadata_directory(output, lang, theme, viewport))
+            for lang in languages for theme in themes]
+
+
+def capture_cases(scenes, sizes, lang, theme):
+    return [{"id": f"{lang}-{theme}-{width}x{height}-{scene}", "scene": scene,
+             "width": width, "height": height, "file": f"{lang}-{theme}-{width}x{height}-{scene}.png"}
+            for width, height in sizes for scene in scenes]
+
+
+def capture_receipt_name(lang=None, theme=None, viewport=None):
+    return ("capture-complete" + ("-" + lang + "-" + theme if lang and theme else "")
+            + ("-" + viewport if viewport is not None else "") + ".json")
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Visual capture is CI-only; no app is opened locally.")
@@ -1599,22 +1649,25 @@ def main():
     parser.add_argument("--matrix", choices=["smoke", "full"], default="full")
     parser.add_argument("--lang", choices=["zh-CN", "en-US"])
     parser.add_argument("--theme", choices=["light", "dark"])
+    parser.add_argument("--viewport", help="One existing scenes.json WIDTHxHEIGHT; filters capture only, never the full parity gate")
     parser.add_argument("--exe", type=Path)
     parser.add_argument("--uia-exe", type=Path, help="Independent Windows UIA reader; CI only")
     parser.add_argument("--reference", action="store_true", help="Capture reference against this exact native fixture/server on its own platform")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     spec = json.loads((HERE / "scenes.json").read_text(encoding="utf-8"))
+    try:
+        sizes = capture_sizes(spec, args.matrix, args.viewport)
+    except ValueError as error:
+        parser.error(str(error))
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
     scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
-    sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
     capture_errors, captured_client, captured_reference = [], 0, 0
-    for lang in languages:
-        data = output / "data" / lang
+    for lang, fixture_themes, data in capture_fixture_groups(output, languages, themes, args.viewport):
         data.mkdir(parents=True, exist_ok=True)
         with (data / "server.log").open("w", encoding="utf-8") as log:
             server = subprocess.Popen([sys.executable, "-X", "utf8", str(HERE / "serve.py"), "--output", str(data), "--lang", lang], stdout=log, stderr=log)
@@ -1622,12 +1675,14 @@ def main():
                 fixture = wait_file(data / "fixture.json", server)
                 zh = lang == "zh-CN"
                 fixture.update(clock="2026-10-29T11:02:00Z", quote="先看页面，再判断是否完成。" if zh else "Look at the screens before calling them done.", plain="请对照截图检查布局与文字，再提交验收。" if zh else "Compare the layout and wording before submitting for review.", digest={"text": "团队正在核对原生界面。设计师整理视觉问题，工程师准备跨平台截图；权限与负责人安排等待您决定。" if zh else "The team is reviewing the native interface. Design is collecting visual issues and engineering is preparing cross-platform screenshots. Permissions and the integration lead await your decision.", "at": datetime.datetime(2026, 10, 29, 11, 2, tzinfo=datetime.timezone.utc).timestamp(), "count": 5, "last_id": 999})
-                for theme in themes:
+                for theme in fixture_themes:
                     configure(fixture, lang=lang, theme=theme)
-                    work = data / theme
-                    work.mkdir(exist_ok=True)
-                    cases = [{"id": f"{lang}-{theme}-{width}x{height}-{scene}", "scene": scene, "width": width, "height": height, "file": f"{lang}-{theme}-{width}x{height}-{scene}.png"} for width, height in sizes for scene in scenes]
+                    work = capture_metadata_directory(output, lang, theme, args.viewport)
+                    work.mkdir(parents=True, exist_ok=True)
+                    cases = capture_cases(scenes, sizes, lang, theme)
                     manifest = {"version": 1, "client": args.client, "lang": lang, "theme": theme, "fixture": fixture, "output": str(output), "cases": cases}
+                    if args.viewport is not None:
+                        manifest["viewport_filter"] = args.viewport
                     if args.client == "windows":
                         if not args.uia_exe:
                             raise ValueError("Windows capture requires the independent --uia-exe reader")
@@ -1642,15 +1697,20 @@ def main():
             finally:
                 server.terminate()
                 server.wait(timeout=20)
-    receipt_name = "capture-complete" + ("-" + args.lang + "-" + args.theme if args.lang and args.theme else "") + ".json"
+    receipt_name = capture_receipt_name(args.lang, args.theme, args.viewport)
     expected_count = len(scenes) * len(sizes) * len(languages) * len(themes)
     receipt = {"client": args.client, "matrix": args.matrix, "count": captured_client,
                "expected_count": expected_count, "errors": capture_errors}
+    if args.viewport is not None:
+        receipt["viewport_filter"] = args.viewport
     (output / receipt_name).write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
     if args.reference:
-        (reference_output / receipt_name).write_text(json.dumps({"client": "reference", "platform": args.client,
+        reference_receipt = {"client": "reference", "platform": args.client,
             "matrix": args.matrix, "count": captured_reference, "expected_count": expected_count,
-            "errors": capture_errors}, ensure_ascii=False), encoding="utf-8")
+            "errors": capture_errors}
+        if args.viewport is not None:
+            reference_receipt["viewport_filter"] = args.viewport
+        (reference_output / receipt_name).write_text(json.dumps(reference_receipt, ensure_ascii=False), encoding="utf-8")
 
 
     if capture_errors:

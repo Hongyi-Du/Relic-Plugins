@@ -8,6 +8,7 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <Compile Include="../TextRangeEvidence.cs" Link="TextRangeEvidence.cs" />
+    <Compile Include="../ObserverLease.cs" Link="ObserverLease.cs" />
     <Compile Include="../../Relic/NativeLabelInterop.cs" Link="NativeLabelInterop.cs" />
     <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
     <Compile Include="../../Relic/AutomationIdentityCapture.cs" Link="AutomationIdentityCapture.cs" />

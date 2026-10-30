@@ -1,5 +1,59 @@
 # Native Relic App contract
 
+Changes for the clients (macOS production glyph-range merge): actual TextKit
+draw invocations now retain their original attributed ranges without splitting
+overlapping shaped clusters. Font projection requires complete callback coverage;
+arbitrary substrings and final PNG attribution remain unknown. The owner's
+143-test release validation in run 41011131346 predates this new change; its
+new comparison against the unsplit production bitmap must pass fresh CI.
+
+Changes for the clients (complete Windows matrix job partition): the cd16413
+full Windows jobs reached the existing 45-minute limit; zh-CN/light was cancelled
+45m01s after job start while still capturing 1024x700 reference scenes. Windows
+full capture is now 12 jobs (four language/theme combinations, three existing
+viewports), each containing the same 55 cases. Native/reference metadata and
+artifact names include the viewport so merging cannot overwrite another shard.
+The full gate still requires all original 660 case IDs. No scene or timeout was
+changed; eight new mocked checks verify the exact complete union and paths.
+macOS capture partitioning is unchanged.
+
+`a3ca2a3` CI passes 87 Node, 453 Python, 28 Windows core and 64 Windows
+capture/layout tests. Its actual Windows capture still fails, while macOS
+completed its 19 diagnostic scenes. The WinRT-versus-COM fractional text-range
+findings and unresolved cross-layer identity are recorded without waiving any
+error in `docs/native-windows-text-range-evidence.md`.
+
+Changes for the clients (macOS mounted-ancestry merge): actual sidebar,
+organization and profile child records now retain their native parent
+environment and mounted NSView ancestry, restoring order only for a unique
+measured parent. Ambiguous ownership remains unknown; reference text/geometry
+does not determine native order. The owner's bbe04a3 diagnostic captures 19/19
+but still accepts zero full-matrix scenes; its actual composer viewport is
+758x26. Their stale font-test API call was corrected without changing its
+assertions. These merged changes remain subject to the next complete gate.
+
+Changes for the clients (live observer ownership): the UIA observer now keeps
+its actual AutomationElement/root/NativeTextEvidence references alive through
+a PID/case-bound ready/release handshake. The native provider probes run before
+release. The same 75-second total process deadline includes startup, capture,
+handshake and exit; timeout or bad identities fail and preserve original errors.
+Mock lifecycle tests cover both processes and the original deadline. Both native
+projects pass headless builds. This addresses a gap in the 53aa451 diagnostic:
+all 1,564 QIs failed, but the "after" phase ran after observer exit, when the
+SDK's weak provider wrapper could already have been released. Nine ListViewItem
+EventsSource references also changed and cannot count as unchanged aliases.
+
+The Windows style reader now reads actual Grid and StackPanel border brushes,
+edge thicknesses and corner radii before its generic Panel background branch.
+Those real properties were previously lost, including the conversation header's
+bottom divider. This is an extraction correction; no reference values or
+matching thresholds are used to fill paint data.
+
+`27e39b3` CI passes 87 Node and 448 Python tests, Windows build plus 28 core
+and 47 capture/layout tests. Its macOS 19-scene capture completed; the Windows
+capture and final parity still fail. New observer-lifetime changes require their
+own fresh CI, and no diagnostic result is a full 660-state acceptance result.
+
 Changes for the clients (actual WinRT text-range diagnostic): Windows now emits
 `*.text-range-provider-probe.json` after the unchanged UIA hand-off and peer
 probe. It reads DocumentRange and every GetVisibleRanges result from each real
