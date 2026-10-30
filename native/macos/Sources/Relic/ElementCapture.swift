@@ -295,6 +295,7 @@ import CoreText
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let viewport = NSRect(origin: .zero, size: content.bounds.size)
         var raw: [[String: Any]] = [], elements: [[String: Any]] = [], seen = Set<ObjectIdentifier>()
+        var nativeTextTargets: [(id: String, view: NSTextView, screen: NSRect)] = []
         var childReadErrors: [String] = []
         let regions = ElementRegionProbe.regions(in: contentScreen)
         func region(_ rect: NSRect, fallback: String) -> String {
@@ -442,7 +443,10 @@ import CoreText
                     if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
                     if let label = textView as? ReferenceLabelView, let owner = label.productionControlLabelOwner { projected["native_control_label_owner"] = owner }
                     raw.append(projected)
-                    if projected["visible"] as? Bool == true { elements.append(projected) }
+                    if projected["visible"] as? Bool == true {
+                        elements.append(projected)
+                        nativeTextTargets.append((id: path + "/text-" + String(index), view: textView, screen: screen))
+                    }
                 }
             }
             let childClip = role == "AXScrollArea" ? activeClip.intersection(rect) : activeClip
@@ -662,10 +666,21 @@ import CoreText
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": measuredLayout, "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let fillDraws = NativeSurfaceFill.observations(in: window)
+        let fillViews = NativeSurfaceFill.mountedViews(in: window)
+        let opaqueCandidates: [[String: Any]] = nativeTextTargets.flatMap { target in
+            fillViews.compactMap { fill -> [String: Any]? in
+                guard NativeVisibility.screenClip(fill)?.contains(target.screen) == true else { return nil }
+                var receipt = NativeOpaqueCoverage.inspect(target: target.view, screenRect: target.screen, fill: fill,
+                    bitmap: bitmap, canvas: contentScreen)
+                receipt["target_element"] = target.id
+                return receipt
+            }
+        }
         let layerOrder = NativeLayerOrder.capture(in: window)
         let pointerHit = NativePointerCapture.capture(window: window)
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent,
-            "capture_evidence": ["native_fill_draws": fillDraws, "native_layer_order": layerOrder, "native_pointer_hit": pointerHit]]
+            "capture_evidence": ["native_fill_draws": fillDraws, "native_layer_order": layerOrder, "native_pointer_hit": pointerHit,
+                "native_opaque_candidates": opaqueCandidates]]
         // Preserve every measurement while avoiding multi-megabyte indentation
         // in each of the 660 cases. Presentation belongs to the HTML report.
         try JSONSerialization.data(withJSONObject: normalized, options: [.sortedKeys]).write(to: stem.appendingPathExtension("elements.json"))
@@ -674,6 +689,7 @@ import CoreText
         audit["native_fill_draws"] = fillDraws
         audit["native_layer_order"] = layerOrder
         audit["native_pointer_hit"] = pointerHit
+        audit["native_opaque_candidates"] = opaqueCandidates
         audit["icon_probes"] = paint.map { sample in var value = sample; value.removeValue(forKey: "screenRect"); return value }
         audit["edge_probes"] = edgeSamples.map { sample in var value = sample; value.removeValue(forKey: "rectValue"); return value }
         try JSONSerialization.data(withJSONObject: audit, options: [.sortedKeys]).write(to: stem.appendingPathExtension("ax.json"))

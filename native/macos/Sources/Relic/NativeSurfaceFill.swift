@@ -22,6 +22,9 @@ struct NativeSurfaceFill: NSViewRepresentable {
     static func observations(in window: NSWindow) -> [[String: Any]] {
         live.allObjects.filter { $0.window === window && !$0.isHiddenOrHasHiddenAncestor }.map { $0.observation() }
     }
+    static func mountedViews(in window: NSWindow) -> [NativeSurfaceFillView] {
+        live.allObjects.filter { $0.window === window && !$0.isHiddenOrHasHiddenAncestor }
+    }
 }
 
 @MainActor final class NativeSurfaceFillView: NSView {
@@ -103,6 +106,10 @@ struct NativeSurfaceFill: NSViewRepresentable {
             "layer_contents_is_same_image": identical, "scale": backingScale,
             "bounds": ElementCapture.box(backingBounds), "native_frame": ElementCapture.box(backingFrame),
             "fill_draw": backingDraw as Any? ?? NSNull(), "final_png_attribution_proven": false]
+    }
+    func currentOwnedImage() -> CGImage? {
+        guard usesOwnedBackingImage, backingPaintObservation()["current"] as? Bool == true else { return nil }
+        return backingImage
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext,

@@ -1,7 +1,48 @@
 import XCTest
+import AppKit
+import RelicAX
 @testable import Relic
 
 @MainActor final class FieldEditorCaptureTests: XCTestCase {
+    func testMountedStandardFieldBindsItsRealSharedEditorWithoutAClassAllowlist() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 100))
+        let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 180, height: 24))
+        field.stringValue = "Actual current value"
+        field.isEditable = true; field.isSelectable = true
+        let cell = try XCTUnwrap(field.cell as? NSTextFieldCell)
+        cell.setAccessibilityIdentifier("relic-input/ordinary-field")
+        root.addSubview(field); window.contentView = root; window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        field.selectText(nil)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        let receipt = try XCTUnwrap(FieldEditorCapture.receipts(in: window).first)
+        XCTAssertEqual(receipt["contract"] as? String, "appkit-current-field-editor-v3")
+        XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
+        XCTAssertEqual(receipt["owner_identity"] as? String, String(describing: ObjectIdentifier(cell)))
+        XCTAssertTrue(window.firstResponder === editor)
+        func node(_ object: AnyObject, id: String) -> [String: Any] {
+            let actual = RelicAXRead(object)
+            return ["id": id, "kind": ElementCapture.kind(actual["role"] as? String ?? ""),
+                "object_identity": String(describing: ObjectIdentifier(object)),
+                "class": String(describing: type(of: object)), "identifier": actual["identifier"] ?? ""]
+        }
+        let original = [node(cell, id: "field"), node(editor, id: "editor")]
+        var values = original
+        XCTAssertTrue(FieldEditorCapture.attach(to: &values, receipts: [receipt]).isEmpty)
+        XCTAssertEqual(values.count, 1)
+        XCTAssertEqual((values[0]["owned_editor_evidence"] as? [String: Any])?["id"] as? String, "editor")
+        for key in ["owner_is_text_field_cell", "control_is_text_field", "editor_is_text_view"] {
+            var invalid = receipt; invalid[key] = false; values = original
+            XCTAssertFalse(FieldEditorCapture.attach(to: &values, receipts: [invalid]).isEmpty, key)
+            XCTAssertEqual(values.count, 2, key)
+        }
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertTrue(FieldEditorCapture.receipts(in: window).isEmpty, "An ended edit must not retain an owner binding")
+    }
     private var nodes: [[String: Any]] { [
         ["id": "field", "kind": "input", "object_identity": "field-object", "identifier": "relic-input/member-rename", "rect": ["x": 40]],
         ["id": "editor", "kind": "input", "object_identity": "editor-object", "rect": ["x": 49], "text": "Name"],

@@ -1,3 +1,41 @@
+## 2026-10-30: opaque coverage diagnostics preserve all elements
+
+New `capture_evidence.native_opaque_candidates` and the same raw AX field record
+per-text-run candidates against actual NativeSurfaceFillView instances. Each
+candidate requires the current exact owned CGImage in the presentation layer,
+same native window, distinct front sibling branch, identical model/presentation
+geometry and child order, no unmeasured transforms, masks, effects or animations,
+opaque unclipped ancestry, and exact opaque source-image/final-PNG pixel equality
+across the entire rectangle. Rounded transparent pixels, alpha fills, reverse
+order, stale presentation and altered final pixels reject a candidate.
+
+This is diagnostic only: `changes_visibility: false` and no emitted element is
+removed or marked occluded. The mounted positive/negative tests and real SwiftUI
+captures are pending CI. The shared checker must keep failing unknown occlusion;
+no tolerance, exception or accepted proof shape is being changed by this work.
+
+## 2026-10-30 shared request: current editor ownership for ordinary native fields
+
+Actual `7ce27b4` new-org has the same visible input represented twice: the
+`_SystemTextFieldCell` at window/3/2 and its `_SystemTextFieldFieldEditor` at
+window/3/view-0/view-0/view-0/view-4/view-0/view-0/0. The previous receipt covered
+only MemberRenameField.PaddedCell. macOS now reads the actual NSTextField,
+NSTextFieldCell.controlView and NSTextField.currentEditor relationships for all
+mounted native fields. Existing PaddedCell remains contract v2 unchanged.
+
+Please extend `scripts/visual/macos_field_editor.py` and its tests for
+`appkit-current-field-editor-v3`. This has every v2 identity, value, first-responder,
+window, frame and selection field, plus actual native base-class observations:
+`owner_is_text_field_cell: true`, `control_is_text_field: true`,
+`editor_is_text_view: true`, and the actual `control_class`. The actual
+`owner_class` and `editor_class` must equal the retained respective raw nodes;
+all identity links, unique ownership, same window, current focus and exact value
+checks remain required. No private class-name allowlist is used for v3.
+Invalid, ambiguous or stale relationships retain both nodes and fail. The owner
+keeps its original geometry and all editor evidence; actual children are retained.
+CI includes a mounted ordinary NSTextField/currentEditor test and negative base
+type checks. Its result and actual SwiftUI field capture are still pending.
+
 ## 2026-10-30: private banner follows actual native text flex widths
 
 The macOS full `1ffe201` en-US/light/1024x700/private capture has a fixed 15px
