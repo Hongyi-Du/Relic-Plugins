@@ -1,5 +1,17 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Occlusion work is now starting from actual production paint. An opt-in
+`RecordedSurface.nativeFill` candidate uses NativeSurfaceFillView's actual
+CGContext.fillPath; it is NOT enabled in the application yet. CI first compares
+its actual PNG against the existing SwiftUI surface, including rounded corners,
+border and dialog shadows. Its retained record includes submitted local path,
+actual fill/blend/global alpha, CTM/clip, draw revision/sequence, view/window
+identity, current screen bounds/clip and content origin, NSView ancestry and
+actual opacity ancestry. `occlusion_proven` stays false: these inputs alone do
+not prove that a different native element was behind the fill in the final
+frame. After bitmap validation, this will provide real dialog-fill evidence
+instead of hiding AX descendants based on expected reference rectangles.
+
 18c0b43's actual CoreText color candidate paints Emoji but differs from AppKit
 in 286 pixels (actual ink bounds y=2..20 versus y=1..20). The production label
 now uses the byte-identical CGContext path for outline fonts and the original
