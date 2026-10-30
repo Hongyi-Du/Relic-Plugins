@@ -165,17 +165,65 @@ evidence, not treated as a different face: CDP's `蘋方-簡` and CoreText's
 an alias table. If either provider lacks any PostScript identity, measured
 family sets must match exactly, and available faces within each family must
 also match. Additional fallback faces, different actual faces, font-size and
-numeric weight differences still fail. Provider glyph counts and custom-font loading flags remain
+numeric differences in comparable configured/resolved weight quantities still fail. Provider glyph counts and custom-font loading flags remain
 audit evidence, since providers can report different text-range subdivisions.
 Missing actual family evidence remains a coverage error. Reference captures use
 `CSS.getPlatformFontsForNode`, while native captures use actual UIA/AX text runs.
 `evidence.font_request` preserves the computed CSS weight, variation-settings,
 style and stretch separately from the actual face records; it does not claim
-these requests are resolved OpenType weights or variation axes. The current
-numeric weight check is unchanged pending independently measured comparable
-native request/resolved-axis evidence. AX InlineTextBox fragments retain actual
+these requests are resolved OpenType weights or variation axes. Weight contract 1
+below compares those two quantities independently and fails unknown measurements.
+AX InlineTextBox fragments retain actual
 names, including generated ellipses, but no bounds are invented when CDP omits
 them.
+
+`evidence.font_weight_quantities` is additive contract version 1; the overall
+capture schema version is unchanged. It contains:
+
+- `version: 1`, `applicable`, and `owner` equal to the actual canonical element ID.
+- `legacy: {value, quantity}` retains the provider's original `style.font_weight`.
+  That original field remains raw evidence; it is not compared between providers
+  whose values describe different quantities.
+- `configured: {value, source, raw}` records the actual numeric font request.
+  CSS comes from the element's computed style; current Windows NativeLabel uses
+  its already-verified production TextFormat getters; macOS uses the actual
+  attributed-input `native_font_weight_configuration`. Missing requests are null.
+- `resolved: {source_span_complete, faces}` contains one record per actual font
+  observation: `{family_name, postscript_name, value, source, raw}`. `value` is a
+  measured actual weight, currently the real callback font's `wght` axis. Missing
+  axes remain null, including static fonts for which no numeric actual-face
+  measurement is available. No suffix such as `Semibold` supplies a number.
+
+Configured weights compare exactly, independently of resolved weights. Resolved
+weights compare exact sets of observed weights per actual PostScript face when
+all faces have that identity, otherwise per actual family, preserving the
+existing strict font-identity comparison. Source-range subdivision and repeated
+callbacks do not turn the same face/weight into different typography; every raw
+observation remains in evidence. An additional fallback face, unknown axis,
+unbound record, incomplete font coverage, or different numeric weight fails.
+Unknown on both sides also fails; identical legacy numbers cannot bypass it.
+
+macOS font configuration and drawing evidence must come from one actual text
+projection. An owned-label projection is selected only when its recorded ID,
+production-owner identifier and text bind it to the current control. A root
+projection describing unrelated shape geometry does not hide the owned label.
+Multiple font-owning projections remain ambiguous; the matcher never takes a
+parent's request and combines it with a child's actual font. The real
+`a3ca2a3` badge fixture retains its original absent configuration and observed
+600 axis, so it still fails the missing configured measurement.
+
+The reference `a3ca2a3` badge has a real CSS request of 700 and actual CDP face
+`PingFangSC-Semibold`; the corresponding native callback exposes `wght=600`.
+These records prove the previous scalar comparison mixed different quantities.
+They do not prove a reference axis of 600: CDP's
+[PlatformFontUsage definition](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/CSS.pdl)
+contains family, PostScript identity, custom-font status and glyph count, not
+resolved axis values. Reference resolved weight therefore remains unknown and
+fails coverage/style until independently measured. The
+[OpenType `wght` definition](https://learn.microsoft.com/en-us/typography/opentype/spec/dvaraxistag_wght)
+defines its 1–1000 numeric scale; interpreting an actual axis uses that scale,
+not a mapping from a face name or an NSFont trait estimate. This contract does
+not waive final-PNG attribution, glyph geometry, or any other existing failure.
 
 The reference is captured separately on Windows and macOS with the same source,
 scene definition and local server as that platform's native client. This retains
@@ -313,7 +361,8 @@ specific equivalence. Missing values are not equal to measured values.
 
 `scripts/visual/element_parity.py` emits `parity-report.json`, an index and a page
 per case/platform with outlined reference/native images, a mismatch list and a
-pixel-difference heat map. All 504 cases are required for acceptance. A smoke
+pixel-difference heat map. All current 660 cases from `scenes.json`
+(55 states × 3 sizes × 2 languages × 2 themes) are required for acceptance. A smoke
 run can diagnose extraction but cannot pass full acceptance. Missing captures,
 missing measurements, errors, extra scenes, or any mismatch make the job fail;
 upload reports even after failure. Reports must remain self-contained artifacts.
@@ -330,8 +379,9 @@ does not exempt an absent in-window counterpart automatically.
 
 ## Changes for clients
 
-- Amendment 4 initial contract: emit version 1 files above on all 504 existing
-  cases. Preserve raw AX/UIA plus paint/view inspection. macOS request at
+- Historical Amendment 4 initial contract: emit version 1 files above on the
+  then-existing 504 cases; the current requirement is the full 660 cases above.
+  Preserve raw AX/UIA plus paint/view inspection. macOS request at
   `43bb8e1` for filename/schema/counting/visibility/coverage is addressed here.
   Shared reference extraction and strict report/gate are being added first;
   native unknown measurements must remain explicit failures while implemented.

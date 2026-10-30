@@ -21,6 +21,7 @@ from typing import Any
 from image_paint import ImagePaintError, validate_vector_paint
 from outline_paint import outline_measurement, compare_outlines
 from line_breaks import BREAK_FIELDS, break_strategy_issues
+from font_weights import compare_font_weights, font_weight_issues
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -373,6 +374,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                 error("Measured text-line rectangles disagree with layout.line_count", eid)
             if rendered_fonts(element) is None:
                 error("Visible text has no measured actual font families in style.rendered_fonts; a configured fallback list is not proof", eid)
+        for issue in font_weight_issues(element):
+            error(issue["field"] + ": " + issue["reason"], eid)
         if (has_text(element) or element.get("kind") in ("icon", "chart-edge")) and style.get("foreground") is None:
             error("Visible foreground paint has no measured color", eid)
         if has_font_glyph(element):
@@ -591,6 +594,9 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                 if not number(av) or not number(bv) or tolerance is None or abs(av - bv) > tolerance + 1e-8:
                     mismatch("geometry_out_of_tolerance", "visible_bounds." + axis, av, bv, tolerance=tolerance)
         for field in STYLE_FIELDS:
+            # Keep the original provider value as evidence. Its meaning differs
+            # between CSS requests, UIA attributes and native font descriptors.
+            if field == "font_weight": continue
             if field in ("font_size", "font_weight") and not any(has_text(e) or has_font_glyph(e) for e in (a, b)): continue
             if field == "foreground" and not any(has_text(e) or e.get("kind") in ("icon", "chart-edge") for e in (a, b)): continue
             if field == "border_color" and a.get("style", {}).get("border_width") == b.get("style", {}).get("border_width") == 0: continue
@@ -604,6 +610,9 @@ def compare_elements(reference: list[dict], native: list[dict]) -> dict:
                 tolerance = .5 if field == "font_size" else 1 if field == "corner_radius" else 0
                 if not number(av) or not number(bv) or abs(av - bv) > tolerance + 1e-8:
                     mismatch("style_out_of_tolerance", field, av, bv, tolerance=tolerance)
+        for issue in compare_font_weights(a, b):
+            mismatch("style_out_of_tolerance", issue["field"], issue["expected"], issue["actual"],
+                     **{key: value for key, value in issue.items() if key not in ("field", "expected", "actual")})
         for field in PAINT_FIELDS:
             av, bv = a.get("style", {}).get(field), b.get("style", {}).get(field)
             if (field == "background_image"
@@ -907,6 +916,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
     report["reference_baselines"] = {platform: {"platform": platform, "source_root": str(roots[client]), "artifact_client": client}
                                      for platform, client in references.items()}
     report["font_identity_policy"] = "Actual render-run font evidence is required for visible text; size and weight are checked separately. Complete measured PostScript face sets are compared exactly when both providers expose every face, retaining original localized family spellings. Otherwise measured family sets must match exactly, with available faces compared per family. Additional fallback faces are never dropped. Glyph counters and custom-font loading flags remain evidence. Configured fallback lists and unverified UIA provider family properties cannot establish actual render-face identity."
+    report["font_weight_policy"] = "Contract 1 compares actual configured requests and resolved render-face weights as separate exact quantities. Original style.font_weight values remain provider evidence, never compared across incompatible meanings. Unknown configured or resolved quantities, including missing reference wght axes, fail style and coverage even when both sides are unknown or share a PostScript name. No name-to-weight mapping or descriptor-trait estimate supplies an actual face axis."
     report["element_count_definitions"] = {
         "raw_reference_elements / raw_native_elements": "Number of entries in the extractor's original elements array, before structural filtering.",
         "valid_reference_elements / valid_native_elements": "Structurally comparable entries accepted by the matcher; missing or invalid measurements can still fail extraction validation.",

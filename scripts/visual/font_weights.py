@@ -1,0 +1,208 @@
+"""Keep configured font requests separate from actual render-face weights.
+
+No face name, requested family, configured weight or trait-name interpolation
+can establish an actual OpenType weight. Missing quantities remain failures.
+"""
+from copy import deepcopy
+import math
+
+VERSION = 1
+WGHT_CORETEXT_TAG = str(int.from_bytes(b"wght", "big"))
+MAC_DRAW_SOURCE = "production NSLayoutManager.showCGGlyphs callback"
+WINDOWS_FACE_SOURCE = "DWRITE_GLYPH_RUN.fontFace passed to the actual D2D DrawGlyphRun"
+WINDOWS_FORMAT_SOURCE = "IDWriteTextFormat getters on the same production IDWriteTextLayout passed to Draw"
+
+
+def weight(value):
+    return type(value) in (int, float) and math.isfinite(value) and 1 <= value <= 1000
+
+
+def applicable(element):
+    icon = element.get("icon")
+    return (bool(element.get("text")) or element.get("kind") == "text"
+            or element.get("kind") == "icon" and isinstance(icon, dict)
+            and icon.get("source") not in ("svg", "image", "path", "geometry", "vector-image-v1"))
+
+
+def _record(value, source, raw, reason=None):
+    result = {"value": value, "source": source, "raw": deepcopy(raw)}
+    if reason:
+        result["reason"] = reason
+    return result
+
+
+def _mac_projection(element, evidence):
+    fields = ("native_font_weight_configuration", "native_font_drawing")
+    candidates = []
+    direct = evidence.get("projection")
+    if (isinstance(direct, dict) and any(field in direct for field in fields)
+            and direct.get("text") == element.get("text")):
+        candidates.append(("evidence.projection", direct))
+    owned = evidence.get("owned_text_evidence")
+    child = owned.get("projection") if isinstance(owned, dict) else None
+    if (isinstance(child, dict) and any(field in child for field in fields)
+            and isinstance(evidence.get("owned_text_id"), str) and owned.get("id") == evidence["owned_text_id"]
+            and isinstance(evidence.get("identifier"), str) and evidence["identifier"]
+            and owned.get("production_owner") == evidence["identifier"]
+            and owned.get("text") == element.get("text") and child.get("text") == element.get("text")):
+        candidates.append(("evidence.owned_text_evidence.projection", child))
+    if len(candidates) != 1:
+        return None, None, [path for path, _ in candidates]
+    return candidates[0][0], candidates[0][1], [candidates[0][0]]
+
+
+def project_font_weights(element):
+    """Project only measurements already bound to this actual source element.
+
+    macOS owns its extractor; its existing actual attributed-input and completed
+    draw receipts are consumed without rewriting its files or canonical values.
+    """
+    evidence = element.get("evidence") if isinstance(element.get("evidence"), dict) else {}
+    if isinstance(evidence.get("font_weight_quantities"), dict):
+        return deepcopy(evidence["font_weight_quantities"])
+    style = element.get("style") if isinstance(element.get("style"), dict) else {}
+    result = {"version": VERSION, "applicable": applicable(element), "owner": element.get("id"),
+              "legacy": {"value": style.get("font_weight"), "quantity": "unclassified provider value"},
+              "configured": _record(None, None, None, "No independently measured configured weight"),
+              "resolved": {"source_span_complete": False, "faces": None,
+                           "reason": "No actual render-face weight measurement"}}
+    if not result["applicable"]:
+        result["reason"] = "This element owns neither visible text nor a font glyph"
+        return result
+
+    request = evidence.get("font_request")
+    if isinstance(request, dict) and request.get("source") == "getComputedStyle":
+        result["legacy"]["quantity"] = "configured"
+        result["configured"] = _record(request.get("weight"), "getComputedStyle", request)
+        result["resolved"]["reason"] = "CSS.getPlatformFontsForNode records actual faces, not resolved weight or variation axes"
+
+    projection_path, projection, candidate_paths = _mac_projection(element, evidence)
+    result["native_font_projection_paths"] = candidate_paths
+    if len(candidate_paths) > 1:
+        result["configured"]["reason"] = "Multiple actual font-owning projections; parent and child measurements are not combined"
+        result["resolved"]["reason"] = result["configured"]["reason"]
+    if isinstance(projection, dict):
+        result["source_evidence_path"] = projection_path
+        result["legacy"]["quantity"] = "native descriptor-trait conversion; not an actual wght-axis measurement"
+        configured = projection.get("native_font_weight_configuration")
+        if isinstance(configured, dict) and configured.get("source") == "actual native attributed text style input":
+            result["configured"] = _record(configured.get("value"), configured["source"], configured)
+        drawing = projection.get("native_font_drawing")
+        fonts = style.get("rendered_fonts")
+        if (isinstance(drawing, dict) and drawing.get("provider") == MAC_DRAW_SOURCE
+                and drawing.get("status") == "measured-current-draw"
+                and isinstance(fonts, list) and fonts and all(isinstance(font, dict) for font in fonts)
+                and drawing.get("fonts") == fonts):
+            faces = []
+            for font in fonts:
+                axes = font.get("actual_variations") if isinstance(font, dict) else None
+                actual = axes.get(WGHT_CORETEXT_TAG) if isinstance(axes, dict) else None
+                faces.append({"family_name": font.get("family_name"), "postscript_name": font.get("postscript_name"),
+                              **_record(actual, "CTFontCopyVariation of the actual showCGGlyphs font", font,
+                                        None if weight(actual) else "The actual callback font has no measured wght axis")})
+            result["resolved"] = {"source_span_complete": True, "faces": faces,
+                                  "source": MAC_DRAW_SOURCE,
+                                  "source_evidence_path": projection_path + ".native_font_drawing"}
+
+    submission = evidence.get("native_label_submission")
+    native = evidence.get("native_label_evidence")
+    draw = native.get("draw") if isinstance(native, dict) else None
+    fmt = draw.get("actual_text_format") if isinstance(draw, dict) else None
+    submitted_style = submission.get("style") if isinstance(submission, dict) else None
+    if (isinstance(submitted_style, dict) and isinstance(fmt, dict) and fmt.get("source") == WINDOWS_FORMAT_SOURCE
+            and weight(fmt.get("font_weight")) and submitted_style.get("font_weight") == fmt["font_weight"]
+            and style.get("font_weight") == fmt["font_weight"]):
+        # native_label_submission has already checked current draw versions,
+        # the bound production source and the corresponding style receipt.
+        result["configured"] = _record(fmt["font_weight"], WINDOWS_FORMAT_SOURCE, fmt)
+        result["legacy"]["quantity"] = "configured"
+    rendered = evidence.get("native_label_fonts")
+    fonts = style.get("rendered_fonts")
+    if (isinstance(rendered, dict) and rendered.get("status") == "measured-current-submission"
+            and rendered.get("source_span_complete") is True and isinstance(fonts, list) and fonts
+            and all(isinstance(font, dict) for font in fonts)
+            and rendered.get("fonts") == fonts):
+        faces = []
+        for font in fonts:
+            axes = font.get("axes") if isinstance(font, dict) else None
+            matches = [axis.get("value") for axis in axes if isinstance(axis, dict) and axis.get("tag") == "wght"] if isinstance(axes, list) else []
+            actual = matches[0] if len(matches) == 1 and font.get("source") == WINDOWS_FACE_SOURCE else None
+            faces.append({"family_name": font.get("family_name"), "postscript_name": font.get("postscript_name"),
+                          **_record(actual, "Actual DrawGlyphRun fontFace variation axis", font,
+                                    None if weight(actual) else "No unique measured wght axis on the actual submitted face")})
+        result["resolved"] = {"source_span_complete": True, "faces": faces,
+                              "source": WINDOWS_FACE_SOURCE, "source_evidence_path": "evidence.native_label_fonts"}
+    return result
+
+
+def _identity(font):
+    if not isinstance(font, dict):
+        return None, None
+    family, postscript = font.get("family_name"), font.get("postscript_name")
+    return (family if isinstance(family, str) else None,
+            postscript if isinstance(postscript, str) else None)
+
+
+def font_weight_issues(element, measurement=None):
+    if not applicable(element):
+        return []
+    measured = project_font_weights(element) if measurement is None else measurement
+    issues = []
+    if (not isinstance(measured, dict) or type(measured.get("version")) is not int or measured.get("version") != VERSION
+            or measured.get("applicable") is not True or measured.get("owner") != element.get("id")):
+        return [{"field": "font_weight.quantities", "reason": "Missing or unbound version-1 configured/resolved weight evidence"}]
+    legacy = measured.get("legacy")
+    style = element.get("style") if isinstance(element.get("style"), dict) else {}
+    if not isinstance(legacy, dict) or legacy.get("value") != style.get("font_weight"):
+        issues.append({"field": "font_weight.quantities", "reason": "Font-weight evidence does not preserve this element's original provider value"})
+    configured = measured.get("configured")
+    if (not isinstance(configured, dict) or not weight(configured.get("value"))
+            or not isinstance(configured.get("source"), str) or not configured["source"] or not isinstance(configured.get("raw"), dict)):
+        issues.append({"field": "font_weight.configured", "reason": "Configured weight has no actual numeric request measurement"})
+    resolved = measured.get("resolved")
+    faces = resolved.get("faces") if isinstance(resolved, dict) else None
+    fonts = style.get("rendered_fonts")
+    if (not isinstance(resolved, dict) or resolved.get("source_span_complete") is not True
+            or not isinstance(faces, list) or not faces or not isinstance(fonts, list) or not fonts
+            or {_identity(face) for face in faces} != {_identity(font) for font in fonts}):
+        issues.append({"field": "font_weight.resolved", "reason": "Resolved weight does not cover the independently measured actual font faces"})
+    elif any(not isinstance(face, dict) or not weight(face.get("value")) or not isinstance(face.get("source"), str) or not face["source"]
+             or not isinstance(face.get("raw"), dict) or not isinstance(face.get("family_name"), str)
+             or not face["family_name"] for face in faces):
+        issues.append({"field": "font_weight.resolved", "reason": "An actual rendered face has no measured numeric weight; names and configured requests are not substitutes"})
+    return issues
+
+
+def compare_font_weights(reference, native):
+    if not any(applicable(item) for item in (reference, native)):
+        return []
+    left, right = project_font_weights(reference), project_font_weights(native)
+    issues = [(side, issue) for side, element, measured in (("reference", reference, left), ("native", native, right))
+              for issue in font_weight_issues(element, measured)]
+    issues.extend((side, {"field": "font_weight.quantities", "reason": "This counterpart has no text/font-glyph weight measurement"})
+                  for side, element in (("reference", reference), ("native", native)) if not applicable(element))
+    result = []
+    for field in ("configured", "resolved"):
+        relevant = [(side, issue) for side, issue in issues if issue["field"] in ("font_weight." + field, "font_weight.quantities")]
+        a, b = left.get(field), right.get(field)
+        if relevant:
+            result.append({"field": "font_weight." + field, "expected": a, "actual": b,
+                           "reason": "Missing comparable actual font-weight quantity", "measurement_errors": relevant})
+            continue
+        if field == "configured":
+            if a["value"] != b["value"]:
+                result.append({"field": "font_weight.configured", "expected": a["value"], "actual": b["value"], "tolerance": 0})
+            continue
+        faces_a, faces_b = a["faces"], b["faces"]
+        use_postscript = all(isinstance(face.get("postscript_name"), str) and face["postscript_name"] for face in faces_a + faces_b)
+        def signature(faces):
+            values = {}
+            for face in faces:
+                name = face["postscript_name"] if use_postscript else face["family_name"]
+                values.setdefault(name, set()).add(face["value"])
+            return {name: sorted(weights) for name, weights in sorted(values.items())}
+        values_a, values_b = signature(faces_a), signature(faces_b)
+        if values_a != values_b:
+            result.append({"field": "font_weight.resolved", "expected": values_a, "actual": values_b,
+                           "tolerance": 0, "identity_quantity": "postscript_name" if use_postscript else "family_name"})
+    return result

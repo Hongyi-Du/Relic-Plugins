@@ -14,8 +14,20 @@ from element_parity import (CATEGORIES, STATE_FIELDS, compare_elements, delta_e,
 from image_paint import decode_svg_bytes
 
 
+def with_weight_measurements(item, configured=400, resolved=400):
+    item["evidence"]["font_weight_quantities"] = {
+        "version": 1, "applicable": bool(item["text"]) or item["kind"] == "text" or has_font_glyph(item), "owner": item["id"],
+        "legacy": {"value": item["style"]["font_weight"], "quantity": "fixture provider value"},
+        "configured": {"value": configured, "source": "independent test fixture request", "raw": {"weight": configured}},
+        "resolved": {"source_span_complete": True, "faces": [
+            {"family_name": font["family_name"], "postscript_name": font.get("postscript_name"),
+             "value": resolved, "source": "independent test fixture actual face", "raw": {"measured_wght": resolved}}
+            for font in item["style"]["rendered_fonts"]]}}
+    return item
+
+
 def element(eid="r0", text="今天 11:00", order=0, kind="text", region="conversation"):
-    return {"id": eid, "parent": None, "region": region, "order": order, "kind": kind,
+    return with_weight_measurements({"id": eid, "parent": None, "region": region, "order": order, "kind": kind,
             "text": text, "name": "", "bounds": {"x": 10., "y": 12., "width": 100., "height": 20.},
             "style": {"font_size": 13., "font_weight": 400, "foreground": [27, 27, 26, 255],
                       "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0,
@@ -31,7 +43,7 @@ def element(eid="r0", text="今天 11:00", order=0, kind="text", region="convers
                          "line_break_configuration": {"source": "synthetic independently measured no-wrap fixture", "owner": eid,
                                                       "raw": {"fixture_policy": "NoWrap"}, "applicable": bool(text) or kind == "text",
                                                       "reason": "Fixture text ownership follows the unchanged text predicate."},
-                         "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}}
+                         "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}})
 
 
 def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group", viewport=None):
@@ -119,8 +131,9 @@ class ElementComparisonTests(unittest.TestCase):
         b["style"]["font_size"] += .001
         b["style"]["corner_radius"] += .001
         b["style"]["font_weight"] += 1
+        with_weight_measurements(b, configured=401)
         result = compare_elements([a], [b])
-        self.assertEqual({x["field"] for x in result["style_out_of_tolerance"]}, {"font_size", "corner_radius", "font_weight"})
+        self.assertEqual({x["field"] for x in result["style_out_of_tolerance"]}, {"font_size", "corner_radius", "font_weight.configured"})
 
     def test_lab_distance_known_endpoints_and_alpha_not_ignored(self):
         self.assertAlmostEqual(delta_e([0, 0, 0, 255], [255, 255, 255, 255]), 100, places=3)
@@ -367,6 +380,7 @@ class ElementComparisonTests(unittest.TestCase):
         b["style"]["rendered_fonts"][0].update(glyph_count=30, is_custom_font=True)
         self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
         b["style"]["rendered_fonts"][0]["postscript_name"] = None
+        with_weight_measurements(b)
         self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
         b["style"]["rendered_fonts"][0]["family_name"] = "Different Actual Font"
         self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
@@ -377,10 +391,12 @@ class ElementComparisonTests(unittest.TestCase):
         a, b = element(), element("n")
         a["style"]["rendered_fonts"] = [{"family_name": "蘋方-簡", "postscript_name": "PingFangSC-Semibold"}]
         b["style"]["rendered_fonts"] = [{"family_name": "PingFang SC", "postscript_name": "PingFangSC-Semibold"}]
+        with_weight_measurements(a); with_weight_measurements(b)
         self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
         # This is face identity, not a weight substitution or a family alias.
         b["style"]["font_weight"] = 600
-        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]}, {"font_weight"})
+        with_weight_measurements(b, configured=600)
+        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]}, {"font_weight.configured"})
         b["style"]["font_weight"] = 400
         b["style"]["rendered_fonts"][0]["postscript_name"] = "PingFangSC-Regular"
         self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
@@ -392,6 +408,25 @@ class ElementComparisonTests(unittest.TestCase):
         # An unknown face cannot be paired through a different localized family.
         b["style"]["rendered_fonts"] = [{"family_name": "Localized Fixture", "postscript_name": None}]
         self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_requested700_is_not_compared_to_resolved600_and_unknown_still_fails(self):
+        a, b = element(), element("native")
+        a["style"]["font_weight"], b["style"]["font_weight"] = 700, 600
+        with_weight_measurements(a, configured=700, resolved=600)
+        with_weight_measurements(b, configured=700, resolved=600)
+        a["evidence"]["font_weight_quantities"]["resolved"] = {"source_span_complete": False, "faces": None,
+            "reason": "Actual CDP records expose identity but no weight axis"}
+        result = compare_elements([a], [b])
+        self.assertEqual({item["field"] for item in result["style_out_of_tolerance"]}, {"font_weight.resolved"})
+        self.assertTrue(any("font_weight.resolved" in item["reason"] for item in validate_capture(
+            capture(elements=[a]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1})))
+        self.assertEqual((a["style"]["font_weight"], b["style"]["font_weight"]), (700, 600))
+
+    def test_missing_both_weight_quantities_cannot_pass_by_matching_legacy_numbers(self):
+        a, b = element(), element("native")
+        for item in (a, b): item["evidence"].pop("font_weight_quantities")
+        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]},
+                         {"font_weight.configured", "font_weight.resolved"})
 
     def test_visible_stroke_pattern_and_phase_are_required_and_exact(self):
         a, b = element(), element("n")

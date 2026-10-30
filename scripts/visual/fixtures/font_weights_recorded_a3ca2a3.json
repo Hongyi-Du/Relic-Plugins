@@ -1,0 +1,125 @@
+{
+    "source_commit":  "a3ca2a3",
+    "scene_id":  "zh-CN-light-1440x900-group",
+    "quantity":  "Exact selected properties from actual CI reference/native elements.json; omitted fields are outside this font-weight fixture",
+    "reference":  {
+                      "id":  "dom-26",
+                      "kind":  "badge",
+                      "text":  "2",
+                      "style":  {
+                                    "font_weight":  700,
+                                    "rendered_fonts":  [
+                                                           {
+                                                               "family_name":  "蘋方-簡",
+                                                               "postscript_name":  "PingFangSC-Semibold",
+                                                               "is_custom_font":  false,
+                                                               "identity_source":  "CDP.CSS.getPlatformFontsForNode.postScriptName",
+                                                               "family_name_source":  "CDP.CSS.getPlatformFontsForNode.familyName",
+                                                               "glyph_count":  1
+                                                           }
+                                                       ]
+                                },
+                      "evidence":  {
+                                       "font_request":  {
+                                                            "source":  "getComputedStyle",
+                                                            "weight":  700,
+                                                            "weight_css":  "700",
+                                                            "weight_unit":  "CSS numeric font-weight request",
+                                                            "variation_settings":  "normal",
+                                                            "style":  "normal",
+                                                            "stretch":  "100%",
+                                                            "quantity":  "computed render request, not resolved OpenType face weight or actual variation axes"
+                                                        },
+                                       "font_weight":  {
+                                                           "requested_css":  "700",
+                                                           "computed_css":  700,
+                                                           "resolved_faces":  [
+                                                                                  {
+                                                                                      "family_name":  "蘋方-簡",
+                                                                                      "postscript_name":  "PingFangSC-Semibold",
+                                                                                      "is_custom_font":  false,
+                                                                                      "identity_source":  "CDP.CSS.getPlatformFontsForNode.postScriptName",
+                                                                                      "family_name_source":  "CDP.CSS.getPlatformFontsForNode.familyName",
+                                                                                      "glyph_count":  1
+                                                                                  }
+                                                                              ],
+                                                           "resolved_numeric_weight":  null,
+                                                           "source":  "getComputedStyle request + CSS.getPlatformFontsForNode resolved identity",
+                                                           "reason":  "CDP reports actual face identity but not OpenType weight/variation axes; requested CSS weight is not substituted for resolved face weight."
+                                                       }
+                                   }
+                  },
+    "native":  {
+                   "id":  "window/0/7",
+                   "kind":  "badge",
+                   "text":  "2",
+                   "style":  {
+                                 "font_weight":  600,
+                                 "rendered_fonts":  [
+                                                        {
+                                                            "actual_variations":  {
+                                                                                      "2003265652":  600
+                                                                                  },
+                                                            "ascent":  10.5999755859375,
+                                                            "descent":  3.39996337890625,
+                                                            "family_name":  "PingFang SC",
+                                                            "glyph_count":  1,
+                                                            "leading":  0,
+                                                            "optical_size_attribute":  "auto",
+                                                            "postscript_name":  "PingFangSC-Semibold",
+                                                            "provider":  "production NSLayoutManager.showCGGlyphs callback",
+                                                            "size":  10,
+                                                            "variations":  {
+                                                                               "2003265652":  600
+                                                                           }
+                                                        }
+                                                    ]
+                             },
+                   "evidence":  {
+                                    "identifier":  "relic-badge/DC1833AA-6DA0-462A-BB7E-7DB8D7FFB518",
+                                    "owned_text_id":  "window/view-137/0/text-0",
+                                    "owned_text_evidence":  {
+                                                                "id":  "window/view-137/0/text-0",
+                                                                "text":  "2",
+                                                                "production_owner":  "relic-badge/DC1833AA-6DA0-462A-BB7E-7DB8D7FFB518",
+                                                                "projection":  {
+                                                                                   "text":  "2",
+                                                                                   "native_font_drawing":  {
+                                                                                                               "binding":  {
+                                                                                                                               "container_identity":  "ObjectIdentifier(0x00006000022db7b0)",
+                                                                                                                               "view_identity":  "ObjectIdentifier(0x0000000131b95800)",
+                                                                                                                               "window_identity":  "ObjectIdentifier(0x000000013178f1d0)"
+                                                                                                                           },
+                                                                                                               "draw_sequence":  2,
+                                                                                                               "final_png_attribution_proven":  false,
+                                                                                                               "fonts":  [
+                                                                                                                             {
+                                                                                                                                 "actual_variations":  {
+                                                                                                                                                           "2003265652":  600
+                                                                                                                                                       },
+                                                                                                                                 "ascent":  10.5999755859375,
+                                                                                                                                 "descent":  3.39996337890625,
+                                                                                                                                 "family_name":  "PingFang SC",
+                                                                                                                                 "glyph_count":  1,
+                                                                                                                                 "leading":  0,
+                                                                                                                                 "optical_size_attribute":  "auto",
+                                                                                                                                 "postscript_name":  "PingFangSC-Semibold",
+                                                                                                                                 "provider":  "production NSLayoutManager.showCGGlyphs callback",
+                                                                                                                                 "size":  10,
+                                                                                                                                 "variations":  {
+                                                                                                                                                    "2003265652":  600
+                                                                                                                                                }
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "provider":  "production NSLayoutManager.showCGGlyphs callback",
+                                                                                                               "requested_range":  {
+                                                                                                                                       "length":  1,
+                                                                                                                                       "location":  0
+                                                                                                                                   },
+                                                                                                               "status":  "measured-current-draw"
+                                                                                                           }
+                                                                               }
+                                                            }
+                                }
+               }
+}
