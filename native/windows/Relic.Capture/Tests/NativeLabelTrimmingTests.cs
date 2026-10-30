@@ -129,6 +129,9 @@ public sealed class NativeLabelTrimmingTests
         private readonly IntPtr vtable;
         private readonly DrawGlyph glyph;
         private readonly GlyphBounds bounds;
+        private readonly GetWorldTransform transform;
+        private readonly GetContextDpi dpi;
+        private readonly GetUInt unitMode;
         internal IntPtr Pointer { get; }
         internal int GlyphCalls { get; private set; }
         internal RecordingGlyphSink()
@@ -137,16 +140,22 @@ public sealed class NativeLabelTrimmingTests
             // bounds are intentionally not treated as visible glyph geometry.
             glyph = (_, _, run, _, _) => { if (Marshal.PtrToStructure<GlyphRun>(run).GlyphCount > 0) GlyphCalls++; };
             bounds = (IntPtr self, PointF point, IntPtr run, uint mode, out RectF value) => { value = default; return 0; };
-            vtable = Marshal.AllocHGlobal(73 * IntPtr.Size); Pointer = Marshal.AllocHGlobal(IntPtr.Size);
-            for (var i = 0; i < 73; i++) Marshal.WriteIntPtr(vtable, i * IntPtr.Size, IntPtr.Zero);
+            transform = (IntPtr self, out Matrix value) => { value = new Matrix { M11 = 1, M22 = 1 }; };
+            dpi = (IntPtr self, out float x, out float y) => { x = y = 96; };
+            unitMode = _ => 0;
+            vtable = Marshal.AllocHGlobal(82 * IntPtr.Size); Pointer = Marshal.AllocHGlobal(IntPtr.Size);
+            for (var i = 0; i < 82; i++) Marshal.WriteIntPtr(vtable, i * IntPtr.Size, IntPtr.Zero);
             Marshal.WriteIntPtr(vtable, 29 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(glyph));
+            Marshal.WriteIntPtr(vtable, 31 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(transform));
+            Marshal.WriteIntPtr(vtable, 52 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(dpi));
             Marshal.WriteIntPtr(vtable, 72 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(bounds));
+            Marshal.WriteIntPtr(vtable, 81 * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(unitMode));
             Marshal.WriteIntPtr(Pointer, vtable);
         }
         public void Dispose()
         {
             Marshal.FreeHGlobal(Pointer); Marshal.FreeHGlobal(vtable);
-            GC.KeepAlive(glyph); GC.KeepAlive(bounds);
+            GC.KeepAlive(glyph); GC.KeepAlive(bounds); GC.KeepAlive(transform); GC.KeepAlive(dpi); GC.KeepAlive(unitMode);
         }
     }
 

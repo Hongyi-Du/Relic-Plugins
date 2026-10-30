@@ -98,6 +98,7 @@ internal sealed class NativeLabelRenderer : IDisposable
             ["origin_x"] = x, ["origin_y"] = y, ["sideways"] = sideways != 0, ["right_to_left"] = rightToLeft != 0,
             ["inline_com_identity"] = null, ["is_configured_trimming_sign"] = null,
             ["inline_metrics"] = null, ["draw_hresult"] = null, ["draw_succeeded"] = false,
+            ["actual_d2d_context"] = owner.ReadActualContext(),
             ["first_glyph_run_ordinal"] = owner.Runs.Count
         };
         owner.InlineDraws.Add(record);
@@ -178,6 +179,7 @@ internal sealed class NativeLabelRenderer : IDisposable
         if (face["color_font"]?.GetValue<bool>() != false)
             Limitations.Add("color glyph layer translation is not implemented; this run only submits the base outline and is not complete color-glyph evidence");
         var baseline = new PointF(x, y);
+        var actualContext = ReadActualContext();
         var boundsHr = Method<GlyphBounds>(context, 72)(context, baseline, originalRun, mode, out var inkBounds);
         if (boundsHr < 0) Limitations.Add("GetGlyphRunWorldBounds failed: 0x" + boundsHr.ToString("x8"));
         // This exact native pointer received from layout.Draw is what is painted.
@@ -192,8 +194,33 @@ internal sealed class NativeLabelRenderer : IDisposable
             ["glyph_indices"] = glyphs, ["glyph_advances"] = run.GlyphAdvances == IntPtr.Zero ? null : advances,
             ["glyph_offsets"] = run.GlyphOffsets == IntPtr.Zero ? null : offsets,
             ["face"] = face, ["ink_bounds_world_dip"] = boundsHr >= 0 ? Box(inkBounds) : null,
+            ["actual_d2d_context"] = actualContext,
             ["ink_bounds_quantity"] = "D2D GetGlyphRunWorldBounds; not DOM Range or text selection bounds" });
         return 0;
+    }
+    private JsonObject ReadActualContext()
+    {
+        var result = new JsonObject
+        {
+            ["source"] = "Actual ID2D1DeviceContext getters at the production draw callback",
+            ["world_transform"] = null, ["dpi"] = null, ["unit_mode"] = null
+        };
+        try
+        {
+            // d2d1.h: RenderTarget slots 31/52 are void with explicit output
+            // pointers. d2d1_1.h: DeviceContext slot 81 returns a scalar enum.
+            Method<GetWorldTransform>(context, 31)(context, out var world);
+            Method<GetContextDpi>(context, 52)(context, out var x, out var y);
+            result["world_transform"] = NativeLabelInterop.Transform(world);
+            result["dpi"] = new JsonObject { ["x"] = x, ["y"] = y };
+            result["unit_mode"] = Method<GetUInt>(context, 81)(context);
+        }
+        catch (Exception ex)
+        {
+            result["measurement_failure"] = ex.ToString();
+            Limitations.Add("Actual D2D context geometry is incomplete: " + ex.Message);
+        }
+        return result;
     }
     public void Dispose()
     {

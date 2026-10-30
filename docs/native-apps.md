@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (Windows own-outline and actual text quantities):
+ordinary exact WinUI primitives now record their own paint contract, actual
+focus relationship and app hand-in Composition attachment. Known absence is
+scoped to that primitive; derived/compound renderers and related/unknown focus
+or attachment paint still fail. NativeLabel now retains six separate measured
+geometry quantities, using actual per-callback D2D transform/DPI/unit mode and
+the bound Image transform. These go into audit evidence without replacing
+unknown canonical text/ellipsis measurements. The headless Windows build passes.
+
+The `6183507` Windows diagnostic completes 15/19 capture cases. Actual sidebar
+previews now submit real ellipsis glyphs and have no prior zero-area UIA error.
+Code view/partially clipped text ranges and both panel tooltip continuity checks
+remain failed. Its artifacts are in `smoke-6183507-windows-zh-light`; the earlier
+`d8f74ff` full-gate report (19 diagnostic inputs only) is in `parity-d8f74ff`,
+with zero accepted scenes on both systems. Current Mac outline draw receipts
+and 133-test build evidence from its REQUESTS are merged; common contour and
+dash equivalence still require actual reference measurements.
+
 Changes for the clients (macOS full-run timeout request): the owner measured
 147 completed PNG/element pairs before the unchanged 1200-second native process
 deadline, with normal 4.623–14.466 second case intervals rather than a stalled

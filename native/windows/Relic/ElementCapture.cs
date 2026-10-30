@@ -286,6 +286,7 @@ public sealed partial class MainWindow
             paintLayer++;
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
         }
+        var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
         foreach (var (owner, ownerNode, visible) in scrollbarOwners)
         {
             var ownerId = renderIds[owner]; var edges = new JsonArray(); var roots = new JsonArray();
@@ -471,6 +472,7 @@ public sealed partial class MainWindow
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
             ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone(),
+                ["outline_focus"] = outlineFocusEvidence,
                 ["textarea_resize_action"] = capturedTextareaEvidence?.DeepClone(),
                 ["panel_resize_action"] = capturedPanelResizeEvidence?.DeepClone(),
                 ["native_label_frame"] = capturedNativeLabelEvidence?.DeepClone(), ["pointer_input"] = capturePointerReceipts.DeepClone() },
@@ -864,6 +866,10 @@ public sealed partial class MainWindow
                 if (range.leaf != null) runs.Add(new JsonObject
                 {
                     ["type"] = range.leaf.GetType().Name,
+                    ["own_paint_evidence"] = new JsonObject { ["source"] = "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                        ["runtime_type"] = range.leaf.GetType().FullName, ["owner_id"] = id,
+                        ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
+                        ["exact_run_type"] = range.leaf.GetType() == typeof(Run) },
                     ["text"] = range.leaf is Run run ? run.Text : "\n",
                     ["start_offset"] = range.start.Offset, ["end_offset"] = range.end.Offset,
                     ["font_size"] = range.leaf.FontSize, ["font_weight"] = range.leaf.FontWeight.Weight,

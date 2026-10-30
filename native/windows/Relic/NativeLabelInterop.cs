@@ -116,6 +116,8 @@ internal static class NativeLabelInterop
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int DrawInline(IntPtr self, IntPtr context, IntPtr renderer, float x, float y, int sideways, int rightToLeft, IntPtr effect);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int CreateBrush(IntPtr self, ref ColorF color, IntPtr properties, out IntPtr brush);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void SetTransform(IntPtr self, ref Matrix matrix);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetWorldTransform(IntPtr self, out Matrix matrix);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetContextDpi(IntPtr self, out float x, out float y);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void SetDpi(IntPtr self, float x, float y);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void SetEnum(IntPtr self, uint value);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void Clear(IntPtr self, ref ColorF color);

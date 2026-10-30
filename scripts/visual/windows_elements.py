@@ -14,6 +14,8 @@ from PIL import Image
 
 from paint_patterns import MeasurementError, captured_pattern, pattern_measurement_issue
 from image_projection import project_windows_image
+from windows_outline import native_outline
+from native_label_geometry import native_label_geometry
 
 
 CONTROL_KINDS = {
@@ -1371,9 +1373,14 @@ def project(xaml_path, uia_path, png_path):
             reason = node.get("hidden_reason") or ("fully occluded by measured opaque paint" if positive(node.get("visible_bounds")) and not fragments.get(node["id"]) else "not a visible rendered box")
             projection.append({"source": node["id"], "reason": reason, "occlusion_masks": occlusion_masks.get(node["id"], [])})
             continue
+        # Check even template-owned or unpainted wrappers: unknown attached
+        # Composition/focus paint must not disappear with the layout wrapper.
+        outline_value, outline_evidence, outline_issues = native_outline(node, by_id)
+        unmeasured.extend(outline_issues)
         if node["id"] in owned:
             owner, why = owned[node["id"]]
             record = {"source": node["id"], "owner": owner, "reason": why}
+            record["outline_evidence"] = outline_evidence
             if node["id"] in label_surfaces:
                 record["ownership_evidence"] = copy.deepcopy(node["native_label_surface_evidence"])
             if node["id"] in dot_layer_owners:
@@ -1399,6 +1406,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         typ = node["type"]
         style = copy.deepcopy(node.get("style", {}))
+        style["outline"] = outline_value
         kind = control_kind(node) or PAINT_CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
@@ -1429,7 +1437,8 @@ def project(xaml_path, uia_path, png_path):
         if node["id"] in state_dot_layers:
             kind = "state-dot"
         if not kind:
-            projection.append({"source": node["id"], "reason": "layout wrapper with no own text, role, background or border"})
+            projection.append({"source": node["id"], "reason": "layout wrapper with no own text, role, background or border",
+                               "outline_evidence": outline_evidence})
             # Render types not accounted for must not disappear behind a generic
             # wrapper label. Their independent UIA nodes are also reconciled below.
             if typ in {"WebView", "SwapChainPanel", "MediaPlayerElement", "RichEditBox"}:
@@ -1519,11 +1528,18 @@ def project(xaml_path, uia_path, png_path):
                                  for b in measured_text_boxes(r.get("bounds")) if positive(b)]
         text_source = label or node
         submitted_label = None
+        submitted_label_geometry = None
         if text_source.get("type") == "NativeLabel":
             captured_frame = xaml.get("capture_evidence")
             frame = captured_frame.get("native_label_frame") if isinstance(captured_frame, dict) else None
             submitted_label, label_issues = native_label_submission(text_source, frame)
             unmeasured.extend(label_issues)
+            actual_surfaces = [candidate for candidate in raw if candidate.get("type") == "Image"
+                               and isinstance(candidate.get("native_label_surface_evidence"), dict)
+                               and candidate["native_label_surface_evidence"].get("owner_id") == text_source["id"]]
+            submitted_label_geometry, geometry_issues = native_label_geometry(
+                text_source, actual_surfaces[0] if len(actual_surfaces) == 1 else None)
+            unmeasured.extend(geometry_issues)
             for key in ("font_size", "font_weight", "foreground"):
                 style[key] = submitted_label["style"].get(key) if submitted_label["style"] is not None else None
         run_source = text_source.get("text_run_source")
@@ -1640,6 +1656,8 @@ def project(xaml_path, uia_path, png_path):
                    "bounds": bounds, "visible_bounds": scrollbar_visible_bounds or node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count")}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
+                                "outline": outline_evidence,
+                                "native_label_geometry": submitted_label_geometry,
                                 "label_source": label["id"] if label else None,
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,

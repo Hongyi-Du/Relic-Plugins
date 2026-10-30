@@ -35,7 +35,11 @@ class ReportFailureTests(unittest.TestCase):
     def test_reference_missing_or_malformed_pattern_evidence_never_reaches_pixel_comparison(self):
         for evidence in (None, [], "missing", {}):
             ref, native = measured_pair()
-            ref["evidence"] = evidence
+            # Break only the paint measurement under test. This synthetic
+            # object still has an independently declared absent outline.
+            ref["evidence"] = {"outline": {"absence_proven": True,
+                                            "source": "synthetic fixture with no outline"},
+                               "background_pattern_measurement": evidence}
             with patch("element_parity.compare_paint_patterns") as compare:
                 result = compare_elements([ref], [native])
                 compare.assert_not_called()
