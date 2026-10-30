@@ -1,6 +1,11 @@
 name: Recompare immutable native captures
 run-name: Recompare capture run ${{ inputs.capture_run_id }} with ${{ github.sha }}
 on:
+  workflow_call:
+    inputs:
+      capture_run_id:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       capture_run_id:

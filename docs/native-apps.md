@@ -7,6 +7,10 @@ uses the full current matrix and the unchanged strict matcher. An older run
 missing newly required states fails coverage. `comparison-provenance.json`
 records the capture run/commits separately from the comparison tool commit;
 recomparison is never reported as verification of a newer native binary.
+Until the new reusable file is on the default branch, dispatch the existing
+`native-visual.yml` with `capture_run_id`; it calls that reusable workflow at
+the selected branch revision. The original direct dispatch returned 404 and
+did not run. Normal capture dispatch/push keeps every required capture job.
 
 Changes for the clients (full-matrix artifact storage failure): ca8d997 full
 run 41038721093 exhausted the comparison runner's disk while downloading raw
