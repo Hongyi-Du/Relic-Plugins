@@ -239,7 +239,9 @@ import RelicAX
                         do {
                             let png = output.appendingPathComponent(item["file"].text)
                             if FileManager.default.fileExists(atPath: png.path) {
-                                try FileManager.default.copyItem(at: png, to: output.appendingPathComponent(item["id"].text + ".before-capture-error.png"))
+                                let diagnostics = output.appendingPathComponent("diagnostics", isDirectory: true)
+                                try FileManager.default.createDirectory(at: diagnostics, withIntermediateDirectories: true)
+                                try FileManager.default.copyItem(at: png, to: diagnostics.appendingPathComponent(item["id"].text + ".before-capture-error.png"))
                             }
                             try capture(window, to: png, width: item["width"].integer, height: item["height"].integer)
                             try ElementCapture.write(window: window, png: png, item: item, language: language, theme: theme, captureErrors: [detail])
