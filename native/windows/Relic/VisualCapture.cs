@@ -12,6 +12,7 @@ public sealed partial class MainWindow
 {
     private bool VisualCaptureEnabled => Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"));
     private bool visualCaptureStarted;
+    private JsonObject? capturedMessageEvidence;
     private void VisualStartup(string stage)
     {
         if (!VisualCaptureEnabled) return;
@@ -76,7 +77,7 @@ public sealed partial class MainWindow
                     }
                     else switch (scene)
                     {
-                        case "group": break;
+                        case "group": case "message-hover": case "message-copy-toast": break;
                         case "private": await Select(fixture.Text("org"), fixture.Text("member")); break;
                         case "live-busy": case "live-tool-output": case "live-typing":
                             await Select(prepared.Text("org"), prepared.Text("member"));
@@ -113,6 +114,12 @@ public sealed partial class MainWindow
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
                     await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    capturedMessageEvidence = null;
+                    if (scene is "message-hover" or "message-copy-toast")
+                    {
+                        capturedMessageEvidence = await CaptureMessageScene(scene, fixture.Text("thread"));
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedMessageEvidence.ToJsonString());
+                    }
                     if (scene.StartsWith("member-card-"))
                     {
                         var controlId = scene == "member-card-avatar-hover" ? "member-card-avatar" : scene;
@@ -169,20 +176,33 @@ public sealed partial class MainWindow
                     var animation = PrepareCaptureAnimation(scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".animations.json"), System.Text.Json.JsonSerializer.Serialize(animation));
                     await Task.Delay(250);
-                    if (suggestionPopup == null && scene != "member-card-avatar-hover") SetCursorPos(1900, 1040);
+                    if (suggestionPopup == null && scene is not ("member-card-avatar-hover" or "message-hover" or "message-copy-toast")) SetCursorPos(1900, 1040);
                     if ((scene.StartsWith("menu-") || scene.StartsWith("member-card") || scene is "mention" or "recipients") && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Count == 0)
                         throw new InvalidOperationException("The requested native popup is not open: " + scene);
                     if (Math.Abs(root.ActualWidth - int.Parse(shot.Text("width"))) > 1 || Math.Abs(root.ActualHeight - int.Parse(shot.Text("height"))) > 1)
                         throw new InvalidOperationException($"Viewport mismatch: actual {root.ActualWidth}x{root.ActualHeight}, requested {shot.Text("width")}x{shot.Text("height")}");
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before screenshot: " + scene);
                     if (liveTool != null && (!liveTool.IsExpanded || !liveTool.IsLoaded)) throw new InvalidOperationException("Live tool disclosure closed or unloaded before screenshot");
+                    if (capturedMessageEvidence != null) capturedMessageEvidence["before_screenshot"] = CaptureMessageSceneState();
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    if (capturedMessageEvidence != null) capturedMessageEvidence["after_screenshot"] = CaptureMessageSceneState();
                     if (suggestionPopup is { IsOpen: false }) throw new InvalidOperationException("Suggestion popup closed before element extraction: " + scene);
                     await CaptureElementEvidence(manifest.Text("output"), shot.Text("id"), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
+                    if (capturedMessageEvidence != null)
+                    {
+                        capturedMessageEvidence["after_extraction"] = CaptureMessageSceneState();
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-action.json"), capturedMessageEvidence.ToJsonString());
+                    }
                     Console.WriteLine("Relic visual capture: " + shot.Text("file"));
                     count++;
                 }
                 catch (Exception ex) { failures.Add(shot.Text("id") + ": " + ex); }
+                finally
+                {
+                    var resumed = ResumeCapturedMessageToasts();
+                    if (resumed.Count > 0) await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".toast-resume.json"), resumed.ToJsonString());
+                    capturedMessageEvidence = null;
+                }
             }
         }
         catch (Exception ex) { failures.Add(ex.ToString()); }

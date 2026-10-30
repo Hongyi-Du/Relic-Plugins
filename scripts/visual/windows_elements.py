@@ -971,4 +971,5 @@ def project(xaml_path, uia_path, png_path):
             "coverage": {"raw_nodes": len(source_raw) + len(uia.get("raw_nodes", [])), "recorded_text_leaves": len(raw) - len(source_raw),
                          "emitted_elements": len(elements), "unmeasured": unmeasured},
             "projection": projection, "nonvisible_diagnostics": nonvisible_diagnostics,
+            "capture_evidence": copy.deepcopy(xaml.get("capture_evidence", {})),
             "raw_evidence": {"xaml": Path(xaml_path).name, "uia": Path(uia_path).name}}

@@ -44,8 +44,15 @@ public sealed partial class MainWindow
     }
     private void Copy(string value)
     {
-        try { var package = new DataPackage(); package.SetText(value); Clipboard.SetContent(package); Note(T("msg.copied")); }
-        catch { Note(T("msg.copy_failed")); }
+        try
+        {
+            var package = new DataPackage(); package.SetText(value); Clipboard.SetContent(package);
+            var notice = ShowToast(T("msg.copied")); lastClipboardCopy = new(++copySequence, value, true, null, notice.Id);
+        }
+        catch (Exception ex)
+        {
+            var notice = ShowToast(T("msg.copy_failed")); lastClipboardCopy = new(++copySequence, value, false, ex.Message, notice.Id);
+        }
     }
     private UIElement Rich(string markdown, bool documentStyle = false)
     {

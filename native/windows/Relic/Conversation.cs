@@ -377,15 +377,19 @@ public sealed partial class MainWindow
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         Button Action(string iconName, string label, string tip, Func<Task> handler)
         {
-            var button = QuietButton("", handler); button.Padding = new Thickness(8, 0, 8, 0); button.Height = 26; button.CornerRadius = new CornerRadius(6); button.Foreground = Paint("5A5853", "B8B5AE");
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 }; var icon = (ReferenceVectorIcon)ReferenceIcon(iconName, 14); icon.Foreground = button.Foreground; icon.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(icon);
-            if (label.Length > 0) { var text = OverviewText(label, 12); text.Foreground = button.Foreground; text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; row.Children.Add(text); }
+            var button = QuietButton("", handler); button.Padding = new Thickness(8, 0, 8, 0); button.Height = 26; button.MinHeight = 0; button.MinWidth = 0; button.CornerRadius = new CornerRadius(6); button.FontSize = 12; button.FontWeight = Microsoft.UI.Text.FontWeights.Normal; button.Foreground = Paint("5A5853", "B8B5AE");
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; var icon = (ReferenceVectorIcon)ReferenceIcon(iconName, 14); icon.Foreground = button.Foreground; icon.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(icon);
+            TextBlock? text = null;
+            if (label.Length > 0) { text = OverviewText(label, 12, lineHeight: 19.2); text.Foreground = button.Foreground; text.IsTextSelectionEnabled = false; text.TextWrapping = TextWrapping.NoWrap; text.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(text); }
+            void InkState(bool hover) { button.Foreground = hover ? Ink : Paint("5A5853", "B8B5AE"); icon.Foreground = button.Foreground; if (text != null) text.Foreground = button.Foreground; }
+            button.PointerEntered += (_, _) => InkState(true); button.PointerExited += (_, _) => InkState(false);
             button.Content = row; ToolTipService.SetToolTip(button, tip); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label.Length > 0 ? label : tip); actions.Children.Add(button); return button;
         }
         if (explainable && !(plainMode && member.Length == 0 && !inThread)) Action("lang", T(plainOne.Contains(key) ? "msg.original" : "msg.plain"), T(plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); });
         Action("quote", T("common.quote"), T("common.quote"), () => { Quote(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), body); return Task.CompletedTask; });
         if (!inThread && long.TryParse(item.Text("id"), out _)) Action("thread", T("common.reply"), T("msg.reply_in_thread"), () => OpenThread(item.Text("id")));
-        Action("copy", "", T("common.copy"), () => { Copy(body); return Task.CompletedTask; });
+        var copy = Action("copy", "", T("common.copy"), () => { Copy(body); return Task.CompletedTask; });
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "message-copy/" + item.Text("id"));
         if (!inThread && item["thread"] != null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
@@ -408,16 +412,23 @@ public sealed partial class MainWindow
         column.Children.Add(bubbleLayout); if (after.Children.Count > 0) column.Children.Add(after);
         var message = new Grid { HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Stretch };
         message.Children.Add(column);
-        var outer = new Grid { ColumnSpacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, continued ? 4 : preferences.Text("density") == "compact" ? 7 : 14, 0, 0) };
+        var outer = new Grid { ColumnSpacing = 10, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent), HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, continued ? 4 : preferences.Text("density") == "compact" ? 7 : 14, 0, 0) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(outer, "message/" + item.Text("id"));
         outer.ColumnDefinitions.Add(new() { Width = mine ? new GridLength(1, GridUnitType.Star) : GridLength.Auto }); outer.ColumnDefinitions.Add(new() { Width = mine ? GridLength.Auto : new GridLength(1, GridUnitType.Star) });
         var speaker = snap.Rows("members").FirstOrDefault(m => m.Text("name") == from);
         var avatar = (FrameworkElement)Avatar(mine ? preferences.Text("avatar") : speaker.Text("avatar"), Display(from), inThread ? 30 : 36); avatar.VerticalAlignment = VerticalAlignment.Top; avatar.Opacity = continued ? 0 : 1; if (continued) avatar.Height = 0;
         ToolTipService.SetToolTip(avatar, Display(from)); if (!mine && speaker != null) avatar.Tapped += async (_, e) => { e.Handled = true; await Run(() => MemberCard(from, avatar)); };
         Grid.SetColumn(avatar, mine ? 1 : 0); Grid.SetColumn(message, mine ? 0 : 1); outer.Children.Add(avatar); outer.Children.Add(message);
-        var actionSurface = new Border { Child = actions, Background = Paint("FFFFFF", "252523"), BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), VerticalAlignment = VerticalAlignment.Top,
-            HorizontalAlignment = mine ? HorizontalAlignment.Left : HorizontalAlignment.Right, Margin = mine ? new Thickness(8, -12, 0, 0) : new Thickness(0, -12, 8, 0), Opacity = 0 };
+        var actionSurface = new MessageHoverSurface(new Border { Child = actions, Background = Paint("FFFFFF", "252523"), BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2) })
+        { VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = mine ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+            Margin = mine ? new Thickness(8, -12, 0, 0) : new Thickness(0, -12, 8, 0), Visibility = Visibility.Collapsed };
+        actionSurface.SetShadows([new(0, 1, 2, Windows.UI.Color.FromArgb(255, 20, 18, 15), .06f)]);
         Grid.SetColumnSpan(actionSurface, 2); outer.Children.Add(actionSurface);
-        outer.PointerEntered += (_, _) => actionSurface.Opacity = 1; outer.PointerExited += (_, _) => actionSurface.Opacity = 0; return outer;
+        outer.PointerEntered += (_, _) => actionSurface.Visibility = Visibility.Visible; outer.PointerExited += (_, _) => actionSurface.Visibility = Visibility.Collapsed;
+        var interaction = new MessageInteraction(item.Text("id"), body, outer, actionSurface, copy);
+        outer.Loaded += (_, _) => { if (!messageInteractions.Contains(interaction)) messageInteractions.Add(interaction); };
+        outer.Unloaded += (_, _) => messageInteractions.Remove(interaction);
+        return outer;
     }
     private Microsoft.UI.Xaml.Media.SolidColorBrush MessageTint()
     {

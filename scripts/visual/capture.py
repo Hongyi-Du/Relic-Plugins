@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.parse
 import urllib.request
 
 HERE = Path(__file__).resolve().parent
@@ -22,6 +23,179 @@ MEMBER_CARD_SCENES = {
     "member-card-model": ".kv dd > div > button.btn.sm.ghost",
     "member-card-avatar-hover": ".avatar-wrap",
 }
+MESSAGE_SCENES = frozenset(("message-hover", "message-copy-toast"))
+
+
+def read_fixture_json(fixture, path):
+    request = urllib.request.Request(f"http://127.0.0.1:{fixture['port']}{path}",
+        headers={"X-Relic-Token": fixture["token"]})
+    with urllib.request.urlopen(request) as response:
+        return json.load(response)
+
+
+class MessageSceneCapture:
+    """Observe trusted production hover/copy and the same scene throughout capture.
+
+    Only the browser's virtual timeline is paused, after the real toast exists.
+    No DOM/CSS/application state or timeout callback is replaced or extended.
+    """
+    READ_MESSAGE = """(el, selector) => {
+      const box=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+      const state=n=>{const s=getComputedStyle(n);return {bounds:box(n),display:s.display,visibility:s.visibility,
+        opacity:s.opacity,background:s.backgroundColor,color:s.color,font_family:s.fontFamily,font_size:s.fontSize,
+        font_weight:s.fontWeight,hovered:n.matches(':hover'),focused:n===document.activeElement};};
+      const toolbar=el.querySelector(':scope > .hover-acts');
+      return {connected:el.isConnected,same_node:document.querySelector(selector)===el,id:el.dataset.id,
+        hovered:el.matches(':hover'),bounds:box(el),text:el.textContent,
+        toolbar:toolbar?{...state(toolbar),html:toolbar.outerHTML,
+          buttons:Array.from(toolbar.querySelectorAll('button'),button=>({...state(button),title:button.title,
+            text:button.textContent,disabled:button.disabled}))}:null};
+    }"""
+    READ_TOAST = """el => {
+      const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+      return {connected:el.isConnected,same_node:document.querySelectorAll('.toast').length===1&&document.querySelector('.toast')===el,
+        text:el.textContent,role:el.getAttribute('role'),bounds:{x:r.x,y:r.y,width:r.width,height:r.height},
+        display:s.display,visibility:s.visibility,opacity:s.opacity,background:s.backgroundColor,color:s.color};
+    }"""
+    READ_CLOCK = "() => ({date_now:Date.now(),performance_now:performance.now(),time_origin:performance.timeOrigin})"
+
+    def __init__(self, page, cdp, scene, fixture, lang, receipt_path):
+        self.page, self.cdp, self.scene, self.fixture, self.lang = page, cdp, scene, fixture, lang
+        self.receipt_path = receipt_path
+        self.message = self.toast = self.observer = None
+        self.paused = False
+        self.baseline = None
+        self.evidence = {"source": "trusted production pointer/click + actual DOM/clipboard/CDP receipts",
+            "scene": scene, "navigation_scene": "group", "checkpoints": [], "errors": [],
+            "toast_remaining_ms": None,
+            "toast_remaining_reason": "CDP exposes no remaining delay for the production setTimeout handle; no duration is inferred"}
+
+    def save(self):
+        self.receipt_path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def open(self):
+        message_id = str(self.fixture["thread"])
+        if not message_id.isdecimal():
+            raise RuntimeError("Message scene needs the fixture's real numeric thread/message identity")
+        self.selector = '.msg[data-id="' + message_id + '"]'
+        vocabulary = read_fixture_json(self.fixture, "/api/i18n?lang=" + urllib.parse.quote(self.lang))
+        words = vocabulary.get("strings", {})
+        self.copy_label, self.copied_label = words.get("common.copy"), words.get("msg.copied")
+        if not self.copy_label or not self.copied_label:
+            raise RuntimeError("Message capture requires actual /api/i18n copy and success labels")
+        chat_path = "/api/org/" + urllib.parse.quote(self.fixture["org"], safe="") + "/chat?kind=group&limit=1000"
+        chat = read_fixture_json(self.fixture, chat_path)
+        matches = [item for item in chat.get("items", []) if str(item.get("id")) == message_id]
+        if len(matches) != 1 or not isinstance(matches[0].get("body"), str) or not matches[0]["body"]:
+            raise RuntimeError("The actual group API did not return exactly one nonempty target message")
+        self.body = matches[0]["body"]
+        self.evidence.update(selector=self.selector, message_api={"path": chat_path, "message": matches[0]},
+                             vocabulary={"lang": vocabulary.get("lang"), "common.copy": self.copy_label, "msg.copied": self.copied_label})
+        self.evidence["fonts_before_action"] = self.page.evaluate("async () => {await document.fonts.ready; return {status:document.fonts.status,count:document.fonts.size};}")
+        if self.evidence["fonts_before_action"].get("status") != "loaded":
+            raise RuntimeError("Actual page fonts were not ready before the message action")
+        self.observer = self.page.evaluate_handle("""() => {
+          const events=[];
+          const observe=event=>{events.push({type:event.type,trusted:event.isTrusted,x:event.clientX,y:event.clientY,
+            timestamp:event.timeStamp,target:{tag:event.target.localName,title:event.target.getAttribute('title'),
+              message_id:event.target.closest('.msg')?.dataset.id ?? null}});if(events.length>32)events.shift();};
+          const types=['pointermove','pointerdown','pointerup','click'];
+          for(const type of types)document.addEventListener(type,observe,true);
+          return {events,dispose:()=>{for(const type of types)document.removeEventListener(type,observe,true);}};
+        }""")
+        row = self.page.locator(self.selector)
+        if row.count() != 1:
+            raise RuntimeError("Expected exactly one real group message for " + message_id)
+        row.hover()
+        toolbar = row.locator(":scope > .hover-acts")
+        toolbar.wait_for(state="visible")
+        self.message = row.element_handle()
+        if self.message is None:
+            raise RuntimeError("Message detached after the real hover action")
+        if self.scene == "message-copy-toast":
+            origin = f"http://127.0.0.1:{self.fixture['port']}"
+            permissions = ["clipboard-read", "clipboard-write"]
+            self.page.context.grant_permissions(permissions, origin=origin)
+            self.evidence["permissions"] = {"source": "Playwright BrowserContext.grant_permissions in CI", "origin": origin, "permissions": permissions}
+            self.evidence["clipboard_before"] = self.page.evaluate("() => navigator.clipboard.readText()")
+            if self.page.locator(".toast").count() != 0:
+                raise RuntimeError("Copy scene already contains a toast before the production action")
+            button = toolbar.get_by_title(self.copy_label, exact=True)
+            if button.count() != 1:
+                raise RuntimeError("Expected exactly one actual Copy button on the target message")
+            button.click()
+            notice = self.page.locator(".toast[role='status']")
+            notice.wait_for(state="visible")
+            if notice.count() != 1:
+                raise RuntimeError("Copy action did not produce exactly one real toast")
+            self.toast = notice.element_handle()
+            if self.toast is None or self.toast.evaluate("el => el.textContent") != self.copied_label:
+                raise RuntimeError("The real Copy action did not show its success toast")
+            before_clock = self.page.evaluate(self.READ_CLOCK)
+            self.paused = True  # Ensure cleanup attempts to resume even if CDP disconnects mid-command.
+            receipt = self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "pause"})
+            self.evidence["clock_pause"] = {"method": "Emulation.setVirtualTimePolicy", "parameters": {"policy": "pause"},
+                "receipt": receipt, "before": before_clock, "after": self.page.evaluate(self.READ_CLOCK),
+                "host_monotonic": time.monotonic(), "scope": "this isolated page target; actual toast already created"}
+            if not isinstance(receipt.get("virtualTimeTicksBase"), (int, float)):
+                raise RuntimeError("CDP did not return the actual virtual clock receipt")
+            self.evidence["clipboard_after"] = self.page.evaluate("() => navigator.clipboard.readText()")
+            if self.evidence["clipboard_after"] != self.body:
+                raise RuntimeError("Actual clipboard contents do not equal the selected API message body")
+        self.checkpoint("after_action")
+
+    def checkpoint(self, stage):
+        message = self.message.evaluate(self.READ_MESSAGE, self.selector)
+        toast = self.toast.evaluate(self.READ_TOAST) if self.toast is not None else None
+        pointer_events = self.observer.evaluate("capture => capture.events")
+        point = next((event for event in reversed(pointer_events) if event["type"] == "pointermove"), None)
+        state = {"message": message, "toast": toast, "pointer": {key: point.get(key) for key in ("x", "y", "trusted")} if point else None}
+        clock = self.page.evaluate(self.READ_CLOCK)
+        record = {"stage": stage, "state": state, "clock": clock, "pointer_events": pointer_events, "host_monotonic": time.monotonic()}
+        self.evidence["checkpoints"].append(record)
+        self.save()
+        toolbar = message.get("toolbar")
+        if (not message.get("connected") or not message.get("same_node") or not message.get("hovered") or not toolbar
+                or toolbar.get("display") == "none" or toolbar.get("visibility") != "visible" or float(toolbar.get("opacity", 0)) <= 0
+                or not point or point.get("trusted") is not True or not toolbar.get("buttons")):
+            raise RuntimeError("Real message hover/toolbar/pointer state was not retained at " + stage)
+        if self.scene == "message-copy-toast":
+            if (not toast or not toast.get("connected") or not toast.get("same_node") or toast.get("text") != self.copied_label
+                    or toast.get("role") != "status" or toast.get("display") == "none" or toast.get("visibility") != "visible"
+                    or float(toast.get("opacity", 0)) <= 0 or toast.get("bounds", {}).get("width", 0) <= 0
+                    or toast.get("bounds", {}).get("height", 0) <= 0):
+                raise RuntimeError("The same actual Copy toast expired or changed at " + stage)
+            if not any(event.get("type") == "click" and event.get("trusted") is True
+                       and event.get("target", {}).get("message_id") == str(self.fixture["thread"]) for event in pointer_events):
+                raise RuntimeError("No trusted production Copy click was observed")
+            if self.page.evaluate("() => navigator.clipboard.readText()") != self.body:
+                raise RuntimeError("Actual clipboard changed during Copy capture at " + stage)
+        if self.baseline is None:
+            self.baseline = record
+        elif state != self.baseline["state"]:
+            raise RuntimeError("Message/toolbar/toast geometry, text, state or actual pointer changed during capture at " + stage)
+        elif self.paused and clock["performance_now"] != self.baseline["clock"]["performance_now"]:
+            raise RuntimeError("Actual browser virtual time advanced during paused toast capture at " + stage)
+        self.save()
+
+    def close(self):
+        try:
+            if self.paused:
+                self.evidence["clock_resume"] = {"method": "Emulation.setVirtualTimePolicy", "parameters": {"policy": "advance"},
+                    "receipt": self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "advance"}), "host_monotonic": time.monotonic()}
+        except Exception as error:
+            self.evidence["errors"].append("Could not resume actual virtual clock: " + str(error))
+            raise
+        finally:
+            self.save()
+            if self.observer is not None:
+                self.observer.evaluate("capture => capture.dispose()")
+                self.observer.dispose()
+            for handle in (self.message, self.toast):
+                if handle is not None:
+                    handle.dispose()
+            if self.scene == "message-copy-toast":
+                self.page.context.clear_permissions()
 
 
 def wait_file(path, process, timeout=60, on_tick=None):
@@ -283,6 +457,58 @@ def open_member_card_scene(page, scene):
     return evidence
 
 
+def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None):
+    output = Path(manifest["output"])
+    message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
+        output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
+    try:
+        if message is not None:
+            message.open()
+            message.checkpoint("before_screenshot")
+        page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES else "disabled")
+        if message is not None:
+            message.checkpoint("after_screenshot")
+        snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
+        if message is not None:
+            message.checkpoint("after_dom_snapshot")
+        ax_tree = cdp.send("Accessibility.getFullAXTree")
+        input_text = input_text_evidence(cdp)
+        fonts = font_evidence(cdp, snapshot, input_text)
+        environment = page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})")
+        environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
+                           browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
+        (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        (output / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
+        (output / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
+        if message is not None:
+            message.checkpoint("after_source_evidence")
+        extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
+        elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
+        if message is not None:
+            message.checkpoint("after_element_extraction")
+            elements.setdefault("capture_evidence", {})["message_action"] = message.evidence
+        if member_card is not None:
+            elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
+        if datalist is not None:
+            record_datalist_coverage(elements, datalist)
+            (output / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")
+        (output / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
+    except Exception as error:
+        if message is not None:
+            message.evidence["errors"].append(str(error))
+            message.save()
+        raise
+    finally:
+        try:
+            if message is not None:
+                message.close()
+        finally:
+            try:
+                cdp.detach()
+            finally:
+                page.close()
+
+
 def reference(manifest):
     from playwright.sync_api import sync_playwright
     source = (ROOT / "plugins/relic/app/static/app.js").read_text(encoding="utf-8")
@@ -313,7 +539,7 @@ def reference(manifest):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{manifest['fixture']['port']}/", wait_until="domcontentloaded")
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
-            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else case["scene"]
+            navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES else case["scene"]
             page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
@@ -334,30 +560,9 @@ def reference(manifest):
             animation = prepare_animation_capture(page, cdp, case["scene"])
             if animation is not None:
                 (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
-            page.screenshot(path=Path(manifest["output"]) / case["file"], animations="allow" if case["scene"] in LIVE_SCENES else "disabled")
-            snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
-            ax_tree = cdp.send("Accessibility.getFullAXTree")
-            input_text = input_text_evidence(cdp)
-            fonts = font_evidence(cdp, snapshot, input_text)
-            environment = page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})")
-            environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
-                               browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
-            evidence = Path(manifest["output"]) / (case["id"] + ".dom.json")
-            evidence.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-            (Path(manifest["output"]) / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
-            (Path(manifest["output"]) / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
-            extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-            elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
-            if member_card is not None:
-                elements.setdefault("capture_evidence", {})["member_card_action"] = member_card
-            if datalist is not None:
-                record_datalist_coverage(elements, datalist)
-                (Path(manifest["output"]) / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")
-            (Path(manifest["output"]) / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
-            cdp.detach()
+            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist)
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
-            page.close()
         context.close()
         browser.close()
 
@@ -566,7 +771,7 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
