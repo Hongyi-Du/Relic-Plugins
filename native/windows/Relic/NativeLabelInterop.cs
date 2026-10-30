@@ -82,8 +82,13 @@ internal static class NativeLabelInterop
     // d2d1.h / d2d1_1.h. These getters have native struct/void return values,
     // not HRESULTs; keep their ABI distinct from InterfaceResult.
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetTargetImage(IntPtr self, out IntPtr image);
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate SizeU GetBitmapPixelSize(IntPtr self);
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate PixelFormat GetBitmapPixelFormat(IntPtr self);
+    // COM virtual struct returns use a caller-owned result buffer after `this`.
+    // A C# struct-return delegate instead follows the free-function ABI and can
+    // corrupt memory even for these 8-byte structures. These are NOT HRESULTs.
+    // https://github.com/microsoft/CsWin32/issues/731
+    // https://github.com/microsoft/win32metadata/issues/636
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapPixelSize(IntPtr self, out SizeU result);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapPixelFormat(IntPtr self, out PixelFormat result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapDpi(IntPtr self, out float x, out float y);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate void GetBitmapColorContext(IntPtr self, out IntPtr colorContext);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int CreateReadbackBitmap(IntPtr self, SizeU size, IntPtr data, uint pitch, ref BitmapProperties1 properties, out IntPtr bitmap);
