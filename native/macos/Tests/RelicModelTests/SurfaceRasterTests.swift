@@ -9,8 +9,15 @@ import AppKit
         for enabled in [true, false] {
             let sample = ComposerSendButton(action: {}).environmentObject(model).disabled(!enabled)
                 .frame(width: 32, height: 32).background(Color.white).environment(\.colorScheme, .light)
-            let renderer = ImageRenderer(content: sample); renderer.scale = 1
-            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+            // ImageRenderer substitutes unsupported-view paint for the AppKit
+            // probes behind this transparent button. Cache its actual hosting
+            // view, exactly as capture does, rather than testing that substitute.
+            let host = NSHostingView(rootView: sample)
+            host.appearance = NSAppearance(named: .aqua)
+            host.frame = NSRect(x: 0, y: 0, width: 32, height: 32)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
             // Inside the circle, away from its anti-aliased edge and arrow ink.
             let color = try XCTUnwrap(bitmap.colorAt(x: 7, y: 16)?.usingColorSpace(.sRGB))
             let expected = enabled ? 27.0 / 255 : 1 - 0.35 + (27.0 / 255) * 0.35
