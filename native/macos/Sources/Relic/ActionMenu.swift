@@ -83,7 +83,7 @@ struct ActionMenu: View {
 
 struct RecipientLayer: View {
     @EnvironmentObject var m: Model
-    @State private var height: CGFloat = 0
+    private var height: CGFloat { min(m.windowSize.height * 0.6, CGFloat(m.members.count + 1) * 34.8 + 14) }
     private var width: CGFloat {
         max(220, m.members.map { who in
             let name = (who.display as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(13, weight: 400), .tracking: 0]).width
@@ -94,23 +94,16 @@ struct RecipientLayer: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.clear.contentShape(Rectangle()).onTapGesture { m.recipientPicker = false }
-            FittingScroll(maxHeight: m.windowSize.height * 0.6) {
+            ScrollView {
                 RecipientPicker().padding(7)
-            }.frame(width: width)
+            }.frame(width: width, height: height)
                 .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
-                .background(GeometryReader { proxy in Color.clear.preference(key: RecipientHeight.self, value: proxy.size.height) })
-                .onPreferenceChange(RecipientHeight.self) { height = $0 }
                 .offset(x: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).x,
                         y: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).y)
                 .measuredRegion("menu")
         }.onExitCommand { m.recipientPicker = false }
     }
 }
-private struct RecipientHeight: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 struct RecipientPicker: View {
     @EnvironmentObject var m: Model
     private func select(_ who: String) {
@@ -149,8 +142,7 @@ private struct RecipientRow: View {
                 else { Avatar(member: who, size: 20, imageVisibility: { avatarImageVisible = $0 }) }
                 ReferenceLabel(title, size: 13).fixedSize(horizontal: true, vertical: false)
                 if who != "all" && who != title { ReferenceLabel(who, size: 11.96, color: RelicStyle.muted, monospaced: true).fixedSize(horizontal: true, vertical: false) }
-                Spacer(minLength: 0)
-            }.padding(.horizontal, 10).frame(height: 34.8)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 34.8)
         }.buttonStyle(MenuItemStyle()).accessibilityIdentifier(identity).accessibilityLabel(name)
             .environment(\.nativeElementParent, identity)
     }

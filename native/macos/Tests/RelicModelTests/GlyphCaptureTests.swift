@@ -3,6 +3,23 @@ import AppKit
 @testable import Relic
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
+    func testDirectLabelPrimitivePreservesTextKitsActualGlyphBitmap() throws {
+        for text in ["Relic → 组织", "A long label that must end in an ellipsis", "Done 任务", "🙂 Relic"] {
+            var images: [Data] = []
+            for direct in [false, true] {
+                let view = ReferenceLabel(text, size: 14, lines: 1, struck: text.hasPrefix("Done")).makeLabelView()
+                let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
+                layout.drawsGlyphsIntoCurrentContext = direct
+                view.frame = NSRect(x: 0, y: 0, width: 120, height: 30)
+                view.textContainer?.containerSize = view.bounds.size
+                let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            }
+            XCTAssertEqual(images[0], images[1], "The drawing primitive must preserve shaping, truncation, fallback and decorations: \(text)")
+        }
+    }
+
     func testActualDrawSeparatesFontExtentFromCodeParagraphLeading() throws {
         let view = ReferenceLabel("review('Windows')\nreview('macOS')", size: 11.25, lineHeight: 19.375, lines: 0, monospaced: true).makeLabelView()
         view.frame = NSRect(x: 0, y: 0, width: 180, height: 60)

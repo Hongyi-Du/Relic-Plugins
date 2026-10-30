@@ -41,6 +41,7 @@ struct ReferenceLabel: NSViewRepresentable {
         let storage = NSTextStorage(), layout = NativeGlyphLayoutManager()
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         layout.recordDraws = VisualCapture.enabled
+        layout.drawsGlyphsIntoCurrentContext = true
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = ReferenceLabelView(frame: .zero, textContainer: container)
         view.sourceStorage = storage

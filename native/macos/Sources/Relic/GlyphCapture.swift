@@ -6,6 +6,7 @@ import CoreText
 /// These raw receipts do not replace canonical geometry or font measurements.
 class NativeGlyphLayoutManager: NSLayoutManager {
     var recordDraws = false
+    var drawsGlyphsIntoCurrentContext = false
     private var sequence = 0
     private var calls: [[String: Any]] = []
     private var activeRange: NSRange?
@@ -151,8 +152,17 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                     "ascent": CTFontGetAscent(font as CTFont), "descent": CTFontGetDescent(font as CTFont), "leading": CTFontGetLeading(font as CTFont)],
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
                 "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
-                "bitmap_width": context.width, "bitmap_height": context.height])
+                "bitmap_width": context.width, "bitmap_height": context.height,
+                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with the actual configured TextKit graphics state" : "NSLayoutManager.showCGGlyphs"])
         }
-        super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
+        if drawsGlyphsIntoCurrentContext {
+            // AppKit supplies this primitive an already configured font, text
+            // matrix and paint state. Draw those exact shaped glyphs/positions
+            // into that context, without an additional AppKit text-content layer.
+            context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)),
+                               at: Array(UnsafeBufferPointer(start: positions, count: glyphCount)))
+        } else {
+            super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
+        }
     }
 }

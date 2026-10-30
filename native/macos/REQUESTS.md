@@ -1,3 +1,42 @@
+## 2026-10-30: v2 cell ownership correction from actual 2ffd371 capture
+
+The 21-case 2ffd371 capture is complete and downloaded (41057354578):
+`S:\Codex\Outputs\Relic-native-visual\parity-2ffd371\report\`.
+It still accepts zero of 672. Mac 5289 raw / 5288 valid / 4656 paired elements,
+4735 valid reference: missing79 extra632 text1 geometry1273 style8789 state1350
+kind0 region4 order702 layout2351 icon0 extraction33042. Windows startup fails
+all captured cases in this older binary; its missing4506 is not a successful
+zero-mismatch result. Shared startup repair has been merged afterward.
+
+Actual rename AX identifies the NSTextField Control as AXUnknown, while its
+PaddedCell is the real AXTextField. Therefore the prior v1 Control-based alias
+must NOT be accepted. 1097cdf keeps the control non-AX, assigns identifier/name
+and the actual full interactive bounds to the existing native text-field cell,
+and records `appkit-current-field-editor-v2`. The actual cell is owner_identity;
+control_identity must equal owner_control_view_identity, control_cell_identity
+must equal owner_identity, then the original actual currentEditor/window/value/
+focus checks apply. The full raw editor remains under owned_editor_evidence.
+The genuine native cell retains AppKit text-field accessibility behavior.
+Tests require native cell label/id/frame and real editor focus transitions.
+
+The same screenshot found the intrinsic Rename row recentered the card content
+by 9px, and begin-edit notifications did not reflect initial focus. Its header
+now preserves the card's allocated width while allowing the same right overflow
+as the reference; actual field-editor first-responder transitions drive focus.
+
+The recipient button anchor is now correct, but the popup's preference height
+stayed zero, so its first row was y846 vs reference623.21875. 89417f8 allocates
+the real fixed-height rows plus padding, capped at60vh; removes the spurious
+trailing HStack gap in recipient/mention rows. All rows/controls remain present.
+
+Direct TextKit label draw still retained an AppKit ContentLayer in 2ffd371;
+no outline absence was accepted. 89417f8 now sends the actual shaped glyphs and
+positions to CGContext.showGlyphs in TextKit's already-configured native graphics
+state. New bitmap equality tests cover CJK/Latin/fallback, ellipsis, decoration
+and emoji; the zero-extra-layer test remains strict. CI is pending, no proof
+is inferred from this source change. See Apple showCGGlyphs API documentation
+for its preconfigured context contract; the shared font/outline gate is unchanged.
+
 ## 2026-10-30: actual AppKit field-editor ownership and next shared assertion
 
 9a468f8 actual capture confirms the rename microphone has its own icon-button
