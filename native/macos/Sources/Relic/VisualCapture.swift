@@ -60,7 +60,8 @@ import RelicAX
                 var messageCapture: MessageCaptureSession?
                 var resizeCapture: ResizeCaptureSession?
                 var panelResizeCapture: PanelResizeCaptureSession?
-                defer { messageCapture?.finish(); model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
+                var settingsNavigationCapture: SettingsNavigationCaptureSession?
+                defer { messageCapture?.finish(); settingsNavigationCapture?.finish(); model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
                 do {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
                 for editor in textEditors(window.contentView) { editor.closeMentions() }
@@ -117,7 +118,7 @@ import RelicAX
                 guard initialLayout["settled"] as? Bool == true else {
                     throw RelicError.message("Initial native scroll layout did not settle before the scene action")
                 }
-                if scene.hasPrefix("settings-") { model.settingsSection = String(scene.dropFirst(9)); model.sheet = .settings }
+                if scene.hasPrefix("settings-") { model.settingsSection = scene == "settings-navigation-hover" ? "appearance" : String(scene.dropFirst(9)); model.sheet = .settings }
                 else if scene.hasPrefix("file-") { try await model.openFile(fixture["files"][String(scene.dropFirst(5))].text, line: scene == "file-code" ? 2 : 0) }
                 else if scene.hasPrefix("menu-") { model.appMenu = String(scene.dropFirst(5)) }
                 else {
@@ -159,6 +160,10 @@ import RelicAX
                     }
                 }
                 try await Task.sleep(for: .milliseconds(1100))
+                if scene == "settings-navigation-hover" {
+                    settingsNavigationCapture = SettingsNavigationCaptureSession(model: model, window: window, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
+                    try await settingsNavigationCapture?.perform()
+                }
                 if ["member-app", "member-host", "member-existing", "member-edit", "member-host-model-suggestions", "member-existing-seat-suggestions"].contains(scene) {
                     let key = scene == "member-app" ? "member.create_member" : scene == "member-edit" ? "common.save" : scene.hasPrefix("member-existing") ? "member.bind" : "member.create_start"
                     let deadline = ContinuousClock.now.advanced(by: .seconds(20))
@@ -224,7 +229,7 @@ import RelicAX
                 if scene == "quick-start" {
                     guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
                 }
-                if !["member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"].contains(scene) {
+                if !["settings-navigation-hover", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"].contains(scene) {
                     try movePointer(to: NSPoint(x: 10, y: 10))
                     try await Task.sleep(for: .milliseconds(80))
                     let screen = window.convertToScreen(hosting.convert(hosting.bounds, to: nil))
@@ -247,19 +252,23 @@ import RelicAX
                 try resizeCapture?.observe("before-screenshot")
                 try panelResizeCapture?.observe("before-screenshot")
                 try messageCapture?.observe("before-screenshot", window: window)
+                try settingsNavigationCapture?.observe("before-screenshot")
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try messageCapture?.observe("after-screenshot", window: window)
+                try settingsNavigationCapture?.observe("after-screenshot")
                 try geometry.observe("after-screenshot", window: window)
                 try resizeCapture?.observe("after-screenshot")
                 try panelResizeCapture?.observe("after-screenshot")
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 try messageCapture?.observe("after-native-source-and-element-extraction", window: window)
+                try settingsNavigationCapture?.observe("after-native-source-and-element-extraction")
                 try geometry.observe("after-native-source-and-element-extraction", window: window)
                 try resizeCapture?.observe("after-native-source-and-element-extraction")
                 try panelResizeCapture?.observe("after-native-source-and-element-extraction")
                 try messageCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 try resizeCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 try panelResizeCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
+                try settingsNavigationCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
                 } catch {

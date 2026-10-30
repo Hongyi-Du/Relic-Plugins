@@ -4,22 +4,25 @@ import AppKit
 
 @MainActor final class IconDrawTests: XCTestCase {
     func testIconReceiptRequiresTheExecutedNativePathStroke() throws {
-        let view = ElementPaintProbe.PaintView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        // A 48px icon has a 3.4px stroke: the sampled center pixel is fully
+        // covered. At 24px its 1.7px crossing is partially antialiased (250/255),
+        // so it cannot test full-opacity paint. Keep the opacity assertion.
+        let view = ElementPaintProbe.PaintView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
         view.recordDraws = true
-        view.configure(name: "plus", size: 24, color: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        view.configure(name: "plus", size: 48, color: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
         XCTAssertNil(view.lastDraw)
         let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let draw = try XCTUnwrap(view.lastDraw)
         XCTAssertEqual(draw["draw_returned"] as? Bool, true)
         XCTAssertEqual(draw["source_path"] as? String, ReferenceIcons.paths["plus"])
-        XCTAssertEqual((draw["stroke_width"] as? NSNumber)?.doubleValue, 1.7)
+        XCTAssertEqual((draw["stroke_width"] as? NSNumber)?.doubleValue, 3.4)
         XCTAssertEqual(draw["line_cap"] as? String, "round")
         XCTAssertEqual(draw["line_join"] as? String, "round")
         let commands = try XCTUnwrap(draw["rendered_path_commands"] as? [[String: Any]])
         XCTAssertEqual(commands.count, 4)
-        XCTAssertEqual(ElementCapture.rect(draw["rendered_path_bounds"]), NSRect(x: 5, y: 5, width: 14, height: 14))
-        let center = try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 12, y: 12))
+        XCTAssertEqual(ElementCapture.rect(draw["rendered_path_bounds"]), NSRect(x: 10, y: 10, width: 28, height: 28))
+        let center = try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 24, y: 24))
         XCTAssertGreaterThan(center[0], 250); XCTAssertLessThan(center[1], 1); XCTAssertLessThan(center[2], 1)
         XCTAssertGreaterThan(center[3], 250)
         XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 0, y: 0))[3], 0)

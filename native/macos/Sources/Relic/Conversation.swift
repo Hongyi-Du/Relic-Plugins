@@ -236,6 +236,8 @@ private struct StreamBottom: PreferenceKey {
 
 struct ConversationStream: View {
     @EnvironmentObject var m: Model
+    @Environment(\.isEnabled) private var enabled
+    @FocusState private var viewportFocused: Bool
     @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
     @State private var keyboard = ConversationKeyboard()
@@ -252,9 +254,12 @@ struct ConversationStream: View {
                             if m.moreChat { Button(m.t("trace.load_older")) { following.followsBottom = false; m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             ForEach(m.conversationRows(m.displayMessages)) { row in
-                                if let separator = row.separator { ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18).padding(.bottom, 8) }
+                                if let separator = row.separator {
+                                    ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
+                                        .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
+                                }
                                 MessageView(item: row.item, continued: row.continued)
-                                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
+                                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in
@@ -264,9 +269,9 @@ struct ConversationStream: View {
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
                             .environment(\.conversationDisclosure, { following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
-                            .background(ConversationKeyboardMount(keyboard: keyboard))
+                            .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.modifier(RecordedSurface(background: .clear, kind: "region"))
-                        .focusable().focusEffectDisabled()
+                        .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
@@ -336,11 +341,8 @@ struct MessageView: View {
                     } else if wantsPlain, let plain = m.plain[item["id"].text] {
                         messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
                         VStack(alignment: .leading, spacing: 0) {
-                            Button { preserveScroll(); originalExpanded.toggle() } label: {
-                                ReferenceLabel((originalExpanded ? "▾ " : "▸ ") + m.t("msg.original"), size: 11.5, color: RelicStyle.muted)
-                                    .padding(.horizontal, 2).modifier(RecordedSurface(background: .clear, expanded: originalExpanded))
-                            }.buttonStyle(.plain)
-                            if originalExpanded { messageBubble(bodyText) }
+                            OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
+                            if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
                         }
                     } else {
                         messageBubble(bodyText)

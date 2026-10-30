@@ -2,6 +2,14 @@ import XCTest
 @testable import Relic
 
 final class ConversationScrollTests: XCTestCase {
+    func testDaySeparatorAndFollowingMessageUseCollapsedMarginsInBothDensities() {
+        for (kind, continued, compact, expected) in [("message", false, false, 14.0), ("message", false, true, 8.0), ("message", true, false, 8.0), ("notice", false, false, 8.0), ("acts", false, false, 8.0)] {
+            let spacing = ConversationSpacing.separatorBottom(kind: kind, continued: continued, compact: compact)
+                + ConversationSpacing.messageTop(kind: kind, continued: continued, compact: compact)
+            XCTAssertEqual(spacing, expected, "Day separator followed by \(kind), continued=\(continued), compact=\(compact)")
+        }
+    }
+
     func testOpeningExistingToolOutputPreservesPositionThroughIntermediateLayout() {
         var state = ConversationScrollFollowing()
         let viewport = CGSize(width: 824, height: 698)

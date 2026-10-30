@@ -38,6 +38,14 @@ import RelicAX
         var valid = [label, owner]
         XCTAssertTrue(NativeControlState.attach(to: &valid).isEmpty)
         XCTAssertEqual((valid[0]["native_control_state"] as? [String: Any])?["enabled"] as? Bool, true)
+        XCTAssertNil((valid[0]["native_control_state"] as? [String: Any])?["expanded"])
+        for expanded in [false, true] {
+            var disclosure = owner; disclosure["recorded_expanded"] = expanded
+            var decorated = [label, disclosure]
+            XCTAssertTrue(NativeControlState.attach(to: &decorated).isEmpty)
+            XCTAssertEqual((decorated[0]["native_control_state"] as? [String: Any])?["expanded"] as? Bool, expanded)
+            XCTAssertEqual((decorated[0]["native_control_state_evidence"] as? [String: Any])?["owner_rendered_expanded"] as? Bool, expanded)
+        }
         var wrongWindow = owner
         wrongWindow["native_structure"] = ["window_identity": "window-B", "native_subview_path": [0, 4]]
         for owners in [[], [owner, owner], [wrongWindow]] {

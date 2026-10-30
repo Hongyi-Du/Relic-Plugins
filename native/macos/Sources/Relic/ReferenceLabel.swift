@@ -17,11 +17,12 @@ struct ReferenceLabel: NSViewRepresentable {
     var struck = false
     var accessibleName: String? = nil
     var controlLabel = false
+    var stateOwner: String? = nil
     var textGlyphIcon = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -29,6 +30,7 @@ struct ReferenceLabel: NSViewRepresentable {
         self.struck = struck
         self.accessibleName = accessibleName
         self.controlLabel = controlLabel
+        self.stateOwner = stateOwner
         self.textGlyphIcon = textGlyphIcon
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
@@ -78,7 +80,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.measuredOpacity = opacity; view.productionOwner = owner
-        view.productionControlLabelOwner = controlLabel ? owner : nil
+        view.productionControlLabelOwner = stateOwner ?? (controlLabel ? owner : nil)
         view.productionParent = nativeParent
         view.productionRegion = region
         if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
@@ -146,7 +148,11 @@ struct TextButton: View {
         self.fillsWidth = fillsWidth
     }
     var body: some View {
-        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity).padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil) }
+        Button(role: role, action: action) {
+            ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity)
+                .padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil)
+                .contentShape(Rectangle())
+        }
             .accessibilityIdentifier(identity).accessibilityLabel(title)
     }
 }

@@ -1,3 +1,117 @@
+## 2026-10-30: production composer glyph measurements
+
+Native apps c8ea3df run 41051300311 passes release compilation, tests and app
+packaging. The visual gate remains failed. The next change closes the composer
+input's missing actual text layout evidence: its production editor now explicitly
+owns a TextKit1 NativeGlyphLayoutManager, and its placeholder is an actual
+read-only TextKit child (no hit handling or separate accessible input), drawn
+instead of the previous NSAttributedString convenience draw. It follows the
+editor's actual padding, font, source, visible/empty state and native window.
+The real input owns that label's measured glyph span and preserves its AX hit
+box. Nonempty input reads its own native draw, retaining all raw spans; it only
+projects a single exact source-complete span. No substitute shaped string or
+reference measurements establish actual font/geometry. New mounted draw and
+placeholder-to-text transition tests await CI, as do visual/IME regressions.
+
+## 2026-10-30: actual 3934d53 draw and scroll-focus receipts
+
+Downloaded actual 20-case smoke macOS/reference files to `parity-3934d53`.
+Its new settings-navigation-hover row predates the implementation in 61e9830;
+it opened the fallback About page, so capture completion is not scene acceptance.
+The implemented pointer/selection guard remains required in the next capture.
+
+Actual icon receipts now contain completed CGContext strokes and current mounted
+bindings. Group icons have real measured own-outline absence; their final PNG
+attribution remains separately unknown. Actual text own-outline inspection found
+an AppKit ContentLayer with CATintedImage contents. Its drawing duty is unproven,
+so it remains unknown; no class-name allow-list or optimistic absence was added.
+
+The real conversation HostingScrollView now exposes its production keyboard mount
+identifier, but AppKit reports enabled=false despite working scroll actions and
+the SwiftUI focus/key handler. Native production now synchronizes its AX enabled
+value with the same environment binding used by scrollDisabled, focusable and the
+keyboard controller. Disabled keys are ignored and tested. Focus comes from the
+actual SwiftUI FocusState on that viewport, with raw AX state kept separately.
+`nodes[].native_keyboard_scroll` binds the unique mounted observer to the actual
+scroll/window/controller, records first responder identity and both live bindings;
+canonical enabled/focused use it only for that actual bound scroll object.
+No focus state is supplied for unrelated regions. CI must verify this correction.
+
+## 2026-10-30: actual 86b52e7 geometry evidence and native spacing fixes
+
+Downloaded the formal diagnostic report plus all 19 macOS/reference captures to
+`S:\Codex\Outputs\Relic-native-visual\parity-86b52e7`. Mac: 4757 native,
+4263 valid reference, 4210 paired; missing 53, extra 547, text 0, geometry 1000,
+style 7960, state 1200, kind 0, region 2, order 596, layout 2231, icon 0,
+extraction 29250. Complete 660-case coverage at that head still fails, with zero
+accepted scenes/elements and no exceptions. New matrix remains 672 required.
+
+The private scene's date label already aligned, but every subsequent message
+was 8px too low: SwiftUI added `.day` bottom margin to the next message margin
+instead of the reference's collapsed maximum. Native separator spacing now
+implements the same collapse for comfortable/compact/continued/notice/activity
+rows, with a focused policy test and new captures required.
+
+Actual Settings segment AX frames included only the title (e.g. 50x19 instead
+of the padded 67x23 box). TextButton now applies its content shape after padding
+and sizing, making the whole native button interactive. Segment paint is bound
+to its actual owner identity. A mounted AX test checks the full interactive box;
+no exporter bounding boxes are fabricated or enlarged to match reference values.
+
+3934d53 compiled in release; 196/197 tests passed, including quote/draft/radio
+and original-disclosure regressions. Its only failure was the same pre-fix icon
+alpha assertion. The c8ea3df hover/alpha build and latest captures remain pending.
+
+## 2026-10-30: required settings navigation hover capture and CI correction
+
+Implemented the new `settings-navigation-hover` case without omitting prior cases.
+Actual pointer movement targets the mounted unselected `notify` item; Appearance
+remains selected. `.scene-action.json` and `capture_evidence.settings_navigation_action`
+retain actual production hover callbacks, native input events, seven owned paint
+surfaces, mounted page content identities/text/control states, pointer and geometry.
+Checks run after interaction, around the PNG and after element extraction. Missing
+paint/page evidence, clicks/keys, changed content/selection/geometry or lost hover
+fail capture. Passive observers add no visible or interactive element. New tests
+exercise actual mounted content reads and separate hover/selection bindings.
+
+41ed54d release compilation passed; 191/192 tests passed. The sole failing icon
+unit test assumed a 1.7px antialiased crossing covered a pixel completely (actual
+alpha 250). Its fixture now uses the same renderer at 48px / 3.4px to sample a
+fully covered center, retaining the existing strict alpha assertion. Production
+rendering, element tolerances, scene coverage and exceptions are unchanged.
+Static macOS parity still covers 686 keys / 52 routes / 214 flows. New CI required.
+
+## 2026-10-30: full dark-capture text differences, quote and original disclosure
+
+Downloaded actual 72f5571 zh-CN/dark native+reference captures (165 each) into
+`parity-72f5571/full-macos-zh-CN-dark` and `full-reference-zh-CN-dark` under the
+visual output directory. The static direct-pairing diagnostic has 96 text errors;
+several are from session/settings/mention fixes already present after that head.
+It is not a formal accepted full report, and the actual raw captures are retained.
+
+The remaining radio errors came from using AXLabel as visible text despite the
+real NSButton/NSButtonCell having an empty title and separately drawn labels.
+The exporter now reads that native title for radio/checkbox text while retaining
+the full AX name. The native radio and its visible labels are not removed.
+
+Quote preview now draws the actual localized bold `composer.quoting` prefix and
+the selected passage as separate attributed text spans, clamped together at three
+lines. Its close icon uses the reference 14px glyph / 22px button. Optional draft
+author/text fields preserve the presentation through navigation/restart; legacy
+draft JSON still decodes. Existing serialized outbound quote text is unchanged.
+
+The plain-language Original button now has its separate painted before-marker
+and owned title, preserving the real full AX name and expanded state. Opening it
+also uses the reference 4px gap before the original bubble. The marker retains
+its actual parent/control state but is not folded into the button's visible title.
+New native span, draft, radio-title and ownership regressions await CI.
+
+74ac42c's release compile passed, but the new keyboard test fixture used `flipped`,
+an inherited AppKit property name. 41ed54d renames the fixture field; no production
+API or acceptance change is involved. The earlier 86b52e7 run verifies popup,
+card-wrap and late-mounted-scroll regressions; its only failures are the two
+already-corrected outline-test assertions. Latest-head tests remain required.
+
 ## 2026-10-30: real conversation keyboard behavior; no projected state override
 
 The reference stream has tabindex=0, while the captured native scroll area is
