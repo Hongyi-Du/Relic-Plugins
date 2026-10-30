@@ -18,6 +18,7 @@ import RelicAX
         guard let manifestPath = env["RELIC_VISUAL_MANIFEST"] else { return }
         let manifestURL = URL(fileURLWithPath: manifestPath)
         var results: [[String: Any]] = []
+        var caseErrors: [String] = []
         do {
             guard env["GITHUB_ACTIONS"] == "true" else { throw RelicError.message("Visual capture is restricted to GitHub Actions") }
             NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
@@ -49,6 +50,10 @@ import RelicAX
             try await model.savePreferences(["lang": language, "theme": theme, "font": "medium", "density": "comfortable", "accent": "clay", "notify": false])
             NSApp.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
             for item in manifest["cases"].rows {
+                var sceneMounted = false
+                var caseDefaults: (UserDefaults, String)?
+                defer { model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
+                do {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
                 for editor in textEditors(window.contentView) { editor.closeMentions() }
                 model.stop()
@@ -57,8 +62,8 @@ import RelicAX
                 // so prior private-chat reads, focus and disclosure state cannot leak.
                 let suite = "Relic.VisualCapture." + UUID().uuidString
                 guard let defaults = UserDefaults(suiteName: suite) else { throw RelicError.message("Cannot create isolated native preferences") }
+                caseDefaults = (defaults, suite)
                 model = Model(client: try Client(port: fixture["port"].integer, token: fixture["token"].text), defaults: defaults)
-                defer { model.stop(); defaults.removePersistentDomain(forName: suite) }
                 guard !fixture["scene_endpoint"].text.isEmpty else { throw RelicError.message("Visual fixture is missing its scene reset endpoint") }
                 let prepared = try await model.post(fixture["scene_endpoint"].text, ["scene": scene])
                 let isLive = ["live-busy", "live-tool-output", "live-typing"].contains(scene)
@@ -71,6 +76,7 @@ import RelicAX
                 await model.start()
                 guard model.ready else { throw RelicError.message(model.error) }
                 hosting.rootView = MainView().environmentObject(model).id(item["id"].text)
+                sceneMounted = true
                 model.sheet = nil; model.error = ""; model.notice = ""; model.search = ""
                 model.sidebarOpen = true; model.panelOpen = width > 1180; model.folded = []
                 model.digestOpen = false; model.plainMode = false; model.quote = ""; model.draft = ""
@@ -186,15 +192,36 @@ import RelicAX
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
+                } catch {
+                    let detail = item["id"].text + ": " + error.localizedDescription
+                    caseErrors.append(detail)
+                    try? evidence(["error": detail, "scene_mounted": sceneMounted], suffix: ".capture-error.json", item: item, output: output)
+                    fputs("Relic visual case failed: " + detail + "\n", stderr)
+                    // Preserve the actual failed state for diagnosis, never the
+                    // prior case's window. Mark it as a capture failure in both
+                    // the receipt and canonical extraction; then attempt every
+                    // remaining case with the existing fresh Model/view reset.
+                    if sceneMounted {
+                        do {
+                            let png = output.appendingPathComponent(item["file"].text)
+                            try capture(window, to: png, width: item["width"].integer, height: item["height"].integer)
+                            try ElementCapture.write(window: window, png: png, item: item, language: language, theme: theme, captureErrors: [detail])
+                            results.append(["id": item["id"].text, "file": item["file"].text, "status": "failed-state-captured", "error": detail])
+                        } catch { caseErrors.append(item["id"].text + ": failed-state evidence could not be captured: " + error.localizedDescription) }
+                    }
+                    fflush(stdout); fflush(stderr)
+                }
             }
             // AX IPC needs a launched app. XCTest's command-line host returns
             // kAXErrorNotImplemented; this integration assertion runs in the real
             // bundle and still fails the visual job after preserving all captures.
             try await verifyCompoundAccessibilityLabels()
-            try receipt([], count: results.count, beside: manifestURL)
-            model.stop(); NSApp.terminate(nil)
+            try receipt(caseErrors, count: results.count, cases: results, beside: manifestURL)
+            model.stop()
+            if !caseErrors.isEmpty { exit(1) }
+            NSApp.terminate(nil)
         } catch {
-            try? receipt([error.localizedDescription], count: results.count, beside: manifestURL)
+            try? receipt(caseErrors + [error.localizedDescription], count: results.count, cases: results, beside: manifestURL)
             fputs("Relic visual capture failed: " + error.localizedDescription + "\n", stderr)
             model.stop(); exit(1)
         }
@@ -286,21 +313,40 @@ import RelicAX
         try await Task.sleep(for: .milliseconds(250))
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let probes = SurfacePaintProbe.snapshots(in: contentScreen).filter { $0["owner"] as? String == "relic-row/live-tool/" + tool["id"].text }
-        guard probes.count == 1, probes[0]["expanded"] as? Bool == true,
-              accessibilityFrame(identifier: "relic-live-output/" + tool["id"].text, root: content) != nil else {
-            throw RelicError.message("Actual live tool disclosure did not remain open")
+        let outputFrame = accessibilityFrame(identifier: "relic-live-output/" + tool["id"].text, root: content)
+        // An inert SwiftUI wrapper need not have an AX node. Require the actual
+        // visible TextKit output below this expanded disclosure, retaining any
+        // wrapper AX bounds independently rather than using an identifier as
+        // evidence that text was painted.
+        let outputs = textViews(content).filter { view in
+            guard !view.isEditable, view.string == tool["text"].text,
+                  let clip = NativeVisibility.screenClip(view), !clip.isNull, !clip.isEmpty else { return false }
+            return clip.maxY <= frame.minY + 1 && clip.minX >= frame.minX - 1 && clip.maxX <= frame.maxX + 1
+        }
+        guard probes.count == 1, probes[0]["expanded"] as? Bool == true, outputs.count == 1, let output = outputs.first else {
+            throw RelicError.message("Actual live tool disclosure did not remain open: tool=\(tool["id"].text), clicked=\(frame), probes=\(probes.count), expanded=\(probes.map { String(describing: $0["expanded"]) }), visible_text_outputs=\(outputs.count), wrapper_AX=\(String(describing: outputFrame))")
         }
         return ["action": "native mouse down/up on measured production tool disclosure", "tool_title": tool["title"].text, "tool_id": tool["id"].text,
-                "open": true, "control_screen_bounds": ElementCapture.box(frame), "expanded_surface_evidence": probes[0]["evidence"]!]
+                "open": true, "control_screen_bounds": ElementCapture.box(frame), "expanded_surface_evidence": probes[0]["evidence"]!,
+                "visible_output": output.string, "output_screen_bounds": ElementCapture.box(NativeVisibility.screenClip(output)!), "wrapper_AX_bounds": outputFrame.map { ElementCapture.box($0) } as Any? ?? NSNull()]
     }
+    private static func textViews(_ root: NSView) -> [NSTextView] { (root as? NSTextView).map { [$0] } ?? root.subviews.flatMap { textViews($0) } }
     private static func click(_ screen: NSRect, window: NSWindow) throws {
+        try movePointer(to: NSPoint(x: screen.midX, y: screen.midY))
         let point = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
+        var events: [NSEvent] = []
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
                 throw RelicError.message("Cannot create native mouse event")
             }
-            window.sendEvent(event)
+            events.append(event)
         }
+        // AppKit text fields/buttons may enter an event-tracking loop during
+        // mouseDown. Queue the complete gesture before dispatch starts, so the
+        // tracking loop can consume its mouseUp instead of waiting forever on
+        // a synchronous sendEvent call that prevents the next line running.
+        for event in events { NSApp.postEvent(event, atStart: false) }
+        print("Queued native mouse gesture: window=\(window.windowNumber), point=\(point)"); fflush(stdout)
     }
     private static func movePointer(to screen: NSPoint) throws {
         guard let primary = NSScreen.screens.first else { throw RelicError.message("No display for native pointer movement") }
@@ -335,17 +381,20 @@ import RelicAX
         // event dispatch. The capture never constructs a substitute popup.
         try click(screen, window: window)
         try await Task.sleep(for: .milliseconds(100))
-        guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125) else {
-            throw RelicError.message("Cannot create Down Arrow event")
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125) else {
+                throw RelicError.message("Cannot create Down Arrow event")
+            }
+            NSApp.postEvent(event, atStart: false)
         }
-        window.sendEvent(down)
+        print("Queued native Down Arrow: " + identifier); fflush(stdout)
         try await Task.sleep(for: .milliseconds(350))
         guard NSApp.windows.contains(where: { candidate in
             candidate.isVisible && candidate.contentView.map { accessibilityFrame(identifier: "relic-suggestions/" + identifier, root: $0) != nil } == true
         }) else { throw RelicError.message("Down Arrow did not open the native suggestions: " + identifier) }
     }
-    private static func receipt(_ errors: [String], count: Int, beside manifest: URL) throws {
-        try JSONSerialization.data(withJSONObject: ["errors": errors, "count": count], options: [.prettyPrinted, .sortedKeys]).write(to: manifest.deletingLastPathComponent().appendingPathComponent("complete.json"))
+    private static func receipt(_ errors: [String], count: Int, cases: [[String: Any]], beside manifest: URL) throws {
+        try JSONSerialization.data(withJSONObject: ["errors": errors, "count": count, "cases": cases], options: [.prettyPrinted, .sortedKeys]).write(to: manifest.deletingLastPathComponent().appendingPathComponent("complete.json"))
     }
     private static func capture(_ window: NSWindow, to path: URL, width: Int, height: Int) throws {
         // Cache the actual NSHostingView/AppKit tree (including NSTextView), which

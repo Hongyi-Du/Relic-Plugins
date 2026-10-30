@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+macOS capture event-dispatch correction: full run `40974621706` still stalls
+at the first real input click after replacing NSPopover; smoke `40974672159`
+reaches the live tool click but fails its open-output assertion. Capture now
+queues complete mouse down/up and key down/up gestures through
+`NSApplication.postEvent(_:atStart:)` instead of synchronously calling
+`NSWindow.sendEvent` for mouseDown before mouseUp can be queued. Native text
+fields can enter an AppKit tracking loop during that call. This is a diagnosed
+dispatch hazard being tested, not a claim that the new capture has passed.
+
+If a macOS case still fails to advance, please retain a `/usr/bin/sample <pid> 3`
+report of the actual native process before the shared 90-second progress timeout
+terminates the run. Suggested output: `data/<lang>/<theme>/native-stall.sample.txt`;
+invoke only on the CI macOS runner and bound the diagnostic subprocess timeout.
+The existing error/timeout remains a failure; no increased tolerance or skipped
+case is requested.
+
+Native capture now catches individual case failures, saves the mounted failed
+window and its real AX/TextKit evidence with `native_scene_action_failed` in
+`extraction_errors`, retains errors in `complete.json`, and then attempts all
+remaining cases after the normal Model/view/fixture reset. A failed fixture
+setup never reuses the previous case's PNG. The run still exits nonzero if any
+case or integration assertion failed. This improves diagnostic coverage without
+turning a failed state into acceptance evidence.
+
 Please add `member-card-rename`, `member-card-model`, and `member-card-avatar-hover`
 to the shared matrix/reference harness: start from `member-card`, click the real
 rename button, click the real model Change button, or hover the real avatar,
