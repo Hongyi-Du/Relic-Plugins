@@ -95,7 +95,7 @@ import SwiftUI
         view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 5), with: "Other")
         XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, false, "A source change cannot retain the earlier layer-image proof")
 
-        let baseline = ReferenceLabel("Relic 🙂 组织", size: 14).makeLabelView()
+        let baseline = ReferenceLabel("Relic 🙂 组织", size: 14, ownedLayer: false).makeLabelView()
         baseline.frame = view.frame
         (baseline.layoutManager as? NativeGlyphLayoutManager)?.drawsGlyphsIntoCurrentContext = false
         window.contentView = baseline

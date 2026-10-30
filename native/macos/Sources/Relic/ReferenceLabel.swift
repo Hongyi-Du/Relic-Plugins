@@ -20,11 +20,11 @@ struct ReferenceLabel: NSViewRepresentable {
     var stateOwner: String? = nil
     var textGlyphIcon = false
     var truncates = true
-    var ownedLayer = false
+    var ownedLayer = true
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = true) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -117,8 +117,9 @@ struct ReferenceLabel: NSViewRepresentable {
 }
 
 final class ReferenceLabelView: ReadOnlyTextView {
-    // The candidate must prove its actual mounted raster before production
-    // adopts it. The existing draw(_:) path remains the visible label painter.
+    // The same TextKit painter draws into this view's owned backing image.
+    // Mounted SwiftUI and direct bitmap comparisons retain the legacy path as
+    // an independent regression baseline, including native color glyphs.
     var usesOwnedBackingImage = false
     var sourceStorage: NSTextStorage?
     let pathLineBreaks = PathLineBreaks()

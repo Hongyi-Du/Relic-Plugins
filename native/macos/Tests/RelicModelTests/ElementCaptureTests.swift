@@ -6,6 +6,17 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testPartiallyVisibleTextLineKeepsItsMeasuredClippedExtent() {
+        let lines = [NSRect(x: 20, y: 10, width: 80, height: 17),
+            NSRect(x: 20, y: 30, width: 80, height: 17),
+            NSRect(x: 20, y: 50, width: 25, height: 17)]
+        let visible = ElementCapture.visibleTextLines(lines, clip: NSRect(x: 25, y: 12, width: 60, height: 45))
+        XCTAssertEqual(visible, [NSRect(x: 25, y: 12, width: 60, height: 15),
+            NSRect(x: 25, y: 30, width: 60, height: 17), NSRect(x: 25, y: 50, width: 20, height: 7)])
+        XCTAssertEqual(ElementCapture.visibleTextLines(lines, clip: NSRect(x: 0, y: 28, width: 200, height: 20)), [lines[1]])
+        XCTAssertTrue(ElementCapture.visibleTextLines(lines, clip: .null).isEmpty)
+        XCTAssertEqual(lines[2].height, 17, "The original source rectangles must remain intact for independent review")
+    }
     func testUnlabelledRadioKeepsItsAccessibleNameSeparateFromPaintedTitle() throws {
         let radio = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
         radio.setAccessibilityLabel("Claude Code Anthropic Available")

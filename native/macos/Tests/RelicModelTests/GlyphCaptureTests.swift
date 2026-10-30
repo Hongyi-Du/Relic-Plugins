@@ -21,7 +21,7 @@ import AppKit
             var receipts: [[String: Any]] = []
             for direct in [false, true] {
                 let view = ReferenceLabel(text, size: fixture.size, weight: fixture.weight, lineHeight: fixture.lineHeight,
-                    lines: fixture.lines, monospaced: fixture.monospaced, struck: text.hasPrefix("Done")).makeLabelView()
+                    lines: fixture.lines, monospaced: fixture.monospaced, struck: text.hasPrefix("Done"), ownedLayer: false).makeLabelView()
                 let layout = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
                 layout.drawsGlyphsIntoCurrentContext = direct
                 layout.recordDraws = true
