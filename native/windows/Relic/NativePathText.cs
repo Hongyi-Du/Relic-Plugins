@@ -15,17 +15,23 @@ using Windows.UI.Core;
 
 namespace Relic;
 
-// Selectable production path text. The source never gains hidden characters or
-// line breaks: ICU/source ranges choose lines, and real NativeLabels draw them.
+// Selectable production text. The original path constructor keeps its existing
+// inline/strut layout. Notices opt into normal whitespace and centered lines;
+// their original source is retained separately from the mapped paint string.
 public sealed partial class NativePathText : UserControl
 {
-    internal sealed record PaintedLine(int Start, int End, bool Emergency, NativeLabel Label, double Y, double Height);
+    internal sealed record PaintedLine(int Start, int End, int PaintStart, int PaintEnd,
+        bool Emergency, NativeLabel Label, double Y, double Height)
+    { internal double X { get; set; } }
     private readonly Surface body;
     private readonly string locale;
+    private readonly NativeSelectableTextStyle textStyle;
+    private readonly NativeTextSourceMap sourceMap;
     private readonly MenuFlyout selectionMenu;
     private readonly List<PaintedLine> lines = [];
     private readonly List<Rectangle> selectionPaint = [];
     private NativePathBoundaries? boundaries;
+    private NativePathBoundaries? paintBoundaries;
     private NativePathMeasurement? measured, strut;
     private NativePathPeer? peer;
     private double measuredWidth = double.NaN, desiredWidth, desiredHeight;
@@ -41,12 +47,20 @@ public sealed partial class NativePathText : UserControl
     internal int SelectionEnd => Math.Max(anchor, caret);
 
     public NativePathText(string text, string locale, string copyLabel, string selectAllLabel)
+        : this(text, locale, copyLabel, selectAllLabel, NativeSelectableTextStyle.Path(FontFamilies.UI)) { }
+
+    internal static NativePathText Notice(string text, string locale, string copyLabel, string selectAllLabel) =>
+        new(text, locale, copyLabel, selectAllLabel, NativeSelectableTextStyle.Notice(FontFamilies.UI));
+
+    private NativePathText(string text, string locale, string copyLabel, string selectAllLabel, NativeSelectableTextStyle style)
     {
-        SourceText = text; this.locale = locale;
+        SourceText = text; this.locale = locale; textStyle = style;
+        sourceMap = NativeTextSourceMap.Create(text, style.NormalWhitespace);
         IsTabStop = true; UseLayoutRounding = false; Padding = new Thickness(0); BorderThickness = new Thickness(0);
-        MinWidth = MinHeight = 0; HorizontalAlignment = HorizontalAlignment.Left; VerticalAlignment = VerticalAlignment.Top;
+        MinWidth = MinHeight = 0; HorizontalAlignment = style.Center ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        VerticalAlignment = VerticalAlignment.Top;
         HorizontalContentAlignment = HorizontalAlignment.Stretch; VerticalContentAlignment = VerticalAlignment.Top;
-        FontFamily = new FontFamily(FontFamilies.UI); FontSize = 12.5;
+        FontFamily = new FontFamily(style.StrutFamily ?? style.Family); FontSize = style.StrutFamily != null ? style.StrutSize : style.Size;
         FontWeight = Microsoft.UI.Text.FontWeights.Normal;
         AutomationProperties.SetName(this, text);
         body = new Surface(this) { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), UseLayoutRounding = false };
@@ -78,6 +92,12 @@ public sealed partial class NativePathText : UserControl
     {
         ["source"] = "Actual NativePathText production line selection and actual child line objects",
         ["source_text"] = SourceText, ["source_utf16_length"] = SourceText.Length,
+        ["text_style"] = StyleReceipt(), ["source_to_paint"] = SourceMapReceipt(),
+        ["arranged_lines"] = new JsonArray(lines.Select(line => (JsonNode)new JsonObject
+        { ["start_utf16"] = line.Start, ["end_utf16"] = line.End,
+            ["paint_start_utf16"] = line.PaintStart, ["paint_end_utf16"] = line.PaintEnd,
+            ["actual_line_x"] = line.X, ["actual_line_y"] = line.Y,
+            ["actual_label_width"] = line.Label.ActualWidth, ["actual_label_height"] = line.Label.ActualHeight }).ToArray()),
         ["owner_identity"] = ProductionIdentity(this), ["layout_revision"] = layoutRevision,
         ["status"] = failure == null && layoutEvidence != null ? "laid-out" : "failed-or-not-laid-out",
         ["failure"] = failure, ["layout"] = layoutEvidence?.DeepClone(), ["selection_anchor"] = anchor, ["selection_caret"] = caret,
@@ -95,15 +115,37 @@ public sealed partial class NativePathText : UserControl
             ["owner_identity"] = ProductionIdentity(this), ["label_identity"] = ProductionIdentity(candidate),
             ["layout_revision"] = layoutRevision, ["line_index"] = index, ["line_count"] = lines.Count,
             ["start_utf16"] = line.Start, ["end_utf16"] = line.End,
+            ["paint_start_utf16"] = line.PaintStart, ["paint_end_utf16"] = line.PaintEnd,
             ["complete_source_text"] = SourceText, ["actual_label_text"] = candidate.Text,
             ["source_slice_matches"] = SourceText[line.Start..line.End] == candidate.Text,
+            ["paint_slice_matches"] = sourceMap.Paint[line.PaintStart..line.PaintEnd] == candidate.Text,
+            ["source_to_paint"] = SourceMapReceipt(), ["text_style"] = StyleReceipt(),
             ["same_retained_label_reference"] = ReferenceEquals(lines[index].Label, candidate),
             ["same_current_body_parent"] = ReferenceEquals(VisualTreeHelper.GetParent(candidate), body),
             ["same_content_body"] = ReferenceEquals(Content, body), ["label_is_loaded"] = candidate.IsLoaded,
-            ["actual_line_y"] = line.Y, ["actual_line_height"] = line.Height,
+            ["actual_line_x"] = line.X, ["actual_line_y"] = line.Y, ["actual_line_height"] = line.Height,
             ["quantity"] = "Ownership and source mapping only; child layout/draw and final presentation require their own evidence"
         };
     }
+    private JsonObject StyleReceipt() => new()
+    {
+        ["kind"] = textStyle.Kind, ["configured_family_list"] = textStyle.Family,
+        ["size"] = textStyle.Size, ["weight"] = textStyle.Weight, ["line_height"] = textStyle.LineHeight,
+        ["alignment"] = textStyle.Center ? "center" : "left",
+        ["white_space"] = textStyle.NormalWhitespace ? "normal" : "preserve-source",
+        ["wrap_policy"] = textStyle.NormalWhitespace ? "normal-boundaries-with-word-overflow" : "normal-then-emergency",
+        ["strut_family"] = textStyle.StrutFamily, ["strut_size"] = textStyle.StrutSize,
+        ["strut_line_height"] = textStyle.StrutLineHeight
+    };
+    private JsonObject SourceMapReceipt() => new()
+    {
+        ["source"] = "Actual production UTF16 source-to-paint mapping",
+        ["source_text"] = sourceMap.Source, ["paint_text"] = sourceMap.Paint,
+        ["normal_whitespace"] = textStyle.NormalWhitespace,
+        ["spans"] = new JsonArray(sourceMap.Spans.Select(span => (JsonNode)new JsonObject
+        { ["paint_start_utf16"] = span.PaintStart, ["paint_end_utf16"] = span.PaintStart + 1,
+            ["source_start_utf16"] = span.SourceStart, ["source_end_utf16"] = span.SourceEnd }).ToArray())
+    };
     private static JsonObject ProductionIdentity(DependencyObject value)
     {
         if (value is not WinRT.IWinRTObject native) throw new InvalidOperationException("Production object has no native WinRT identity");
@@ -123,31 +165,47 @@ public sealed partial class NativePathText : UserControl
         try
         {
             boundaries ??= NativePathIcu.Read(SourceText, locale);
-            measured ??= NativePathMeasure.Shape(SourceText, "Cascadia Code", 11.5, 400, locale);
-            strut ??= NativePathMeasure.Shape("", FontFamilies.UI, 12.5, 400, locale);
-            var chosen = NativePathLineBreaks.Select(SourceText.Length, measured.Clusters, boundaries.Lines, boundaries.Characters, width);
-            var parentAscent = strut.Baseline + (20 - strut.NaturalHeight) / 2;
+            paintBoundaries ??= sourceMap.Paint == SourceText ? boundaries : NativePathIcu.Read(sourceMap.Paint, locale);
+            measured ??= NativePathMeasure.Shape(sourceMap.Paint, textStyle.Family, textStyle.Size, textStyle.Weight, locale);
+            if (textStyle.StrutFamily != null)
+                strut ??= NativePathMeasure.Shape("", textStyle.StrutFamily, textStyle.StrutSize, 400, locale);
+            var chosen = textStyle.NormalWhitespace
+                ? NativeSelectableTextLayout.NoticeLines(sourceMap.Paint, measured.Clusters, paintBoundaries.Lines, paintBoundaries.Characters, width)
+                : NativePathLineBreaks.Select(SourceText.Length, measured.Clusters, boundaries.Lines, boundaries.Characters, width)
+                    .Select(line => new NativeSelectableTextLayout.Line(line.Start, line.End, line.Emergency)).ToArray();
+            var parentAscent = strut != null ? strut.Baseline + (textStyle.StrutLineHeight - strut.NaturalHeight) / 2 : 0;
             desiredWidth = desiredHeight = 0; var receiptLines = new JsonArray();
             foreach (var segment in chosen)
             {
-                var label = new NativeLabel(SourceText[segment.Start..segment.End], "Cascadia Code", 11.5, 400, locale, 18.4)
+                var label = new NativeLabel(sourceMap.Paint[segment.Start..segment.End], textStyle.Family,
+                    textStyle.Size, textStyle.Weight, locale, textStyle.LineHeight)
                 { Foreground = Foreground, IsHitTestVisible = false };
-                body.Children.Add(label); label.Measure(new Size(width, double.PositiveInfinity));
+                body.Children.Add(label); label.Measure(new Size(textStyle.NormalWhitespace ? double.PositiveInfinity : width, double.PositiveInfinity));
                 var baseline = label.FirstBaseline;
                 if (!double.IsFinite(baseline) || baseline <= 0) throw new InvalidOperationException("Actual path line has no measured baseline");
-                var (ascent, descent) = NativePathLineBreaks.LineBox(parentAscent, 20, baseline, label.DesiredSize.Height);
+                var (ascent, descent) = strut != null
+                    ? NativePathLineBreaks.LineBox(parentAscent, textStyle.StrutLineHeight, baseline, label.DesiredSize.Height)
+                    : (baseline, label.DesiredSize.Height - baseline);
                 var height = ascent + descent; var y = desiredHeight + ascent - baseline;
-                lines.Add(new PaintedLine(segment.Start, segment.End, segment.Emergency, label, y, height));
-                receiptLines.Add(new JsonObject { ["start_utf16"] = segment.Start, ["end_utf16"] = segment.End,
-                    ["source_text"] = label.Text, ["emergency"] = segment.Emergency, ["label_y"] = y,
+                var sourceStart = sourceMap.SourceStart(segment.Start); var sourceEnd = sourceMap.SourceEnd(segment.End);
+                lines.Add(new PaintedLine(sourceStart, sourceEnd, segment.Start, segment.End, segment.Emergency, label, y, height));
+                receiptLines.Add(new JsonObject { ["start_utf16"] = sourceStart, ["end_utf16"] = sourceEnd,
+                    ["source_text"] = SourceText[sourceStart..sourceEnd], ["paint_text"] = label.Text,
+                    ["paint_start_utf16"] = segment.Start, ["paint_end_utf16"] = segment.End,
+                    ["emergency"] = segment.Emergency, ["label_y"] = y,
                     ["line_height"] = height, ["actual_line_baseline"] = baseline,
                     ["actual_line_desired_width"] = label.DesiredSize.Width, ["actual_line_desired_height"] = label.DesiredSize.Height });
                 desiredHeight += height; desiredWidth = Math.Max(desiredWidth, label.DesiredSize.Width);
             }
+            // The normal text viewport keeps its available width. An overlong
+            // indivisible word is arranged at its actual width inside it, so a
+            // framework desired-size clip does not silently truncate that word.
+            if (textStyle.NormalWhitespace) desiredWidth = Math.Min(desiredWidth, width);
             layoutEvidence = new JsonObject { ["available_width"] = width, ["icu"] = boundaries.Evidence.DeepClone(),
-                ["source_measurement"] = measured.Evidence.DeepClone(), ["parent_strut_measurement"] = strut.Evidence.DeepClone(),
-                ["parent_strut_size"] = 12.5, ["parent_strut_line_height"] = 20, ["inline_size"] = 11.5,
-                ["inline_line_height"] = 18.4, ["lines"] = receiptLines };
+                ["paint_icu"] = paintBoundaries.Evidence.DeepClone(), ["source_measurement"] = measured.Evidence.DeepClone(),
+                ["parent_strut_measurement"] = strut?.Evidence.DeepClone(), ["text_style"] = StyleReceipt(),
+                ["parent_strut_size"] = textStyle.StrutSize, ["parent_strut_line_height"] = textStyle.StrutLineHeight,
+                ["inline_size"] = textStyle.Size, ["inline_line_height"] = textStyle.LineHeight, ["lines"] = receiptLines };
             ContextFlyout = selectionMenu;
             UpdateSelectionPaint();
         }
@@ -158,10 +216,13 @@ public sealed partial class NativePathText : UserControl
             failure = error.ToString(); layoutEvidence = null;
             foreach (var line in body.Children.OfType<NativeLabel>()) line.DisposePathLine();
             lines.Clear(); selectionPaint.Clear(); body.Children.Clear(); ContextFlyout = null;
-            fallback = new TextBlock { FontFamily = new FontFamily(FontFamilies.UI), FontSize = 12.5, LineHeight = 20,
+            fallback = new TextBlock { FontFamily = new FontFamily(textStyle.StrutFamily ?? textStyle.Family),
+                FontSize = textStyle.StrutFamily != null ? textStyle.StrutSize : textStyle.Size,
+                LineHeight = textStyle.StrutFamily != null ? textStyle.StrutLineHeight : textStyle.LineHeight,
                 LineStackingStrategy = LineStackingStrategy.MaxHeight, TextWrapping = TextWrapping.Wrap,
+                TextAlignment = textStyle.Center ? TextAlignment.Center : TextAlignment.Left,
                 IsTextSelectionEnabled = true, Foreground = Foreground };
-            fallback.Inlines.Add(new Run { Text = SourceText, FontFamily = new FontFamily("Cascadia Code"), FontSize = 11.5 });
+            fallback.Inlines.Add(new Run { Text = SourceText, FontFamily = new FontFamily(textStyle.Family), FontSize = textStyle.Size });
             body.Children.Add(fallback); fallback.Measure(new Size(width, double.PositiveInfinity));
             desiredWidth = fallback.DesiredSize.Width; desiredHeight = fallback.DesiredSize.Height;
         }
@@ -174,7 +235,11 @@ public sealed partial class NativePathText : UserControl
         protected override Size ArrangeOverride(Size final)
         {
             if (owner.fallback != null) owner.fallback.Arrange(new Rect(0, 0, final.Width, final.Height));
-            foreach (var line in owner.lines) line.Label.Arrange(new Rect(0, line.Y, line.Label.DesiredSize.Width, line.Label.DesiredSize.Height));
+            foreach (var line in owner.lines)
+            {
+                line.X = NativeSelectableTextLayout.LineX(final.Width, line.Label.DesiredSize.Width, owner.textStyle.Center);
+                line.Label.Arrange(new Rect(line.X, line.Y, line.Label.DesiredSize.Width, line.Label.DesiredSize.Height));
+            }
             owner.ArrangeSelection(); return final;
         }
     }
@@ -183,17 +248,20 @@ public sealed partial class NativePathText : UserControl
     {
         if (lines.Count == 0) return 0;
         var line = lines.MinBy(line => point.Y < line.Y ? line.Y - point.Y : Math.Max(0, point.Y - line.Y - line.Label.DesiredSize.Height))!;
-        return line.Start + line.Label.PathPositionAt(point.X, point.Y - line.Y);
+        var paintPosition = line.PaintStart + line.Label.PathPositionAt(
+            NativeSelectableTextLayout.LocalX(point.X, line.X), point.Y - line.Y);
+        return sourceMap.SourceHit(paintPosition, line.PaintStart, line.PaintEnd);
     }
     internal IReadOnlyList<Rect> LocalRanges(int start, int end)
     {
         var result = new List<Rect>();
+        var painted = sourceMap.PaintRange(start, end);
         foreach (var line in lines)
         {
-            var first = Math.Max(start, line.Start); var last = Math.Min(end, line.End);
+            var first = Math.Max(painted.Start, line.PaintStart); var last = Math.Min(painted.End, line.PaintEnd);
             if (first >= last) continue;
-            foreach (var rectangle in line.Label.PathRangeRectangles(first - line.Start, last - line.Start))
-                result.Add(new Rect(rectangle.X, rectangle.Y + line.Y, rectangle.Width, rectangle.Height));
+            foreach (var rectangle in line.Label.PathRangeRectangles(first - line.PaintStart, last - line.PaintStart))
+                result.Add(new Rect(NativeSelectableTextLayout.OwnerX(rectangle.X, line.X), rectangle.Y + line.Y, rectangle.Width, rectangle.Height));
         }
         return result;
     }
@@ -247,17 +315,23 @@ public sealed partial class NativePathText : UserControl
         }
         else if (e.Key is VirtualKey.Home or VirtualKey.End)
         {
-            var line = lines.FirstOrDefault(line => caret >= line.Start && caret < line.End) ?? lines.LastOrDefault();
+            var line = LineAtSourceCaret();
             next = e.Key == VirtualKey.Home ? control ? 0 : line?.Start ?? 0 : control ? SourceText.Length : line?.End ?? SourceText.Length;
         }
         else if (e.Key is VirtualKey.Up or VirtualKey.Down)
         {
-            var index = lines.FindIndex(line => caret >= line.Start && caret < line.End); if (index < 0) index = lines.Count - 1;
+            var current = LineAtSourceCaret(); var index = current != null ? lines.IndexOf(current) : -1;
             if (index < 0) return;
             var line = lines[index]; var target = lines[Math.Clamp(index + (e.Key == VirtualKey.Up ? -1 : 1), 0, lines.Count - 1)];
-            next = target.Start + target.Label.PathPositionAt(line.Label.PathPositionX(caret - line.Start), 0);
+            var currentPaint = Math.Clamp(sourceMap.PaintPosition(caret), line.PaintStart, line.PaintEnd);
+            var ownerX = NativeSelectableTextLayout.OwnerX(line.Label.PathPositionX(currentPaint - line.PaintStart), line.X);
+            var nextPaint = target.PaintStart + target.Label.PathPositionAt(NativeSelectableTextLayout.LocalX(ownerX, target.X), 0);
+            next = sourceMap.SourceHit(nextPaint, target.PaintStart, target.PaintEnd);
         }
         else return;
         SetSelection(shift ? anchor : next, next); e.Handled = true;
     }
+    private PaintedLine? LineAtSourceCaret() =>
+        lines.FirstOrDefault(line => caret >= line.Start && caret < line.End)
+        ?? lines.FirstOrDefault(line => line.Start >= caret) ?? lines.LastOrDefault();
 }

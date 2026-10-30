@@ -327,8 +327,19 @@ public sealed partial class MainWindow
                     binding["actual_ancestor_edges"] = ancestors;
                     binding["reaches_same_owner_object"] = reachedOwner;
                     binding["all_captured_edges_match"] = edgesMatch;
+                    // Normal whitespace can have a different painted string.
+                    // Preserve the actual source comparison (including false),
+                    // and separately bind the real line to its production map.
+                    var sourceSliceMatches = pathOwner.SourceText[line.Start..line.End] == line.Label.Text;
+                    var mappedPaintMatches = binding["paint_slice_matches"]?.GetValue<bool>() == true
+                        && binding["source_slice_matches"]?.GetValue<bool>() == sourceSliceMatches
+                        && binding["complete_source_text"]?.GetValue<string>() == pathOwner.SourceText
+                        && binding["source_to_paint"]?["source_text"]?.GetValue<string>() == pathOwner.SourceText
+                        && JsonNode.DeepEquals(binding["source_to_paint"], pathReceipt["source_to_paint"])
+                        && JsonNode.DeepEquals(binding["text_style"], pathReceipt["text_style"]);
+                    binding["same_production_source_to_paint_map"] = mappedPaintMatches;
                     complete &= found && reachedOwner && edgesMatch && pathOwner.OwnsProductionLine(line.Label)
-                        && binding["source_slice_matches"]?.GetValue<bool>() == true
+                        && mappedPaintMatches
                         && binding["same_current_body_parent"]?.GetValue<bool>() == true
                         && binding["same_content_body"]?.GetValue<bool>() == true;
                     if (found) renderNodes[line.Label]["native_path_line_evidence"] = binding.DeepClone();

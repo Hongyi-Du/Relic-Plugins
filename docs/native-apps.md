@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (selectable notice text and actual recipient input):
+Windows notices now reuse the native selectable text renderer with their own
+UI-font 12px/19.2px centered-line policy. The existing path mode keeps its
+original font, strut and emergency wrapping. Notice source is retained intact;
+normal whitespace is mapped to actual painted UTF-16 intervals. Mouse/keyboard
+selection and UIA ranges use real line offsets and original source positions.
+Receipts add `text_style`, `source_to_paint`, paint intervals and arranged line
+positions; the original `source_slice_matches` stays truthful when false.
+The capture additionally binds each painted slice to the actual owner's map.
+Final font, glyph visibility, layout and frame failures remain independent.
+Thirteen pure policy/source-map/selection tests are added for CI. The assembled
+WinUI app builds headlessly with zero warnings/errors; these are not new capture
+results. Local test-project build had no restored assets and is left to CI.
+
+Actual 099b036 capture removes the startup regression: Windows completes 15/21,
+macOS completes its capture job, and shared tests pass. Windows failures are
+settings foreground/draw stability, two UIA fractional text ranges, panel hover
+continuity and recipient click timeout. The recipient label was selectable text
+inside a Button; its decorative content now routes pointer input to that real
+button. Capture retains real hit-test and handled routed-event receipts, still
+requiring an actual Click and mounted menu. It never directly calls the picker.
+
 Changes for the clients (actual cell correction supersedes v1): implemented
 1097cdf/f462776's `appkit-current-field-editor-v2` shared request. Only the
 actual PaddedCell / AXTextField can own the editor; both cell/control object

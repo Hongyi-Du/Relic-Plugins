@@ -115,7 +115,10 @@ public sealed partial class MainWindow
             // peer name. Keep the actual accessible label in sync with each
             // recipient/language update, just like the visible chip text.
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(recipientButton, label);
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center }; var text = Ellipsis(label, 12.5); text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
+            // The chip's label is button content, not selectable conversation
+            // text. Its pointer input belongs to the real recipient Button.
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+            var text = Ellipsis(label, 12.5); text.IsTextSelectionEnabled = false; text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
             var arrow = (ReferenceVectorIcon)ReferenceIcon("down", 14); arrow.Foreground = text.Foreground; row.Children.Add(arrow);
             recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(14); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(11, 0, 11, 0);
             recipientButton.Background = Paint("FFFFFF", "252523"); recipientButton.Margin = new Thickness(0, 0, 4, 0);
@@ -375,7 +378,8 @@ public sealed partial class MainWindow
     {
         if (item.Text("type") == "notice")
         {
-            var note = Quiet(item.Text("text"), 12); note.TextAlignment = TextAlignment.Center; note.LineHeight = 19.2; note.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            var note = NativePathText.Notice(item.Text("text"), words.Language, T("common.copy"), T("appmenu.select_all"));
+            note.Foreground = Muted;
             var layout = new CenteredFractionLayout { Fraction = .86, Margin = new Thickness(0, 8, 0, 0) };
             layout.Children.Add(new Border { Child = note, Padding = new Thickness(10, 2, 10, 2), CornerRadius = new CornerRadius(10), Background = Paint("F8F7F5", "191918") }); return layout;
         }

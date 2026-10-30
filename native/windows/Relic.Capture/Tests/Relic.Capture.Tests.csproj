@@ -13,6 +13,8 @@
     <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
     <Compile Include="../../Relic/AutomationIdentityCapture.cs" Link="AutomationIdentityCapture.cs" />
     <Compile Include="../../Relic/MessageHeaderRow.cs" Link="MessageHeaderRow.cs" />
+    <Compile Include="../../Relic/NativePathLineBreaks.cs" Link="NativePathLineBreaks.cs" />
+    <Compile Include="../../Relic/NativeSelectableTextLayout.cs" Link="NativeSelectableTextLayout.cs" />
     <Compile Include="../../Relic/PanelResizeCapture.cs" Link="PanelResizeCapture.cs" />
     <Compile Include="../../Relic/TextRangeFormatEnumeration.cs" Link="TextRangeFormatEnumeration.cs" />
     <Compile Include="../../Relic/RunTextBindingJournal.cs" Link="RunTextBindingJournal.cs" />

@@ -41,7 +41,18 @@ public sealed partial class NativePathText
         {
             if (!owner.IsLoaded || IsOffscreen()) return [];
             var host = GetBoundingRectangle(); var scale = owner.XamlRoot?.RasterizationScale ?? 1;
+            var localRanges = owner.LocalRanges(start, end);
+            if (localRanges.Count == 0) return [];
             var clip = new Rect(0, 0, owner.ActualWidth, owner.ActualHeight);
+            if (owner.textStyle.NormalWhitespace)
+            {
+                // Normal CSS text can visibly overflow its line viewport. Start
+                // with the actual requested glyph ranges, then intersect the
+                // real ancestor clips instead of imposing a new owner clip.
+                var left = localRanges.Min(range => range.Left); var top = localRanges.Min(range => range.Top);
+                var right = localRanges.Max(range => range.Right); var bottom = localRanges.Max(range => range.Bottom);
+                clip = new Rect(left, top, right - left, bottom - top);
+            }
             for (DependencyObject? ancestor = owner; ancestor != null; ancestor = VisualTreeHelper.GetParent(ancestor))
             {
                 if (ancestor is not FrameworkElement element) continue;
@@ -52,7 +63,7 @@ public sealed partial class NativePathText
                     clip.Intersect(element.TransformToVisual(owner).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight)));
             }
             var result = new List<Rect>();
-            foreach (var local in owner.LocalRanges(start, end))
+            foreach (var local in localRanges)
             {
                 var actual = local; actual.Intersect(clip);
                 if (actual.Width <= 0 || actual.Height <= 0 || actual.IsEmpty) continue;
@@ -64,7 +75,7 @@ public sealed partial class NativePathText
         {
             TextUnit.Character => owner.boundaries?.Characters ?? [0, owner.SourceText.Length],
             TextUnit.Word => owner.boundaries?.Words ?? [0, owner.SourceText.Length],
-            TextUnit.Line => owner.lines.Select(line => line.Start).Append(owner.SourceText.Length).Distinct().ToArray(),
+            TextUnit.Line => owner.lines.Select(line => line.Start).Prepend(0).Append(owner.SourceText.Length).Distinct().ToArray(),
             _ => [0, owner.SourceText.Length]
         };
     }
@@ -104,9 +115,9 @@ public sealed partial class NativePathText
         public object GetAttributeValue(int attributeId) => attributeId switch
         {
             40004 => System.Globalization.CultureInfo.GetCultureInfo(Owner.locale).LCID,
-            40005 => "Cascadia Code", // Actual configured request; not a claim about resolved glyph faces.
-            40006 => 11.5 * 72 / 96, // UIA FontSize is in typographic points.
-            40007 => 400,
+            40005 => Owner.textStyle.Family.Split(',')[0].Trim().Trim('"'), // Actual configured request, not resolved glyph faces.
+            40006 => Owner.textStyle.Size * 72 / 96, // UIA FontSize is in typographic points.
+            40007 => (int)Owner.textStyle.Weight,
             40008 when Owner.Foreground is SolidColorBrush brush => brush.Color.R | brush.Color.G << 8 | brush.Color.B << 16,
             40013 => !Owner.IsLoaded || peer.IsOffscreen(),
             40014 or 40016 or 40017 => false,

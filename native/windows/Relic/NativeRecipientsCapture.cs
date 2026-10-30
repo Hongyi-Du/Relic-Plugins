@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Text.Json.Nodes;
 
@@ -32,15 +33,29 @@ public sealed partial class MainWindow
                 if (Contains(VisualTreeHelper.GetChild(parent, index), item)) return true;
             return false;
         }
-        var clicks = new JsonArray(); var completedClick = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clicks = new JsonArray(); var pointerEvents = new JsonArray(); var completedClick = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receipt = new JsonObject { ["case_id"] = caseId, ["action"] = "actual native pointer click on production recipientButton",
             ["identity_quantity"] = "Retained process-local object ReferenceEquals identities; not UIA RuntimeIds or final-frame claims",
-            ["button_object"] = Identity(button), ["click_events"] = clicks, ["errors"] = new JsonArray() };
+            ["button_object"] = Identity(button), ["click_events"] = clicks, ["pointer_events"] = pointerEvents, ["errors"] = new JsonArray() };
         var beforeFlyout = transientFlyout;
         var beforeItems = (beforeFlyout as MenuFlyout)?.Items.ToArray() ?? [];
         var beforePopups = VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).ToArray();
         JsonObject Snapshot()
         {
+            JsonObject? pointer = null;
+            var cursor = new CapturePoint(); var origin = new CapturePoint();
+            if (GetCursorPos(ref cursor) && ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin))
+            {
+                var scale = root.XamlRoot.RasterizationScale;
+                var location = new Windows.Foundation.Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
+                var hits = VisualTreeHelper.FindElementsInHostCoordinates(location, root, true).ToArray();
+                pointer = new JsonObject { ["screen_x"] = cursor.x, ["screen_y"] = cursor.y,
+                    ["window_x"] = location.X, ["window_y"] = location.Y,
+                    ["hit_test_contains_retained_button"] = hits.Any(hit => ReferenceEquals(hit, button)),
+                    ["hits"] = new JsonArray(hits.Select(hit => (JsonNode?)new JsonObject {
+                        ["object"] = Identity(hit), ["type"] = hit.GetType().FullName,
+                        ["name"] = AutomationProperties.GetName(hit) }).ToArray()) };
+            }
             var current = transientFlyout;
             var popups = VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).ToArray();
             var popupRows = new JsonArray();
@@ -66,7 +81,7 @@ public sealed partial class MainWindow
                 ["button_is_current_reference"] = ReferenceEquals(button, recipientButton),
                 ["button_name"] = AutomationProperties.GetName(button), ["button_bounds"] = Bounds(button),
                 ["button_is_loaded"] = button.IsLoaded, ["button_is_enabled"] = button.IsEnabled,
-                ["button_visibility"] = button.Visibility.ToString(), ["button_opacity"] = button.Opacity,
+                ["button_visibility"] = button.Visibility.ToString(), ["button_opacity"] = button.Opacity, ["pointer"] = pointer,
                 ["transient_flyout_object"] = Identity(current), ["transient_flyout_runtime_type"] = current?.GetType().FullName,
                 ["transient_flyout_same_as_before"] = ReferenceEquals(current, beforeFlyout),
                 ["menu_items"] = menuRows, ["open_popups"] = popupRows };
@@ -81,6 +96,19 @@ public sealed partial class MainWindow
                 ["original_source_runtime_type"] = args.OriginalSource?.GetType().FullName });
             if (same) completedClick.TrySetResult();
         };
+        var pointerObservers = new List<(RoutedEvent Event, PointerEventHandler Handler)>();
+        foreach (var (kind, routedEvent) in new[] { ("pressed", UIElement.PointerPressedEvent), ("released", UIElement.PointerReleasedEvent) })
+        {
+            PointerEventHandler observer = (sender, args) =>
+            {
+                var point = args.GetCurrentPoint(root);
+                pointerEvents.Add(new JsonObject { ["kind"] = kind, ["observed_at_utc"] = DateTimeOffset.UtcNow.ToString("O"),
+                    ["sender_is_retained_button"] = ReferenceEquals(sender, button), ["handled"] = args.Handled,
+                    ["original_source_object"] = Identity(args.OriginalSource), ["original_source_type"] = args.OriginalSource?.GetType().FullName,
+                    ["x"] = point.Position.X, ["y"] = point.Position.Y, ["left_pressed"] = point.Properties.IsLeftButtonPressed });
+            };
+            button.AddHandler(routedEvent, observer, true); pointerObservers.Add((routedEvent, observer));
+        }
         button.Click += observedClick;
         try
         {
@@ -119,6 +147,7 @@ public sealed partial class MainWindow
         finally
         {
             button.Click -= observedClick;
+            foreach (var (routedEvent, observer) in pointerObservers) button.RemoveHandler(routedEvent, observer);
             await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, caseId + ".scene-action.json"), receipt.ToJsonString());
         }
     }
