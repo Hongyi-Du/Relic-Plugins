@@ -64,7 +64,7 @@ struct DocumentsView: View {
                     if !m.detailDocument.isEmpty, !doc.isNull {
                         ReferenceLabel(m.detailDocument + " · " + m.t("details.revision", ["n": doc["revision"].text]), size: 16.38, weight: 700, lines: 0).padding(.bottom, 4)
                         ReferenceLabel(m.t("details.written", ["name": m.name(doc["author"].text), "when": m.day(doc["at"]) + " " + m.clock(doc["at"])]), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.bottom, 10)
-                        SelectableText(value: AttributedString(doc["body"].text.isEmpty ? doc["text"].text : doc["body"].text), pointSize: 12.5, lineHeight: 20.625, monospaced: true)
+                        SelectableText(value: AttributedString(doc["body"].text.isEmpty ? doc["text"].text : doc["body"].text), pointSize: 12.5, lineHeight: 20.625, monospaced: true, uniformSource: true)
                             .padding(15).frame(maxWidth: .infinity, alignment: .leading)
                             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "code"))
                     }

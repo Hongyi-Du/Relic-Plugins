@@ -330,7 +330,7 @@ struct ProtocolCard: View {
                 if !p["trigger"].text.isEmpty { field("details.label_applies", p["trigger"].text) }
                 if !p["guidance"].text.isEmpty { SelectableText(value: AttributedString(p["guidance"].text), pointSize: 13, lineHeight: 20.8, uniformSource: true) }
                 if !p["summary_for_person"].text.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
                         ReferenceLabel(m.t("details.label_summary"), size: 13.5, color: RelicStyle.muted, lineHeight: 22.95, lines: 0)
                         RichText(p["summary_for_person"].text, document: true)
                     }.padding(.horizontal, 13).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)

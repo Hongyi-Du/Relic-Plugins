@@ -4,6 +4,21 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class NativeTextStyleTests: XCTestCase {
+    func testReadOnlyDocumentDoesNotReserveATerminalInsertionLine() {
+        // Actual 0a1d569 en-US/dark/1024x700 document: 14 lines at 20.625px,
+        // including four empty interior lines. The 318.75px reference card
+        // includes 30px of border/padding, with no fifteenth editing line.
+        let source = "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n\n## This week\n\n- Compact organization tree\n- Clear conversation and composer\n- Light and dark themes\n\n| Project | Status |\n| --- | --- |\n| Windows | In review |\n| macOS | In review |\n"
+        let rendered = NativeTextStyle.render(AttributedString(source), size: 12.5, lineHeight: 20.625, monospaced: true, uniformSource: true)
+        let measured = NativeTextStyle.contentSize(rendered, available: 664)
+        XCTAssertEqual(measured.height + 30, 318.75, accuracy: 0.01)
+        XCTAssertEqual(rendered.string, source, "Measuring read-only content must retain the copyable terminal newline")
+        let withoutTerminal = NativeTextStyle.render(AttributedString(String(source.dropLast())), size: 12.5, lineHeight: 20.625, monospaced: true)
+        XCTAssertEqual(measured.height, NativeTextStyle.contentSize(withoutTerminal, available: 664).height, accuracy: 0.01)
+        let narrow = NativeTextStyle.contentSize(rendered, available: 180)
+        XCTAssertGreaterThan(narrow.height, measured.height, "Real wrapping still contributes to height")
+    }
+
     func testPreferredWidthUsesLongestLineAndTheActualCodeFont() throws {
         let first = NativeTextStyle.render(AttributedString("review('macOS')"), size: 11.25, monospaced: true)
         let multiline = NativeTextStyle.render(AttributedString("x\nreview('macOS')"), size: 11.25, monospaced: true)

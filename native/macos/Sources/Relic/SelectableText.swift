@@ -55,21 +55,7 @@ struct SelectableText: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
         let offered = proposal.width ?? (monospaced ? 100_000 : 400)
         let available = offered.isFinite ? max(1, offered) : 400
-        // Measure a separate TextKit layout. SwiftUI probes several widths before
-        // assigning the final frame; mutating the live container here leaves the
-        // last probe width behind and can draw a second line outside its height.
-        let storage = NSTextStorage(attributedString: nsView.attributedString())
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        storage.addLayoutManager(layout); layout.addTextContainer(container)
-        layout.ensureLayout(for: container)
-        // CSS shrink-to-fit is based on the unwrapped preferred width. Using the
-        // longest already-wrapped line incorrectly narrows the entire bubble.
-        let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
-        container.containerSize.width = width
-        layout.ensureLayout(for: container)
-        return CGSize(width: width, height: max(1, layout.usedRect(for: container).height))
+        return NativeTextStyle.contentSize(nsView.attributedString(), available: available)
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SelectableText
@@ -84,6 +70,31 @@ struct SelectableText: NSViewRepresentable {
             if let url = link as? URL { parent.openURL(url); return true }
             if let text = link as? String, let url = URL(string: text) { parent.openURL(url); return true }; return false
         }
+    }
+}
+
+extension NativeTextStyle {
+    static func contentSize(_ value: NSAttributedString, available: CGFloat) -> CGSize {
+        // Measure a separate TextKit layout. SwiftUI probes several widths before
+        // assigning the final frame; mutating the live container here leaves the
+        // last probe width behind and can draw a second line outside its height.
+        let storage = NSTextStorage(attributedString: value)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        // CSS shrink-to-fit is based on the unwrapped preferred width. Using the
+        // longest already-wrapped line incorrectly narrows the entire bubble.
+        let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
+        container.containerSize.width = width
+        layout.ensureLayout(for: container)
+        // A read-only pre-wrap block retains its terminal newline for selection,
+        // but has no insertion line after it. TextKit's usedRect includes that
+        // extra editing line; measure the actual glyph-bearing fragments instead.
+        var bottom: CGFloat = 0
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { line, _, _, _, _ in bottom = max(bottom, line.maxY) }
+        return CGSize(width: width, height: max(1, bottom))
     }
 }
 
