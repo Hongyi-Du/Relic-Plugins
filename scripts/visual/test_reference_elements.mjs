@@ -25,6 +25,7 @@ const readingOrderIds = vm.runInNewContext('(' + expression('readingOrderIds', '
 const assignReadingOrder = vm.runInNewContext('(' + expression('assignReadingOrder', 'all') + ')');
 const readingElement = (...children) => ({ nodeType: 1, childNodes: children });
 const readingText = () => ({ nodeType: 3 });
+const recordedPseudo = JSON.parse(readFileSync(new URL('./fixtures/pseudo_file_code_recorded.json', import.meta.url), 'utf8'));
 const cssLineBreakConfiguration = vm.runInNewContext('(' + expression('cssLineBreakConfiguration', 'imageResourceEvidence') + ')');
 const cssBreakStyle = changes => ({ whiteSpace: 'normal', textWrapMode: 'wrap', textWrapStyle: 'wrap', wordBreak: 'normal',
   overflowWrap: 'normal', lineBreak: 'auto', hyphens: 'manual', direction: 'ltr', writingMode: 'horizontal-tb', ...changes });
@@ -112,6 +113,23 @@ test('recorded file-code line number precedes source text without changing eithe
   assert.deepEqual(errors, []);
   assert.equal(items.length, original.size);
   for (const { order, ...item } of items) assert.deepEqual(item, original.get(item.id), 'Only reading order changes; source text, identity, bounds, styles and evidence survive');
+});
+
+test('actual4e18fc3 three-line recording keeps each before number before text and retains highlighted card', () => {
+  const lines = [readingElement(readingText()), readingElement(readingText()), readingElement(readingText())];
+  const root = readingElement(...lines), ids = new Map([[root, 'dom-343'], ...lines.map((line, index) => [line, 'dom-' + (344 + index)])]);
+  const items = structuredClone(recordedPseudo.old_elements), errors = [];
+  const original = new Map(items.map(({ order, ...item }) => [item.id, structuredClone(item)]));
+  const raw = lines.map((_, index) => ({ id: 'dom-' + (344 + index),
+    emitted: items.filter(item => item.id === 'dom-' + (344 + index) || item.id.startsWith('dom-' + (344 + index) + ':')).map(item => item.id) }));
+  assignReadingOrder(items, raw, readingOrderIds(root, ids), errors);
+  assert.deepEqual(items.map(item => item.id), ['dom-344::before', 'dom-344:text-0', 'dom-345',
+    'dom-345::before', 'dom-345:text-0', 'dom-346::before', 'dom-346:text-0']);
+  assert.deepEqual(items.map(item => item.order), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(raw[1].emitted, ['dom-345', 'dom-345::before', 'dom-345:text-0']);
+  assert.equal(items.length, original.size);
+  for (const { order, ...item } of items) assert.deepEqual(item, original.get(item.id));
+  assert.deepEqual(errors, []);
 });
 
 test('nested pseudos and mixed inline children keep their actual source-tree order', () => {
@@ -290,6 +308,170 @@ test('identical actual positive pseudo rectangles retain all rows and do not gue
   const conflicting = normalize(pseudoLayoutMeasurement(514, layout, {}));
   assert.deepEqual(conflicting.bounds, measured.bounds); assert.equal(conflicting.paint_order, null);
   assert.ok(conflicting.problems.some(problem => problem.property === 'pseudo.paint_order'));
+});
+
+function recordedPseudoSnapshot() {
+  // Rehydrate only the recorded arrays at their ORIGINAL sparse indexes. No
+  // element/pseudo bounds, text or expected layout is supplied by a browser.
+  const layout = { nodeIndex: [], bounds: [], text: [], paintOrders: [], clientRects: [], offsetRects: [], scrollRects: [] };
+  const strings = [], document = { scrollOffsetX: 0, scrollOffsetY: 0, textBoxes: { layoutIndex: [], bounds: [], start: [], length: [] } };
+  for (const row of recordedPseudo.layout_rows) {
+    const i = row.layout_index;
+    layout.nodeIndex[i] = row.node_index; layout.bounds[i] = [...row.bounds]; layout.text[i] = row.text_index;
+    layout.paintOrders[i] = row.paint_order; layout.clientRects[i] = row.client_rect ?? [];
+    layout.offsetRects[i] = row.offset_rect ?? []; layout.scrollRects[i] = row.scroll_rect ?? [];
+    if (row.text_index >= 0) strings[row.text_index] = row.text;
+  }
+  for (const box of recordedPseudo.text_boxes) {
+    document.textBoxes.layoutIndex[box.index] = box.layout_index; document.textBoxes.bounds[box.index] = [...box.bounds];
+    document.textBoxes.start[box.index] = box.start; document.textBoxes.length[box.index] = box.length;
+  }
+  return { layout, document, strings, node: recordedPseudo.pseudo_node.index };
+}
+
+test('actual2cb073c pseudo CSS box and anonymous LayoutText box are independent measured quantities', () => {
+  const fixture = recordedPseudoSnapshot(), original = structuredClone(fixture);
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.deepEqual(result.bounds, { x: 921, y: 171.9375, width: 60, height: 19.1875 });
+  assert.deepEqual(result.text_element_bounds, { x: 959.765625, y: 173.9375, width: 7.234375, height: 14 });
+  assert.deepEqual(result.selected_layout_indices, [402]);
+  assert.deepEqual(result.text_layout_indices, [403]);
+  assert.deepEqual(result.layout_rows.map(row => [row.layout_index, row.text_index, row.layout_quantity]),
+    [[402, -1, 'layout-without-transformed-text'], [403, 123, 'text-layout']]);
+  assert.deepEqual(result.text_fragments.map(row => [row.text_box_index, row.layout_index, row.start, row.length]), [[107, 403, 0, 1]]);
+  assert.deepEqual(result.problems, []); assert.deepEqual(result.text_geometry_problems, []);
+  assert.equal(result.text_source_span_coverage.complete, true);
+  assert.equal(result.text_source_span_coverage.unit, 'UTF-16 code units');
+  assert.equal(result.text_source_span_coverage.source_text, '1');
+  assert.deepEqual(result.text_source_span_coverage.rows[0].spans.map(span => [span.start, span.end, span.source_text]), [[0, 1, '1']]);
+  assert.notDeepEqual(result.bounds, result.text_element_bounds, 'Containing box never supplies text geometry');
+  assert.match(result.text_quantity, /not painted glyph ink/);
+  assert.deepEqual(fixture, original, 'Every original row/index/string/fragment remains unchanged');
+});
+
+test('actual pseudo outer box remains measured when text fragment coverage is missing', () => {
+  const fixture = recordedPseudoSnapshot(); fixture.document.textBoxes = {};
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(result.bounds.width, 60);
+  assert.equal(result.text_element_bounds, null);
+  assert.deepEqual(result.text_layout_indices, [403]);
+  assert.ok(result.text_geometry_problems.some(problem => /no independently owned/.test(problem.reason)));
+  assert.equal(result.layout_rows[1].bounds.width, 7.234375, 'Raw LayoutText aggregate is retained but not substituted for absent fragments');
+});
+
+test('pseudo text geometry never borrows a sibling source-text fragment', () => {
+  const fixture = recordedPseudoSnapshot(); fixture.document.textBoxes.layoutIndex[107] = 404;
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(result.text_element_bounds, null);
+  assert.deepEqual(result.text_fragments, []);
+  assert.ok(result.text_geometry_problems.length);
+});
+
+test('unknown pseudo text index or missing actual string cannot identify the CSS box by size', () => {
+  for (const change of [fixture => { fixture.layout.text[403] = null; }, fixture => { delete fixture.strings[123]; }]) {
+    const fixture = recordedPseudoSnapshot(); change(fixture);
+    const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+    assert.equal(result.bounds, null);
+    assert.ok(result.problems.some(problem => /cannot distinguish/.test(problem.reason)));
+    assert.equal(result.layout_rows.length, 2);
+  }
+});
+
+test('distinct actual pseudo text fragments remain unresolved without a guessed union or chosen minimum', () => {
+  const fixture = recordedPseudoSnapshot(), boxes = fixture.document.textBoxes;
+  boxes.layoutIndex[109] = 403; boxes.bounds[109] = [967, 173.9375, 3, 14]; boxes.start[109] = 0; boxes.length[109] = 1;
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(result.bounds.width, 60);
+  assert.equal(result.text_element_bounds, null);
+  assert.equal(result.text_fragments.length, 2);
+  assert.ok(result.text_geometry_problems.some(problem => /no containing CSS box or guessed union/.test(problem.reason)));
+});
+
+test('distinguishing anonymous text does not excuse multiple real non-text pseudo boxes', () => {
+  const fixture = recordedPseudoSnapshot();
+  fixture.layout.nodeIndex[405] = fixture.node; fixture.layout.bounds[405] = [100, 200, 10, 20];
+  fixture.layout.text[405] = -1; fixture.layout.paintOrders[405] = 103;
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(result.bounds, null);
+  assert.equal(result.text_element_bounds.width, 7.234375);
+  assert.ok(result.problems.some(problem => /multiple distinct/.test(problem.reason)));
+  assert.equal(result.layout_rows.length, 3);
+});
+
+test('pseudo fragment range must fit its own actual UTF16 source string', () => {
+  for (const [start, length] of [[1, 1], [0, 2], [-1, 1], [0.5, 1], [0, Number.MAX_SAFE_INTEGER]]) {
+    const fixture = recordedPseudoSnapshot();
+    fixture.document.textBoxes.start[107] = start; fixture.document.textBoxes.length[107] = length;
+    const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+    assert.equal(result.bounds.width, 60, 'Actual outer box remains independent');
+    assert.equal(result.text_element_bounds, null);
+    assert.equal(result.text_source_span_coverage.complete, false);
+    assert.ok(result.text_geometry_problems.some(problem => problem.property === 'pseudo.text_source_span' && /outside/.test(problem.reason)));
+    assert.equal(result.text_fragments[0].start, start); assert.equal(result.text_fragments[0].length, length);
+  }
+});
+
+test('matching pseudo rectangle cannot certify a partial source string', () => {
+  const fixture = recordedPseudoSnapshot(); fixture.strings[123] = '12';
+  const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(result.text_source_span_coverage.source_text, '12');
+  assert.equal(result.text_source_span_coverage.rows[0].spans[0].source_text, '1');
+  assert.equal(result.text_source_span_coverage.complete, false);
+  assert.equal(result.text_element_bounds, null);
+  assert.ok(result.text_geometry_problems.some(problem => /do not reach/.test(problem.reason)));
+});
+
+test('same-box pseudo fragments reject duplicate overlaps and gaps but accept exact source coverage', () => {
+  for (const fixtureCase of [
+    { text: '1', start: 0, complete: false, reason: /overlap or duplicate/ },
+    { text: '123', start: 2, complete: false, reason: /omit actual text/ },
+    { text: '12', start: 1, complete: true },
+  ]) {
+    const fixture = recordedPseudoSnapshot(), boxes = fixture.document.textBoxes;
+    fixture.strings[123] = fixtureCase.text;
+    boxes.layoutIndex[109] = 403; boxes.bounds[109] = [...boxes.bounds[107]];
+    boxes.start[109] = fixtureCase.start; boxes.length[109] = 1;
+    const result = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+    assert.equal(result.text_source_span_coverage.complete, fixtureCase.complete);
+    assert.equal(result.text_fragments.length, 2, 'Matching geometry never deduplicates real source spans');
+    if (fixtureCase.complete) {
+      assert.equal(result.text_element_bounds.width, 7.234375);
+      assert.deepEqual(result.text_source_span_coverage.rows[0].spans.map(span => span.source_text), ['1', '2']);
+      assert.deepEqual(result.text_geometry_problems, []);
+    } else {
+      assert.equal(result.text_element_bounds, null);
+      assert.ok(result.text_geometry_problems.some(problem => fixtureCase.reason.test(problem.reason)));
+    }
+  }
+});
+
+test('each actual LayoutText row needs its own complete spans even with identical text and bounds', () => {
+  const fixture = recordedPseudoSnapshot(), boxes = fixture.document.textBoxes;
+  fixture.layout.nodeIndex[405] = fixture.node; fixture.layout.bounds[405] = [...fixture.layout.bounds[403]];
+  fixture.layout.text[405] = 123; fixture.layout.paintOrders[405] = 103;
+  const incomplete = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(incomplete.text_source_span_coverage.source_text, '11');
+  assert.deepEqual(incomplete.text_source_span_coverage.rows.map(row => row.complete), [true, false]);
+  assert.equal(incomplete.text_element_bounds, null);
+  boxes.layoutIndex[109] = 405; boxes.bounds[109] = [...boxes.bounds[107]]; boxes.start[109] = 0; boxes.length[109] = 1;
+  const complete = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.deepEqual(complete.text_source_span_coverage.rows.map(row => row.complete), [true, true]);
+  assert.equal(complete.text_source_span_coverage.complete, true);
+  assert.equal(complete.text_fragments.length, 2);
+});
+
+test('pseudo source offsets count UTF16 code units rather than Unicode code points', () => {
+  const fixture = recordedPseudoSnapshot(); fixture.strings[123] = 'A😀B';
+  fixture.document.textBoxes.length[107] = 3;
+  const partial = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(partial.text_source_span_coverage.rows[0].length_utf16, 4);
+  assert.equal(partial.text_source_span_coverage.complete, false);
+  assert.equal(partial.text_element_bounds, null);
+  fixture.document.textBoxes.length[107] = 4;
+  const full = normalize(pseudoLayoutMeasurement(fixture.node, fixture.layout, fixture.document, fixture.strings));
+  assert.equal(full.text_source_span_coverage.complete, true);
+  assert.equal(full.text_source_span_coverage.rows[0].spans[0].source_text, 'A😀B');
+  assert.equal(full.text_element_bounds.width, 7.234375);
 });
 
 function disclosure(tag, children = [], open = false, bounds = { x: 377, y: 575.59375, width: 686, height: 19.1875 }) {

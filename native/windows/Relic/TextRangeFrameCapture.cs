@@ -198,6 +198,14 @@ public sealed partial class MainWindow
                 }
                 if (value is ScrollViewer viewer) record["scroll"] = new JsonArray(viewer.HorizontalOffset, viewer.VerticalOffset, viewer.ZoomFactor, viewer.ViewportWidth, viewer.ViewportHeight);
                 if (value is TextBlock block) record["is_text_trimmed"] = block.IsTextTrimmed;
+                if (value is Run run)
+                {
+                    // Run.Text is not exposed as a public dependency property
+                    // in this SDK. Preserve its real value at every checkpoint;
+                    // snapshots alone do not certify intervening mutations.
+                    record["run_text"] = Value(run.Text, inputs);
+                    record["run_text_change_notifications_available"] = properties[value].Any(property => property.Name == "Text");
+                }
                 if (value is Geometry geometry && geometry is not RectangleGeometry) record["unsupported_clip_geometry"] = true;
                 if (value is TransformGroup) record["unobserved_transform_collection_mutations"] = true;
                 states.Add(record);
