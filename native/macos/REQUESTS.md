@@ -1,3 +1,22 @@
+## 2026-10-30: actual line clipping and disclosure evidence
+
+Run 41084613768 (`7046f32`) completes all 22 macOS smoke captures. The real
+live-tool-output click receipt now records y=420 both before and after expansion;
+the old y=420 -> 517 jump is gone. The PNG was inspected alongside the reference.
+The failure report is still retained; this is one repaired behavior, not acceptance.
+
+In `63fc431` group, dom-383:text-0's last line is clipped at the window bottom:
+the reference exports 12.6875px visible height, while macOS exported all 16.7999px
+of its actual native line. Native line projection now intersects measured screen
+line rectangles with the same actual NSView/ancestor/window clip already used
+for its visible element bounds. `evidence.unclipped_text_bounds` preserves all
+original screen lines; `evidence.text_clip` records the observed clip and keeps
+occlusion_proven false. Line count is derived from surviving actual lines.
+This matches the shared `text_bounds` visible-range quantity without changing
+the original source line geometry, inventing a reference coordinate or changing
+the 4px comparison. Partial vertical/horizontal and fully hidden line tests run
+in CI. Editable native controls keep their separate existing measurements.
+
 ## 2026-10-30: hosted label-layer validation passed; production capture pending
 
 Native apps run 41085619771, macOS job 124166161296 at `00c623b`, builds and passes

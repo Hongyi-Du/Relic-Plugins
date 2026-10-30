@@ -22,6 +22,12 @@ import CoreText
         guard let box = value as? [String: Double], let x = box["x"], let y = box["y"], let width = box["width"], let height = box["height"] else { return .null }
         return NSRect(x: x, y: y, width: width, height: height)
     }
+    static func visibleTextLines(_ lines: [NSRect], clip: NSRect) -> [NSRect] {
+        lines.compactMap { line in
+            let visible = line.intersection(clip)
+            return visible.isNull || visible.isEmpty ? nil : visible
+        }
+    }
     static func assignedRegion(identifier: String, textRegion: String?, inherited: String, geometric: String) -> String {
         if identifier.hasPrefix("relic-region/") { return String(identifier.dropFirst("relic-region/".count)) }
         if let textRegion { return textRegion }
@@ -415,10 +421,18 @@ import CoreText
                         projected["native_name_source"] = "AX attributed range value of the read-only text fragment"
                     }
                     projected["native_name_evidence"] = ["owner_role": role, "owner_label": label, "owner_value": valueText, "complete_owner_text_matches_run": run["text"] as? String == accessibleName]
-                    projected["text_bounds"] = (run["lines"] as! [[String: Double]]).map { line in
+                    let textLines = (run["lines"] as! [[String: Double]]).map { line in
                         let local = NSRect(x: line["x"]!, y: line["y"]!, width: line["width"]!, height: line["height"]!)
-                        return box(topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen))
+                        return topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen)
                     }
+                    let visibleLines = Self.visibleTextLines(textLines, clip: activeClip)
+                    projected["unclipped_text_bounds"] = textLines.map(box)
+                    projected["text_bounds"] = visibleLines.map(box)
+                    projected["text_clip"] = ["source": "actual NSView.visibleRect, ancestor clip and content viewport intersection",
+                        "bounds": activeClip.isNull ? NSNull() : box(activeClip), "occlusion_proven": false]
+                    var visibleLayout = run["layout"] as! [String: Any]
+                    visibleLayout["line_count"] = visibleLines.count
+                    projected["layout"] = visibleLayout
                     if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
                     if let label = textView as? ReferenceLabelView, let owner = label.productionControlLabelOwner { projected["native_control_label_owner"] = owner }
                     raw.append(projected)
