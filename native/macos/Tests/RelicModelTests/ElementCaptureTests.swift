@@ -6,6 +6,14 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testStandaloneComposerAccessibilityTracksActualEditability() {
+        let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        for enabled in [true, false, true] {
+            editor.isEditable = enabled; editor.isSelectable = enabled
+            XCTAssertEqual(RelicAXRead(editor)["enabled"] as? Bool, enabled)
+            XCTAssertEqual(editor.isEditable, enabled)
+        }
+    }
     func testNativeSiblingPathTracksActualViewReorderingAndDetachment() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
         let root = NSView(), first = NSView(), second = NSView(), leaf = NSView()

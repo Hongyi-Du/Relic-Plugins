@@ -7,6 +7,7 @@ import RelicCore
 struct MentionEditor: NSViewRepresentable {
     @EnvironmentObject var m: Model
     @Environment(\.nativeControlColor) private var textColor
+    @Environment(\.isEnabled) private var enabled
     @Binding var text: String
     var contextID = "main"
     var placeholder = ""
@@ -24,6 +25,7 @@ struct MentionEditor: NSViewRepresentable {
         let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 26.4))
         editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor(RelicStyle.ink); editor.insertionPointColor = NSColor(RelicStyle.ink)
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
+        editor.isEditable = enabled; editor.isSelectable = enabled
         editor.isAutomaticDashSubstitutionEnabled = false; editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false; editor.minSize.width = 0
         editor.autoresizingMask = []; editor.textContainer?.widthTracksTextView = true
@@ -40,6 +42,7 @@ struct MentionEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? ComposerTextView else { return }
+        editor.isEditable = enabled; editor.isSelectable = enabled
         if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
         editor.presentationModel = m; editor.composerID = contextID
@@ -90,6 +93,9 @@ final class ComposerScrollView: NSScrollView {
 }
 
 final class ComposerTextView: NSTextView {
+    // NSTextView's field-editor AX implementation can report disabled when this
+    // standalone editor has no owning NSControl. Expose its actual editability.
+    override func isAccessibilityEnabled() -> Bool { isEditable }
     weak var presentationModel: Model?
     var composerID = "main"
     var sendsOnReturn = true
