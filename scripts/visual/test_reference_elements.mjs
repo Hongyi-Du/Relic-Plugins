@@ -94,6 +94,10 @@ const context = {
   nonempty: box => box.width > 0 && box.height > 0,
   styleOf: element => element.style,
 };
+const detailsVisibilityEvidence = vm.runInNewContext('(' + expression('detailsVisibilityEvidence', 'visibleRect') + ')', {
+  nodeIds: new WeakMap(), pathOf: element => element.selector || element.localName,
+});
+context.detailsVisibilityEvidence = detailsVisibilityEvidence;
 const visibleRect = vm.runInNewContext('(' + expression('visibleRect', 'visibleText') + ')', context);
 const element = (bounds, values = {}) => ({
   getBoundingClientRect: () => bounds,
@@ -101,6 +105,78 @@ const element = (bounds, values = {}) => ({
   scrollWidth: bounds.width, scrollHeight: bounds.height, hidden: false, parentElement: null,
   style: { display: 'block', visibility: 'visible', opacity: '1', overflowX: 'visible', overflowY: 'visible',
     textOverflow: 'clip', webkitLineClamp: 'none' }, ...values,
+});
+
+function disclosure(tag, children = [], open = false, bounds = { x: 377, y: 575.59375, width: 686, height: 19.1875 }) {
+  const node = element(bounds, { localName: tag, children, open,
+    selector: tag, getAttribute(name) { return name === 'open' && this.open ? '' : null; },
+    contains(other) {
+      for (let descendant = other; descendant; descendant = descendant.parentElement) if (descendant === this) return true;
+      return false;
+    },
+  });
+  for (const child of children) child.parentElement = node;
+  return node;
+}
+
+test('38af737 closed copies details rejects nonzero DOMRange boxes for unpainted cc-meta content', () => {
+  // Observed source: copies backend 791 has no open attribute; descendants
+  // 797/798 and 799/800 are absent from snapshot layout and AX. Its screenshot
+  // contains the summary, not these two strings, despite these forced boxes.
+  const first = disclosure('div');
+  const second = disclosure('div', [], false, { x: 377, y: 600.78125, width: 686, height: 19.1875 });
+  const rule = disclosure('div', [first, second]), summary = disclosure('summary');
+  const details = disclosure('details', [summary, rule]);
+  details.selector = '#layer details.cc-code';
+  for (const content of [first, second]) {
+    assert.equal(visibleRect(content, content.getBoundingClientRect()), null);
+    const evidence = normalize(detailsVisibilityEvidence(content));
+    assert.equal(evidence.hidden, true);
+    assert.deepEqual(evidence.ancestors, [{ details: '#layer details.cc-code', open: false,
+      open_attribute: null, first_summary: 'summary', inside_first_summary: false, own_details_content: false, hidden: true }]);
+    assert.ok(content.getBoundingClientRect().width > 0, 'Raw forced layout geometry remains available and is not rewritten');
+  }
+  assert.ok(visibleRect(summary, summary.getBoundingClientRect()), 'Actual primary summary stays visible');
+});
+
+test('38af737 live tool nested disclosure respects each actual open state', () => {
+  const output = disclosure('pre', [], false, { x: 370, y: 676.796875, width: 681, height: 33.8125 });
+  const stepSummary = disclosure('summary'), step = disclosure('details', [stepSummary, disclosure('div', [output])]);
+  step.selector = '#live details.step.err';
+  const acts = disclosure('details', [disclosure('summary'), disclosure('div', [step])], true);
+  acts.selector = '#live details.acts';
+  const evidence = normalize(detailsVisibilityEvidence(output));
+  assert.equal(evidence.hidden, true);
+  assert.deepEqual(evidence.ancestors.map(item => [item.details, item.open, item.hidden]),
+    [['#live details.step.err', false, true], ['#live details.acts', true, false]]);
+  assert.equal(visibleRect(output, output.getBoundingClientRect()), null);
+  assert.ok(visibleRect(stepSummary, stepSummary.getBoundingClientRect()));
+  acts.open = false;
+  step.open = true;
+  assert.equal(visibleRect(stepSummary, stepSummary.getBoundingClientRect()), null,
+    'Opening an inner details does not expose it through a closed ancestor');
+});
+
+test('only the first direct summary and its descendants survive a closed details', () => {
+  const preceding = disclosure('div'), label = disclosure('b'), first = disclosure('summary', [label]);
+  const second = disclosure('summary'), details = disclosure('details', [preceding, first, second]);
+  assert.ok(visibleRect(first, first.getBoundingClientRect()), 'Primary summary need not be the first child');
+  assert.ok(visibleRect(label, label.getBoundingClientRect()));
+  assert.equal(visibleRect(preceding, preceding.getBoundingClientRect()), null);
+  assert.equal(visibleRect(second, second.getBoundingClientRect()), null, 'A later summary is ordinary closed content');
+  assert.ok(visibleRect(details, details.getBoundingClientRect()), 'The details container itself remains visible');
+  assert.equal(visibleRect(details, details.getBoundingClientRect(), true), null,
+    'A direct Text child belongs to hidden details content, not its visible primary summary');
+});
+
+test('a nested summary is not a direct details summary and no-summary content remains closed', () => {
+  const nestedSummary = disclosure('summary'), wrapper = disclosure('div', [nestedSummary]);
+  const details = disclosure('details', [wrapper]);
+  assert.equal(detailsVisibilityEvidence(nestedSummary).ancestors[0].first_summary, null);
+  assert.equal(visibleRect(nestedSummary, nestedSummary.getBoundingClientRect()), null);
+  assert.ok(visibleRect(details, details.getBoundingClientRect()), 'No default UA summary is manufactured by this rule');
+  details.open = true;
+  assert.ok(visibleRect(nestedSummary, nestedSummary.getBoundingClientRect()), 'Live open changes are read instead of cached');
 });
 
 test('text clips at its own ellipsis scrollport, not only the wider ancestor', () => {
@@ -251,6 +327,104 @@ test('resize none keeps the nonresizable composer out of resize capability evide
   assert.equal(read(owner), null);
   owner.localName = 'input'; owner.style.resize = 'both';
   assert.equal(read(owner), null, 'This evidence route claims only actual textarea capabilities');
+});
+
+function selectArrowReader({ appearance = 'auto', multiple = false, size = 0, role = 'combobox', measured = true } = {}) {
+  // These owner IDs/rect and UA identities come from 38af737 group/backend559.
+  // They intentionally contain no arrow node or independently measured pixels.
+  const owner = element({ x: 1177, y: 666.34375, width: 237, height: 37 }, {
+    localName: 'select', multiple, size, disabled: false, selectedIndex: 1, value: 'org_000001', matches: () => false,
+  });
+  owner.style = { ...owner.style, appearance, direction: 'ltr', writingMode: 'horizontal-tb', zoom: '1',
+    transform: 'none', transformOrigin: '118.5px 18.5px', color: 'rgb(27, 27, 26)', backgroundColor: 'rgb(255, 255, 255)',
+    colorScheme: 'light', fontSize: '14px' };
+  for (const side of ['Top', 'Right', 'Bottom', 'Left']) owner.style['border' + side + 'Width'] = '1px';
+  const uaOwner = { nodeId: 535, backendNodeId: 559, nodeType: 1, nodeName: 'SELECT', localName: 'select', nodeValue: '',
+    attributes: ['class', 'input', 'aria-label', '上级组织'], shadowRoots: [{ nodeId: 536, backendNodeId: 795,
+      nodeType: 11, nodeName: '#document-fragment', shadowRootType: 'user-agent', children: [
+        { nodeId: 537, backendNodeId: 765, nodeType: 1, nodeName: 'DIV', attributes: ['aria-hidden', 'true', 'pseudo', '-internal-select-inner-element'],
+          children: [{ nodeId: 538, backendNodeId: 796, nodeType: 3, nodeName: '#text', nodeValue: 'Relic 工作室' }] },
+        { nodeId: 539, backendNodeId: 766, nodeType: 1, nodeName: 'SLOT', attributes: ['pseudo', '-internal-select-button-slot'], distributedNodes: [] },
+      ] }] };
+  const ax = { measured, backend_node_id: 559, node_ids: ['559'], role, properties: [{ name: 'expanded', value: { value: false } }] };
+  const axNode = { nodeId: '559', backendDOMNodeId: 559, role: { value: role }, childIds: [] };
+  const environment = { styleOf: element => element.style, accessibilityOf: () => ax,
+    snapshotBackend: new WeakMap([[owner, 559]]), piercedByBackend: new Map([[559, uaOwner]]),
+    axById: new Map([['559', axNode]]), pseudoByOwner: new WeakMap(),
+    pathOf: () => '#panel select[aria-label="上级组织"]', rect: bounds => ({ ...bounds }), document: { activeElement: null },
+    meta: { scene_id: 'zh-CN-light-1440x900-group', screenshot_file: 'zh-CN-light-1440x900-group.png' },
+    getComputedStyle: () => ({ content: 'normal', display: 'block', visibility: 'visible', opacity: '1',
+      width: 'auto', height: 'auto', color: 'rgb(27, 27, 26)', backgroundColor: 'rgba(0, 0, 0, 0)', transform: 'none', appearance: 'none' }),
+  };
+  const read = vm.runInNewContext('(' + expression('selectArrowEvidence', 'recordSelectArrowCoverage') + ')', environment);
+  const unmeasured = [], errors = [];
+  const record = vm.runInNewContext('(' + expression('recordSelectArrowCoverage', 'resizeHandleEvidence') + ')', {
+    unmeasured, extraction_errors: errors,
+  });
+  return { read, record, owner, uaOwner, environment, unmeasured, errors };
+}
+
+test('actual native select retains real owner/UA identities but no manufactured arrow geometry', () => {
+  const f = selectArrowReader(), evidence = f.read(f.owner), raw = { id: 'dom-369' };
+  f.record(raw, evidence);
+  assert.equal(raw.ua_select_arrow, evidence);
+  assert.deepEqual(normalize(evidence.owner_bounds), { x: 1177, y: 666.34375, width: 237, height: 37 });
+  assert.equal(evidence.owner_backend_node_id, 559);
+  assert.equal(evidence.pierced_dom.owner, f.uaOwner, 'Keep the original recorded UA subtree, not a synthesized arrow node');
+  assert.equal(evidence.pierced_dom.owner_identity_matches, true);
+  assert.equal(evidence.owner_state.expanded, false);
+  assert.equal(evidence.mode, 'native-menu-list'); assert.equal(evidence.requires_measurement, true);
+  for (const key of ['painted_presence', 'bounds', 'path', 'style', 'state']) assert.equal(evidence[key], null, key);
+  assert.equal(evidence.screenshot.arrow_pixel_bounds, null);
+  assert.equal(evidence.screenshot.arrow_pixels, null);
+  assert.equal(f.unmeasured[0].property, 'select_arrow.rendered_part');
+  assert.equal(f.errors[0].type, 'ua_select_arrow_measurement_unavailable');
+});
+
+test('appearance none records source evidence without requiring a native-theme arrow', () => {
+  const f = selectArrowReader({ appearance: 'none' }), raw = { id: 'author-select' };
+  const evidence = f.read(f.owner); f.record(raw, evidence);
+  assert.equal(evidence.mode, 'native-appearance-suppressed');
+  assert.equal(evidence.requires_measurement, false);
+  assert.equal(evidence.painted_presence, null, 'Suppressing native appearance cannot prove that author decorations are absent');
+  assert.equal(raw.ua_select_arrow, evidence);
+  assert.deepEqual(f.unmeasured, []); assert.deepEqual(f.errors, []);
+});
+
+test('actual listbox semantics differ from an unresolved or customizable select', () => {
+  const listbox = selectArrowReader({ size: 4, role: 'listbox' });
+  assert.equal(listbox.read(listbox.owner).requires_measurement, false);
+  const unconfirmed = selectArrowReader({ multiple: true, role: 'listbox', measured: false });
+  assert.equal(unconfirmed.read(unconfirmed.owner).requires_measurement, true, 'Missing AX evidence does not certify listbox presentation');
+  const custom = selectArrowReader({ appearance: 'base-select' }), raw = { id: 'custom-picker' };
+  custom.environment.pseudoByOwner.set(custom.owner, [{ type: '::picker-icon', bounds: { x: 12, y: 14, width: 20, height: 20 } }]);
+  const evidence = custom.read(custom.owner); custom.record(raw, evidence);
+  assert.equal(evidence.mode, 'customizable-picker');
+  assert.equal(evidence.bounds, null, 'A pseudo layout candidate is not certified independent arrow paint');
+  assert.equal(evidence.computed_picker_icon.width, 'auto');
+  assert.equal(evidence.snapshot_pseudo_parts.length, 1);
+  assert.equal(custom.errors.length, 1);
+});
+
+test('missing UA receipt and unsupported pseudo style retain an explicit arrow failure', () => {
+  const f = selectArrowReader(); f.environment.piercedByBackend.clear();
+  f.environment.getComputedStyle = () => { throw new Error('actual pseudo provider failure'); };
+  const evidence = f.read(f.owner); f.record({ id: 'actual-select' }, evidence);
+  assert.equal(evidence.pierced_dom.owner, null);
+  assert.equal(evidence.pierced_dom.owner_identity_matches, false);
+  assert.equal(evidence.computed_picker_icon, null);
+  assert.match(evidence.computed_picker_icon_error, /actual pseudo provider failure/);
+  assert.equal(evidence.painted_presence, null);
+  assert.equal(f.errors.length, 1);
+});
+
+test('non-select controls do not acquire a fabricated dropdown obligation', () => {
+  const f = selectArrowReader();
+  f.owner.localName = 'button';
+  assert.equal(f.read(f.owner), null);
+  const raw = { id: 'real-button' }; f.record(raw, null);
+  assert.equal(raw.ua_select_arrow, undefined);
+  assert.deepEqual(f.unmeasured, []); assert.deepEqual(f.errors, []);
 });
 
 test('actual PostScript identity preserves localized family evidence without aliasing', () => {

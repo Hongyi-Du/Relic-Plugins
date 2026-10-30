@@ -83,6 +83,35 @@ node-local offscreen diagnostic handling does not apply to descendants.
 The COM path requires CI runtime validation. A successful build alone does
 not establish native/managed range identity or text coverage.
 
+### Failed format-range rectangle observations
+
+In `38af737`'s `file-code` capture, both the `WorkspaceCodeView` peer and its
+windowless RichEdit child returned `E_UNEXPECTED` from a format subrange's
+managed `GetBoundingRectangles` call. The document and outer visible range
+queries completed. Previously this one exception discarded the entire
+managed `TextPattern`, preventing the independent COM observation as well.
+
+The observer now journals each actual range's text and document-prefix
+endpoints **before** geometry. A rectangle exception retains its API, HRESULT,
+type and stack, marks bounds unknown, and remains an extraction error.
+Remaining format ranges and the independent COM observation are still read.
+Unknown managed geometry cannot pass the managed/COM projection check, even
+when the independent native call succeeds. This change preserves evidence;
+it does not establish the cause or repair of the RichEdit provider failure.
+
+Each format step also records the actual endpoint ordering, the provider's
+move count and whether its end was clamped to the visible range. A changed
+start, non-advancing end or degenerate emitted run fails rather than being
+silently normalized. The API only guarantees the sign of
+[`CompareEndpoints`](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingtextandtextrange),
+so comparison magnitudes are not interpreted as character offsets.
+
+The pure mock regression tests require no UI or provider. Run **in CI**:
+
+```powershell
+dotnet test native/windows/Relic.Capture/Tests/Relic.Capture.Tests.csproj -c Release
+```
+
 ## Runtime identity index and interrupted-capture diagnostics
 
 Each actual HWND gets one native `IUIAutomation.RawViewWalker` enumeration

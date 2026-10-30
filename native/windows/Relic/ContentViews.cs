@@ -68,7 +68,9 @@ public sealed partial class MainWindow
             if (line.TrimStart().StartsWith("```"))
             {
                 var code = new List<string>(); while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                var source = string.Join("\n", code); var codeSize = documentStyle ? 12 : 12.5; var codeText = OverviewText(source, codeSize, lineHeight: codeSize * 1.55); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
+                // Both .bubble pre code and .md pre code inherit .9em from
+                // the code rule, while the pre owns the 1.55 line spacing.
+                var source = string.Join("\n", code); var codeSize = documentStyle ? 12 : 12.5; var codeText = OverviewText(source, codeSize * .9, lineHeight: codeSize * 1.55); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
                 var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
                 var codeBlock = new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) };
                 MarkdownSemantic.RegisterFencedCode(codeBlock, codeScroll, codeText);

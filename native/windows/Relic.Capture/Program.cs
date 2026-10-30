@@ -295,12 +295,13 @@ internal sealed class Capture
             var visibleRanges = progress.Measure("uia-capture/managed/text/visible-ranges", value.GetVisibleRanges, context);
             foreach (var range in visibleRanges)
             {
-                context["visible_range_index"] = ranges.Count;
-                ranges.Add(progress.Measure("uia-capture/managed/text/visible-range", () => ReadTextRange(range, document, nodeErrors, includeRuns: true), context));
+                context["visible_range_index"] = ranges.Count; context["range_kind"] = "visible";
+                ranges.Add(progress.Measure("uia-capture/managed/text/visible-range", () => ReadTextRange(range, document, nodeErrors, includeRuns: true, context), context));
             }
+            var documentContext = context.DeepClone().AsObject(); documentContext.Remove("visible_range_index"); documentContext["range_kind"] = "document";
             var pattern = new JsonObject
             {
-                ["document"] = progress.Measure("uia-capture/managed/text/document", () => ReadTextRange(document, document, nodeErrors, includeRuns: false), context),
+                ["document"] = progress.Measure("uia-capture/managed/text/document", () => ReadTextRange(document, document, nodeErrors, includeRuns: false, documentContext), documentContext),
                 ["visible_ranges"] = ranges,
                 ["supported_text_selection"] = value.SupportedTextSelection.ToString()
             };
@@ -323,8 +324,17 @@ internal sealed class Capture
         catch (Exception error) { errors.Add(pattern.ProgrammaticName + ": " + error.GetType().Name + ": " + error.Message); }
     }
 
-    private JsonObject ReadTextRange(TextPatternRange range, TextPatternRange document, JsonArray errors, bool includeRuns)
+    private JsonObject ReadTextRange(TextPatternRange range, TextPatternRange document, JsonArray errors, bool includeRuns, JsonObject context)
     {
+        // Record the actual endpoints before requesting geometry: a failing
+        // provider rectangle call must not erase which format run failed.
+        var result = new JsonObject
+        {
+            ["text"] = progress.Measure("uia-capture/managed/range/text", () => range.GetText(-1), context),
+            ["range_identity"] = progress.Measure("uia-capture/managed/range/identity", () => NativeTextEvidence.ManagedIdentity(range, document), context)
+        };
+        var rangeContext = context.DeepClone().AsObject(); rangeContext["range"] = result.DeepClone();
+        progress.Record("uia-capture/managed/range/identity-evidence", "measured", rangeContext);
         var attributes = new JsonObject(); var status = new JsonObject();
         foreach (var (name, attribute) in new[]
         {
@@ -349,8 +359,10 @@ internal sealed class Capture
             catch (Exception error) { attributes[name] = null; status[name] = "error"; errors.Add(attribute.ProgrammaticName + ": " + error.Message); }
         }
         var rectangles = new JsonArray(); var managedRectangles = new JsonArray(); var diagnostics = new JsonArray();
-        var bounds = progress.Measure("uia-capture/managed/range/bounding-rectangles", range.GetBoundingRectangles);
-        foreach (var box in bounds)
+        var boundsRead = TextRangeEvidence.TryReadBounds(
+            () => progress.Measure("uia-capture/managed/range/bounding-rectangles", range.GetBoundingRectangles, rangeContext),
+            result, "Managed TextRange.GetBoundingRectangles", errors, out var bounds);
+        if (boundsRead) foreach (var box in bounds!)
         {
             managedRectangles.Add(NativeTextEvidence.ManagedRectangle(box));
             if (box.IsEmpty)
@@ -360,15 +372,12 @@ internal sealed class Capture
             }
             else rectangles.Add(Rectangle(box.X, box.Y, box.Width, box.Height));
         }
-        var result = new JsonObject
-        {
-            ["text"] = progress.Measure("uia-capture/managed/range/text", () => range.GetText(-1)), ["bounds"] = rectangles,
-            ["managed_bounds"] = managedRectangles, ["managed_bounds_diagnostics"] = diagnostics,
-            ["range_identity"] = progress.Measure("uia-capture/managed/range/identity", () => NativeTextEvidence.ManagedIdentity(range, document)),
-            ["bounds_source"] = "Managed UIA Rect[]; awaiting independent native COM range identity/geometry verification",
-            ["attributes"] = attributes, ["attribute_status"] = status,
-            ["font_size_unit"] = "pt"
-        };
+        result["bounds"] = boundsRead ? rectangles : null;
+        result["managed_bounds"] = boundsRead ? managedRectangles : null;
+        result["managed_bounds_diagnostics"] = diagnostics;
+        result["bounds_source"] = "Managed UIA Rect[]; awaiting independent native COM range identity/geometry verification";
+        result["attributes"] = attributes; result["attribute_status"] = status;
+        result["font_size_unit"] = "pt";
         if (status["font_family"]?.ToString() == "measured" && attributes["font_family"] is JsonValue familyValue &&
             familyValue.TryGetValue<string>(out var familyName) && !string.IsNullOrEmpty(familyName))
             result["font_family_coverage"] = progress.Measure("uia-capture/managed/range/declared-font-coverage",
@@ -382,11 +391,25 @@ internal sealed class Capture
             while (cursor.CompareEndpoints(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.End) < 0)
             {
                 if (++count > 10000) { errors.Add("UIA text format range enumeration exceeded 10000 runs."); break; }
-                if (cursor.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Format, 1) == 0)
-                { errors.Add("UIA text format endpoint did not advance."); break; }
-                if (cursor.CompareEndpoints(TextPatternRangeEndpoint.End, range, TextPatternRangeEndpoint.End) > 0)
+                var previous = cursor.Clone();
+                var moved = cursor.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Format, 1);
+                var endBeyondVisible = cursor.CompareEndpoints(TextPatternRangeEndpoint.End, range, TextPatternRangeEndpoint.End);
+                if (endBeyondVisible > 0)
                     cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, range, TextPatternRangeEndpoint.End);
-                runs.Add(ReadTextRange(cursor, document, errors, includeRuns: false));
+                var runContext = context.DeepClone().AsObject();
+                runContext["format_run_index"] = count - 1;
+                var step = new JsonObject
+                {
+                    ["units_moved"] = moved, ["end_vs_visible_end_before_clamp"] = endBeyondVisible,
+                    ["start_vs_previous_start"] = cursor.CompareEndpoints(TextPatternRangeEndpoint.Start, previous, TextPatternRangeEndpoint.Start),
+                    ["end_vs_previous_end"] = cursor.CompareEndpoints(TextPatternRangeEndpoint.End, previous, TextPatternRangeEndpoint.End),
+                    ["start_vs_end"] = cursor.CompareEndpoints(TextPatternRangeEndpoint.Start, cursor, TextPatternRangeEndpoint.End)
+                };
+                runContext["format_step"] = step;
+                progress.Record("uia-capture/managed/range/format-step", "measured", runContext);
+                TextRangeEvidence.ValidateFormatStep(moved, step["start_vs_previous_start"]!.GetValue<int>(),
+                    step["end_vs_previous_end"]!.GetValue<int>(), step["start_vs_end"]!.GetValue<int>());
+                runs.Add(ReadTextRange(cursor, document, errors, includeRuns: false, runContext));
                 cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, cursor, TextPatternRangeEndpoint.End);
             }
             result["format_runs"] = runs;

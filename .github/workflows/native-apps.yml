@@ -37,6 +37,8 @@ jobs:
         run: dotnet build native/windows/Relic/Relic.csproj -c Release -p:Platform=x64
       - name: Test HTTP, events, composer and language contracts without UI
         run: dotnet test native/windows/Relic.Core.Tests/Relic.Core.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
+      - name: Test UIA range evidence with mock providers and no window
+        run: dotnet test native/windows/Relic.Capture/Tests/Relic.Capture.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
       - name: Publish and assemble unsigned native installer
         run: |
           dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
