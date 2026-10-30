@@ -67,7 +67,14 @@ enum RelicStyle {
             // PingFangUI resolves to a variable font on current macOS. The same
             // PostScript face has different advances without optical sizing;
             // use its public automatic optical-size setting, as the reference does.
-            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: "auto"] as CFDictionary)
+            // The reference's next installed family after PingFang is
+            // system-ui. AppKit's global cascade otherwise selects Lucida
+            // Grande for arrows, changing both the actual face and advance.
+            let fallback = NSFont.systemFont(ofSize: size, weight: weight >= 700 ? .bold : weight >= 550 ? .semibold : weight >= 500 ? .medium : .regular)
+            let descriptor = CTFontDescriptorCreateWithAttributes([
+                kCTFontOpticalSizeAttribute: "auto",
+                kCTFontCascadeListAttribute: [CTFontCopyFontDescriptor(fallback as CTFont)]
+            ] as CFDictionary)
             return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, descriptor) as NSFont
         }
         let points: [(Int, CGFloat)] = [(100, -0.8), (200, -0.6), (300, -0.4), (400, 0), (500, 0.23), (600, 0.3), (700, 0.4), (800, 0.56), (900, 0.62)]

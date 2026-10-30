@@ -4,6 +4,21 @@ import CoreText
 @testable import Relic
 
 @MainActor final class FontShapingTests: XCTestCase {
+    func testRecipientArrowUsesTheActualReferenceSystemFallbackAndAdvance() throws {
+        // Actual 682034a DOM Range and CDP face list for the group recipient.
+        let view = ReferenceLabel("→ 全体", size: 12, lineHeight: 15.6, lines: 0).makeLabelView()
+        (view.layoutManager as? NativeGlyphLayoutManager)?.recordDraws = true
+        view.frame = NSRect(x: 0, y: 0, width: 160, height: 40)
+        view.textContainer?.containerSize = view.bounds.size
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view)); view.cacheDisplay(in: view.bounds, to: bitmap)
+        let row = try XCTUnwrap(ElementCapture.textRuns(view).first)
+        let style = try XCTUnwrap(row["style"] as? [String: Any])
+        let faces = try XCTUnwrap(style["rendered_fonts"] as? [[String: Any]])
+        XCTAssertEqual(Set(faces.compactMap { $0["postscript_name"] as? String }), [".SFNS-Regular", "PingFangSC-Regular"])
+        let rect = try XCTUnwrap(row["local_rect"] as? NSValue).rectValue
+        XCTAssertEqual(rect.width, 39.625, accuracy: 0.5)
+    }
+
     func testChineseStrongEmphasisKeepsTheBaseOpticalConfigurationAndMeasuredAdvance() throws {
         // Actual DOM Range from bbe04a3 zh-CN/light/1440x900/group. The old
         // NSFontManager conversion lost optical sizing and measured 168px.
