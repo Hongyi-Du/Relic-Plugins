@@ -3,6 +3,25 @@ import AppKit
 @testable import Relic
 
 @MainActor final class ReferenceLabelLayoutTests: XCTestCase {
+    func testListMarkerKeepsItsTrailingSpaceAndActualGlyphIconEvidence() throws {
+        let view = ReferenceLabel("• ", size: 13.5, alignment: .right, textGlyphIcon: true).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 14, height: 21.6)
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        XCTAssertEqual(view.string, "• ")
+        let runs = ElementCapture.textRuns(view)
+        XCTAssertEqual(runs.count, 1)
+        let run = try XCTUnwrap(runs.first)
+        XCTAssertEqual(run["text"] as? String, "• ")
+        XCTAssertEqual(run["kind"] as? String, "icon")
+        let icon = try XCTUnwrap(run["icon"] as? [String: Any])
+        XCTAssertEqual(icon["source"] as? String, "text-glyph")
+        XCTAssertEqual(icon["glyph"] as? String, view.string)
+        let plain = ReferenceLabel("• ", size: 13.5).makeLabelView()
+        plain.frame = view.frame
+        XCTAssertEqual(ElementCapture.textRuns(plain).first?["kind"] as? String, "text")
+    }
+
     func testHierarchyNoteMatchesActualReferenceLineAdvancesAndSpacing() throws {
         // 2cb073c reference macOS zh-CN/light/1440x900/group, dom-382:text-0.
         // The reference's .hier-note uses 12px text and 1.55 line height.

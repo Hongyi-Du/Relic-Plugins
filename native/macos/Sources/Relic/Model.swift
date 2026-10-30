@@ -120,6 +120,7 @@ import RelicCore
     var selectedMember: Node { members.first { $0["name"].text == member } ?? Node() }
     var secretary: String { snapshot["org"]["secretary"].text }
     func name(_ who: String) -> String { who == "human" ? (preferences["name"].text.isEmpty ? t("common.you") : preferences["name"].text) : members.first { $0["name"].text == who }?.display ?? who }
+    func roleName(_ who: String, _ titleKey: String) -> String { name(who) == t(titleKey) ? who : name(who) }
     func t(_ key: String, _ args: [String: String] = [:]) -> String { words.t(key, args) }
     func list(_ values: [String]) -> String { words.list(values) }
     func path(_ action: String = "") -> String { selection.path(action) }

@@ -11,7 +11,8 @@ import AppKit
     static func reset() { traces.removeAll() }
     static func observe(_ scroll: NSScrollView, phase: String) {
         let key = ObjectIdentifier(scroll)
-        let trace = traces[key] ?? ScrollGeometryTrace(scroll)
+        // ObjectIdentifier addresses can be reused after a scene releases a view.
+        let trace = traces[key].flatMap { $0.scroll === scroll ? $0 : nil } ?? ScrollGeometryTrace(scroll)
         traces[key] = trace
         trace.append(phase)
     }
@@ -51,6 +52,12 @@ import AppKit
             "scroller_style": scroll.scrollerStyle.rawValue]
         if let window = scroll.window {
             row["screen_bounds"] = ElementCapture.box(window.convertToScreen(scroll.convert(scroll.bounds, to: nil)))
+            row["first_responder_class"] = window.firstResponder.map { String(describing: type(of: $0)) } as Any? ?? NSNull()
+        }
+        if phase == NSView.boundsDidChangeNotification.rawValue {
+            // Diagnose the real caller of an unexpected scroll. This is a passive
+            // CI receipt, never a rule for changing the offset or matching boxes.
+            row["notification_call_stack"] = Array(Thread.callStackSymbols.prefix(48))
         }
         observations.append(row)
     }

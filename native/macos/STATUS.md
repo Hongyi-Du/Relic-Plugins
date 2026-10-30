@@ -10,7 +10,18 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新完整通过的原生构建为 `711d27a`：
+最新完整通过的原生构建为 `efa7553`：
+[41039878013 / macos 124009778780](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41039878013/job/124009778780)
+release 编译、打包及 **180 项测试通过**，包括新增中英文秘书称呼回退测试。
+`72f5571` 后续增加实际字体度量边界检查，尚待新 CI 验证。
+
+前一版 `5d97933`：
+[41038867598 / macos 124006493039](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41038867598/job/124006493039)
+release 编译、打包及 **179 项测试通过**。包含原生滑块重复 AX 枚举与索引检查、
+实际字体表／基线／popup 标题、Markdown 标记源文本等回归；滚动条注册递归已在 CI 验证修复。
+构建工作流整体成功，不代表逐元素门禁成功；更新后的捕获尚在运行。
+
+此前完整通过的原生构建 `711d27a`：
 [41029422150 / macos 123975289918](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41029422150/job/123975289918)
 release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、原始工具文本边界和只读文档末尾换行高度回归。
 此后的静态字体表／文字基线修改仍待验证：`3462591` release 编译成功，XCTest 在字体绘制测试退出 signal 11；
@@ -19,11 +30,32 @@ release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、�
 `ae977f2` 的 [41035024073 / macos 123993758261](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41035024073/job/123993758261)
 确认实际静态字体 Regular/Bold 绘制、固定行高基线、制表位及新增 popup 标题绘制测试通过；
 但测试进程在 `testThumbOnlyScrollerDoesNotExposeUnpaintedLegacyButtons` 退出 signal 11，整套测试仍失败。
-`e5fe085` 将滚动条子元素枚举中的完整 AX 查询改成只读取 role，避免导航属性反查父级子元素。
+`e5fe085` 只读取 role 的修改未解决滚动条崩溃：`ed5b808` 仍在同一测试退出 signal 11。
+其 [诊断捕获 41035817459](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41035817459)
+现已保存实际 `Relic-2026-10-30-100410.ips`，位于
+`S:\Codex\Outputs\Relic-native-visual\parity-ed5b808\crash\`。
+栈显示 AppKit 注册子项 UIElementSpecifier 时通过 `accessibilityIndexOfChild` 再次枚举父级，
+因此即使只读 role 也会递归。`1ecee11` 增加原生注册重入保护和重复子项索引测试，
+已在上述 `5d97933` CI 通过。
+`5d97933` 同时修正完整中文浅色 165 状态中实测的成员选项、工作区、轨迹行的独立子元素和名称；
+菜单快捷键、Markdown 标记及表格单元格名称亦已修改。新截图尚未验证这些差异已消失。
+诊断样本的新增测试不替代全部 660 状态门禁。
 `9aaf342` 诊断捕获已绘制群聊 PNG，但 AX 阶段退出 -11、完成数为 0/19；产物在
 `S:\Codex\Outputs\Relic-native-visual\parity-9aaf342\macos\`。不把这一张 PNG 计为成功捕获。
 后续源码还补齐决策按钮实际文字绘制及边框宽度、popup 原生菜单标题的实际文字绘制、
 快捷键说明的次级文字色，并加入只观察真实滚动通知的几何历史；这些须继续由新 CI 验证。
+
+最新 **19 场景诊断**正式报告已下载到
+`S:\Codex\Outputs\Relic-native-visual\parity-5d97933\report\`，
+[41038866965](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41038866965)。
+macOS 实际捕获 19/19、4779 个原生元素、4263 个有效参考元素、配对 4208。
+正式门禁仍要求 660，`scenes_checked/scenes_passed/matched_elements` 均为 0，
+`passed: false`、`exceptions: []`。表中的提取错误包括缺少完整矩阵及未证明的样式测量。
+
+| 5d97933 诊断平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 55 | 571 | 0 | 3159 | 8070 | 1209 | 11 | 2 | 611 | 2226 | 0 | 28257 |
+| Windows | 578 | 217 | 543 | 1613 | 13234 | 1130 | 8 | 15 | 588 | 1630 | 0 | 34272 |
 
 最新已下载的完整矩阵失败报告是
 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\full-report\`，

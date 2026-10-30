@@ -75,9 +75,9 @@ struct SettingsView: View {
     private var language: some View {
         VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.language.label"), hint: m.t("settings.language.hint")) {
-                ReferenceSelectField(title: m.t("settings.language.label"), selection: preference("lang"), options: [("", m.t("settings.language.system", ["lang": Words.normalize(Locale.current.identifier)]))] + m.words.languages.map { ($0["code"].text, $0["name"].text) }).frame(width: 200)
+                ReferenceSelectField(title: m.t("settings.language.label"), selection: preference("lang"), options: [("", m.t("settings.language.system", ["lang": Words.normalize(Locale.current.identifier)]))] + m.words.languages.map { ($0["code"].text, $0["name"].text) }, accessibleName: "").frame(width: 200)
             }
-            SettingsRow(title: m.t("settings.auto_names.label"), hint: m.t("settings.auto_names.hint"), last: true) { ReferenceSwitch(m.t("settings.auto_names.label"), isOn: toggle("auto_names")) }
+            SettingsRow(title: m.t("settings.auto_names.label"), hint: m.t("settings.auto_names.hint"), last: true) { ReferenceSwitch(m.t("settings.auto_names.label"), isOn: toggle("auto_names"), accessibleName: "") }
         }
     }
     private var voice: some View {
@@ -87,6 +87,7 @@ struct SettingsView: View {
             }
             SettingsRow(title: m.t("settings.voice_try"), hint: m.t("settings.voice_supported_mac")) {
                 TextField(m.t("settings.voice_try_here"), text: $voiceTest, axis: .vertical).textFieldStyle(.plain).labelsHidden()
+                    .accessibilityLabel(m.t("settings.voice_try_here"))
                     .font(RelicStyle.font(14, weight: 400)).lineLimit(2...2)
                     .padding(.vertical, 7).padding(.leading, 10).padding(.trailing, 34).frame(width: 300, height: 60.8)
                     .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.border, borderWidth: 1, radius: 9))
@@ -98,7 +99,7 @@ struct SettingsView: View {
     private var notifications: some View {
         VStack(spacing: 6) {
             SettingsRow(title: m.t("settings.desktop_notify"), hint: m.t("settings.desktop_notify_hint")) {
-                ReferenceSwitch(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } }))
+                ReferenceSwitch(m.t("settings.desktop_notify"), isOn: Binding(get: { m.preferences["notify"].flag }, set: { value in m.run { try await m.saveSettings(language: m.words.language, notify: value) } }), accessibleName: "")
             }
             SettingsRow(title: m.t("settings.notify_test"), last: true) { TextButton(m.t("settings.notify_send_test")) { m.run { try await m.authorizeNotifications(); m.notify(m.t("settings.notify_on")) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
         }
@@ -144,7 +145,7 @@ struct HarnessSettings: View {
             ReferenceLabel(m.t("settings.desktop_connections"), size: 18, weight: 650).padding(.bottom, 8)
             SettingsRow(title: "Codex / ChatGPT", hint: m.platform["desktop_transport"]["reason"].text.isEmpty ? m.t("settings.desktop_probe_hint") : m.platform["desktop_transport"]["reason"].text) { OverviewChip(text: m.t(m.platform["desktop_transport"]["available"].flag ? "settings.connected" : "settings.not_connected"), tone: m.platform["desktop_transport"]["available"].flag ? "ok" : "") }
             SettingsRow(title: "Claude Desktop", hint: m.platform["claude_desktop"]["reason"].text.isEmpty ? m.t("settings.claude_desktop_hint") : m.platform["claude_desktop"]["reason"].text) {
-                ReferenceSwitch("Claude Desktop", isOn: Binding(get: { m.platform["claude_desktop"]["enabled"].flag }, set: { value in m.run { m.platform = try await m.post("/api/platform", ["claude_desktop_enabled": value, "probe": true]) } }))
+                ReferenceSwitch("Claude Desktop", isOn: Binding(get: { m.platform["claude_desktop"]["enabled"].flag }, set: { value in m.run { m.platform = try await m.post("/api/platform", ["claude_desktop_enabled": value, "probe": true]) } }), accessibleName: "")
             }
             ReferenceLabel(m.t("settings.claude_desktop_hint"), size: 14, color: RelicStyle.muted, lines: 0)
             SettingsRow(title: m.t("settings.desktop_probe"), hint: m.t("settings.desktop_probe_hint")) { TextButton(m.t("settings.desktop_probe")) { m.run { m.platform = try await m.post("/api/platform", ["probe": true]) } }.buttonStyle(ReferenceButtonStyle(small: true)) }

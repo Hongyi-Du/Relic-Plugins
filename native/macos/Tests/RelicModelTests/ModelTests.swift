@@ -18,6 +18,17 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testRoleNameUsesSeatIDOnlyWhenDisplayRepeatsTheLocalizedOfficeTitle() throws {
+        let model = try model()
+        for (language, title, distinct) in [("en-US", "Secretary", "Chief of staff"), ("zh-CN", "秘书", "秘书处负责人")] {
+            model.words.load(Node(["lang": language, "strings": ["common.secretary": title]]))
+            model.snapshot = Node(["members": [["name": "secretary", "display": title, "role": distinct]]])
+            XCTAssertEqual(model.roleName("secretary", "common.secretary"), "secretary")
+            model.snapshot = Node(["members": [["name": "secretary", "display": distinct, "role": title]]])
+            XCTAssertEqual(model.roleName("secretary", "common.secretary"), distinct)
+        }
+    }
+
     func testCopiesCounterUsesTheServerTotalEvenWhenNotEveryCopyIsReturned() async throws {
         let model = try model()
         ModelTransport.handler = { request in

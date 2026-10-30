@@ -1,3 +1,27 @@
+## 2026-10-30: text vertical extent now comes from actual font draw metrics
+
+The complete `5d97933` 19-case diagnostic capture has zero direct text pairing
+mismatches, but is not full-matrix acceptance. Its group code span exposes a
+quantity error: native insertion geometry retained the 19.375px paragraph line
+box, while the DOM text span is about 13px high per line. The actual native
+`showCGGlyphs` receipts contain 11.25px Menlo ascent 10.4425048828125, descent
+2.6531982421875 and baselines 13.1875 / 32.5625. These independently give a
+13.095703125px font extent with the same 19.375px baseline step.
+
+Native extraction now projects that actual typographic vertical extent with the
+unchanged native insertion advance only when the exact current draw/source/view
+binding is proven. `evidence.projection.native_typographic_geometry` retains each
+original insertion line, callback indices, actual baselines, font metrics and
+the resulting box. `text_bounds_quantity` then reads
+`native-insertion-advance-and-actual-font-typographic-extent`. Original insertion
+boxes, ink bounds and raw glyph callbacks are retained. Missing/stale draws,
+partial source spans, transformed text or ambiguous baseline ownership do not
+supply this quantity. Nothing is rounded to a reference box or matched by text.
+CI tests render real two-line Menlo text, retain its original 38.75px line-box
+height, verify its separate 32.470703125px typographic height, and require unchanged
+PNG bytes. The API's text-matrix tx/ty are intentionally ignored as documented:
+https://developer.apple.com/documentation/appkit/nslayoutmanager/showcgglyphs(_:positions:count:font:textmatrix:attributes:in:)
+
 ## 2026-10-30: scroller crash now has a concrete native stack
 
 The crash upload in visual run `41035817459` worked. The retained

@@ -213,16 +213,7 @@ struct SecretarySetup: View {
             ReferenceLabel(m.t("secretary.setup_intro"), size: 12.5, color: RelicStyle.muted, lines: 0)
             VStack(spacing: 6) {
                 Rows(m.members.filter { $0["state"].text != "vacant" && !["subagent", "chat"].contains($0["surface"].text) }) { who in
-                    Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": who["name"].text]); m.sheet = nil; try await m.select(org, who["name"].text) } } label: {
-                        HStack(spacing: 10) {
-                            Avatar(member: who["name"].text, size: 28)
-                            VStack(alignment: .leading, spacing: 0) {
-                                ReferenceLabel(m.t("secretary.make", ["name": who.display]), size: 14, weight: 700, lines: 0)
-                                ReferenceLabel([who["harness_label"].text, who["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · "), size: 12, color: RelicStyle.muted, lines: 0)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(.horizontal, 12).padding(.vertical, 10)
-                            .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, kind: "card"))
-                    }.buttonStyle(.plain)
+                    SecretaryChoice(member: who)
                 }
             }
             HStack(spacing: 8) {
@@ -231,6 +222,29 @@ struct SecretarySetup: View {
                 TextButton(m.t("secretary.new_embedded"), size: 13, color: RelicStyle.background) { m.openMemberForm(secretary: true) }.buttonStyle(ReferenceButtonStyle(primary: true))
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SecretaryChoice: View {
+    @EnvironmentObject var m: Model
+    let member: Node
+    @State private var avatarImageVisible = false
+    private var identity: String { "relic-row/secretary-choice/" + member["name"].text }
+    private var title: String { m.t("secretary.make", ["name": member.display]) }
+    private var subtitle: String { [member["harness_label"].text, member["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " · ") }
+    private var accessibleName: String { [avatarImageVisible ? "" : String(m.name(member["name"].text).prefix(1)).uppercased(), title, subtitle].filter { !$0.isEmpty }.joined(separator: " ") }
+    var body: some View {
+        Button { m.run { let org = m.organization; try await m.post(Client.org(org, "/secretary"), ["member": member["name"].text]); m.sheet = nil; try await m.select(org, member["name"].text) } } label: {
+            HStack(spacing: 10) {
+                Avatar(member: member["name"].text, size: 28, imageVisibility: { avatarImageVisible = $0 })
+                VStack(alignment: .leading, spacing: 0) {
+                    ReferenceLabel(title, size: 14, weight: 700, lines: 0)
+                    ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lines: 0)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.horizontal, 12).padding(.vertical, 10)
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, borderWidth: 1, radius: 10, owner: identity))
+        }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(accessibleName)
+            .environment(\.nativeElementParent, identity)
     }
 }
 

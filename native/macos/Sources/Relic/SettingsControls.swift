@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NativeRadio: NSViewRepresentable {
     @Binding var selected: Bool
+    var accessibleName = ""
     @Environment(\.isEnabled) private var enabled
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSButton {
@@ -11,6 +12,8 @@ struct NativeRadio: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.parent = self; button.state = selected ? .on : .off; button.isEnabled = enabled
+        button.setAccessibilityLabel(accessibleName)
+        button.cell?.setAccessibilityLabel(accessibleName)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? { CGSize(width: 13, height: 13) }
     final class Coordinator: NSObject {
@@ -62,10 +65,11 @@ struct SettingsNavigationButton: View {
 struct SettingsSegments: View {
     let options: [(String, String)]
     @Binding var selection: String
+    @State private var identity = UUID().uuidString
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.0) { value, title in
-                TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9) { selection = value }
+                TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9, identifier: "relic-tab/segment/" + identity + "/" + value) { selection = value }
                     .buttonStyle(.plain)
                     .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
                     .accessibilityAddTraits(value == selection ? .isSelected : [])
@@ -110,7 +114,7 @@ struct ReferenceInput: View {
     var body: some View {
         TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400)).foregroundStyle(textColor)
             .accessibilityIdentifier(inputIdentity)
-            .modifier(FieldAccessibilityLabel(label: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") }))
+            .modifier(FieldAccessibilityLabel(label: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") } ?? placeholder))
             .focused($focused).onSubmit { focused = false }
             .onKeyPress(.downArrow) {
                 guard !suggestions.isEmpty else { return .ignored }

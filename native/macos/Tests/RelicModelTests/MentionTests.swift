@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import RelicCore
+import RelicAX
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
@@ -14,6 +15,9 @@ import RelicCore
         editor.setSelectedRange(NSRange(location: 8, length: 0))
         let original = editor.string
         scroll.documentView = editor
+        XCTAssertFalse(scroll.isAccessibilityElement(), "The unpainted clip wrapper is not a second named field")
+        XCTAssertTrue(editor.isAccessibilityElement())
+        XCTAssertEqual(RelicAXRead(editor)["role"] as? String, "AXTextArea")
         for width in [758.0, 598, 342, 758] {
             scroll.setFrameSize(NSSize(width: width, height: 50))
             scroll.layoutSubtreeIfNeeded()
