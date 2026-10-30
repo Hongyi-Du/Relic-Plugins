@@ -57,6 +57,7 @@ import RelicAX
                 var caseDefaults: (UserDefaults, String)?
                 var messageCapture: MessageCaptureSession?
                 var resizeCapture: ResizeCaptureSession?
+                var panelResizeCapture: PanelResizeCaptureSession?
                 defer { messageCapture?.finish(); model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
                 do {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
@@ -109,7 +110,7 @@ import RelicAX
                 else if scene.hasPrefix("menu-") { model.appMenu = String(scene.dropFirst(5)) }
                 else {
                     switch scene {
-                    case "group": break
+                    case "group", "panel-resize-hover", "panel-resized": break
                     case "message-hover", "message-copy-toast": break
                     case "live-busy", "live-tool-output", "live-typing":
                         // select reloads the real organization snapshot before
@@ -188,11 +189,24 @@ import RelicAX
                     resizeCapture = try ResizeCaptureSession(window: window, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
                     try await resizeCapture?.perform(window: window)
                 }
+                if scene == "panel-resize-hover" || scene == "panel-resized" {
+                    if !model.panelOpen {
+                        let title = model.t("appbar.pane_shortcut", ["pane": model.t(Choices.panes[0].1), "key": "Option+1"])
+                        guard let control = accessibilityFrame(root: hosting, matches: { $0["role"] as? String == "AXButton" && $0["label"] as? String == title }) else {
+                            throw RelicError.message("Cannot find the actual toolbar Overview control")
+                        }
+                        try click(control, window: window)
+                        try await Task.sleep(for: .milliseconds(250))
+                    }
+                    guard model.panelOpen, model.pane == "overview" else { throw RelicError.message("Real toolbar click did not open Overview for resizing") }
+                    panelResizeCapture = try PanelResizeCaptureSession(window: window, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
+                    try await panelResizeCapture?.perform(window: window, drag: scene == "panel-resized")
+                }
                 guard model.error.isEmpty else { throw RelicError.message(scene + ": " + model.error) }
                 if scene == "quick-start" {
                     guard model.organizations.isEmpty && model.organization.isEmpty && model.snapshot["org"].isNull else { throw RelicError.message("Quick-start state was replaced before capture") }
                 }
-                if !["member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized"].contains(scene) {
+                if !["member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized"].contains(scene) {
                     try movePointer(to: NSPoint(x: 10, y: 10))
                     try await Task.sleep(for: .milliseconds(80))
                     let screen = window.convertToScreen(hosting.convert(hosting.bounds, to: nil))
@@ -213,17 +227,21 @@ import RelicAX
                 let geometry = GeometryCaptureSession(path: output.appendingPathComponent(item["id"].text + ".native-geometry.json"))
                 try geometry.observe("before-screenshot", window: window)
                 try resizeCapture?.observe("before-screenshot")
+                try panelResizeCapture?.observe("before-screenshot")
                 try messageCapture?.observe("before-screenshot", window: window)
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
                 try messageCapture?.observe("after-screenshot", window: window)
                 try geometry.observe("after-screenshot", window: window)
                 try resizeCapture?.observe("after-screenshot")
+                try panelResizeCapture?.observe("after-screenshot")
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
                 try messageCapture?.observe("after-native-source-and-element-extraction", window: window)
                 try geometry.observe("after-native-source-and-element-extraction", window: window)
                 try resizeCapture?.observe("after-native-source-and-element-extraction")
+                try panelResizeCapture?.observe("after-native-source-and-element-extraction")
                 try messageCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 try resizeCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
+                try panelResizeCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
                 } catch {

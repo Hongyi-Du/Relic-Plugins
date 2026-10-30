@@ -14,6 +14,7 @@ struct MainView: View {
     @State private var resizingPanel: CGFloat?
     @State private var resizeStart: CGFloat?
     @State private var inspectorHandleHovered = false
+    @StateObject private var panelResizeTrace = PanelResizeTrace()
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
     private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
     private var panelWidth: CGFloat {
@@ -55,14 +56,17 @@ struct MainView: View {
     }
     private var inspector: some View {
         RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
+            .background(PanelResizeProbe(part: "pane", trace: panelResizeTrace))
             .overlay(alignment: .leading) {
                 Color.clear.frame(width: 5).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: inspectorHandleHovered || resizeStart != nil ? RelicStyle.accent.opacity(0.4) : .clear, kind: "resize-handle", owner: "relic-resize-handle/panel", hovered: inspectorHandleHovered))
-                    .onHover { hovering in inspectorHandleHovered = hovering; if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                    .background(PanelResizeProbe(part: "handle", trace: panelResizeTrace))
+                    .onHover { hovering in inspectorHandleHovered = hovering; panelResizeTrace.hover(hovering); if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("relic-window")).onChanged { value in
+                        panelResizeTrace.gesture(value, ended: false)
                         if resizeStart == nil { resizeStart = panelWidth }
                         resizingPanel = InspectorGeometry.width(window: m.windowSize.width, saved: (resizeStart ?? panelWidth) - value.translation.width, files: m.pane == "files")
-                    }.onEnded { _ in m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
+                    }.onEnded { value in panelResizeTrace.gesture(value, ended: true); m.defaults.set(Double(panelWidth), forKey: panelKey); resizeStart = nil; resizingPanel = nil })
                     .accessibilityElement(children: .ignore).accessibilityLabel(m.t("panel.resize"))
                     .accessibilityIdentifier("relic-resize-handle/panel").help(m.t("panel.resize"))
             }
