@@ -1,6 +1,6 @@
 import AppKit
 
-enum NativeSurfaceGeometry {
+@MainActor enum NativeSurfaceGeometry {
     // AXGroup reports its children's content union for some SwiftUI cards.
     // The visible card includes padding/borders painted by the uniquely owned
     // production surface. Keep both independently measured quantities.
