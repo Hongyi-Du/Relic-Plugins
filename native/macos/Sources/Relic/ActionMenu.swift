@@ -6,7 +6,7 @@ struct ActionMenu: View {
     @EnvironmentObject var m: Model
     @State private var contentWidth: CGFloat = 250
     var body: some View {
-        FittingScroll(maxHeight: m.windowSize.height * 0.6) {
+        FittingScroll(maxHeight: m.windowSize.height * 0.6, accessibilityOwner: "relic-region/menu") {
             VStack(alignment: .leading, spacing: 0) {
                 switch m.appMenu ?? "file" {
                 case "file": file
@@ -16,7 +16,7 @@ struct ActionMenu: View {
                 }
             }.padding(7)
         }.frame(width: max(250, contentWidth + 14))
-            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
+            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog))
             .onPreferenceChange(MenuIntrinsicWidth.self) { contentWidth = $0 }
             .onExitCommand { m.appMenu = nil }
     }
@@ -96,11 +96,12 @@ struct RecipientLayer: View {
             Color.clear.contentShape(Rectangle()).onTapGesture { m.recipientPicker = false }
             ScrollView {
                 RecipientPicker().padding(7)
+                    .background(NativeScrollOwner(identifier: "relic-region/menu", title: ""))
             }.frame(width: width, height: height)
-                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
+                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog))
+                .measuredRegion("menu", createsAccessibilityContainer: false)
                 .offset(x: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).x,
                         y: RecipientMenuGeometry.origin(anchor: m.recipientAnchor, windowWidth: m.windowSize.width, height: height).y)
-                .measuredRegion("menu")
         }.onExitCommand { m.recipientPicker = false }
     }
 }

@@ -81,6 +81,6 @@ struct NativeToasts: View {
                     .frame(maxWidth: min(560, max(1, m.windowSize.width - 40)))
                     .accessibilityIdentifier("relic-toast/" + item.id.uuidString)
             }
-        }.padding(.bottom, 28).environment(\.captureRegion, "window")
+        }.padding(.bottom, 28).environment(\.captureRegion, "menu")
     }
 }

@@ -99,10 +99,17 @@ struct NativeListMarkerMetrics {
               let currentColor, draw["foreground"] as? [Double] == currentColor else {
             return ["source": "production native disc observation", "current_draw": NSNull(), "errors": ["No current mounted native symbol draw"]]
         }
+        guard let content = window.contentView else {
+            return ["source": "production native disc observation", "current_draw": NSNull(), "errors": ["No current native window content view"]]
+        }
+        let contentFrame = window.convertToScreen(content.convert(content.bounds, to: nil))
         let screen = window.convertToScreen(convert(bounds, to: nil))
         let ink = window.convertToScreen(convert(ElementCapture.rect(draw["local_ellipse"]), to: nil))
         return ["source": "production native disc observation", "current_draw": draw,
             "screen_bounds": ElementCapture.box(screen), "screen_ellipse": ElementCapture.box(ink),
+            "content_screen_frame": ["source": "actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen",
+                "coordinate_space": "AppKit screen coordinates (bottom-left)",
+                "window_identity": String(describing: ObjectIdentifier(window)), "bounds": ElementCapture.box(contentFrame)],
             "native_structure": NativeElementStructure.evidence(self, parent: nil), "errors": []]
     }
 }

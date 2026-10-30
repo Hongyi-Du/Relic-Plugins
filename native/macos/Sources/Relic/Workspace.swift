@@ -160,6 +160,7 @@ struct FileTree: View {
         VStack(alignment: .leading, spacing: 0) {
             Rows(entries) { entry in
                 let open = expanded.contains(entry["path"].text)
+                let identity = "relic-list-row/file/" + entry["path"].text
                 Button {
                     if entry["dir"].flag { if open { expanded.remove(entry["path"].text) } else { expanded.insert(entry["path"].text) } }
                     else { m.run { try await m.openFile(entry["path"].text) } }
@@ -172,6 +173,8 @@ struct FileTree: View {
                     }.padding(.leading, CGFloat(depth * 14 + 4)).padding(.trailing, 6).frame(height: 26)
                         .modifier(RecordedSurface(background: .clear, radius: 6, expanded: entry["dir"].flag ? open : nil))
                 }.buttonStyle(FileRowStyle()).help(entry["path"].text)
+                    .accessibilityIdentifier(identity).accessibilityLabel(entry["name"].text)
+                    .environment(\.nativeElementParent, identity)
                 if entry["dir"].flag && open && !ancestors.union([path]).contains(entry["path"].text) {
                     AnyView(FileTree(path: entry["path"].text, ancestors: ancestors.union([path]), depth: depth + 1))
                 }
@@ -213,7 +216,7 @@ struct FilePreview: View {
             IconButton(title: m.t("file.copy_path"), icon: "copy", size: 15) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
             IconButton(title: m.t("file.open_default"), icon: "open", size: 15) { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
         }.padding(.leading, 14).padding(.trailing, 8).padding(.top, 10).padding(.bottom, 10)
-            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
     }
     @ViewBuilder private var contents: some View {
         if !m.file["error"].text.isEmpty { OverviewBlock { ReferenceLabel(m.t("file.open_failed", ["error": m.file["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) } }

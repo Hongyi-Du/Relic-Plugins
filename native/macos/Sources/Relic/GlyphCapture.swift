@@ -135,6 +135,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
         // ink outside the view. Preserve the original placement by applying
         // the inverse of the very matrix that CoreGraphics will apply.
         let textPositions = userPositions.map { $0.applying(glyphMatrix.inverted()) }
+        let colorGlyphs = CTFontGetSymbolicTraits(font as CTFont).contains(.traitColorGlyphs)
         NativeTextRasterization.begin(context)
         defer {
             if captureCallbackBitmap { lastCallbackBitmap = context.makeImage() }
@@ -159,6 +160,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "source_glyph_range": activeRange.map { ["location": $0.location, "length": $0.length] } as Any? ?? NSNull(),
                 "positions_user_space": userPositions.map { ["x": $0.x, "y": $0.y] },
                 "submitted_positions_text_space": drawsGlyphsIntoCurrentContext ? textPositions.map { ["x": $0.x, "y": $0.y] } as Any : NSNull(),
+                "actual_font_contains_color_glyphs": colorGlyphs,
                 "font_glyph_bounds": glyphBounds.map(box), "text_matrix": transform(textMatrix), "context_ctm": transform(context.ctm),
                 "clip_user_space": box(context.boundingBoxOfClipPath),
                 "actual_font": ["postscript_name": font.fontName, "family_name": font.familyName as Any? ?? NSNull(), "size": font.pointSize,
@@ -169,7 +171,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "attribute_font": (attributes[.font] as? NSFont)?.fontName as Any? ?? NSNull(),
                 "foreground": foreground, "rasterization_inputs": NativeTextRasterization.inputs,
                 "bitmap_width": context.width, "bitmap_height": context.height,
-                "renderer": drawsGlyphsIntoCurrentContext ? "CGContext.showGlyphs with actual TextKit font, size, matrix and inverse-mapped text-space positions" : "NSLayoutManager.showCGGlyphs"])
+                "renderer": drawsGlyphsIntoCurrentContext ? (colorGlyphs ? "CTFontDrawGlyphs with actual color font and inverse-mapped text-space positions" : "CGContext.showGlyphs with actual TextKit font, size, matrix and inverse-mapped text-space positions") : "NSLayoutManager.showCGGlyphs"])
         }
         if drawsGlyphsIntoCurrentContext {
             // Explicitly configure the callback's actual substituted font,
@@ -186,8 +188,16 @@ class NativeGlyphLayoutManager: NSLayoutManager {
             if let foreground = attributes[.foregroundColor] as? NSColor {
                 context.setFillColor(foreground.cgColor)
             }
-            context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)),
-                               at: textPositions)
+            if colorGlyphs {
+                // CGFont's outline primitive omits sbix/COLR/SVG color glyphs.
+                // CoreText retains the actual substituted font and its color
+                // tables. As in WebKit's CoreText renderer, use the context's
+                // text matrix and inverse-mapped positions, not a second font
+                // matrix that applies the view's flip twice.
+                CTFontDrawGlyphs(font as CTFont, glyphs, textPositions, glyphCount, context)
+            } else {
+                context.showGlyphs(Array(UnsafeBufferPointer(start: glyphs, count: glyphCount)), at: textPositions)
+            }
         } else {
             super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font, textMatrix: textMatrix, attributes: attributes, in: context)
         }

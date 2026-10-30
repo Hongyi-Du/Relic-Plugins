@@ -28,6 +28,9 @@ import AppKit
         window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         XCTAssertNotNil(view.observation()["current_draw"] as? [String: Any])
+        let basis = try XCTUnwrap(view.observation()["content_screen_frame"] as? [String: Any])
+        XCTAssertEqual(basis["window_identity"] as? String, String(describing: ObjectIdentifier(window)))
+        XCTAssertEqual(ElementCapture.rect(basis["bounds"]), window.convertToScreen(view.convert(view.bounds, to: nil)))
         view.configure(font: font, color: .red, region: "right-pane")
         XCTAssertTrue(view.observation()["current_draw"] is NSNull, "A changed marker paint must not reuse the earlier draw")
     }
