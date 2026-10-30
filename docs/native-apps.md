@@ -1,5 +1,31 @@
 # Native Relic App contract
 
+Changes for the clients (actual selected-tab labels): Windows captures the real
+SelectorBarItem.Tag / ContentPresenter.Content binding, complete current subtree
+and text getters. A single visible text source without nested interactive controls
+can belong to its tab even when its selected background/shadow is separate paint.
+All backgrounds, shadows, original nodes and unknown measurements are retained.
+Historical captures without this receipt are not retroactively filled.
+
+Changes for the clients (anonymous container correspondence): a container can
+be paired by its complete already-paired descendant set only when that signature
+is unique on both sides, in the same region/kind and nearest paired ancestor,
+with at least two independent descendant anchors. A button and its own icon are
+one anchor. Geometry/colors do not decide correspondence and still undergo the
+same comparisons. This addresses the real d59bede settings nav wrongly paired
+to an outer white Grid; two independent native white layers remain extras.
+
+Changes for the clients (one producer experiment, existing payload decoding):
+187667e's single 16MiB request produced real multi-megabyte Renderer SKPs. The
+headless file-code case has a payload between its PNG clock markers, but trace
+loss/discard errors remain. Chromium's three traces overflowed the central buffer
+and lost those markers. No canonical font/clip measurement is promoted. CI will
+decode the three saved Chromium cases plus the saved headless file-code case,
+without recapture or another buffer experiment. The explicit archive mode checks
+every original trace payload and alias; decoder reuse requires the same actual
+version/revision/platform/DEPS and retained build bytes. Old fixed-count mode is
+unchanged. Per-channel attempts and original trace failures stay in the artifact.
+
 Changes for the clients (Windows retained logo clip): the existing production
 logo-clip assignment now retains its actual Image, XamlRoot and backing Visual.
 Unload invalidates the binding. Authoritative capture reads only those retained

@@ -11,7 +11,7 @@ import time
 import urllib.request
 
 from contract import (CHROMIUM_DEPS_URL, SKIA_REPOSITORY, SKIA_REVISION, browser_binding,
-                      read_json, require_ci, selected_dependencies, write_json)
+                      decoder_fingerprint, read_json, require_ci, selected_dependencies, write_json)
 from source_contract import check_source_contract
 
 GN_ARGS = " ".join((
@@ -133,6 +133,8 @@ def main() -> int:
         if not executable.is_file():
             raise RuntimeError("Build did not produce the requested executable")
         shutil.copyfile(executable, output / executable.name)
+        receipt["decoder_fingerprint"] = decoder_fingerprint(output / executable.name,
+            source / "relic_skp_probe.cpp", Path(__file__), receipt)
         receipt.update(status="built", executable=executable.name)
     except Exception as exc:
         receipt["errors"].append(f"{type(exc).__name__}: {exc}")

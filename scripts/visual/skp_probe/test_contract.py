@@ -12,7 +12,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from contract import (CHROMIUM_REVISION, DEPENDENCIES, EXISTING_BATCH, SKIA_REVISION, browser_binding,
-                      inventory_pictures, require_ci, require_existing_batch, select_picture, selected_dependencies)
+                      archive_build_compatibility, decoder_fingerprint, inventory_pictures, require_archive_batch,
+                      require_ci, require_existing_batch, select_picture, selected_dependencies)
 from source_contract import check_source_contract
 import run_ci
 
@@ -217,6 +218,60 @@ class SkpBatchContracts(unittest.TestCase):
             with self.subTest(quantity=key), self.assertRaisesRegex(ValueError, "existing 81e93ac inventory"):
                 require_existing_batch(changed)
 
+    def test_explicit_archive_accepts_complete_new_inventory_without_reinterpreting_trace_loss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            case, _, _, loss = self.fixture(directory)
+            inventory = inventory_pictures(case)
+            original = copy.deepcopy(inventory)
+            require_archive_batch(inventory)
+            self.assertEqual(inventory, original)
+            self.assertEqual(inventory["trace_diagnostics"], loss)
+            self.assertFalse(inventory["trace_completeness_proven"])
+            self.assertIsNone(inventory["final_png_attribution"])
+            with self.assertRaisesRegex(ValueError, "existing 81e93ac"):
+                require_existing_batch(inventory)
+
+    def test_archive_rejects_subselected_or_unindexed_actual_trace_payloads(self):
+        for fault in ["omitted-index-entry", "new-unindexed-payload"]:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                case, entries, trace, _ = self.fixture(directory)
+                if fault == "omitted-index-entry":
+                    index = json.loads((case / "pictures.json").read_text())
+                    index["pictures"].pop()
+                    (case / "pictures.json").write_text(json.dumps(index))
+                else:
+                    trace["traceEvents"][0]["args"]["unindexed"] = {"skp64": "c2tpYXBpY3Q="}
+                    (case / "trace.json").write_text(json.dumps(trace))
+                inventory = inventory_pictures(case)
+                # All still-indexed byte aliases validate; completeness must
+                # independently reject the omitted payload instead of passing.
+                self.assertEqual(inventory["input_errors"], [])
+                with self.assertRaisesRegex(ValueError, "every actual trace"):
+                    require_archive_batch(inventory)
+
+    def test_archive_rejects_bad_alias_membership_counts_hashes_and_extraction_gaps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            case, *_ = self.fixture(directory)
+            inventory = inventory_pictures(case)
+        for fault in ["membership", "repeated-membership", "count", "sha", "bytes", "extraction", "unknown-extraction"]:
+            changed = copy.deepcopy(inventory)
+            if fault == "membership":
+                changed["unique_inputs"][0]["alias_indexes"].pop()
+            elif fault == "repeated-membership":
+                changed["unique_inputs"][0]["alias_indexes"].append(0)
+            elif fault == "count":
+                changed["counts"]["total_bytes"] -= 1
+            elif fault == "sha":
+                changed["aliases"][0]["sha256"] = "0" * 64
+            elif fault == "bytes":
+                changed["unique_inputs"][0]["byte_count"] -= 1
+            elif fault == "extraction":
+                changed["original_picture_extraction_errors"] = ["actual undecodable skp64"]
+            else:
+                changed["original_picture_extraction_errors"] = None
+            with self.subTest(fault=fault), self.assertRaises(ValueError):
+                require_archive_batch(changed)
+
     def test_failed_unique_decode_does_not_stop_later_unique_or_discard_no_text_and_aliases(self):
         with tempfile.TemporaryDirectory() as directory:
             case, *_ = self.fixture(directory)
@@ -280,6 +335,94 @@ class SkpBatchContracts(unittest.TestCase):
             self.assertEqual(call.call_count, 2)
             self.assertIn("input changed", result["unique_results"][0]["error"])
             self.assertEqual(result["failed_count"], 1)
+
+
+class ArchiveBuildContracts(unittest.TestCase):
+    """Synthetic build bytes plus recorded full-version/channel field values."""
+
+    def fixture(self, directory):
+        root = Path(directory)
+        build_dir, source = root / "build", root / "source"
+        build_dir.mkdir()
+        source.mkdir()
+        (build_dir / "decoder.exe").write_bytes(b"synthetic executable bytes; never run")
+        (source / "probe.cpp").write_bytes(b"synthetic decoder source")
+        (source / "build_ci.py").write_bytes(b"synthetic build source")
+        # Fields recorded from 187667e Windows Chromium/group and
+        # headless-shell/file-code browser.json. Categories are irrelevant to
+        # decoder compilation but must remain untouched in both raw receipts.
+        browser = {"playwright_browser_version": "156.0.8078.4", "host_platform": "win32",
+            "cdp": {"product": "Chrome/156.0.8078.4", "revision": "@" + CHROMIUM_REVISION,
+                    "protocolVersion": "1.3", "jsVersion": "15.6.75"}, "categories": {"categories": []}}
+        other = copy.deepcopy(browser)
+        other["cdp"]["product"] = "HeadlessChrome/156.0.8078.4"
+        other["categories"]["categories"] = ["fixture-retained-category"]
+        deps = "'skia_revision': '" + SKIA_REVISION + "',\n"
+        binding = browser_binding(other, deps)
+        build = {"status": "built", "errors": [], "executable": "decoder.exe",
+            "source_binding": browser_binding(browser, deps), "actual_skia_checkout_revision": SKIA_REVISION,
+            "gn_args": "synthetic args", "selected_official_dependencies": {
+                name: "https://skia.googlesource.com/fixture@" + SKIA_REVISION for name in DEPENDENCIES},
+            "actual_dependency_revisions": {name: SKIA_REVISION for name in DEPENDENCIES}}
+        build["decoder_fingerprint"] = decoder_fingerprint(build_dir / "decoder.exe", source / "probe.cpp",
+                                                           source / "build_ci.py", build)
+        return build, binding, build_dir, source
+
+    def test_same_actual_build_accepts_channel_metadata_difference_and_keeps_both_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build, binding, build_dir, source = self.fixture(directory)
+            original = copy.deepcopy((build, binding))
+            result = archive_build_compatibility(build, binding, build_dir, source)
+            self.assertEqual(result["status"], "compatible-decoder-build")
+            self.assertEqual(result["errors"], [])
+            self.assertEqual(result["build_source_binding"], build["source_binding"])
+            self.assertEqual(result["capture_source_binding"], binding)
+            self.assertIn("cdp", result["browser_differences"])
+            self.assertIn("categories", result["browser_differences"])
+            self.assertEqual((build, binding), original)
+
+    def test_different_or_unknown_full_version_revision_platform_deps_cannot_reuse_binary(self):
+        for fault in ["version", "missing-version", "revision", "platform", "deps", "skia", "dependency"]:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                build, binding, build_dir, source = self.fixture(directory)
+                if fault == "version":
+                    binding["browser"]["playwright_browser_version"] = "156.0.8078.5"
+                    binding["browser"]["cdp"]["product"] = "HeadlessChrome/156.0.8078.5"
+                elif fault == "missing-version":
+                    del binding["browser"]["playwright_browser_version"]
+                elif fault == "revision":
+                    binding["browser"]["cdp"]["revision"] = "@" + "0" * 40
+                elif fault == "platform":
+                    binding["browser"]["host_platform"] = "darwin"
+                elif fault == "deps":
+                    binding["chromium_deps_sha256"] = "0" * 64
+                elif fault == "skia":
+                    binding["skia_revision"] = "0" * 40
+                else:
+                    build["actual_dependency_revisions"][DEPENDENCIES[0]] = "0" * 40
+                result = archive_build_compatibility(build, binding, build_dir, source)
+                self.assertEqual(result["status"], "failed")
+                self.assertTrue(result["errors"])
+
+    def test_changed_binary_probe_builder_configuration_or_absent_fingerprint_cannot_pass(self):
+        for fault in ["binary", "probe", "builder", "configuration", "missing-fingerprint", "missing-binary"]:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                build, binding, build_dir, source = self.fixture(directory)
+                if fault == "binary":
+                    (build_dir / "decoder.exe").write_bytes(b"different actual binary")
+                elif fault == "probe":
+                    (source / "probe.cpp").write_bytes(b"different actual source")
+                elif fault == "builder":
+                    (source / "build_ci.py").write_bytes(b"different actual builder")
+                elif fault == "configuration":
+                    build["gn_args"] += " changed=1"
+                elif fault == "missing-fingerprint":
+                    del build["decoder_fingerprint"]
+                else:
+                    (build_dir / "decoder.exe").unlink()
+                result = archive_build_compatibility(build, binding, build_dir, source)
+                self.assertEqual(result["status"], "failed")
+                self.assertTrue(result["errors"])
 
 
 if __name__ == "__main__":

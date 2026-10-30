@@ -310,6 +310,7 @@ public sealed partial class MainWindow
         CaptureNativeTextareaPlaceholders(renderIds, renderNodes);
         CaptureNativeAvatarParts(renderIds, renderNodes);
         CaptureNativeInsetShadows(renderIds, renderNodes);
+        CaptureSelectorContentBindings(renderIds, renderNodes);
         // Bind the retained badge by actual object identity only after its
         // independent visual record exists. Role badges are not unread badges.
         foreach (var (value, record) in renderNodes)

@@ -29,6 +29,7 @@ from windows_inset_shadow import windows_inset_shadows
 from windows_textarea_placeholder import textarea_placeholder_styles, apply_textarea_placeholder_style
 from windows_composition_clip import composition_clip, apply_composition_clip
 from native_path_source import native_path_source_contract, native_path_iterator
+from windows_selector_labels import selector_content_labels, selector_label_candidate
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -2107,6 +2108,8 @@ def project(xaml_path, uia_path, png_path):
     if not source_raw or not uia.get("raw_nodes"):
         errors.append("Independent UIA and XAML source trees must both be nonempty")
     raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
+    selector_labels = selector_content_labels(source_raw)
+    unmeasured.extend(selector_labels["unmeasured"])
     by_id = {n["id"]: n for n in raw}
     fenced_blocks = markdown_fenced_blocks(raw, by_id, unmeasured)
     state_dot_layers = state_dot_paint_layers(raw, by_id, unmeasured)
@@ -2222,7 +2225,16 @@ def project(xaml_path, uia_path, png_path):
                                           and child["style"]["border_width"] > 0)
                                      for child in descendants(node))
         compound = distinct_semantics or distinct_content_paint and node["type"] not in AVATAR_TYPES
-        if len(labels) == 1 and not compound and (control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
+        selector_audit = selector_labels["audits"].get(node["id"])
+        selector_label = selector_label_candidate(selector_audit, labels, distinct_semantics)
+        if selector_label is not None:
+            control_label[node["id"]] = selector_label
+            owned[selector_label["id"]] = (node["id"], "actual current SelectorBarItem content label")
+        elif selector_audit is not None:
+            if selector_audit["status"] == "measured":
+                unmeasured.append({"id": node["id"], "property": "selector.content_label",
+                                   "reason": "Bound content has no sole visible text source or contains independent semantic controls"})
+        elif len(labels) == 1 and not compound and (control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -2727,6 +2739,7 @@ def project(xaml_path, uia_path, png_path):
                                 "native_label_text_quantity": submitted_label_text,
                                 "native_label_fonts": submitted_label_fonts,
                                 "label_source": label["id"] if label else None,
+                                "selector_content_label": copy.deepcopy(selector_labels["audits"].get(node["id"])),
                                 "textarea_placeholder_style": copy.deepcopy(placeholder_style),
                                 "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,

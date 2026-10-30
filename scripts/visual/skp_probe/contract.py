@@ -52,6 +52,68 @@ def browser_binding(browser: dict, chromium_deps: str) -> dict:
             "skia_revision": matches[0], "typeface_decoder": "pinned Skia DirectWrite, no last-resort FontMgr"}
 
 
+def decoder_fingerprint(executable: Path, probe: Path, builder: Path, build: dict) -> dict:
+    configuration = {key: build.get(key) for key in ("gn_args", "actual_skia_checkout_revision",
+                    "selected_official_dependencies", "actual_dependency_revisions", "source_binding")}
+    return {"schema": "actual-skp-build-bytes-v1",
+            "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+            "probe_source_sha256": hashlib.sha256(probe.read_bytes()).hexdigest(),
+            "builder_source_sha256": hashlib.sha256(builder.read_bytes()).hexdigest(),
+            "build_configuration_sha256": hashlib.sha256(json.dumps(configuration, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}
+
+
+def archive_build_compatibility(build: dict, binding: dict, directory: Path, source: Path) -> dict:
+    """Check decoder build identity, preserving channel-specific browser facts."""
+    built = build.get("source_binding", {})
+    result = {"status": "failed", "build_source_binding": copy.deepcopy(built),
+              "capture_source_binding": copy.deepcopy(binding), "browser_differences": {},
+              "observed_fingerprint": None, "errors": [], "canonical_output": False}
+    def fail(reason):
+        result["errors"].append(reason)
+    if build.get("status") != "built" or build.get("errors") != []:
+        fail("Decoder build is not an error-free completed build")
+    build_browser, capture_browser = built.get("browser", {}), binding.get("browser", {})
+    for key in set(build_browser) | set(capture_browser):
+        if build_browser.get(key) != capture_browser.get(key):
+            result["browser_differences"][key] = {"build": copy.deepcopy(build_browser.get(key)),
+                                                "capture": copy.deepcopy(capture_browser.get(key))}
+    versions = []
+    for label, browser in (("build", build_browser), ("capture", capture_browser)):
+        cdp = browser.get("cdp", {})
+        match = re.fullmatch(r"(?:Chrome|HeadlessChrome)/(\d+\.\d+\.\d+\.\d+)", cdp.get("product", ""))
+        version = match.group(1) if match else None
+        versions.append(version)
+        if not version or browser.get("playwright_browser_version") != version:
+            fail(f"{label}: actual full browser versions are missing or disagree")
+        if browser.get("host_platform") != "win32" or cdp.get("revision") != "@" + CHROMIUM_REVISION:
+            fail(f"{label}: actual platform/revision does not match the pinned Windows decoder")
+    if versions[0] != versions[1]:
+        fail("Build and capture full browser versions differ")
+    for key in ("chromium_revision", "chromium_deps_url", "chromium_deps_sha256", "skia_revision", "typeface_decoder"):
+        if not built.get(key) or built.get(key) != binding.get(key):
+            fail("Build and capture identity differs or is unavailable: " + key)
+    if build.get("actual_skia_checkout_revision") != SKIA_REVISION or not build.get("gn_args"):
+        fail("Actual pinned Skia checkout/build arguments are missing")
+    dependencies = build.get("selected_official_dependencies", {})
+    actual_dependencies = build.get("actual_dependency_revisions", {})
+    if set(dependencies) != set(DEPENDENCIES) or any(
+            actual_dependencies.get(name) != dependencies[name].rsplit("@", 1)[-1] for name in dependencies):
+        fail("Actual decoder dependencies do not match the recorded official revisions")
+    try:
+        executable = (directory / build["executable"]).resolve()
+        if not executable.is_relative_to(directory.resolve()):
+            raise ValueError("Decoder executable leaves its build directory")
+        observed = decoder_fingerprint(executable, source / "probe.cpp", source / "build_ci.py", build)
+        result["observed_fingerprint"] = observed
+        if build.get("decoder_fingerprint") != observed:
+            fail("Actual decoder binary/source bytes do not match their completed build fingerprint")
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        fail("Decoder fingerprint unavailable: " + str(error))
+    result["reason"] = "Compatibility uses actual full version/revision/platform, official DEPS, dependency revisions, and decoder build bytes; product channel/user-agent/category differences remain raw and are not rendering equivalence."
+    result["status"] = "compatible-decoder-build" if not result["errors"] else "failed"
+    return result
+
+
 def selected_dependencies(deps_source: str) -> dict:
     """Read only literal official entries; never exec a remotely retrieved DEPS file here."""
     result = {}
@@ -93,6 +155,19 @@ def _json_pointer(value, pointer):
         token = token.replace("~1", "/").replace("~0", "~")
         value = value[int(token)] if isinstance(value, list) else value[token]
     return value
+
+
+def _skp_pointers(value, pointer):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            location = pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+            if key == "skp64":
+                yield location
+            else:
+                yield from _skp_pointers(child, location)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _skp_pointers(child, pointer + "/" + str(index))
 
 
 def inventory_pictures(case: Path) -> dict:
@@ -179,6 +254,8 @@ def inventory_pictures(case: Path) -> dict:
               "maximum_picture_bytes": max((item["byte_count"] for item in uniques), default=0),
               "trace_event_count": len(events)}
     return {"contract": "all-existing-skp-byte-identities-v1", "counts": counts, "aliases": aliases, "unique_inputs": uniques,
+            "payload_coverage": {"actual_trace_pointers": list(_skp_pointers(events, "/traceEvents")),
+                                 "indexed_pointers": [entry.get("trace_json_pointer") if isinstance(entry, dict) else None for entry in entries]},
             "input_errors": errors, "original_picture_extraction_errors": copy.deepcopy(index.get("errors")),
             "trace_metadata_events": metadata, "trace_flow_events": flows,
             "flow_association_quantity": "Actual coincident trace name/PID/TID/timestamp indexes, not DOM or final-frame attribution",
@@ -195,3 +272,40 @@ def require_existing_batch(inventory: dict) -> None:
                   if actual.get(key) != expected}
     if mismatches:
         raise ValueError(f"This bounded diagnostic requires the existing 81e93ac inventory, not a different/subselected capture: {mismatches}")
+
+
+def require_archive_batch(inventory: dict) -> None:
+    """Accept a new archived case only when every original payload is bound."""
+    if inventory.get("input_errors") != [] or inventory.get("original_picture_extraction_errors") != []:
+        raise ValueError("Archived input has failed or unknown original payload bindings/extraction")
+    aliases, unique = inventory.get("aliases", []), inventory.get("unique_inputs", [])
+    coverage = inventory.get("payload_coverage", {})
+    actual_pointers, indexed = coverage.get("actual_trace_pointers"), coverage.get("indexed_pointers")
+    if not aliases or not isinstance(actual_pointers, list) or actual_pointers != indexed or len(actual_pointers) != len(aliases):
+        raise ValueError("Archived index must cover every actual trace skp64 payload in original order")
+    if len(set(actual_pointers)) != len(actual_pointers):
+        raise ValueError("Archived payload pointers are duplicated")
+    membership = []
+    for index, item in enumerate(unique):
+        ids = item.get("alias_indexes", [])
+        if item.get("unique_index") != index or not ids or item.get("input_status") != "verified-original-bytes":
+            raise ValueError("Archived unique byte grouping is incomplete")
+        membership.extend(ids)
+        for alias_index in ids:
+            if type(alias_index) is not int or not 0 <= alias_index < len(aliases):
+                raise ValueError("Archived alias membership is invalid")
+            alias = aliases[alias_index]
+            if (alias.get("alias_index") != alias_index or alias.get("unique_index") != index or
+                    alias.get("status") != "verified-original-bytes" or alias.get("sha256") != item.get("sha256") or
+                    alias.get("byte_count") != item.get("byte_count")):
+                raise ValueError("Archived unique bytes and their original aliases disagree")
+        if item.get("representative_file") != aliases[ids[0]]["entry"]["file"]:
+            raise ValueError("Archived representative is not its original first alias")
+    if sorted(membership) != list(range(len(aliases))):
+        raise ValueError("Archived unique groups omit or repeat an original alias")
+    expected = {"alias_count": len(aliases), "verified_alias_count": len(aliases), "unique_count": len(unique),
+                "total_bytes": sum(row["byte_count"] for row in aliases),
+                "unique_bytes": sum(row["byte_count"] for row in unique),
+                "maximum_picture_bytes": max(row["byte_count"] for row in unique)}
+    if any(inventory.get("counts", {}).get(key) != value for key, value in expected.items()):
+        raise ValueError("Archived counts/bytes differ from the verified complete alias inventory")

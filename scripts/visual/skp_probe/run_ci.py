@@ -10,8 +10,8 @@ import subprocess
 import sys
 import time
 
-from contract import (browser_binding, inventory_pictures, read_json, require_ci,
-                      require_existing_batch, select_picture, write_json)
+from contract import (archive_build_compatibility, browser_binding, inventory_pictures, read_json, require_ci,
+                      require_archive_batch, require_existing_batch, select_picture, write_json)
 
 
 def retain_original_receipts(case: Path, output: Path) -> None:
@@ -19,7 +19,9 @@ def retain_original_receipts(case: Path, output: Path) -> None:
     original.mkdir()
     for name in ("browser.json", "pictures.json", "trace.json", "trace-diagnostics.json", "trace-complete.json",
                  "trace-markers.json", "layer-snapshots.json", "layer-events.json", "layer-boundaries.json",
-                 "layer-document.json", "trace-config.json", "target.json", "layout-metrics.json", "scene.png"):
+                 "layer-document.json", "trace-config.json", "target.json", "layout-metrics.json", "scene.png",
+                 "producer-smb-request.json", "producer-smb-receipt.json", "trace-category-selection.json",
+                 "diagnostic.json", "progress.json"):
         path = case / name
         if path.exists():
             shutil.copyfile(path, original / name)
@@ -68,7 +70,7 @@ def decode_one(executable: Path, picture: Path, output: Path, *, require_text: b
 def decode_all_unique(case: Path, executable: Path, output: Path, inventory: dict) -> dict:
     """Attempt every verified unique byte sequence, including failures/no-text.
 
-    main() validates the fixed original inventory before entering this helper.
+    main() validates the fixed original or explicit archive inventory first.
     Pure tests supply explicit synthetic inventories and mock subprocess.run.
     """
     result = {"status": "started", "started_unix": time.time(), "completed": False,
@@ -123,6 +125,8 @@ def main() -> int:
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--picture", help="Exact original pictures.json file field")
     selection.add_argument("--all-unique", action="store_true", help="All 118 unique byte sequences in the existing 81e93ac/group capture")
+    selection.add_argument("--archive-all-unique", action="store_true",
+                           help="All original trace payloads in this explicitly supplied archived case; no fixed historical counts")
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -133,22 +137,34 @@ def main() -> int:
     if any((output / name).exists() for name in ("raw.json", "diagnostic.json", "batch.json", "inventory.json", "original", "unique")):
         raise RuntimeError("Output contains an earlier attempt; keep it unchanged and use a new output directory")
     receipt = {"status": "started", "started_unix": time.time(), "errors": [],
+               "original_case_path": str(args.case.resolve()),
+               "selection_mode": "archive-all-unique" if args.archive_all_unique else "historical-fixed-or-single",
                "canonical_output": False, "final_png_attribution": None, "dom_source_attribution": None}
     try:
+        # Preserve the actual archived receipts even if compatibility fails.
+        retain_original_receipts(args.case, output)
         build = read_json(args.build / "build.json")
         binding = browser_binding(read_json(args.case / "browser.json"),
                                   (args.build / "chromium.DEPS").read_text(encoding="utf-8"))
-        if build.get("status") != "built" or build.get("source_binding") != binding:
+        if args.archive_all_unique:
+            compatibility = archive_build_compatibility(build, binding, args.build, Path(__file__).parent)
+            receipt["build_compatibility"] = compatibility
+            write_json(output / "build-compatibility.json", compatibility)
+            if compatibility["status"] != "compatible-decoder-build":
+                raise ValueError("Actual archived capture and decoder build are not proven compatible")
+        elif build.get("status") != "built" or build.get("source_binding") != binding:
             raise ValueError("Build and actual capture source bindings disagree")
         receipt["source_binding"] = binding
         # These are original receipts, not interpreted as final-frame ownership proof.
-        retain_original_receipts(args.case, output)
         write_json(output / "diagnostic.json", receipt)
         executable = (args.build / build["executable"]).resolve()
-        if args.all_unique:
+        if args.all_unique or args.archive_all_unique:
             inventory = inventory_pictures(args.case)
             write_json(output / "inventory.json", inventory)
-            require_existing_batch(inventory)
+            if args.archive_all_unique:
+                require_archive_batch(inventory)
+            else:
+                require_existing_batch(inventory)
             batch = decode_all_unique(args.case, executable, output, inventory)
             receipt["batch_file"] = "batch.json"
             receipt["batch_status"] = batch["status"]

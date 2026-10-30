@@ -142,13 +142,47 @@ jobs:
           name: paint-diagnostic-windows-chromium-en-US-light
           run-id: ${{ inputs.archive_run_id }}
           github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/skp-input
+          path: ${{ runner.temp }}/skp-input/chromium
+      - name: Download original Windows headless-shell paint diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: paint-diagnostic-windows-headless-shell-en-US-light
+          run-id: ${{ inputs.archive_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/skp-input/headless-shell
       - name: Test the isolated decoder input contracts without a browser
         run: python -m unittest discover -s scripts/visual/skp_probe -p test_contract.py -v
       - name: Build the actual captured browser's pinned Skia decoder
-        run: python scripts/visual/skp_probe/build_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
+        run: python scripts/visual/skp_probe/build_ci.py --case "$env:RUNNER_TEMP/skp-input/chromium/paint/en-US-light-1440x900-group" --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
       - name: Inspect every unique original paint record without rendering or changing canonical evidence
-        run: python scripts/visual/skp_probe/run_ci.py --case "$env:RUNNER_TEMP/skp-input/paint/en-US-light-1440x900-group" --all-unique --build artifacts/skp/build --output artifacts/skp/group
+        shell: python
+        env:
+          ARCHIVE_RUN_ID: ${{ inputs.archive_run_id }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          cases = [("chromium", "group"), ("chromium", "file-code"),
+                   ("chromium", "file-markdown"), ("headless-shell", "file-code")]
+          attempts = []
+          root = Path("artifacts/skp")
+          for channel, scene in cases:
+              case = Path(os.environ["RUNNER_TEMP"]) / "skp-input" / channel / "paint" / f"en-US-light-1440x900-{scene}"
+              output = root / channel / scene
+              attempt = {"run_id": os.environ["ARCHIVE_RUN_ID"],
+                  "source_artifact": f"paint-diagnostic-windows-{channel}-en-US-light",
+                  "case_path": str(case), "output_path": str(output), "status": "started"}
+              attempts.append(attempt)
+              (root / "archive-attempts.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
+              result = subprocess.run([sys.executable, "scripts/visual/skp_probe/run_ci.py",
+                  "--case", str(case), "--archive-all-unique", "--build", str(root / "build"),
+                  "--output", str(output)], check=False)
+              attempt.update(status="completed", exit_code=result.returncode)
+              (root / "archive-attempts.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
+          raise SystemExit(1 if any(item["exit_code"] for item in attempts) else 0)
       - name: Retain raw decoder results including failures
         if: always()
         uses: actions/upload-artifact@v4

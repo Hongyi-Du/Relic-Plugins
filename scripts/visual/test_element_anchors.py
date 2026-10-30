@@ -4,11 +4,83 @@ import json
 from pathlib import Path
 import unittest
 
-from element_anchors import anonymous_anchor_pairs
+from element_anchors import anonymous_anchor_pairs, descendant_anchor_pairs
 from element_parity import compare_elements, match_elements
 
 
 class AnonymousAnchorTests(unittest.TestCase):
+    @staticmethod
+    def settings_layers():
+        # Reduced d59bede settings tree topology. These are synthetic style-free
+        # records using the actual layer ids/parent relationships, not a golden
+        # paint measurement or a passing scene fixture.
+        def node(eid, parent, kind="card", text="", name=""):
+            return {"id": eid, "parent": parent, "region": "dialog", "kind": kind, "text": text, "name": name}
+        reference = [node("dom-494", None, "region", name="设置"), node("dom-495", "dom-494"),
+                     node("dom-496:text-0", "dom-495", "text", "设置"),
+                     node("dom-497", "dom-495", "tab", "个人资料"),
+                     node("dom-500", "dom-495", "tab", "外观"),
+                     node("dom-522:text-0", "dom-494", "text", "外观")]
+        native = [node("xaml-1242", None, "region", name="设置"), node("xaml-1251", "xaml-1242"),
+                  node("xaml-1255", "xaml-1251"), node("xaml-1256", "xaml-1255"),
+                  node("xaml-1258:run:0", "xaml-1256", "text", "设置"),
+                  node("xaml-1265", "xaml-1256", "tab", "个人资料"),
+                  node("xaml-1277", "xaml-1256", "tab", "外观"),
+                  node("xaml-1360:run:0", "xaml-1255", "text", "外观")]
+        for elements in reference, native:
+            for order, element in enumerate(elements): element["order"] = order
+        return reference, native
+
+    def test_unique_descendant_anchors_find_nav_without_consuming_real_white_layers(self):
+        reference, native = self.settings_layers(); original = deepcopy((reference, native))
+        mapped, missing, extra = self.mapping(reference, native)
+        self.assertEqual(mapped["dom-495"], "xaml-1256")
+        self.assertEqual([native[index]["id"] for index in extra], ["xaml-1251", "xaml-1255"])
+        self.assertEqual(missing, [])
+        self.assertEqual((reference, native), original)
+
+    def test_descendant_anchors_never_consider_box_color_or_child_reading_order(self):
+        reference, native = self.settings_layers()
+        for index, node in enumerate(native):
+            node.update(bounds={"x": index * 200, "width": 7}, style={"background": [1, 2, 3, 4]})
+        native[5]["order"], native[6]["order"] = native[6]["order"], native[5]["order"]
+        mapped, _, extra = self.mapping(reference, native)
+        self.assertEqual(mapped["dom-495"], "xaml-1256")
+        report = compare_elements(reference, native)
+        self.assertTrue(report["geometry_out_of_tolerance"])
+        self.assertTrue(report["order_mismatch"])
+        self.assertTrue(extra)
+
+    def test_identical_nested_wrapper_signatures_remain_ambiguous(self):
+        reference, native = self.settings_layers()
+        # Remove the matched main-pane descendant. All three native layers
+        # then enclose the same anchors; there is no unique actual nav owner.
+        pairs = [(0, 0), (2, 4), (3, 5), (4, 6)]
+        self.assertEqual(descendant_anchor_pairs(reference, native, pairs, {1}, {1, 2, 3}), [])
+
+    def test_one_anchor_and_its_nested_icon_do_not_supply_independent_support(self):
+        reference, native = self.settings_layers()
+        reference[4].update(parent=reference[3]["id"], kind="icon", text="")
+        native[6].update(parent=native[5]["id"], kind="icon", text="")
+        self.assertEqual(descendant_anchor_pairs(reference, native, [(0, 0), (3, 5), (4, 6), (5, 7)], {1}, {1, 2, 3}), [])
+
+    def test_foreign_region_known_parent_or_incomplete_descendant_set_never_pairs(self):
+        for change in ("region", "parent", "extra-anchor"):
+            with self.subTest(change=change):
+                reference, native = self.settings_layers()
+                pairs = [(0, 0), (2, 4), (3, 5), (4, 6), (5, 7)]
+                if change == "region": native[3]["region"] = "menu"
+                elif change == "parent": native[3]["parent"] = native[7]["id"]
+                else: native[7]["parent"] = native[3]["id"]
+                self.assertEqual(descendant_anchor_pairs(reference, native, pairs, {1}, {1, 2, 3}), [])
+
+    def test_duplicate_ids_and_cyclic_parent_chain_cannot_supply_ownership(self):
+        for change in ("duplicate", "cycle"):
+            reference, native = self.settings_layers()
+            if change == "duplicate": native.append(deepcopy(native[3]))
+            else: native[3]["parent"] = native[5]["id"]
+            self.assertEqual(descendant_anchor_pairs(reference, native, [(0, 0), (2, 4), (3, 5), (4, 6), (5, 7)], {1}, {1, 2, 3}), [])
+
     def recorded(self, scene):
         data = json.loads((Path(__file__).parent / "fixtures" / "anonymous_anchors_15581b1.json").read_text(encoding="utf-8"))
         return data["scenes"][scene]["reference-macos"], data["scenes"][scene]["macos"]
