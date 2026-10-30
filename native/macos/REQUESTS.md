@@ -1,3 +1,19 @@
+## 2026-10-30: owned-layer regression isolated from production
+
+Actual `0d3d681` smoke captures from run 41078665367 completed, but show blank
+ReferenceLabel text. Their actual glyph receipts are null. No bitmap success
+is claimed: the earlier direct-CGContext eight-fixture success did not validate
+the subsequent SwiftUI-hosted updateLayer lifecycle. `f538c9d` restores the
+previous production draw path and retains the owned-layer approach only as an
+explicit unit-test candidate. The original unknown ContentLayer drawing duty
+therefore remains an unresolved parity failure, without any allowlist.
+
+An additional test now mounts that candidate through the real ReferenceLabel /
+NSHostingView / cacheDisplay path, requires nonempty text pixels, and compares
+the full PNG against the existing painter. Candidate backing is explicitly
+enabled only after its source TextKit view has been initialized. The app still
+uses the previously validated drawing path until those mounted tests pass.
+
 ## 2026-10-30: live disclosure scroll and actual child ownership
 
 The `06b914e` live-tool-output action receipt records the clicked row at screen
