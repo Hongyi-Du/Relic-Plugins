@@ -124,14 +124,15 @@ struct OverviewPicker: View {
 struct OverviewRow<Leading: View, Trailing: View>: View {
     let title: String, subtitle: String
     var struck = false
+    var owner: String? = nil
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
     var body: some View {
         HStack(spacing: 9) {
             leading
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(RelicStyle.font(13, weight: 600)).strikethrough(struck).lineLimit(1).frame(minHeight: 20.8)
-                Text(subtitle).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
+                ReferenceLabel(title, size: 13, weight: 600, owner: owner, struck: struck).frame(minHeight: 20.8)
+                ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, owner: owner).frame(minHeight: 19.2)
             }.frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }.padding(.horizontal, 8).padding(.vertical, 6).padding(.horizontal, -8)

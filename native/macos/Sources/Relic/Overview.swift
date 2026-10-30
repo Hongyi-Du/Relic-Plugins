@@ -161,7 +161,7 @@ struct HierarchyView: View {
                 let child = org["children"].rows.first { $0["id"].text == group["id"].text }
                 let active = group["status"].text == "active"
                 let subtitle = active ? [group["leader"].text.isEmpty ? "" : m.t("org.leader_chip", ["name": group["leader"].text]), child.map { stats($0) } ?? ""].filter { !$0.isEmpty }.joined(separator: " · ") : m.t(group["status"].text == "closed" ? "org.status_closed" : "org.status_dissolved") + (group["ended_at"].text.isEmpty ? "" : " · " + m.shortWhen(group["ended_at"]))
-                childRow(group, subtitle: subtitle).recordedOpacity(active ? 1 : 0.6)
+                childRow(Node(group.object.merging(["kind": "subgroup"], uniquingKeysWith: { actual, _ in actual })), subtitle: subtitle).recordedOpacity(active ? 1 : 0.6)
             }
             if org["kind"].text == "subgroup" && active { Button(m.t("org.close_group"), role: .destructive) { close = true }.buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
         }.confirmationDialog(m.t("org.leader_confirm", ["name": m.name(leader), "org": org["name"].text]), isPresented: Binding(get: { !leader.isEmpty }, set: { if !$0 { leader = "" } })) {
@@ -171,13 +171,14 @@ struct HierarchyView: View {
         }
     }
     private func childRow(_ node: Node, subtitle: String) -> some View {
-        Button { m.run { try await m.select(node["id"].text) } } label: {
-            OverviewRow(title: node["name"].text, subtitle: subtitle) {
-                Text(String(node["name"].text.prefix(1)).uppercased()).font(RelicStyle.font(11, weight: 700)).frame(width: 22, height: 22)
-                    .foregroundStyle(RelicStyle.avatar(node["id"].text, background: false, dark: false))
-                    .modifier(RecordedSurface(background: RelicStyle.avatar(node["id"].text, background: true, dark: false), radius: 6))
+        let owner = "relic-row/hierarchy/" + node["id"].text
+        return Button { m.run { try await m.select(node["id"].text) } } label: {
+            OverviewRow(title: node["name"].text, subtitle: subtitle, owner: owner) {
+                OrganizationAvatar(node: node)
             } trailing: { Color.clear.frame(width: 0, height: 0) }
-        }.buttonStyle(QuietButtonStyle())
+                .environment(\.nativeElementParent, owner)
+        }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(owner)
+            .accessibilityLabel([OrganizationAvatar.initial(for: node), node["name"].text, subtitle].filter { !$0.isEmpty }.joined(separator: " "))
     }
 }
 

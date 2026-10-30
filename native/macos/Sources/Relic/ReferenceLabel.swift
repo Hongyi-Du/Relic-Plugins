@@ -14,14 +14,16 @@ struct ReferenceLabel: NSViewRepresentable {
     var owner: String? = nil
     var monospaced = false
     var pathWrapping = false
+    var struck = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
         self.pathWrapping = pathWrapping
+        self.struck = struck
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = makeLabelView()
@@ -53,7 +55,9 @@ struct ReferenceLabel: NSViewRepresentable {
         paragraph.minimumLineHeight = lineHeight ?? size * 1.6; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.alignment = alignment
         paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        return NSAttributedString(string: text, attributes: [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0, .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: monospaced ? 400 : weight])
+        var attributes: [NSAttributedString.Key: Any] = [.font: monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight), .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0, .relicLabelSpan: "uniform-production-label", .relicConfiguredFontWeight: monospaced ? 400 : weight]
+        if struck { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        return NSAttributedString(string: text, attributes: attributes)
     }
     func updateNSView(_ view: ReferenceLabelView, context: Context) {
         let value = attributedText
