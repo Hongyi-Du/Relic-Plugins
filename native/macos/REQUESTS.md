@@ -1,3 +1,18 @@
+## 2026-10-30: production composer glyph measurements
+
+Native apps c8ea3df run 41051300311 passes release compilation, tests and app
+packaging. The visual gate remains failed. The next change closes the composer
+input's missing actual text layout evidence: its production editor now explicitly
+owns a TextKit1 NativeGlyphLayoutManager, and its placeholder is an actual
+read-only TextKit child (no hit handling or separate accessible input), drawn
+instead of the previous NSAttributedString convenience draw. It follows the
+editor's actual padding, font, source, visible/empty state and native window.
+The real input owns that label's measured glyph span and preserves its AX hit
+box. Nonempty input reads its own native draw, retaining all raw spans; it only
+projects a single exact source-complete span. No substitute shaped string or
+reference measurements establish actual font/geometry. New mounted draw and
+placeholder-to-text transition tests await CI, as do visual/IME regressions.
+
 ## 2026-10-30: actual 3934d53 draw and scroll-focus receipts
 
 Downloaded actual 20-case smoke macOS/reference files to `parity-3934d53`.

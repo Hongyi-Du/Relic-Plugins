@@ -369,6 +369,7 @@ import CoreText
                     "screen_bounds": view.window.map { box($0.convertToScreen(view.convert(view.bounds, to: nil))) } as Any? ?? NSNull(),
                     "superview_identity": view.superview.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()]
             }
+            if let editor = object as? ComposerTextView { EditableTextCapture.attach(to: &node, view: editor, canvas: contentScreen) }
             let textView = (object as? NSTextView).flatMap { $0.isEditable || $0.textLayoutManager != nil ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
             if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }

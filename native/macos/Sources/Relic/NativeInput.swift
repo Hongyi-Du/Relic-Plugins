@@ -23,7 +23,7 @@ struct MentionEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = ComposerScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         scroll.hasHorizontalScroller = false
-        let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 26.4))
+        let editor = ComposerTextView.makeObserved(frame: NSRect(x: 0, y: 0, width: 400, height: 26.4))
         editor.drawsBackground = false; scroll.drawsBackground = false; editor.textColor = NSColor(RelicStyle.ink); editor.insertionPointColor = NSColor(RelicStyle.ink)
         editor.isRichText = false; editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isEditable = enabled; editor.isSelectable = enabled
@@ -38,7 +38,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.sendsOnReturn = sendsOnReturn
         editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
-        scroll.documentView = editor; return scroll
+        scroll.documentView = editor; editor.updatePlaceholder(); return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
@@ -54,9 +54,11 @@ struct MentionEditor: NSViewRepresentable {
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
         editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
         editor.typingAttributes[.tracking] = 0
-        editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0], range: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.typingAttributes[.relicConfiguredFontWeight] = 400
+        editor.typingAttributes[.relicLabelSpan] = "uniform-production-label"
+        editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0, .relicConfiguredFontWeight: 400, .relicLabelSpan: "uniform-production-label"], range: NSRange(location: 0, length: (editor.string as NSString).length))
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
-        editor.needsDisplay = true
+        editor.updatePlaceholder(); editor.needsDisplay = true
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let editor = nsView.documentView as? ComposerTextView else { return nil }
@@ -97,6 +99,8 @@ final class ComposerScrollView: NSScrollView {
 }
 
 final class ComposerTextView: NSTextView {
+    var observedStorage: NSTextStorage?
+    var placeholderView: ReferenceLabelView?
     // NSTextView's field-editor AX implementation can report disabled when this
     // standalone editor has no owning NSControl. Expose its actual editability.
     override func isAccessibilityEnabled() -> Bool { isEditable }
@@ -118,17 +122,16 @@ final class ComposerTextView: NSTextView {
     override func resignFirstResponder() -> Bool { let accepted = super.resignFirstResponder(); if accepted { focusChanged(false) }; return accepted }
     var placeholderAttributes: [NSAttributedString.Key: Any] {
         [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.placeholder),
-         .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0]
+         .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0,
+         .relicConfiguredFontWeight: 400, .relicLabelSpan: "uniform-production-label"]
     }
+    override func layout() { super.layout(); updatePlaceholder() }
+    override func didChangeText() { super.didChangeText(); updatePlaceholder() }
     override func draw(_ dirtyRect: NSRect) {
         let context = NSGraphicsContext.current?.cgContext
         if let context { NativeTextRasterization.begin(context) }
         defer { context?.restoreGState() }
         super.draw(dirtyRect)
-        if string.isEmpty {
-            NSAttributedString(string: placeholder, attributes: placeholderAttributes)
-                .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
-        }
     }
     var send: (() -> Void)?
     var onMention: ((String) -> Void)?
