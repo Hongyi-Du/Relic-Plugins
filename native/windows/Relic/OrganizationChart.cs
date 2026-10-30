@@ -35,7 +35,7 @@ public sealed partial class MainWindow
     {
         var label = OverviewText(value, size, weight: weight, lineHeight: size * 1.6);
         label.Foreground = foreground ?? Ink; label.TextWrapping = TextWrapping.NoWrap;
-        label.IsTextSelectionEnabled = false; return label;
+        label.IsTextSelectionEnabled = false; label.UseLayoutRounding = false; return label;
     }
 
     private async Task ShowChart(string focus = "")
@@ -135,12 +135,14 @@ public sealed partial class MainWindow
         foreach (var (kind, key) in new[] { ("", "org.kind_formal"), ("sub", "org.kind_subgroup"), ("cab", "org.cabinet_chip"), ("ended", "chart.legend_ended"), ("link", "chart.legend_shared") })
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            var swatch = new ChartLegendSwatch { Width = 18, Height = kind == "link" ? 1.5 : 12, VerticalAlignment = VerticalAlignment.Center };
-            if (kind == "link") swatch.Children.Add(new Line { X1 = 0, X2 = 18, Y1 = .75, Y2 = .75, Stroke = Paint("7058B8", "A894E0"), StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 3, 3 } });
-            else swatch.Children.Add(new Rectangle { Width = 18, Height = 12, RadiusX = 4, RadiusY = 4, StrokeThickness = 1.5,
+            // In the captured 1x reference, 1.5px CSS borders resolve to 1px.
+            // SVG edge/link strokes below retain their separate fractional widths.
+            var swatch = new ChartLegendSwatch { Width = 18, Height = kind == "link" ? 1 : 12, VerticalAlignment = VerticalAlignment.Center };
+            if (kind == "link") swatch.Children.Add(new Line { X1 = 0, X2 = 18, Y1 = .5, Y2 = .5, Stroke = Paint("7058B8", "A894E0"), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4.5, 4.5 } });
+            else swatch.Children.Add(new Rectangle { Width = 18, Height = 12, RadiusX = 4, RadiusY = 4, StrokeThickness = 1,
                 Stroke = kind == "cab" ? Paint("7058B8", "A894E0") : kind == "ended" ? Paint("B8B5AF", "5F5D58") : Muted,
                 Fill = kind == "cab" ? Paint("EFEBF8", "2E2A3D") : kind == "ended" ? Paint("EFEEEA", "262624") : Paint("FFFFFF", "252523"),
-                StrokeDashArray = kind == "sub" ? new DoubleCollection { 3, 3 } : null });
+                StrokeDashArray = kind == "sub" ? new DoubleCollection { 4.5, 4.5 } : null });
             row.Children.Add(swatch); row.Children.Add(ChartText(T(key), 12, Muted)); legend.Children.Add(row);
         }
         legend.Children.Add(hint);
@@ -268,10 +270,12 @@ public sealed partial class MainWindow
                     {
                         var ink = Color(kind == "cab" || kind == "sec" ? Paint("7058B8", "A894E0") : kind == "warn" ? Paint("B7791F", "E2B15A") : Paint("5A5853", "B8B5AE"));
                         var background = Color(kind == "cab" || kind == "sec" ? Paint("EFEBF8", "2E2A3D") : kind == "warn" ? Paint("FBF3E2", "3A3020") : Paint("EFEEEA", "262624"));
-                        return new OverviewChipView { Content = ChartText(value, 10.5, ink, strong ? (ushort)600 : (ushort)400), Foreground = ink, FontSize = 10.5, Background = background,
-                            Height = 16.8, Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(10), VerticalAlignment = VerticalAlignment.Center };
+                        var text = ChartText(value, 10.5, ink, strong ? (ushort)600 : (ushort)400);
+                        text.LineHeight = 20; // .oc-node .chip retains .chip's fixed line-height.
+                        return new OverviewChipView { Content = text, Foreground = ink, FontSize = 10.5, Background = background,
+                            Height = 20, Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(10), VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
                     }
-                    var nameRow = new Grid { ColumnSpacing = 6, Height = 22 };
+                    var nameRow = new Grid { ColumnSpacing = 6, Height = 22, UseLayoutRounding = false };
                     nameRow.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); nameRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
                     var badge = SidebarOrgFace(item); nameRow.Children.Add(badge);
                     var name = ChartText(item.Text("name"), 13, Color(Ink), 650); name.TextTrimming = TextTrimming.CharacterEllipsis; name.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(name, 1); nameRow.Children.Add(name);
@@ -280,18 +284,18 @@ public sealed partial class MainWindow
                     if (item.Text("kind") == "subgroup") NameChip(T("org.kind_subgroup"));
                     if (ended) NameChip(T(item.Text("status") == "closed" ? "org.status_closed" : "org.status_dissolved"));
                     var leadLine = ChartText(lead, 11.5, ink2); leadLine.TextTrimming = TextTrimming.CharacterEllipsis;
-                    var counts = new Grid { ColumnSpacing = 6, Height = 18.4 };
+                    var counts = new Grid { ColumnSpacing = 6, Height = 20, UseLayoutRounding = false };
                     counts.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); counts.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); counts.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); counts.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                    var members = ChartText(T("common.members", ("n", item.Text("members"))), 11.5, ink2); members.TextTrimming = TextTrimming.CharacterEllipsis; counts.Children.Add(members);
+                    var members = ChartText(T("common.members", ("n", item.Text("members"))), 11.5, ink2); members.TextTrimming = TextTrimming.CharacterEllipsis; members.VerticalAlignment = VerticalAlignment.Center; counts.Children.Add(members);
                     var decisions = Chip(T("chart.decisions", ("n", item.Text("decisions"))), int.TryParse(item.Text("decisions"), out var count) && count > 0 ? "warn" : ""); Grid.SetColumn(decisions, 1); counts.Children.Add(decisions);
                     if (here.Count > 0) { var shared = Chip(T("chart.shared", ("n", here.Count)), "sec"); Grid.SetColumn(shared, 2); counts.Children.Add(shared); }
-                    var contents = new Grid { RowSpacing = 4, Height = 66.8, VerticalAlignment = VerticalAlignment.Center };
-                    contents.RowDefinitions.Add(new() { Height = new GridLength(22) }); contents.RowDefinitions.Add(new() { Height = new GridLength(18.4) }); contents.RowDefinitions.Add(new() { Height = new GridLength(18.4) });
+                    var contents = new Grid { RowSpacing = 4, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
+                    contents.RowDefinitions.Add(new() { Height = GridLength.Auto }); contents.RowDefinitions.Add(new() { Height = GridLength.Auto }); contents.RowDefinitions.Add(new() { Height = GridLength.Auto });
                     contents.Children.Add(nameRow); Grid.SetRow(leadLine, 1); contents.Children.Add(leadLine); Grid.SetRow(counts, 2); contents.Children.Add(counts);
                     var fill = item.Flag("cabinet") ? Paint("F3F0FA", "2C2937") : Paint("FFFFFF", "252523");
                     var stroke = Color(item.Flag("cabinet") ? Paint("7058B8", "A894E0") : Paint("DEDBD4", "3A3936"));
                     var button = new ChartNodeButton { Content = contents, Width = point.Width, Height = ChartHeight, IsCurrent = id == org, Background = Color(fill), Foreground = Color(Ink),
-                        BorderThickness = new Thickness(1.5), BorderBrush = new SolidColorBrush(Colors.Transparent), Padding = new Thickness(11, 0, 11, 0), CornerRadius = new CornerRadius(12),
+                        BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Colors.Transparent), Padding = new Thickness(11, 0, 11, 0), CornerRadius = new CornerRadius(12), UseLayoutRounding = false,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, MinWidth = 0, MinHeight = 0,
                         Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Center'/></Border></ControlTemplate>") };
                     label.Add(lead); label.Add(members.Text); label.Add(T("chart.decisions", ("n", item.Text("decisions")))); if (here.Count > 0) label.Add(T("chart.shared", ("n", here.Count)));
@@ -301,10 +305,10 @@ public sealed partial class MainWindow
                     var surface = new Grid { Width = point.Width, Height = ChartHeight, Opacity = ended ? .5 : 1 };
                     if (id == org) surface.Children.Add(new Border { Margin = new Thickness(-3), CornerRadius = new CornerRadius(15), BorderThickness = new Thickness(3), BorderBrush = Color(OverviewAlpha(Accent, .4)), IsHitTestVisible = false });
                     surface.Children.Add(button);
-                    var border = new Rectangle { Stroke = stroke, StrokeThickness = 1.5, RadiusX = 12, RadiusY = 12, IsHitTestVisible = false };
-                    // XAML dash lengths are multiples of StrokeThickness; SVG's
-                    // lengths are absolute CSS pixels.
-                    if (item.Text("kind") == "subgroup") border.StrokeDashArray = new DoubleCollection { 3, 3 };
+                    var border = new Rectangle { Stroke = stroke, StrokeThickness = 1, RadiusX = 12, RadiusY = 12, IsHitTestVisible = false };
+                    // Preserve the existing native 4.5px dash lengths while fixing
+                    // border width. CSS border dash segments/phase remain unmeasured.
+                    if (item.Text("kind") == "subgroup") border.StrokeDashArray = new DoubleCollection { 4.5, 4.5 };
                     surface.Children.Add(border); controls[id] = button; borders[id] = (border, stroke);
                     button.PointerEntered += (_, _) => { border.Stroke = Color(Muted); Highlight(id, true); };
                     button.PointerExited += (_, _) => { border.Stroke = stroke; Highlight(id, false); };
@@ -414,7 +418,7 @@ public sealed partial class MainWindow
             body.UpdateLayout(); Draw();
         };
         refreshChart = async () => { data = await api!.Get("/api/orgchart"); Draw(); };
-        try { await Dialog(dialog); }
+        try { await Dialog(dialog, contentOwnsPadding: true); }
         finally { root.SizeChanged -= Resize; refreshChart = null; }
     }
 

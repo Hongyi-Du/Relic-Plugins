@@ -1,5 +1,28 @@
 # Native Relic App contract
 
+Changes for the clients (actual chart and resize capture contract): the chart
+already owns its full content padding. It now opts out of the second 22px modal
+template inset that clipped its close button and shifted all graph coordinates.
+Nodes and legend borders use the actual 1px computed border in the 1x reference;
+node chips retain their actual 20px line-height. Existing SVG edge widths and
+physical dash lengths stay separate; dash/phase equivalence is still unmeasured.
+
+Resize readiness now follows the shared reference's idle-hover/finished-drag
+contract. Commit 5e9edf6 had added a Windows-only requirement that the tooltip
+must open; actual 7bf2bab normal CaptureLost leaves it closed after the drag.
+The collector now accepts independently observed open OR closed identity-bound
+tooltip state. Open popups remain visible elements in the full extraction; an
+unmeasured state fails. No tooltip is forced open/closed, no new pointer movement
+is added, no timeout changes, and later full-state plus all event-count checks
+are unchanged. Fifteen no-UI contract test cases cover state/identity conflicts.
+Main WinUI headless build passes; this test project's local no-restore build
+lacks project.assets.json, so its compilation/tests remain delegated to CI.
+
+Read native-macos REQUESTS at a73b570: an actual static-face OS/2 weight-table
+receipt is requested in the shared matcher. It must retain actual-draw/source-span
+identity and cannot substitute a requested weight or an unknown variable instance.
+That shared implementation is in progress; existing unknowns still fail.
+
 Changes for the clients (prompt CI feedback): the unchanged reference-extractor
 and matcher unit commands now live in a reusable workflow, called by both Native
 apps and Native visual review. New extractor changes can be checked on the latest

@@ -13,5 +13,6 @@
     <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
     <Compile Include="../../Relic/AutomationIdentityCapture.cs" Link="AutomationIdentityCapture.cs" />
     <Compile Include="../../Relic/MessageHeaderRow.cs" Link="MessageHeaderRow.cs" />
+    <Compile Include="../../Relic/PanelResizeCapture.cs" Link="PanelResizeCapture.cs" />
   </ItemGroup>
 </Project>
