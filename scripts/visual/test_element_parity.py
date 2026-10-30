@@ -625,11 +625,12 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-panel-resize-hover", cases)
         self.assertIn("zh-CN-light-1280x800-panel-resized", cases)
         smoke = expected_cases(spec, "smoke")
-        self.assertEqual(len(smoke), 21)
+        self.assertEqual(len(smoke), 22)
+        self.assertIn("zh-CN-light-1440x900-file-markdown", smoke)
         original_smoke = ("group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart",
                           "menu-file", "file-code", "live-tool-output", "live-typing")
         added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
-        smoke_scenes = original_smoke + added + ("recipients",)
+        smoke_scenes = original_smoke + added + ("recipients", "file-markdown")
         self.assertEqual(list(smoke), ["zh-CN-light-1440x900-" + scene for scene in smoke_scenes])
         self.assertTrue(set(smoke).issubset(cases))
         # Inspect the CLI's actual selection without importing or running its

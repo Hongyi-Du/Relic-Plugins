@@ -1,5 +1,31 @@
 # Native Relic App contract
 
+Changes for the clients (actual native list discs): Windows now paints unordered
+list markers with its retained XAML Ellipse, using actual primary-face metrics
+and the real RichTextBlock baseline. Its raw receipts retain owner/child/window
+identities, arrangement, transforms and brush properties; a framework raster
+callback and final screenshot ownership remain unproved. macOS list-disc checks
+read its actual CGContext callback without deriving geometry from the AX bullet.
+Both markers keep the spoken alternative `• ` separate from empty painted text.
+The macOS reader needs `content_screen_frame` on the actual marker observation:
+`source: actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen`,
+`coordinate_space: AppKit screen coordinates (bottom-left)`, the same actual
+`window_identity`, and the actual content frame in `bounds`. It does not infer
+the screen origin from an AX allocation rectangle. Missing evidence still fails.
+Per the macOS request, diagnostic smoke adds `file-markdown` (22 scenes); full
+coverage stays 56 scenes times 12 settings, or 672 scenes per platform.
+
+Changes for the clients (observed CI state): 54d07fc Windows build/tests and
+113 Node plus 735 Python shared checks pass. macOS still fails its unchanged
+glyph bitmap and extra ContentLayer tests; no scene has passed the strict gate.
+Archived paint run 41070217380 decodes its first real SKP successfully, but trace
+metadata places that SKP in Browser pid 948, not the document Renderer pid 1588.
+Its font records cannot be assigned to document elements. The old 63a2abf full
+capture run 41066463658 was explicitly canceled because it predates the known
+non-finite export fix and occupied capture runners; it is not a passing run.
+The replacement full 54d07fc run and db91b1b smoke retain the entire required
+scope and unchanged tolerances.
+
 Changes for the clients (decoder compilation): run 41069194779 successfully
 builds the pinned Skia library, then the diagnostic translation unit fails on
 the incomplete SkFontMgr type used by a null smart-pointer parameter. Including

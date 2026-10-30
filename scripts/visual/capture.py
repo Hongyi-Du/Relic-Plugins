@@ -1992,7 +1992,7 @@ def main():
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized", "recipients"]
+    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized", "recipients", "file-markdown"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     capture_errors, captured_client, captured_reference = [], 0, 0

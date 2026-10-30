@@ -113,9 +113,15 @@ public sealed partial class MainWindow
                 {
                     var itemText = list.Groups[3].Value; var sub = list.Groups[1].Value.Length >= 2;
                     while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s{2,}\S") && !Regex.IsMatch(lines[i + 1], @"^\s*(?:>|\|.*\|\s*$|(?:[-*•+]|\d+[.)])\s+)")) itemText += "\n" + lines[++i].Trim();
-                    var row = new Grid { Margin = new Thickness(sub ? 18 : 0, 0, 0, 0) }; row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-                    var bullet = OverviewText(ordered ? count++ + "." : "•", baseSize, lineHeight: baseSize * lineRatio); bullet.TextAlignment = TextAlignment.Right; bullet.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(bullet);
-                    var item = Inline(itemText); Grid.SetColumn(item, 1); row.Children.Add(item); items.Children.Add(row);
+                    var item = Inline(itemText); FrameworkElement row;
+                    if (ordered)
+                    {
+                        var numbered = new Grid(); numbered.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); numbered.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                        var bullet = OverviewText(count++ + ".", baseSize, lineHeight: baseSize * lineRatio); bullet.TextAlignment = TextAlignment.Right; bullet.Margin = new Thickness(0, 0, 6, 0); numbered.Children.Add(bullet);
+                        Grid.SetColumn(item, 1); numbered.Children.Add(item); row = numbered;
+                    }
+                    else row = new NativeListItemPanel(new NativeListMarker(FontFamilies.UI, baseSize, words.Language, Ink), item, baseSize * lineRatio, itemText.Length == 0);
+                    row.Margin = new Thickness(sub ? 18 : 0, 0, 0, 0); items.Children.Add(row);
                     if (i + 1 >= lines.Length) break; list = Regex.Match(lines[i + 1], @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"); if (!list.Success) break; i++;
                 } while (true);
                 Add(items, 2, 8); continue;
