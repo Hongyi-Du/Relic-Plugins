@@ -198,7 +198,7 @@ class MessageSceneCapture:
                 self.page.context.clear_permissions()
 
 
-def wait_file(path, process, timeout=60, on_tick=None):
+def wait_file(path, process, timeout=60, on_tick=None, on_stall=None):
     end = time.monotonic() + timeout
     progress_file = path.parent / "current-case.txt" if path.name == "complete.json" else None
     current_case, last_progress = "", time.monotonic()
@@ -215,7 +215,15 @@ def wait_file(path, process, timeout=60, on_tick=None):
                 current_case, last_progress = case, time.monotonic()
                 print("Native capture: " + case, flush=True)
             elif current_case and time.monotonic() - last_progress > 90:
-                raise TimeoutError("Native capture did not advance for 90 seconds: " + current_case)
+                reason = "Native capture did not advance for 90 seconds: " + current_case
+                if on_stall is not None:
+                    try:
+                        on_stall(reason)
+                    except Exception as error:
+                        # Diagnostics never reset the elapsed progress deadline
+                        # or replace its failure with a successful observation.
+                        reason += "; stall diagnostic failed: " + str(error)
+                raise TimeoutError(reason)
         time.sleep(.2)
     raise TimeoutError(str(path))
 
@@ -634,6 +642,60 @@ def stop_native_process(process):
     return {"pid": process.pid, "returncode": process.returncode, "forced_kill": forced_kill}
 
 
+def sample_native_stall(process, directory, client, reason):
+    """Bounded CI macOS sample of the actual owned native client, before reap.
+
+    This callback only records a failed capture. It cannot resume the wait or
+    sample a PID taken from a manifest, element request or another process.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true" or sys.platform != "darwin" or client != "macos":
+        return {"status": "not_applicable", "reason": "Only the actual CI macOS native process may be sampled"}
+    directory = Path(directory)
+    sample_path = directory / "native-stall.sample.txt"
+    status_path = directory / "native-stall.sample.json"
+    started = time.monotonic()
+    status = {"status": "collecting", "capture_failed": True, "trigger": reason,
+        "progress_timeout_seconds": 90, "pid": process.pid, "client": client, "platform": sys.platform,
+        "sample_seconds": 3, "subprocess_timeout_seconds": 8, "sample_file": sample_path.name,
+        "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "sample_written_by_tool": False}
+    def save():
+        status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+    def output_text(value):
+        return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+    status["process_returncode_before_sample"] = process.poll()
+    if (not isinstance(process.pid, int) or isinstance(process.pid, bool) or process.pid <= 0
+            or status["process_returncode_before_sample"] is not None):
+        status.update(status="unavailable", reason="The actual owned native process has exited or has no valid PID")
+        save()
+        return status
+    command = ["/usr/bin/sample", str(process.pid), "3", "-file", str(sample_path)]
+    status["command"] = command
+    save()
+    try:
+        result = subprocess.run(command, timeout=8, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        status.update(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        status["sample_written_by_tool"] = sample_path.exists() and sample_path.stat().st_size > 0
+        status["status"] = "sample_collected" if result.returncode == 0 and status["sample_written_by_tool"] else "failed"
+        if not status["sample_written_by_tool"]:
+            status["reason"] = "sample did not produce a nonempty stack report; retained command output is diagnostic only"
+    except subprocess.TimeoutExpired as error:
+        status.update(status="timeout", reason=str(error), stdout=output_text(error.stdout), stderr=output_text(error.stderr))
+        status["sample_written_by_tool"] = sample_path.exists() and sample_path.stat().st_size > 0
+    except Exception as error:
+        status.update(status="failed", reason=str(error))
+        status["sample_written_by_tool"] = sample_path.exists() and sample_path.stat().st_size > 0
+    finally:
+        if not status["sample_written_by_tool"]:
+            sample_path.write_text(status.get("stdout", "") + status.get("stderr", ""), encoding="utf-8")
+            status["sample_file_quantity"] = "Actual sampler stdout/stderr only; no stack report was produced"
+        else:
+            status["sample_file_quantity"] = "Original sample tool report; timeout/error status is retained independently"
+        status["elapsed_seconds"] = time.monotonic() - started
+        status["process_returncode_after_sample"] = process.poll()
+        save()
+    return status
+
+
 def native_process(manifest_path, manifest, exe):
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Native visual capture is CI-only; no local process is launched.")
@@ -687,7 +749,10 @@ def native_process(manifest_path, manifest, exe):
                 (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,
                     "case_ids": sorted(expected_ids), "state_directory": manifest["state_directory"],
                     "fixture_home": manifest["fixture"]["home"]}), encoding="utf-8")
-            receipt = wait_file(manifest_path.parent / "complete.json", process, timeout=240 if manifest["client"] == "windows" else 1200, on_tick=capture_elements)
+            wait_options = {"timeout": 240 if manifest["client"] == "windows" else 1200, "on_tick": capture_elements}
+            if manifest["client"] == "macos" and sys.platform == "darwin":
+                wait_options["on_stall"] = lambda reason: sample_native_stall(process, manifest_path.parent, manifest["client"], reason)
+            receipt = wait_file(manifest_path.parent / "complete.json", process, **wait_options)
             if receipt.get("errors"):
                 raise RuntimeError(str(receipt["errors"]))
             for case in manifest["cases"]:
