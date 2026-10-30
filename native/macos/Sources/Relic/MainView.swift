@@ -37,7 +37,8 @@ struct MainView: View {
         .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
         .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }
         .onChange(of: m.focusSearch) { if m.focusSearch { m.mentionEditor?.closeMentions() } }
-        .onChange(of: m.appMenu) { if m.appMenu != nil { m.mentionEditor?.closeMentions() } }
+        .onChange(of: m.appMenu) { if m.appMenu != nil { m.mentionEditor?.closeMentions(); m.recipientPicker = false } }
+        .onChange(of: m.recipientPicker) { if m.recipientPicker { m.appMenu = nil } }
         .onChange(of: m.pane) { resizingPanel = nil; resizeStart = nil }
         .overlay { if !m.mentionItems.isEmpty { MentionSuggestions() } }
         .overlay { if m.recipientPicker { RecipientLayer() } }
@@ -118,12 +119,13 @@ struct AppToolbar: View {
         }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
             .coordinateSpace(name: "appbar").onPreferenceChange(MenuAnchors.self) { anchors = $0 }
+            .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.titlebar"))
+            .accessibilityIdentifier("relic-region/header")
             .overlay(alignment: .topLeading) {
                 if let key = m.appMenu, let anchor = anchors[key] {
-                    ActionMenu().environmentObject(m).measuredRegion("menu").offset(x: max(4, min(anchor.minX, m.windowSize.width - 270)), y: anchor.maxY + 4)
+                    ActionMenu().environmentObject(m).measuredRegion("menu", createsAccessibilityContainer: false).offset(x: max(4, min(anchor.minX, m.windowSize.width - 270)), y: anchor.maxY + 4)
                 }
             }
-            .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.titlebar"))
     }
 }
 
