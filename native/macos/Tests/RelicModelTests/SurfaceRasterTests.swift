@@ -20,6 +20,9 @@ import AppKit
             host.cacheDisplay(in: host.bounds, to: bitmap)
             // Inside the circle, away from its anti-aliased edge and arrow ink.
             let color = try XCTUnwrap(bitmap.colorAt(x: 7, y: 16)?.usingColorSpace(.sRGB))
+            var channels = [Int](repeating: 0, count: 4)
+            bitmap.getPixel(&channels, atX: 7, y: 16)
+            print("SEND PAINT enabled=\(enabled) colorSpace=\(bitmap.colorSpace.localizedName ?? "unknown") samples=\(bitmap.samplesPerPixel) bits=\(bitmap.bitsPerSample) raw=\(channels) srgb=\([color.redComponent,color.greenComponent,color.blueComponent,color.alphaComponent])")
             let expected = enabled ? 27.0 / 255 : 1 - 0.35 + (27.0 / 255) * 0.35
             XCTAssertEqual(Double(color.redComponent), expected, accuracy: 2.0 / 255)
             XCTAssertEqual(Double(color.greenComponent), expected, accuracy: 2.0 / 255)
