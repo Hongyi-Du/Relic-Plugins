@@ -163,7 +163,8 @@ import RelicAX
                     try evidence(action, suffix: ".scene-action.json", item: item, output: output)
                 }
                 if scene == "message-hover" || scene == "message-copy-toast" {
-                    let action = try await openMessageAction(scene, messageID: fixture["thread"].text, model: model, window: window)
+                    let action = try await openMessageAction(scene, messageID: fixture["thread"].text, model: model, window: window,
+                        evidencePath: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
                     messageCapture = MessageCaptureSession(model: model, messageID: fixture["thread"].text, copying: scene == "message-copy-toast", action: action, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
                     try messageCapture?.begin(window: window)
                 }
@@ -357,16 +358,33 @@ import RelicAX
         guard accessibilityFrame(identifier: expected, root: content) != nil else { throw RelicError.message("Member card action did not present its real state: " + scene) }
         return ["action": scene == "member-card-avatar-hover" ? "native pointer motion at measured avatar" : "native mouse down/up on measured card control", "target_screen_bounds": ElementCapture.box(target), "visible_result_identifier": expected]
     }
-    private static func openMessageAction(_ scene: String, messageID: String, model: Model, window: NSWindow) async throws -> [String: Any] {
+    private static func openMessageAction(_ scene: String, messageID: String, model: Model, window: NSWindow, evidencePath: URL) async throws -> [String: Any] {
+        var result: [String: Any] = ["action": "native pointer motion at measured production message", "message_id": messageID, "status": "started"]
+        defer { if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted]) { try? data.write(to: evidencePath) } }
         let bounds = MessageInteractionAnchor.visibleBounds(messageID: messageID)
         guard bounds.count == 1, let target = bounds.first, let content = window.contentView else { throw RelicError.message("Expected one visible production message: " + messageID) }
         try movePointer(to: NSPoint(x: target.midX, y: target.midY))
         try await Task.sleep(for: .milliseconds(200))
-        guard let control = accessibilityFrame(identifier: "relic-icon-button/message-copy/" + messageID, root: content) else { throw RelicError.message("Actual message hover did not expose its copy action") }
-        var result: [String: Any] = ["action": "native pointer motion at measured production message", "message_id": messageID, "message_screen_bounds": ElementCapture.box(target), "copy_screen_bounds": ElementCapture.box(control)]
+        let identifier = "relic-icon-button/message-copy/" + messageID
+        guard var control = accessibilityFrame(identifier: identifier, root: content) else { throw RelicError.message("Actual message hover did not expose its copy action") }
+        result["message_screen_bounds"] = ElementCapture.box(target)
+        result["copy_screen_bounds"] = ElementCapture.box(control)
         if scene == "message-copy-toast" {
+            // Like the reference driver's real locator click, reveal the actual
+            // control before dispatch. Its negative toolbar offset can leave
+            // the button above the clipped stream at 1024x700.
+            result["reveal_action"] = try MessageInteractionAnchor.revealAction(control, messageID: messageID, window: window)
+            try await Task.sleep(for: .milliseconds(100))
+            guard let updated = accessibilityFrame(identifier: identifier, root: content) else { throw RelicError.message("Copy control disappeared while revealing its scroll area") }
+            control = updated; result["copy_screen_bounds_after_reveal"] = ElementCapture.box(control)
+            result["clipboard_before"] = NSPasteboard.general.string(forType: .string) as Any? ?? NSNull()
             try click(control, window: window)
-            try await Task.sleep(for: .milliseconds(150))
+            let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+            while !model.toasts.contains(where: { $0.text == model.t("msg.copied") }) && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            result["clipboard_after"] = NSPasteboard.general.string(forType: .string) as Any? ?? NSNull()
+            result["toast_texts_after"] = model.toasts.map(\.text)
             guard let message = model.messages.first(where: { $0["id"].text == messageID }),
                   NSPasteboard.general.string(forType: .string) == message["body"].text,
                   model.toasts.contains(where: { $0.text == model.t("msg.copied") }) else { throw RelicError.message("Real message copy did not produce the expected clipboard content and toast") }
@@ -374,6 +392,7 @@ import RelicAX
             result["clipboard"] = NSPasteboard.general.string(forType: .string)
             result["toast_ids"] = model.toasts.map { $0.id.uuidString }
         }
+        result["status"] = "completed"
         return result
     }
     private static func openLiveOutput(_ prepared: Node, model: Model, window: NSWindow) async throws -> [String: Any] {
