@@ -535,7 +535,7 @@ struct ComposerSendButton: View {
             ReferenceIcon(name: "up", size: 17, color: RelicStyle.background, owner: identity).frame(width: 32, height: 32)
                 .modifier(RecordedSurface(background: RelicStyle.ink, radius: 16, owner: identity))
                 .recordedOpacity(enabled ? 1 : 0.35)
-        }.buttonStyle(.plain).accessibilityIdentifier(identity).accessibilityLabel(m.t("common.send")).help(m.t("composer.send_title"))
+        }.buttonStyle(ContentButtonStyle()).accessibilityIdentifier(identity).accessibilityLabel(m.t("common.send")).help(m.t("composer.send_title"))
     }
 }
 

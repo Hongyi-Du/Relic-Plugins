@@ -4,6 +4,21 @@ import AppKit
 @testable import Relic
 
 @MainActor final class SurfaceRasterTests: XCTestCase {
+    func testComposerDisabledOpacityIsAppliedExactlyOnce() throws {
+        let model = Model(defaults: UserDefaults(suiteName: "send-paint-" + UUID().uuidString)!)
+        for enabled in [true, false] {
+            let sample = ComposerSendButton(action: {}).environmentObject(model).disabled(!enabled)
+                .frame(width: 32, height: 32).background(Color.white).environment(\.colorScheme, .light)
+            let renderer = ImageRenderer(content: sample); renderer.scale = 1
+            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+            // Inside the circle, away from its anti-aliased edge and arrow ink.
+            let color = try XCTUnwrap(bitmap.colorAt(x: 7, y: 16)?.usingColorSpace(.sRGB))
+            let expected = enabled ? 27.0 / 255 : 1 - 0.35 + (27.0 / 255) * 0.35
+            XCTAssertEqual(Double(color.redComponent), expected, accuracy: 2.0 / 255)
+            XCTAssertEqual(Double(color.greenComponent), expected, accuracy: 2.0 / 255)
+        }
+    }
+
     func testBoxShadowDoesNotCastASecondShadowFromInteriorContent() throws {
         let sample = Rectangle().fill(Color.black).frame(width: 20, height: 20)
             .frame(width: 100, height: 100)
