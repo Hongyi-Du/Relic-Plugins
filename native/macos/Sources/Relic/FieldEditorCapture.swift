@@ -9,20 +9,24 @@ import AppKit
         let contentScreen = window.convertToScreen(root.convert(root.bounds, to: nil))
         var rows: [[String: Any]] = []
         func walk(_ view: NSView) {
-            if let field = view as? MemberRenameField.Control,
-               let cell = field.cell as? MemberRenameField.PaddedCell, cell.controlView === field,
+            if let field = view as? NSTextField,
+               let cell = field.cell as? NSTextFieldCell, cell.controlView === field,
                let editor = field.currentEditor() as? NSTextView,
                field.window === window, editor.window === window,
                NativeVisibility.screenClip(field).map({ !$0.isNull && !$0.isEmpty }) == true,
                NativeVisibility.screenClip(editor).map({ !$0.isNull && !$0.isEmpty }) == true {
                 rows.append([
-                    "contract": "appkit-current-field-editor-v2", "provider": "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder",
+                    "contract": cell is MemberRenameField.PaddedCell ? "appkit-current-field-editor-v2" : "appkit-current-field-editor-v3",
+                    "provider": "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder",
                     "owner_identity": String(describing: ObjectIdentifier(cell)),
                     "owner_class": String(describing: type(of: cell)), "owner_identifier": cell.accessibilityIdentifier() ?? "",
+                    "owner_is_text_field_cell": cell.isKind(of: NSTextFieldCell.self),
                     "control_identity": String(describing: ObjectIdentifier(field)),
+                    "control_class": String(describing: type(of: field)), "control_is_text_field": field.isKind(of: NSTextField.self),
                     "owner_control_view_identity": String(describing: ObjectIdentifier(cell.controlView!)),
                     "control_cell_identity": String(describing: ObjectIdentifier(field.cell!)),
                     "editor_identity": String(describing: ObjectIdentifier(editor)), "editor_class": String(describing: type(of: editor)),
+                    "editor_is_text_view": editor.isKind(of: NSTextView.self),
                     "current_editor_identity": String(describing: ObjectIdentifier(field.currentEditor()!)),
                     "window_identity": String(describing: ObjectIdentifier(window)),
                     "is_field_editor": editor.isFieldEditor, "same_window": editor.window === field.window,
@@ -52,8 +56,17 @@ import AppKit
                   let editorIdentity = receipt["editor_identity"] as? String else { errors.append("Field editor receipt has no native identities"); continue }
             let owners = elements.indices.filter { elements[$0]["object_identity"] as? String == ownerIdentity && elements[$0]["kind"] as? String == "input" }
             let editors = elements.indices.filter { elements[$0]["object_identity"] as? String == editorIdentity && elements[$0]["kind"] as? String == "input" }
-            guard receipt["contract"] as? String == "appkit-current-field-editor-v2",
-                  receipt["owner_class"] as? String == String(describing: MemberRenameField.PaddedCell.self),
+            let legacy = receipt["contract"] as? String == "appkit-current-field-editor-v2"
+                && receipt["owner_class"] as? String == String(describing: MemberRenameField.PaddedCell.self)
+            let nativeField = receipt["contract"] as? String == "appkit-current-field-editor-v3"
+                && receipt["owner_is_text_field_cell"] as? Bool == true
+                && receipt["control_is_text_field"] as? Bool == true
+                && receipt["editor_is_text_view"] as? Bool == true
+                && !(receipt["control_class"] as? String ?? "").isEmpty
+                && !(receipt["editor_class"] as? String ?? "").isEmpty
+                && owners.count == 1 && elements[owners[0]]["class"] as? String == receipt["owner_class"] as? String
+                && editors.count == 1 && elements[editors[0]]["class"] as? String == receipt["editor_class"] as? String
+            guard legacy || nativeField,
                   receipt["control_cell_identity"] as? String == ownerIdentity,
                   let controlIdentity = receipt["control_identity"] as? String, !controlIdentity.isEmpty,
                   receipt["owner_control_view_identity"] as? String == controlIdentity,
