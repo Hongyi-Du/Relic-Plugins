@@ -1,8 +1,55 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Relic
 
 @MainActor final class IconDrawTests: XCTestCase {
+    func testOwnedIconLayerPreservesTheActualHostedStrokeBitmap() throws {
+        _ = NSApplication.shared
+        func icon(in view: NSView) -> ElementPaintProbe.PaintView? {
+            if let icon = view as? ElementPaintProbe.PaintView { return icon }
+            return view.subviews.lazy.compactMap { icon(in: $0) }.first
+        }
+        for (name, size) in [("sidebar", CGFloat(16)), ("download", 15), ("x", 14), ("bell", 16), ("lang", 15), ("org", 32)] {
+            var images: [Data] = []
+            for owned in [false, true] {
+                let root = ElementPaintProbe(name: name, size: size, color: .black, owner: nil, opacity: 1, ownedLayer: owned)
+                    .frame(width: size, height: size)
+                let host = NSHostingView(rootView: root)
+                host.frame = NSRect(x: 0, y: 0, width: size, height: size)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+                defer { window.orderOut(nil); window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                let view = try XCTUnwrap(icon(in: host)); view.recordDraws = true
+                view.needsDisplay = true; view.layer?.setNeedsDisplay()
+                host.displayIfNeeded(); CATransaction.flush()
+                let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                XCTAssertNotNil(view.currentDraw(), "A transparent host is not evidence of the native icon stroke")
+                var painted = 0
+                for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
+                    if (CaptureRaster.sRGBPixel(bitmap, x: x, y: y)?[3] ?? 0) > 0 { painted += 1 }
+                } }
+                XCTAssertGreaterThan(painted, 0)
+                if owned {
+                    XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, true)
+                    XCTAssertTrue((view.layer?.sublayers ?? []).isEmpty, "The candidate must not retain private extra icon paint")
+                    view.configure(name: name, size: size, color: .red)
+                    XCTAssertEqual(view.backingPaintObservation()["current"] as? Bool, false)
+                }
+                images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            }
+            if images[0] != images[1] {
+                let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try images[0].write(to: directory.appendingPathComponent("icon-\(name)-original.png"))
+                try images[1].write(to: directory.appendingPathComponent("icon-\(name)-owned.png"))
+            }
+            XCTAssertEqual(images[0], images[1], "The actual hosted icon must retain every existing stroke pixel: \(name)")
+        }
+    }
     func testIconReceiptRequiresTheExecutedNativePathStroke() throws {
         // A 48px icon has a 3.4px stroke: the sampled center pixel is fully
         // covered. At 24px its 1.7px crossing is partially antialiased (250/255),

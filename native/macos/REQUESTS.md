@@ -1,3 +1,14 @@
+## 2026-10-30: icon backing-image candidate, pending hosted bitmap verification
+
+Actual `7046f32` icon receipts still observe an NSViewBackingLayer containing a
+private ContentLayer. It is not allowlisted as empty. The same explicit native
+backing-image approach now has a separate icon candidate (production default
+remains false). Its CALayer.display invokes the existing CGContext stroke path;
+receipts bind that exact image, source revision, path draw and mounted geometry.
+Six SwiftUI-hosted icon fixtures require nonempty pixels, unchanged full PNGs,
+no extra native child layer, and invalidation on color change before this can
+be enabled. This does not assert the containing button's own outline absence.
+
 ## 2026-10-30: production focus behavior matches the reference actions
 
 The reference explicitly focuses the new-organization name, new-member name,
