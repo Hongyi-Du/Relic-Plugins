@@ -1,3 +1,35 @@
+## 2026-10-30: editable native measurement serialization failure
+
+dc2d96a release compiled; 201/203 tests passed. Its actual editable TextKit draw
+produced a nonfinite nested native measurement, which JSONSerialization rejects.
+The exporter now retains each exact native numeric spelling and JSON path in
+`native_measurement_errors`, puts null in that numeric slot, and adds every such
+failure to `coverage.unmeasured`. This prevents a whole capture crash without
+asserting a finite measurement or accepting unknown evidence. The next test log
+prints the actual failing paths for diagnosis. The other failure was the hosted
+AX tree still being unmaterialized; 8c2609e adds the real capture's public AX
+self-client initialization, retaining the same button box assertion.
+
+## 2026-10-30: actual 5d4f8ea interaction and geometry verification
+
+All 20 diagnostic Mac captures completed, downloaded with their reference files
+to `parity-5d4f8ea`. The hover receipt is stable after action, before/after PNG and
+after extraction: Appearance selected, Notifications hovered and unselected,
+same native page contents/paint/geometry, no click or keyboard input.
+Private chat first-author y now 221.0000 vs reference 221.3906 (previously 229).
+Settings first segment now has actual full AX box 68x23 at x992,y211 vs reference
+67.0156x23.1875 at x993.9531,y210.7969 (previously title-only 50x19).
+The unit test's initial AX tree was not materialized; its unchanged 100x24
+assertion now activates the same public self-process AX client as real captures.
+
+New actual rename finding: applying the input's accessibility identifier/name
+after the VoiceButton overlay overwrote the microphone with the input's name
+and identifier, breaking its kind and unique surface ownership. Those modifiers
+now attach to the actual TextField before the overlay. The reference's 195px
+default input width vs native 177px remains a separate measured layout mismatch;
+the active field editor also retains its separate raw AX node pending unique
+native owner proof. Neither issue is hidden or corrected in exported geometry.
+
 ## 2026-10-30: production composer glyph measurements
 
 Native apps c8ea3df run 41051300311 passes release compilation, tests and app

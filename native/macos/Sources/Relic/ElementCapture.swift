@@ -584,6 +584,9 @@ import CoreText
                 state["focused"] = keyboard["focused"] ?? NSNull()
             }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
+            if let failures = node["native_measurement_errors"] as? [[String: String]] {
+                unmeasured += failures.map { id + ":" + ($0["path"] ?? "native measurement") + ":" + ($0["reason"] ?? "unknown") }
+            }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
             if let projection = node["projection"] as? [String: Any],
                projection["native_insertion_geometry"] != nil,
