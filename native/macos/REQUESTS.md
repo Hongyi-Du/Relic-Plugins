@@ -94,6 +94,13 @@ container borders/fills, scrollbars and actual controls remain separate evidence
 The shared `native-layout-projection.md` merged through `7d0703d` supplies this
 contract. Native still needs independent paint/action/semantic ownership proof;
 no AX wrapper has been removed under this request.
+The raw macOS AX records now additionally retain actual legacy/custom action
+names, modern selector availability/permissions, first-responder capability,
+focus-settable evidence, native object/superview identities and view geometry.
+An unfocused, empty-named AXGroup with an allowed action is covered by a negative
+projection test. This does not certify absence of uninstrumented drawing or
+delegated interaction; the existing unknown-paint failures and canonical nodes
+remain. No user action is executed while extracting capabilities.
 
 ## 2026-10-29: literal Harness label in the reference member form
 
