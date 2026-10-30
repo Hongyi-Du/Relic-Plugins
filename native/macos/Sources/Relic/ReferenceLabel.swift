@@ -44,6 +44,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.sourceStorage = storage
         view.pathLineBreaks.enabled = pathWrapping; layout.delegate = view.pathLineBreaks
         view.isEditable = false; view.isSelectable = false; view.drawsBackground = false
+        view.focusRingType = .none
         // SwiftUI assigns the measured frame. TextKit must not resize it during
         // draw or AX inspection after that layout has been committed.
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false

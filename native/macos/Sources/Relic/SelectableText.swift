@@ -31,6 +31,7 @@ struct SelectableText: NSViewRepresentable {
         let view = QuoteTextView(frame: .zero, textContainer: container)
         view.sourceStorage = storage
         view.isEditable = false; view.isSelectable = true; view.drawsBackground = false
+        view.focusRingType = .none
         view.isRichText = true; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.widthTracksTextView = true; view.textContainer?.heightTracksTextView = false; view.delegate = context.coordinator

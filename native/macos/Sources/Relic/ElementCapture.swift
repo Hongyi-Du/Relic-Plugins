@@ -207,6 +207,7 @@ import CoreText
             let drawing = manager as? NativeGlyphLayoutManager
             let drawnFonts = drawing?.fontEvidence(for: range, in: view)
                 ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
+            let textOutline = TextOutlineCapture.inspect(view, range: range, fontDraw: drawnFonts)
             let typographic = drawnFonts["status"] as? String == "measured-current-draw"
                 ? drawing?.lastDraw.map { NativeTypographicGeometry.measure(advances: advances, draw: $0, characters: range, origin: view.textContainerOrigin) } : nil
             let measured = typographic?.envelope == nil ? advances : typographic!
@@ -245,6 +246,7 @@ import CoreText
                 "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
+                "native_text_outline": textOutline.evidence,
                 "native_accessible_range": ["source": "actual AX attributed string for the rendered source range",
                     "value": accessibleText as Any? ?? NSNull(), "matches_rendered_text": accessibleText == text],
                 "native_font_weight_configuration": ["value": attributes[.relicConfiguredFontWeight] ?? NSNull(),
@@ -261,7 +263,8 @@ import CoreText
                           "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
                           "opacity": (view as? ReferenceLabelView)?.measuredOpacity ?? (view as? QuoteTextView)?.measuredOpacity ?? Double(view.alphaValue),
-                          "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull()],
+                          "background_image": "none", "shadow": attributes[.shadow] == nil ? [] as Any : NSNull(),
+                          "outline": textOutline.paint],
                 "attributes": Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, String(describing: $0.value)) })])
             if let group = attributes[.relicCodeGroup] as? String, let parent = codeParents[group] { rows[rows.count - 1]["parent_run"] = parent }
         }
@@ -577,6 +580,11 @@ import CoreText
             evidence["raw_node_id"] = id
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
             evidence["outline"] = (node["surface_evidence"] as? [String: Any])?["outline"] ?? NSNull()
+            // A control's label receipt does not cover the control's own paint.
+            // Only a retained TextKit span can supply its own absence evidence.
+            if actualStyle["outline"] as? String == "none", let ownText = (node["projection"] as? [String: Any])?["native_text_outline"] {
+                evidence["outline"] = ownText
+            }
             let labelEvidence = node["projection"] as? [String: Any]
                 ?? (node["owned_text_evidence"] as? [String: Any])?["projection"] as? [String: Any]
             var measuredLayout = node["layout"] as? [String: Any] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()]

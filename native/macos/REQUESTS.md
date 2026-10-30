@@ -1,3 +1,23 @@
+## 2026-10-30: bounded own-outline evidence for native read-only text
+
+The next macOS batch measures only the own paint of the two final production
+text classes, ReferenceLabelView and QuoteTextView, with their exact native
+layout managers. The raw `native_text_outline` receipt retains current source
+range/draw binding, focusRingType, editable/field-editor/background flags,
+actual subview classes, model and presentation layer border/shadow/effect fields,
+and each attribute run's attachment/shadow/stroke paint. Unmounted/stale/unknown
+renderers, child paint, missing presentation observations or additional effects
+remain unknown. Read-only labels/passages explicitly use focusRingType none.
+
+Only an independently retained TextKit span can project its own absence to
+`style.outline: "none"` with `evidence.outline.absence_proven: true` when all
+checks succeed. A label folded into a button/avatar/tab does not provide that
+owner's outline: ElementOwnership copies text properties only, and the exporter
+does not promote owned_text_evidence into the owner's outline proof. Regression
+tests cover this ownership boundary and rejection of focus rings/editor/children/
+layer paint. The receipt explicitly does not establish final PNG contribution or
+ancestor/control paint. CI verification is pending; no exception is requested.
+
 ## 2026-10-30: shared menu-identity contract regression from CI
 
 Native apps `41042511824`, shared contracts job `124018504589`, runs 568 Python
