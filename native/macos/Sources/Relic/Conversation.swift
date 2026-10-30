@@ -517,7 +517,8 @@ struct ComposerView: View {
     @EnvironmentObject var m: Model
     let send: () -> Void
     @State private var focused = false
-    @State private var recipientIdentity = "relic-text-button/" + UUID().uuidString
+    @State private var recipientIdentity = "relic-text-button/recipients"
+    @StateObject private var recipientAnchor = NativeControlAnchor()
     @State private var recipientHovered = false
     private var placeholder: String { m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]) }
     private var recipientLabel: String { m.t("composer.send_to", ["to": ReferenceText.clip(m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) }), to: 24)]) }
@@ -530,7 +531,12 @@ struct ComposerView: View {
                 .accessibilityLabel(placeholder)
             HStack(spacing: 6) {
                 if m.member.isEmpty {
-                    Button { m.recipientPicker.toggle() } label: {
+                    Button {
+                        if m.recipientPicker { m.recipientPicker = false }
+                        else if let anchor = recipientAnchor.contentBounds {
+                            m.recipientAnchor = anchor; m.recipientPicker = true
+                        }
+                    } label: {
                         HStack(spacing: 5) {
                             ReferenceLabel(recipientLabel, size: 12.5, color: recipientHovered ? RelicStyle.ink : RelicStyle.secondary, lines: 0, owner: recipientIdentity)
                             ReferenceIcon(name: "down", size: 14, color: recipientHovered ? RelicStyle.ink : RelicStyle.secondary, owner: recipientIdentity)
@@ -538,8 +544,7 @@ struct ComposerView: View {
                             .modifier(RecordedSurface(background: recipientHovered ? RelicStyle.hover : RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 14, owner: recipientIdentity, hovered: recipientHovered))
                     }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
                         .onHover { recipientHovered = $0 }
-                        .background(GeometryReader { proxy in Color.clear.preference(key: RecipientAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
-                        .onPreferenceChange(RecipientAnchor.self) { m.recipientAnchor = $0 }
+                        .background(NativeControlAnchorMount(anchor: recipientAnchor))
                 }
                 Spacer(minLength: 0)
                 VoiceButton(text: $m.draft, size: 32)
@@ -552,11 +557,6 @@ struct ComposerView: View {
             .modifier(RecordedSurface(background: .clear, kind: "region"))
             .onChange(of: m.draft) { m.persistDraft() }.onChange(of: m.quote) { m.persistDraft() }
     }
-}
-
-private struct RecipientAnchor: PreferenceKey {
-    static var defaultValue = CGRect.zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 struct ComposerSendButton: View {

@@ -151,7 +151,17 @@ import RelicAX
                     case "trajectory": model.openDetails("trace", member: fixture["member"].text)
                     case "shortcuts": model.sheet = .shortcuts
                     case "quote": model.setQuote(fixture["quote"].text, from: fixture["member"].text)
-                    case "recipients": model.recipientPicker = true
+                    case "recipients":
+                        guard let screen = accessibilityFrame(identifier: "relic-text-button/recipients", root: hosting) else {
+                            throw RelicError.message("Recipients scene has no mounted native composer button")
+                        }
+                        try click(screen, window: window)
+                        try await Task.sleep(for: .milliseconds(350))
+                        guard model.recipientPicker, !model.recipientAnchor.isEmpty else {
+                            throw RelicError.message("Native recipient button did not open its anchored menu")
+                        }
+                        try evidence(["provider": "native mouse gesture on mounted composer button", "button_screen_bounds": ElementCapture.box(screen),
+                            "production_content_anchor": ElementCapture.box(model.recipientAnchor)], suffix: ".scene-action.json", item: item, output: output)
                     case "mention": model.draft = ""
                     case "digest": model.digest = fixture["digest"]; model.digestOpen = true
                     case "plain": model.plain = Dictionary(uniqueKeysWithValues: model.messages.map { ($0["id"].text, Node(["text": fixture["plain"].text])) }); model.plainMode = true
