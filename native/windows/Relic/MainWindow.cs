@@ -55,7 +55,7 @@ public sealed partial class MainWindow : Window
         button.Click += async (_, _) => { button.IsEnabled = false; await Run(action); button.IsEnabled = true; if (button == sendButton) UpdateSendState(); };
         return button;
     }
-    private static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
+    private static ScrollViewer Scroll(UIElement content) => new() { Content = content, Style = (Style)Application.Current.Resources["RelicScrollViewerStyle"], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
     private async Task Run(Func<Task> action)
     {
         try { await action(); }

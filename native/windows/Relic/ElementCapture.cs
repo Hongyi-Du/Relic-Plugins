@@ -32,7 +32,7 @@ public sealed partial class MainWindow
             if (ReferenceEquals(value, stream) || ReferenceEquals(value, chatHead) || ReferenceEquals(value, conversationBanner) || ReferenceEquals(value, emptyConversation)) return "conversation";
             if (ReferenceEquals(value, menu) || ReferenceEquals(value, toolbar) || ReferenceEquals(value, navigationButtons)) return "header";
             if (value is ContentDialog) return "dialog";
-            if (value is MenuFlyoutPresenter || value is MenuFlyoutItem || value is MenuFlyoutSubItem) return "menu";
+            if (value is MenuFlyoutPresenter || value is MenuFlyoutItem || value is MenuFlyoutSubItem || value is NativeToastNotice) return "menu";
             return current;
         }
         void Walk(DependencyObject value, string? parent, string region, Rect clip, double ancestorOpacity, string? hidden, int siblingOrder = 0)
@@ -113,6 +113,18 @@ public sealed partial class MainWindow
                     node["hidden_reason"] = hidden;
                     if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
                     node["style"] = CaptureStyle(element, opacity, id, errors, hidden == null);
+                    if (element is NativeShadowPanel nativeShadows)
+                    {
+                        var actual = new JsonArray();
+                        foreach (var shadow in nativeShadows.RenderedShadows)
+                            actual.Add(new JsonObject { ["blur_radius"] = shadow.BlurRadius,
+                                ["offset"] = new JsonArray(shadow.Offset.X, shadow.Offset.Y, shadow.Offset.Z),
+                                ["opacity"] = shadow.Opacity,
+                                ["color"] = new JsonArray(shadow.Color.R, shadow.Color.G, shadow.Color.B, shadow.Color.A),
+                                ["mask_type"] = shadow.Mask?.GetType().FullName, ["source_policy"] = shadow.SourcePolicy.ToString() });
+                        node["composition_shadow_evidence"] = new JsonObject { ["source"] = "Actual production Composition DropShadow objects", ["layers"] = actual,
+                            ["quantity"] = "Live Composition properties; CSS blur equivalence, clipping and final raster coverage remain unmeasured" };
+                    }
                     node["paint_kind"] = element switch
                     {
                         Border or ContentPresenter => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
@@ -189,7 +201,7 @@ public sealed partial class MainWindow
         foreach (var popup in popups)
         {
             paintLayer++;
-            Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter ? "menu" : "dialog", viewport, 1, null);
+            Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
         }
         if (popups.Length > 1) errors.Add("Multiple popup roots: their collection order requires independent HWND/compositor z-order verification.");
         var result = new JsonObject
@@ -197,6 +209,7 @@ public sealed partial class MainWindow
             ["schema_version"] = 1, ["scene_id"] = caseId, ["client"] = "windows",
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
+            ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone() },
             ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
             ["popup_roots"] = popups.Length,
             ["pointer"] = new JsonObject { ["x"] = cursor.x - clientOrigin.x, ["y"] = cursor.y - clientOrigin.y }
@@ -337,6 +350,7 @@ public sealed partial class MainWindow
             if (visible) errors.Add(id + ": " + reason);
         }
         if (element.Shadow != null) PaintGap("actual " + element.Shadow.GetType().Name + " shadow needs paint measurement");
+        if (element is NativeShadowPanel) PaintGap("production Composition DropShadow layers require independent raster/clip and blur-quantity measurement");
         if (background != null && background is not SolidColorBrush) PaintGap("actual " + background.GetType().Name + " background brush needs gradient/image measurement");
         var borderWidth = Math.Max(Math.Max(thickness.Left, thickness.Right), Math.Max(thickness.Top, thickness.Bottom));
         if (borderWidth > 0 && border != null && border is not SolidColorBrush) PaintGap("actual " + border.GetType().Name + " visible border brush needs directional gradient/image measurement");
@@ -350,7 +364,7 @@ public sealed partial class MainWindow
             ["background_image"] = background == null || background is SolidColorBrush ? "none" : null,
             ["background_brush_type"] = background?.GetType().Name,
             ["opacity"] = opacity,
-            ["shadow"] = element.Shadow == null ? new JsonArray() : null,
+            ["shadow"] = element.Shadow == null && element is not NativeShadowPanel ? new JsonArray() : null,
             ["shadow_type"] = element.Shadow?.GetType().Name,
             ["border_width"] = borderWidth,
             ["corner_radius"] = Math.Max(Math.Max(radius.TopLeft, radius.TopRight), Math.Max(radius.BottomRight, radius.BottomLeft)),

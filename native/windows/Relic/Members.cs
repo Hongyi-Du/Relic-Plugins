@@ -67,7 +67,7 @@ public sealed partial class MainWindow
                 async Task SaveName()
                 {
                     var value = label.Text.Trim(); var result = await api.Post(Client.Org(id, "/rename"), new { member = name, name = value });
-                    Note(value.Length > 0 ? T("card.renamed") + (result.Text("note").Length > 0 ? " " + result.Text("note") : "") : T("card.name_reset")); editingName = false; await Reload();
+                    Note(value.Length > 0 ? T("card.renamed") + (result.Text("note").Length > 0 ? " " + result.Text("note") : "") : T("card.name_reset"), 5000); editingName = false; await Reload();
                 }
                 var rename = TwoColumns(SettingsVoiceField(label, double.NaN), OverviewAction(T("common.save"), SaveName, true)); rename.ColumnSpacing = 6; identity.Children.Add(rename);
                 label.KeyDown += async (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await Run(SaveName); } else if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; editingName = false; Fill(); } };

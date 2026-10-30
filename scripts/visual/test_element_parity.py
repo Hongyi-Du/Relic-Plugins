@@ -398,10 +398,10 @@ class ExtractionContractTests(unittest.TestCase):
 
 
 class MatrixReportTests(unittest.TestCase):
-    def test_full_matrix_requires_exact_600_cases(self):
+    def test_full_matrix_requires_exact_624_cases(self):
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
         cases = expected_cases(spec, "full")
-        self.assertEqual(len(cases), 600)
+        self.assertEqual(len(cases), 624)
         self.assertIn("en-US-dark-1024x700-menu-help", cases)
         self.assertIn("zh-CN-light-1440x900-quick-start", cases)
         self.assertIn("en-US-dark-1024x700-member-host-model-suggestions", cases)
@@ -412,7 +412,15 @@ class MatrixReportTests(unittest.TestCase):
         self.assertIn("en-US-dark-1024x700-member-card-rename", cases)
         self.assertIn("zh-CN-light-1440x900-member-card-model", cases)
         self.assertIn("en-US-light-1280x800-member-card-avatar-hover", cases)
-        self.assertEqual(len(expected_cases(spec, "smoke")), 11)
+        self.assertIn("en-US-dark-1024x700-message-hover", cases)
+        self.assertIn("zh-CN-light-1440x900-message-copy-toast", cases)
+        smoke = expected_cases(spec, "smoke")
+        self.assertEqual(len(smoke), 16)
+        original_smoke = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart",
+                          "menu-file", "file-code", "live-tool-output", "live-typing")
+        added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast")
+        self.assertEqual(set(smoke), {"zh-CN-light-1440x900-" + scene for scene in original_smoke + added})
+        self.assertTrue(set(smoke).issubset(cases))
 
     def test_missing_native_capture_writes_failure_report_and_html(self):
         spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}

@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from capture import DATALIST_SCENES, LIVE_SCENES, MEMBER_CARD_SCENES, open_datalist_scene, record_datalist_coverage
+from capture import DATALIST_SCENES, LIVE_SCENES, MEMBER_CARD_SCENES, MESSAGE_SCENES, open_datalist_scene, record_datalist_coverage
 
 
 class DatalistCaptureTests(unittest.TestCase):
@@ -76,8 +76,9 @@ class DatalistCaptureTests(unittest.TestCase):
         original_47 = original | set(DATALIST_SCENES) | LIVE_SCENES
         self.assertEqual(len(original_47), 47)
         self.assertEqual(set(MEMBER_CARD_SCENES), {"member-card-rename", "member-card-model", "member-card-avatar-hover"})
-        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES))
-        self.assertEqual(len(spec["scenes"]), 50)
+        self.assertEqual(set(MESSAGE_SCENES), {"message-hover", "message-copy-toast"})
+        self.assertEqual(set(spec["scenes"]), original_47 | set(MEMBER_CARD_SCENES) | MESSAGE_SCENES)
+        self.assertEqual(len(spec["scenes"]), 52)
 
 
 if __name__ == "__main__":

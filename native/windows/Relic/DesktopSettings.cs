@@ -89,7 +89,7 @@ public sealed partial class MainWindow
         return confirmedDialogs.Remove(dialog);
     }
     private readonly HashSet<ContentDialog> confirmedDialogs = new();
-    private void Note(string message) { error.Message = message; error.Severity = InfoBarSeverity.Informational; error.IsOpen = true; }
+    private void Note(string message, int milliseconds = 3600) => ShowToast(message, milliseconds);
     private StackPanel Stack(params UIElement[] children)
     {
         var box = new StackPanel { Spacing = 10 }; foreach (var child in children) box.Children.Add(child); return box;

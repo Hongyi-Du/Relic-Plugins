@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (message interaction capture): the macOS request merged
+through `02b07e2` is implemented in the shared matrix and Windows capture.
+`message-hover` and `message-copy-toast` preserve the prior 50 scenes and extend
+the complete matrix to 52 / 624 cases per platform. Diagnostic smoke preserves
+its prior 11 and adds the five new member/message interactions (16 cases).
+`native-message-capture.md` specifies real pointer/copy/clipboard receipts and
+the same toast instance across PNG and element extraction. Reference capture
+pauses the actual CDP clock after the real toast appears; Windows pauses its
+actual production timer, records monotonic remaining time and resumes it in
+finally. macOS must retain its actual timer/clock pause and instance receipts;
+capture-only permanent-toast flags or repeated Copy actions are not substitutes.
+Composition shadow objects are retained as raw evidence; unmeasured raster/clip
+or blur equivalence continues failing extraction.
+
 Changes for the clients (Windows typography): the non-document XAML controls
 now request the reference's explicit UI fallback list, including Microsoft
 YaHei UI after Segoe, and inherit the selected interface language. The previous
