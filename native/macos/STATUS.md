@@ -2,6 +2,35 @@
 
 **当前未完成 Amendment 4；没有已获接受的例外。**
 
+最新一轮 `0d3d681` 的 22 个 macOS 场景完成采集，但 `updateLayer` 候选造成了
+标签空白回归；这一轮不能作为可用版本。完整失败报告与原始 PNG、AX 文件已保存到
+`S:\Codex\Outputs\Relic-native-visual\parity-0d3d681\`，
+[CI 41078665367](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41078665367)。
+macOS 原始元素 5524、配对 4912：缺失47、多余612、文字0、几何809、样式11279、
+状态1339、种类0、区域0、顺序672、布局2453、图标3、提取40570，接受场景仍为0。
+这里的“文字0”只表示对应文字值相同，不能证明它们在 PNG 中被画出；实际截图已明确失败。
+
+`f538c9d` 已恢复此前正常显示的生产绘制路径。候选只在测试中启用，并新增通过
+真实 `ReferenceLabel / NSHostingView / cacheDisplay` 的非空像素及完整位图比较。
+原有 ContentLayer 的绘制归属仍未解决，未新增白名单或例外。
+`b9a3328` release 构建成功，但测试编译遇到 `CGImageGetTypeID()` 名称错误；
+`cc4d1cd` 已改为 `CGImage.typeID`，修正后的断言仍等待 CI 执行。
+[构建记录 41077661037](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41077661037)。
+
+最近已提交的修复还包括：Markdown 与引用预览的真实卡片归属、快速开始页的22px空输入区、
+不应省略的按钮/芯片/标签使用非省略式单行绘制，以及展开实时工具输出后跨多次排版保持阅读位置。
+后一项来自实际点击前后工具行跳动97px的记录，未在截图驱动中伪造滚动位置。
+这些修改仍须新截图与完整门禁验证。
+
+`e8307ed` 的217项测试中216项通过，四组原生背景填充与SwiftUI位图比较全部通过。
+弹窗和菜单已采用该填充器，并将同一次实际填充、图层顺序观测同时导出至 AX 和元素文件。
+观测包含真实路径、坐标、身份、顺序、变换与透明度；`occlusion_proven` 仍为 false。
+[测试记录 41075744457](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41075744457)。
+
+过时完整运行 `41075744455` 及已知空白回归诊断 `41080662897` 已请求取消，已上传产物保留在 CI。
+它们不算完成或通过；新的完整矩阵仍要求每平台全部672场景。当前诊断运行是
+[41081504755](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41081504755)，尚未验收。
+
 完整 CI 报告 `1ffe201` 已下载至
 `S:\Codex\Outputs\Relic-native-visual\parity-1ffe201\report\`：原始 `parity-report.json`
 为 1,491,300,561 字节，包含 672 个场景及 1,344 次平台比较；2018 个 HTML 页面和
@@ -28,7 +57,7 @@ macOS 原始/有效元素 5527，配对 4902：缺失57、多余625、文字0、
 [CI 41074621325](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41074621325)。
 `37e0f98` 改用公开的 AppKit updateLayer 路径，把真实 TextKit 绘制结果作为 CGImage
 提交到自己的 CALayer；新增实际图层位图对比与失效绑定测试，等待 CI，未放宽原断言。
-可选的原生背景填充也只进入像素测试，尚未用于生产弹窗；其遮挡证明仍为 false。
+原生背景填充的后续验证与生产启用见本页顶部；其遮挡证明仍为 false。
 
 以下保留此前的诊断、功能清单和真机验收记录；这些历史源码覆盖记录不等于逐元素通过。
 

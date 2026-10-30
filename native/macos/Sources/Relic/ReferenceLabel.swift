@@ -69,6 +69,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.setAccessibilityLabel(accessibleName ?? text)
         if ownedLayer {
             view.usesOwnedBackingImage = true
+            view.canDrawSubviewsIntoLayer = false
             view.wantsLayer = true
             view.needsDisplay = true
         }
@@ -132,6 +133,7 @@ final class ReferenceLabelView: ReadOnlyTextView {
     private var backingWindow: ObjectIdentifier?
     private var backingScale: CGFloat = 1
     private var backingDraw: [String: Any]?
+    private var backingUpdateCount = 0
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override var wantsUpdateLayer: Bool { usesOwnedBackingImage }
@@ -148,6 +150,7 @@ final class ReferenceLabelView: ReadOnlyTextView {
         if changed { needsDisplay = true }
     }
     override func updateLayer() {
+        backingUpdateCount += 1
         guard let layer else { return }
         let scale = window?.backingScaleFactor ?? 1
         guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite,
@@ -183,6 +186,9 @@ final class ReferenceLabelView: ReadOnlyTextView {
             && layer?.contentsScale == backingScale && layer?.contentsGravity == .topLeft
         return ["source": "production ReferenceLabelView.updateLayer native sRGB image",
             "current": current, "view_identity": String(describing: ObjectIdentifier(self)),
+            "update_count": backingUpdateCount, "wants_layer": wantsLayer,
+            "wants_update_layer": wantsUpdateLayer, "flattens_subviews": canDrawSubviewsIntoLayer,
+            "has_layer": layer != nil,
             "window_identity": window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
             "image_identity": backingImage.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
             "layer_contents_is_same_image": matches, "scale": backingScale,
