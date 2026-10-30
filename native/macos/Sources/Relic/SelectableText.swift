@@ -22,6 +22,7 @@ struct SelectableText: NSViewRepresentable {
     var lineHeight: CGFloat? = nil
     var monospaced = false
     var uniformSource = false
+    var maximumLines = 0
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
@@ -39,6 +40,8 @@ struct SelectableText: NSViewRepresentable {
     }
     func updateNSView(_ view: NSTextView, context: Context) {
         context.coordinator.parent = self
+        view.textContainer?.maximumNumberOfLines = maximumLines
+        view.textContainer?.lineBreakMode = maximumLines > 0 ? .byTruncatingTail : .byWordWrapping
         if let selectable = view as? QuoteTextView {
             selectable.measuredOpacity = opacity
             selectable.productionRegion = region
@@ -57,7 +60,7 @@ struct SelectableText: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
         let offered = proposal.width ?? (monospaced ? 100_000 : 400)
         let available = offered.isFinite ? max(1, offered) : 400
-        return NativeTextStyle.contentSize(nsView.attributedString(), available: available)
+        return NativeTextStyle.contentSize(nsView.attributedString(), available: available, maximumLines: maximumLines)
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SelectableText
@@ -76,7 +79,7 @@ struct SelectableText: NSViewRepresentable {
 }
 
 extension NativeTextStyle {
-    static func contentSize(_ value: NSAttributedString, available: CGFloat) -> CGSize {
+    static func contentSize(_ value: NSAttributedString, available: CGFloat, maximumLines: Int = 0) -> CGSize {
         // Measure a separate TextKit layout. SwiftUI probes several widths before
         // assigning the final frame; mutating the live container here leaves the
         // last probe width behind and can draw a second line outside its height.
@@ -90,6 +93,8 @@ extension NativeTextStyle {
         // longest already-wrapped line incorrectly narrows the entire bubble.
         let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
         container.containerSize.width = width
+        container.maximumNumberOfLines = maximumLines
+        container.lineBreakMode = maximumLines > 0 ? .byTruncatingTail : .byWordWrapping
         layout.ensureLayout(for: container)
         // A read-only pre-wrap block retains its terminal newline for selection,
         // but has no insertion line after it. TextKit's usedRect includes that

@@ -522,11 +522,7 @@ struct ComposerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !m.quote.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    ReferenceLabel(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression), size: 12.5, color: RelicStyle.secondary, lines: 3).frame(maxWidth: .infinity, alignment: .leading).help(m.quote).accessibilityLabel(m.t("composer.quoting", ["who": m.quote]))
-                    IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" }
-                }.padding(.leading, 13).padding(.trailing, 8).padding(.vertical, 6)
-                    .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "region"))
+                ComposerQuote()
             }
             MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                 .accessibilityLabel(placeholder)
@@ -615,10 +611,17 @@ struct ThreadComposer: View {
 
 struct ComposerQuote: View {
     @EnvironmentObject var m: Model
+    private var text: AttributedString {
+        var value = AttributedString(m.quoteAuthor.isEmpty ? "" : m.t("composer.quoting", ["who": m.quoteAuthor]))
+        value.inlinePresentationIntent = .stronglyEmphasized
+        value.append(AttributedString(m.quotePreviewText))
+        return value
+    }
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            ReferenceLabel(m.quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression), size: 12.5, color: RelicStyle.secondary, lines: 3).frame(maxWidth: .infinity, alignment: .leading).help(m.quote)
-            IconButton(title: m.t("composer.cancel_quote"), icon: "x") { m.quote = "" }
+            SelectableText(value: text, color: RelicStyle.secondary, pointSize: 12.5, lineHeight: 20, maximumLines: 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            IconButton(title: m.t("composer.cancel_quote"), icon: "x", size: 14, height: 22, width: 22) { m.quote = "" }
         }.padding(.leading, 13).padding(.trailing, 8).padding(.vertical, 6)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.accent, radius: 10, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "region"))
     }

@@ -225,8 +225,14 @@ final class ContractTests: XCTestCase {
     }
     func testDraftRoundTripRetainsQuoteAndMultiRecipient() throws {
         var draft = ChatDraft(); draft.text = "你好"; draft.quote = "> Earlier"; draft.recipients = ["a", "b"]
+        draft.quoteAuthor = "ana"; draft.quoteText = "Earlier"
         let decoded = try JSONDecoder().decode(ChatDraft.self, from: JSONEncoder().encode(draft))
         XCTAssertEqual(decoded, draft)
+    }
+    func testDraftWithoutStructuredQuoteFieldsStillDecodes() throws {
+        let draft = try JSONDecoder().decode(ChatDraft.self, from: Data(#"{"text":"draft","quote":"> ana: Earlier","recipients":["all"]}"#.utf8))
+        XCTAssertEqual(draft.quote, "> ana: Earlier")
+        XCTAssertNil(draft.quoteAuthor); XCTAssertNil(draft.quoteText)
     }
     func testNativeLinksKeepURLsSeparateFromLocalFileReferences() throws {
         XCTAssertEqual(NativeLinks.file("/tmp/a.py:12:3")?.path, "/tmp/a.py"); XCTAssertEqual(NativeLinks.file("/tmp/a.py:12:3")?.line, 12)

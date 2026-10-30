@@ -6,6 +6,17 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testUnlabelledRadioKeepsItsAccessibleNameSeparateFromPaintedTitle() throws {
+        let radio = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
+        radio.setAccessibilityLabel("Claude Code Anthropic Available")
+        let cell = try XCTUnwrap(radio.cell)
+        cell.setAccessibilityLabel("Claude Code Anthropic Available")
+        XCTAssertEqual(ElementCapture.nativeButtonTitle(radio), "")
+        XCTAssertEqual(ElementCapture.nativeButtonTitle(cell), "")
+        XCTAssertEqual(RelicAXRead(cell)["label"] as? String, "Claude Code Anthropic Available")
+        radio.title = "Visible title"
+        XCTAssertEqual(ElementCapture.nativeButtonTitle(cell), "Visible title")
+    }
     func testChartEdgeAXNameTracksItsActualSharedSeatsAndPath() throws {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 50, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
         let view = ChartEdgeProbe.EdgeView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))

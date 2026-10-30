@@ -7,6 +7,11 @@ import CoreText
 // Measurements come from the live production accessibility/view tree and PNG.
 // This exporter never reads the reference's element data or substitutes its values.
 @MainActor enum ElementCapture {
+    static func nativeButtonTitle(_ object: AnyObject) -> String? {
+        if let button = object as? NSButton { return button.title }
+        if let cell = object as? NSButtonCell { return (cell.controlView as? NSButton)?.title ?? cell.title }
+        return nil
+    }
     static func topLeft(_ screen: NSRect, in content: NSRect) -> NSRect {
         NSRect(x: screen.minX - content.minX, y: content.maxY - screen.maxY, width: screen.width, height: screen.height)
     }
@@ -311,6 +316,7 @@ import CoreText
             if isIcon || ax["identifier"].text == "relic-profile-button" || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle", "toggle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
             else if elementKind == "dropdown" { text = valueText }
+            else if ["AXRadioButton", "AXCheckBox"].contains(role), let actualTitle = Self.nativeButtonTitle(object) { text = actualTitle }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
             let textRegion = (object as? ReferenceLabelView)?.productionRegion ?? (object as? QuoteTextView)?.productionRegion
