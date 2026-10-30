@@ -111,6 +111,10 @@ public sealed partial class MainWindow
             var target = recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display));
             if (target.Length > 24) target = target[..23] + "…";
             var label = T("composer.send_to", ("to", target));
+            // The compound content (label + chevron) does not supply a Button
+            // peer name. Keep the actual accessible label in sync with each
+            // recipient/language update, just like the visible chip text.
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(recipientButton, label);
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center }; var text = Ellipsis(label, 12.5); text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
             var arrow = (ReferenceVectorIcon)ReferenceIcon("down", 14); arrow.Foreground = text.Foreground; row.Children.Add(arrow);
             recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(14); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(11, 0, 11, 0);
@@ -250,7 +254,12 @@ public sealed partial class MainWindow
             titles.Children.Add(HeaderMeta(T(snap["org"].Flag("auto_wake") ? "chat.group_meta_on" : "chat.group_meta_off", ("org", snap["org"].Text("name")))));
             actions.Children.Add(ChipButton("lang", T(plainMode ? "chat.plain_on" : "common.plain_words"), T("chat.plain_title"), TogglePlain));
             actions.Children.Add(ChipButton("sparkle", T("chat.digest"), T("chat.digest_title"), ToggleDigest));
-            actions.Children.Add(IconButton("\uE73A", "common.tasks", () => Details("tasks")));
+            var tasks = IconButton("\uE73A", "common.tasks", () => Details("tasks"));
+            var tasksIcon = (ReferenceVectorIcon)ReferenceIcon("check", 18);
+            tasks.Foreground = Paint("5A5853", "B8B5AE"); tasksIcon.Foreground = tasks.Foreground;
+            tasks.Content = tasksIcon; tasks.Padding = new Thickness(0); tasks.CornerRadius = new CornerRadius(8);
+            tasks.HorizontalContentAlignment = HorizontalAlignment.Center; tasks.VerticalContentAlignment = VerticalAlignment.Center;
+            actions.Children.Add(tasks);
             if (digestOpen) { conversationBanner.Padding = new Thickness(20, 10, 20, 0); conversationBanner.MaxWidth = 920; conversationBanner.Child = DigestCard(); conversationBanner.Visibility = Visibility.Visible; }
         }
         else

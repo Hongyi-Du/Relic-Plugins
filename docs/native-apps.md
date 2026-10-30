@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (measured Windows group controls): the recipient chip
+now updates its actual Button automation name with its current localized label.
+In a3ca2a3 the visible text matched but the independent UIA name was null. The
+group-header task button now uses the reference's 18px centered check icon,
+ink-2 foreground and 8px corner radius, preserving its 30px size and action.
+The production headless build passes; new runtime evidence remains pending.
+
+The four Windows vocabulary failures are still unresolved: the fixed reference
+uses `settings.desktop_connections`, `settings.desktop_probe_hint`,
+`settings.claude_desktop_hint` and `settings.desktop_probe` only inside
+`if (isMac())` (2007a83 app.js:2555-2572). Its Windows UI has no counterpart;
+the Windows server does not execute the macOS desktop probe. Adding those
+controls or unused translation references would not establish parity. No
+allowlist entry or platform exemption has been added to pass this gate.
+
 Changes for the clients (macOS configured font-weight evidence): merged
 5bf9303, retaining the actual attributed input weight separately from the
 actual drawn font face/variation. A requested CSS weight and a resolved font
