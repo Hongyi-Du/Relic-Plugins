@@ -1,5 +1,28 @@
 # Native Relic App contract
 
+Changes for the clients (bounded native chip/badge/state-dot ownership): exact
+sealed OverviewChipView/OverviewBadgeView now retain their real type chain,
+applied template, sole ContentPresenter and actual Content object identities.
+NativeStateDotView separately retains its exact Grid type and the actual two
+Ellipse layer identities. These contracts describe only parent drawing duties;
+child paint, focus, Composition, Shadow and the vacancy-ring CSS equivalence
+remain independent obligations. Nine focused CI tests retain historical null
+contracts as failures and cover malformed/foreign children and renderer state.
+The combined main WinUI project builds headlessly with zero warnings/errors.
+
+Changes for the clients (CI regression correction): efeaf76 shared checks pass
+all 106 Node tests and 567 of 568 Python tests. The menu fixture had omitted
+its actual parent region, so the existing projector correctly removed the
+dangling parent reference. The recorded fixture now includes the original
+window/header ancestors and their UIA chain; the parent assertion remains and
+additional root/header/full-runtime-ID assertions are included. Production
+projection and tolerances are unchanged. CI must rerun the corrected fixture.
+
+The Windows thread-reply summary button now exposes the visible initials of
+its actual text avatars, reply count and last-reply label in reading order.
+Image avatars contribute no alternate text, matching the reference's empty alt.
+This corrects another measured empty UIA name without adding a visible element.
+
 Changes for the clients (bounded cwd line-break diagnostic): ca8d997 still
 renders the same member-card path in two Windows lines versus three reference
 lines. A CI-only member-card-model probe now reads the actual cwd TextBlock/Run,

@@ -19,6 +19,14 @@ PERSON_RUNTIME = "Microsoft.UI.Xaml.Controls.PersonPicture"
 PERSON_CONTRACT = "native-personpicture-control-template-children-only"
 PERSON_SOURCE = "actual exact PersonPicture runtime, Control.Template and current visual children"
 PERSON_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
+TOKEN_RUNTIMES = {"Relic.OverviewChipView", "Relic.OverviewBadgeView"}
+TOKEN_CONTRACT = "relic-overview-token-template-content"
+TOKEN_SOURCE = "actual sealed OverviewTokenView leaf runtime, template and ContentPresenter/Content object identities"
+DOT_RUNTIME = "Relic.NativeStateDotView"
+DOT_CONTRACT = "relic-state-dot-grid-owned-ellipses"
+DOT_SOURCE = "actual sealed NativeStateDotView runtime and Surround/VacancyRing object identities"
+DOT_LAYERS_SOURCE = "actual NativeStateDotView owned paint objects and current Children order"
+DOT_LAYER_SOURCE = "actual NativeStateDotView owned Ellipse object identity"
 LOCAL_LAYOUT_SOURCE = "actual local layout Type.BaseType/IsSealed and exact audited source contract"
 # Audited exact production classes: five add Measure/Arrange only, while the
 # Grid adds only its real region peer. Their native Panel background/border and
@@ -105,8 +113,10 @@ def native_outline(node, by_id):
         return None, evidence, issues
     runtime = raw.get("runtime_type")
     local_contract = LOCAL_LAYOUT_CONTRACTS.get(runtime) if isinstance(runtime, str) else None
+    token_runtime = isinstance(runtime, str) and runtime in TOKEN_RUNTIMES
     contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME
-                else PERSON_CONTRACT if runtime == PERSON_RUNTIME else local_contract[0] if local_contract
+                else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
+                else DOT_CONTRACT if runtime == DOT_RUNTIME else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
     if (contract is None or raw.get("own_paint_contract") != contract
@@ -118,6 +128,92 @@ def native_outline(node, by_id):
                 or local.get("owner_id") != node.get("id") or local.get("is_sealed") is not True
                 or local.get("base_type") != local_contract[1] or local.get("audited_source") != local_contract[2]):
             gap("Exact local layout source contract lacks its actual sealed runtime/base-type binding")
+    if token_runtime:
+        # Only the two audited sealed leaves over OverviewTokenView. The fixed
+        # SDK ContentControl render branch handles ListViewBaseItem chrome;
+        # these exact local classes instead use their actual ContentPresenter.
+        # Background/border properties and independently measured child paint
+        # are retained; this is not a generic ContentControl exemption.
+        token = raw.get("overview_token_content")
+        render_type = node.get("render_type_evidence")
+        valid_token = (isinstance(token, dict) and token.get("source") == TOKEN_SOURCE
+                       and token.get("status") == "measured" and token.get("owner_id") == node["id"]
+                       and token.get("base_type") == "Relic.OverviewTokenView"
+                       and token.get("base_base_type") == "Microsoft.UI.Xaml.Controls.ContentControl"
+                       and token.get("is_sealed") is True
+                       and token.get("audited_source") == "native/windows/Relic/OverviewStyles.cs#OverviewTokenView"
+                       and token.get("template_present") is True
+                       and token.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
+                       and type(token.get("visual_child_count")) is int and token["visual_child_count"] == 1
+                       and token.get("presenter_runtime_type") == "Microsoft.UI.Xaml.Controls.ContentPresenter"
+                       and token.get("presenter_is_current_only_child") is True
+                       and token.get("presenter_content_same_object") is True
+                       and token.get("content_is_current_presenter_child") is True
+                       and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+                       and render_type.get("is_control") is True and render_type.get("is_content_control") is True
+                       and render_type.get("control_template_present") is True)
+        presenter_id = token.get("presenter_id") if isinstance(token, dict) else None
+        content_id = token.get("content_id") if isinstance(token, dict) else None
+        presenter = by_id.get(presenter_id) if isinstance(presenter_id, str) else None
+        content = by_id.get(content_id) if isinstance(content_id, str) else None
+        valid_token = (valid_token and isinstance(presenter, dict) and isinstance(content, dict)
+                       and len({node["id"], presenter_id, content_id}) == 3
+                       and presenter.get("type") == "ContentPresenter" and presenter.get("parent") == node["id"]
+                       and content.get("type") == token.get("content_type") and isinstance(token.get("content_type"), str)
+                       and bool(token["content_type"])
+                       and content.get("parent") == presenter_id
+                       and [child["id"] for child in by_id.values()
+                            if child.get("parent") == node["id"] and not child.get("text_run_source")] == [presenter_id]
+                       and [child["id"] for child in by_id.values()
+                            if child.get("parent") == presenter_id and not child.get("text_run_source")] == [content_id])
+        if not valid_token:
+            gap("Exact overview token lacks its sealed class chain, applied template and current ContentPresenter/Content identity proof")
+        else:
+            evidence["scope"] = ("Exact sealed overview token ContentControl parent only; its actual ContentPresenter "
+                                 "and content retain their own paint/focus/Composition obligations")
+    if runtime == DOT_RUNTIME:
+        dot = raw.get("state_dot_grid")
+        layers = node.get("state_dot_evidence")
+        render_type = node.get("render_type_evidence")
+        valid_dot = (isinstance(dot, dict) and dot.get("source") == DOT_SOURCE
+                     and dot.get("status") == "measured" and dot.get("owner_id") == node["id"]
+                     and dot.get("base_type") == "Microsoft.UI.Xaml.Controls.Grid" and dot.get("is_sealed") is True
+                     and dot.get("audited_source") == "native/windows/Relic/NativeStateDotView.cs#NativeStateDotView"
+                     and type(dot.get("visual_child_count")) is int and dot["visual_child_count"] == 2
+                     and type(dot.get("panel_child_count")) is int and dot["panel_child_count"] == 2
+                     and dot.get("production_layers_are_current_children") is True
+                     and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+                     and render_type.get("is_panel") is True and render_type.get("is_control") is False
+                     and isinstance(layers, dict) and layers.get("source") == DOT_LAYERS_SOURCE
+                     and layers.get("complete") is True and layers.get("current_children_same_objects") is True)
+        layer_ids = [dot.get(key) for key in ("surround_id", "vacancy_ring_id")] if isinstance(dot, dict) else []
+        if valid_dot:
+            valid_dot = (all(isinstance(eid, str) and eid in by_id for eid in layer_ids)
+                         and len(set(layer_ids + [node["id"]])) == 3
+                         and layers.get("current_children") == layer_ids
+                         and [child["id"] for child in sorted(
+                             (item for item in by_id.values() if item.get("parent") == node["id"] and not item.get("text_run_source")),
+                             key=lambda item: item.get("render_sibling_order", -1))] == layer_ids)
+        if valid_dot:
+            expected_layers = [{"id": eid, "property": role, "child_index": index}
+                               for index, (eid, role) in enumerate(zip(layer_ids, ("Surround", "VacancyRing")))]
+            current_layers = layers.get("layers")
+            valid_dot = (isinstance(current_layers, list) and len(current_layers) == 2
+                         and all(isinstance(layer, dict) and type(layer.get("child_index")) is int
+                                 and all(layer.get(key) == value for key, value in expected.items())
+                                 for layer, expected in zip(current_layers, expected_layers)))
+            for expected in expected_layers:
+                child = by_id[expected["id"]]
+                binding = child.get("state_dot_layer_evidence")
+                valid_dot = (valid_dot and child.get("type") == "Ellipse" and child.get("parent") == node["id"]
+                             and isinstance(binding, dict) and binding.get("source") == DOT_LAYER_SOURCE
+                             and binding.get("owner_id") == node["id"] and binding.get("property") == expected["property"]
+                             and type(binding.get("child_index")) is int and binding["child_index"] == expected["child_index"])
+        if not valid_dot:
+            gap("Exact state-dot Grid lacks its sealed runtime and complete current Surround/VacancyRing object bindings")
+        else:
+            evidence["scope"] = ("Exact state-dot Grid own panel paint only; the two actual Ellipse layers remain independent. "
+                                 "No CSS inset-shadow or final-raster equivalence is supplied")
     if runtime == PERSON_RUNTIME:
         # Fixed SDK's unsealed PersonPicture updates its real template's
         # TextBlock/Ellipse/brushes/VisualState, not a second parent renderer.
