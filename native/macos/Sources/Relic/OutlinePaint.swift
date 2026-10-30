@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Retains the path actually submitted to CoreGraphics. This is a draw receipt,
 /// not a contour reconstructed from an element's expected bounding rectangle.
-struct OutlineDrawReceipt {
+@MainActor struct OutlineDrawReceipt {
     let path: CGPath
     let bounds: CGRect
     let width: CGFloat

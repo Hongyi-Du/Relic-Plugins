@@ -204,6 +204,10 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var recordDraws = VisualCapture.enabled
         var insetRingColor = NSColor.clear, outerRingColor = NSColor.clear
         override var isFlipped: Bool { true }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            outlineRevision += 1; needsDisplay = true
+        }
         func configureOutline(_ value: SurfaceOutline?, corners: [CGFloat]) {
             guard outline != value || outlineCorners != corners else { return }
             outline = value; outlineCorners = corners; outlineRevision += 1; needsDisplay = true
