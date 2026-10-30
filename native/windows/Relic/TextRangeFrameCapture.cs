@@ -45,8 +45,10 @@ public sealed partial class MainWindow
         private readonly Dictionary<TextBlock, string> xamlIds = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<TextBlock, (AutomationPeer Peer, AutomationPeer? Events)> identityPeers = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<TextBlock, JsonObject> lastStates = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<Run, RunTextBindingObserver> runBindings = new(ReferenceEqualityComparer.Instance);
         private readonly List<Action> detach = [];
         private readonly JsonArray changes = [], checkpoints = [], errors = [], unavailableProperties = [];
+        private readonly JsonArray runBindingReceipts = [];
         private long revision;
         private bool reading, disposed;
         internal JsonObject Receipt { get; }
@@ -61,10 +63,12 @@ public sealed partial class MainWindow
                 ["qpc_frequency"] = Stopwatch.Frequency, ["started_qpc"] = Stopwatch.GetTimestamp(),
                 ["owners"] = new JsonArray(), ["checkpoints"] = checkpoints, ["changes"] = changes, ["errors"] = errors,
                 ["unavailable_property_observers"] = unavailableProperties,
+                ["run_text_bindings"] = runBindingReceipts,
                 ["continuity_proven"] = false, ["canonical_geometry_supplied"] = false,
                 ["final_png_contribution_proven"] = false,
                 ["scope"] = "Measured source/layout/ancestor inputs and observable revisions; not glyph ink, visibility, or final composed pixels",
-                ["limitations"] = new JsonArray("Composition-only animations and unsupported dependency-property values are not certified by this observer")
+                ["limitations"] = new JsonArray("Composition-only animations and unsupported dependency-property values are not certified by this observer",
+                    "Run.Text binding notifications do not observe InlineCollection insertion, removal, replacement or reordering")
             };
             reading = true;
             try { foreach (var owner in owners) lastStates[owner] = State(owner); }
@@ -129,6 +133,16 @@ public sealed partial class MainWindow
                     properties[value].Add((name, dp)); detach.Add(() => value.UnregisterPropertyChangedCallback(dp, token));
                 }
                 catch (Exception ex) { errors.Add(value.GetType().FullName + "." + name + ": " + ex); }
+            }
+            if (value is Run retainedRun)
+            {
+                var observer = new RunTextBindingObserver(retainedRun, id,
+                    () => Changed(retainedRun, "Run.Text.OneWayBinding"),
+                    reason => errors.Add("Run object " + id + ": " + reason));
+                runBindings.Add(retainedRun, observer); runBindingReceipts.Add(observer.Receipt);
+                // Retain failed installations too, so every allocated target and
+                // registered callback is detached by the ordinary frame cleanup.
+                detach.Add(observer.Dispose); observer.Install();
             }
             if (value is FrameworkElement element)
             {
@@ -200,11 +214,11 @@ public sealed partial class MainWindow
                 if (value is TextBlock block) record["is_text_trimmed"] = block.IsTextTrimmed;
                 if (value is Run run)
                 {
-                    // Run.Text is not exposed as a public dependency property
-                    // in this SDK. Preserve its real value at every checkpoint;
-                    // snapshots alone do not certify intervening mutations.
-                    record["run_text"] = Value(run.Text, inputs);
-                    record["run_text_change_notifications_available"] = properties[value].Any(property => property.Name == "Text");
+                    record["run_text"] = RunTextBindingJournal.Text(run.Text);
+                    var observation = runBindings[run].Inspect();
+                    record["run_text_binding"] = observation;
+                    record["run_text_change_notifications_available"] = properties[value].Any(property => property.Name == "Text")
+                        || observation["channel_available"]?.GetValue<bool>() == true;
                 }
                 if (value is Geometry geometry && geometry is not RectangleGeometry) record["unsupported_clip_geometry"] = true;
                 if (value is TransformGroup) record["unobserved_transform_collection_mutations"] = true;

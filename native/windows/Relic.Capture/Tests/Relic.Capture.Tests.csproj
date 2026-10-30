@@ -15,5 +15,6 @@
     <Compile Include="../../Relic/MessageHeaderRow.cs" Link="MessageHeaderRow.cs" />
     <Compile Include="../../Relic/PanelResizeCapture.cs" Link="PanelResizeCapture.cs" />
     <Compile Include="../../Relic/TextRangeFormatEnumeration.cs" Link="TextRangeFormatEnumeration.cs" />
+    <Compile Include="../../Relic/RunTextBindingJournal.cs" Link="RunTextBindingJournal.cs" />
   </ItemGroup>
 </Project>

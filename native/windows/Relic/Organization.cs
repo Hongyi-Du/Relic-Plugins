@@ -146,6 +146,9 @@ public sealed partial class MainWindow
         choice.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI); choice.FontSize = 14; choice.MinHeight = 0; choice.Height = 37; choice.Padding = new Thickness(10, 7, 10, 7); choice.CornerRadius = new CornerRadius(9); choice.BorderThickness = new Thickness(1); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.Background = Paint("FFFFFF", "1F1F1E");
         foreach (var item in choice.Items.OfType<ComboBoxItem>()) if (item.Content is TextBlock text) { text.FontSize = 14; text.FontFamily = choice.FontFamily; text.Foreground = Ink; }
         var title = OverviewText(T(label)); title.Foreground = Paint("5A5853", "B8B5AE"); title.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(title); Grid.SetColumn(choice, 1); row.Children.Add(choice); box.Children.Add(row);
+        // The header now lives beside the ComboBox; retain its actual label relationship.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLabeledBy(choice, title);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(choice, title.Text);
     }
     private UIElement Decision(JsonNode d)
     {
