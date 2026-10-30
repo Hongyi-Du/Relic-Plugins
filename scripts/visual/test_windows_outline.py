@@ -2,7 +2,8 @@
 from copy import deepcopy
 import unittest
 
-from windows_outline import CONTRACTS, RUN_SOURCE, SOURCE, native_outline
+from windows_outline import (CONTRACTS, RUN_SOURCE, SOURCE, VECTOR_CONTRACT,
+                             VECTOR_RUNTIME, VECTOR_SOURCE, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
@@ -20,6 +21,34 @@ def primitive(eid="paint", typ="Border", parent=None):
                           "global": {"source": SOURCE, "status": "measured", "focused_object_is_null": True,
                                      "focused_object_id": None, "focused_object_type": None,
                                      "focused_object_focus_state": None, "focused_object_use_system_focus_visuals": None}}}}
+
+
+def vector_icon():
+    """Synthetic live-object receipt matching the production icon's actual tree."""
+    icon = primitive("icon")
+    icon["type"] = "ReferenceVectorIcon"
+    raw = icon["outline_owner_evidence"]
+    raw.update(runtime_type=VECTOR_RUNTIME, own_paint_contract=VECTOR_CONTRACT)
+    children = [primitive("viewbox", "Viewbox", "icon"), primitive("container", "Border", "viewbox"),
+                primitive("canvas", "Canvas", "container"), primitive("path", "Path", "canvas")]
+    nodes = [icon, *children]
+    by_id = {node["id"]: node for node in nodes}
+    for node in nodes:
+        path, current = [], node
+        while current is not None:
+            path.append(current["id"])
+            current = by_id.get(current.get("parent"))
+        node["outline_owner_evidence"]["focus"]["owner_ancestry"] = path
+        node["outline_owner_evidence"]["children"]["items"] = [
+            {"id": child["id"], "index": index, "same_parent_object": True}
+            for index, child in enumerate(item for item in nodes if item.get("parent") == node["id"])]
+    raw["vector_content"] = {
+        "source": VECTOR_SOURCE, "status": "measured", "owner_id": "icon", "template_is_null": True,
+        "content_id": "viewbox", "canvas_id": "canvas", "path_id": "path",
+        "content_is_current_visual_child": True, "viewbox_child_is_vector_canvas": True,
+        "canvas_children_are_vector_path": True, "canvas_visual_path_complete": True,
+        "canvas_visual_path": ["canvas", "container", "viewbox", "icon"]}
+    return icon, children
 
 
 class WindowsOutlineTests(unittest.TestCase):
@@ -120,6 +149,65 @@ class WindowsOutlineTests(unittest.TestCase):
         self.assertUnknown(child, [node])
         node["outline_owner_evidence"]["children"]["items"] = []
         self.assertUnknown(node, [child])
+
+    def test_exact_viewbox_owns_only_transform_and_preserves_internal_border_obligation(self):
+        viewbox = primitive("viewbox", "Viewbox")
+        border = primitive("container", "Border", "viewbox")
+        viewbox["outline_owner_evidence"]["children"]["items"] = [
+            {"id": "container", "index": 0, "same_parent_object": True}]
+        self.assertEqual(self.result(viewbox, [border])[0], "none")
+        border["outline_owner_evidence"]["composition"].update(
+            child_visual_present=True, child_visual_type="Microsoft.UI.Composition.SpriteVisual")
+        # A child remains independently unknown; its parent contract does not
+        # erase or inherit any paint proof for that child's actual operation.
+        self.assertEqual(self.result(viewbox, [border])[0], "none")
+        self.assertUnknown(border, [viewbox])
+        self.assertUnknown(viewbox)
+        viewbox["outline_owner_evidence"]["runtime_type"] = "Relic.CustomViewbox"
+        self.assertUnknown(viewbox, [border])
+
+    def test_exact_reference_vector_binds_real_path_without_treating_stroke_as_owner_outline(self):
+        icon, children = vector_icon()
+        before = deepcopy([icon, *children])
+        self.assertEqual(self.result(icon, children)[0], "none")
+        self.assertEqual([icon, *children], before)
+        children[-1]["outline_owner_evidence"]["composition"].update(
+            shadow_present=True, shadow_type="Microsoft.UI.Xaml.Media.ThemeShadow")
+        self.assertEqual(self.result(icon, children)[0], "none")
+        self.assertUnknown(children[-1], [icon, *children[:-1]])
+
+    def test_reference_vector_requires_exact_current_fields_and_visual_chain(self):
+        for key in ("source", "status", "owner_id", "template_is_null", "content_id", "canvas_id", "path_id",
+                    "content_is_current_visual_child", "viewbox_child_is_vector_canvas", "canvas_children_are_vector_path",
+                    "canvas_visual_path", "canvas_visual_path_complete"):
+            with self.subTest(missing=key):
+                icon, children = vector_icon()
+                icon["outline_owner_evidence"]["vector_content"].pop(key)
+                self.assertUnknown(icon, children)
+        for mutate in (
+            lambda icon, children: children[2].update(parent="viewbox"),
+            lambda icon, children: children[3].update(parent="container"),
+            lambda icon, children: icon["outline_owner_evidence"]["vector_content"].update(path_id="canvas"),
+            lambda icon, children: icon["outline_owner_evidence"]["vector_content"].update(template_is_null=False),
+            lambda icon, children: icon["outline_owner_evidence"].update(runtime_type="Relic.OtherVectorIcon"),
+        ):
+            icon, children = vector_icon()
+            mutate(icon, children)
+            self.assertUnknown(icon, children)
+        icon, children = vector_icon()
+        children.append(primitive("unaccounted-path", "Path", "canvas"))
+        self.assertUnknown(icon, children)
+
+    def test_reference_vector_keeps_original_focus_composition_and_direct_child_checks(self):
+        for section, updates in (
+            ("focus", {"state": "Keyboard"}),
+            ("composition", {"child_visual_present": True, "child_visual_type": "Microsoft.UI.Composition.ContainerVisual"}),
+            ("composition", {"shadow_present": True, "shadow_type": "Microsoft.UI.Xaml.Media.ThemeShadow"}),
+            ("children", {"complete": False}),
+        ):
+            icon, children = vector_icon()
+            icon["outline_owner_evidence"][section].update(updates)
+            self.assertUnknown(icon, children)
 
     def test_real_text_run_does_not_copy_its_owners_outline_proof(self):
         owner = primitive("text", "TextBlock")

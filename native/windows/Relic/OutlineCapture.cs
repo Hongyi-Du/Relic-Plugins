@@ -97,6 +97,38 @@ public sealed partial class MainWindow
                     children.Add(new JsonObject { ["id"] = childId, ["index"] = index, ["same_parent_object"] = sameParent });
                 }
                 receipt["children"] = new JsonObject { ["status"] = "measured", ["complete"] = complete, ["items"] = children };
+                if (value.GetType() == typeof(ReferenceVectorIcon))
+                {
+                    var icon = (ReferenceVectorIcon)value;
+                    var content = icon.Content as Viewbox;
+                    var canvasPath = new JsonArray(); var canvasPathComplete = false;
+                    var visited = new HashSet<DependencyObject>();
+                    for (DependencyObject? current = icon.VectorCanvas; current != null; current = VisualTreeHelper.GetParent(current))
+                    {
+                        if (!visited.Add(current) || !ids.TryGetValue(current, out var currentId)) break;
+                        canvasPath.Add(currentId);
+                        if (ReferenceEquals(current, icon)) { canvasPathComplete = true; break; }
+                    }
+                    // These are the live production fields/properties, not a
+                    // reconstructed path or an inference from names/geometry.
+                    receipt["vector_content"] = new JsonObject
+                    {
+                        ["source"] = "actual ReferenceVectorIcon Content/VectorCanvas/VectorPath object identities",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["template_is_null"] = icon.Template == null,
+                        ["content_id"] = content != null && ids.TryGetValue(content, out var contentId) ? contentId : null,
+                        ["canvas_id"] = ids.TryGetValue(icon.VectorCanvas, out var canvasId) ? canvasId : null,
+                        ["path_id"] = ids.TryGetValue(icon.VectorPath, out var pathId) ? pathId : null,
+                        ["content_is_current_visual_child"] = content != null && content.GetType() == typeof(Viewbox)
+                            && count == 1 && ReferenceEquals(VisualTreeHelper.GetChild(icon, 0), content),
+                        ["viewbox_child_is_vector_canvas"] = content != null && ReferenceEquals(content.Child, icon.VectorCanvas),
+                        ["canvas_children_are_vector_path"] = icon.VectorCanvas.Children.Count == 1
+                            && ReferenceEquals(icon.VectorCanvas.Children[0], icon.VectorPath)
+                            && VisualTreeHelper.GetChildrenCount(icon.VectorCanvas) == 1
+                            && ReferenceEquals(VisualTreeHelper.GetChild(icon.VectorCanvas, 0), icon.VectorPath),
+                        ["canvas_visual_path"] = canvasPath, ["canvas_visual_path_complete"] = canvasPathComplete
+                    };
+                }
                 receipt["status"] = "measured";
             }
             catch (Exception ex) { receipt["status"] = "error"; receipt["error"] = ex.ToString(); }
@@ -111,5 +143,15 @@ public sealed partial class MainWindow
         : actual == typeof(Rectangle) || actual == typeof(Ellipse) || actual == typeof(Line)
             || actual == typeof(Microsoft.UI.Xaml.Shapes.Path) || actual == typeof(Polygon) || actual == typeof(Polyline) ? "native-shape-fill-and-stroke"
         : actual == typeof(TextBlock) || actual == typeof(RichTextBlock) ? "native-text-glyphs"
-        : actual == typeof(Image) ? "native-image-content" : null;
+        : actual == typeof(Image) ? "native-image-content"
+        // Exact SDK 1.6.9, commit da699b040bddc2a6adf660512a7c6db8a96bfbe3:
+        // src/dxaml/xcp/core/inc/Viewbox.h and core/elements/Viewbox.cpp:
+        // CFrameworkElement scale/arrange only; the internal Border is a child.
+        // core/hw/hwwalk.cpp:1498-1593 draws neither Viewbox nor ordinary
+        // UserControl content. CControl.h:355-361 permits a background only for
+        // Page. ReferenceVectorIcon is our exact sealed UserControl whose only
+        // stroke is the independently captured VectorPath under its live Canvas.
+        // Focus, hand-in Composition and direct-child proofs still apply above.
+        : actual == typeof(Viewbox) ? "native-viewbox-child-transform"
+        : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only" : null;
 }
