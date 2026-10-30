@@ -93,3 +93,11 @@ UIA 通过 `OnCreateAutomationPeer` 返回真实 `FrameworkElementAutomationPeer
 CI 应分别证明：字体回退真正发生时 callback face 改变；记录与实际绘制消费的是同一 run；layout revision 改变后旧记录失效；裁剪／省略不会把不可见源文字算作画出的文字；UIA 文本、范围、选择与截图对应；中文 IME composition 不误发送；复制／引用／超链接／语音修改仍走同一文档。字体证据缺失、未知 axes、未支持 color layer 或尚未迁移的文字都继续导致覆盖失败。还要单独检查原有 `InputBox`／`Button` 等语义和键盘操作，不能靠视觉相似代替。
 
 这条路线能够最终产生实际 face 证据，但不保证字体、几何或像素已经与网页参考相同；实现后仍须按现有容差和全部矩阵比较。当前最可靠的决策是采用原始 DirectWrite callback 的生产渲染组件作为可验证原型，并把完整编辑器保留列为交付的必要工作。若希望尽量少改原生文本行为，则先在 CI 验证框架观测构建；两种路线都不能用独立 layout、声明字体或回退预测提前填平 `rendered_fonts`。
+
+**生产原型进展（2026-10-30）**
+
+`NativeLabel` 已接到四个真实菜单入口的 Button.Content，并通过无窗口的本机 Release 编译。它的同一个 `IDWriteTextLayout` 用于 Measure、Arrange 和 Draw；SurfaceImageSource 成功 EndDraw 后才保留实际 glyph callback 记录。完整 UI 字体回退顺序应用于该生产 layout，并通过 GetFontFallback 核对对象身份。原 Button 的 Name、peer、Invoke、键盘和焦点行为保留。
+
+当前捕获只把这些原始记录放在 `native_label_evidence`。CI 尚需确认真实显示、字形数据及截图对应；`coverage_complete` 仍为 false，最终呈现帧仍未知，canonical 字体不能提前填入。全应用其余 TextBlock、RichTextBlock、输入编辑器及复杂彩色文字没有因为四个菜单入口的原型而算作完成。
+
+现有 TextBlock 另记录实际 [IsTextTrimmed](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock.istexttrimmed?view=windows-app-sdk-1.6)。它能说明控件发生了截断，不能给出省略号的绘制边界；UIA 原始零面积范围、文本配置和截断状态分别保留，未知边界仍失败。

@@ -30,8 +30,15 @@ the raster value is diagnostic and is never a fallback for the computed value.
 `none` has no Canvas pixel sample. A failed optional Canvas readback does not erase
 an independently parsed computed color; its failure is recorded in `canvas`.
 
-The native values, ΔE limit, alpha comparison and all other parity gates are
-unchanged. Actual background-pattern pixel comparison still requires its complete
+Windows XAML capture likewise records the original `Color` RGBA8 and
+`Brush.Opacity` separately. Canonical alpha is their actual product, with no
+rounding to a pixel byte. The earlier rounding to an integer was a capture
+conversion error. Native rendered values are not inferred from the reference;
+the production dialog scrim now requests the reference's actual `.32` opacity
+instead of the prior alpha-byte approximation `82 / 255`.
+
+The ΔE limit, alpha comparison and all other parity gates are unchanged.
+Actual background-pattern pixel comparison still requires its complete
 independent raster evidence; a computed color record does not supply that evidence.
 The CI entry point `test_reference_elements.mjs` imports the dedicated pure
 `test_reference_colors.mjs` regressions, without opening a browser.

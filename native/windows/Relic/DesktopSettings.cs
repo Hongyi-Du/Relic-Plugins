@@ -40,7 +40,7 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0, 0, 0, 14);
         dialog.Resources["ContentDialogSeparatorThickness"] = new Thickness(0);
         dialog.Resources["ContentDialogTopOverlay"] = dialog.Background;
-        dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(82, 15, 14, 12));
+        dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 14, 12)) { Opacity = .32 };
         dialog.Opened += (_, _) => StyleDialogParts(dialog);
         visibleDialogTask = dialog.ShowAsync().AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
@@ -127,9 +127,13 @@ public sealed partial class MainWindow
     }
     private TextBox SettingsInput(string value, string placeholder, double width = double.NaN, bool multiline = false, bool mono = false, double fontSize = 14)
     {
-        var input = new TextBox { Text = value, PlaceholderText = placeholder, Width = width, FontSize = fontSize, FontFamily = new FontFamily(mono ? "Cascadia Code" : "Segoe UI Variable Text"),
-            AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap, Height = multiline ? 60.8 : fontSize * 1.6 + 16, MinHeight = 0,
-            Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), CornerRadius = new CornerRadius(9), Background = Paint("FFFFFF", "1F1F1E"), Foreground = Ink };
+        TextBox input = multiline ? new NativeTextarea { ResizeAccessibleName = T("panel.resize"), OwnerWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this) } : new TextBox();
+        input.Text = value; input.PlaceholderText = placeholder; input.Width = width; input.FontSize = fontSize;
+        input.FontFamily = new FontFamily(mono ? "Cascadia Code" : FontFamilies.UI);
+        input.AcceptsReturn = multiline; input.TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        input.Height = multiline ? 60.8 : fontSize * 1.6 + 16; input.MinHeight = 0;
+        input.Padding = new Thickness(10, 7, 10, 7); input.BorderThickness = new Thickness(1); input.BorderBrush = Paint("DEDBD4", "3A3936");
+        input.CornerRadius = new CornerRadius(9); input.Background = Paint("FFFFFF", "1F1F1E"); input.Foreground = Ink;
         input.Resources["TextControlBorderThicknessFocused"] = new Thickness(1); return input;
     }
     private Grid SettingsVoiceField(TextBox input, double width, bool always = false)

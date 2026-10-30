@@ -1,5 +1,43 @@
 # Native Relic App contract
 
+Changes for the clients (Windows UIA performance): actual COM RuntimeId lookup
+now builds one raw UIA subtree index per HWND instead of searching the whole
+subtree for every text control. Every attachment still checks fresh RuntimeId,
+process and exact range identity; empty/duplicate IDs and incomplete enumeration
+fail. `<scene>.uia.json.progress.jsonl` flushes actual stage timing and partial
+measurements before provider calls, so the unchanged timeout leaves evidence.
+No zero-area range or source measurement has been discarded to reduce failures.
+
+Changes for the clients (Windows production textarea): multi-line form fields
+retain the real TextBox editor and add a production native Thumb for resizing.
+The new scene uses the shared real pointer recipe and observes actual DragDelta
+effects. Extraction identifies the handle through the live owner's object
+identity, not an expected rectangle or an AutomationId alone. Reference UA-grip
+paint remains unknown and the gate continues failing until independently measured.
+
+Changes for the clients (Windows actual text draw): the first four native menu
+labels now use one production DirectWrite layout for measurement and drawing
+into their visible WinUI surface. The capture preserves the same DrawGlyphRun
+callbacks, actual faces/glyphs/advances and successful EndDraw receipt. Ordered
+font fallback is applied to that production layout and read back. This first
+control is not a complete application typography migration: presentation-frame
+synchronization and equal-quantity canonical geometry remain incomplete and
+explicitly fail coverage. TextBlock captures also retain actual IsTextTrimmed
+separately; neither that state nor a zero-area UIA rectangle proves an ellipsis's
+painted box. No unknown glyph measurement is replaced by configured font data.
+
+Changes for the clients (actual Windows brush alpha): XAML capture now keeps
+`SolidColorBrush.Color.A * Brush.Opacity` as an unrounded component, matching
+the shared computed-color quantity. Original color bytes and brush opacity
+remain separately recorded. Raster samples remain independent; alpha tolerance
+is still zero. This removes a capture conversion error, not a rendered mismatch.
+
+Changes for the clients (macOS display request): `83ad0e3` merges the client's
+real CI display-mode selection and restoration, with `native-display.json`
+receipts. The requested 1440x900 client size and all scene sizes remain unchanged.
+The shared runner needs further display setup only if actual advertised modes
+cannot contain the required window; pending captures must establish that result.
+
 Changes for the clients (textarea resize): the macOS request through `b4575f7`
 now has a shared real-input recipe and `new-org-textarea-resized` scene. All
 52 earlier scenes remain, giving 53 / 636 full cases per platform and 17

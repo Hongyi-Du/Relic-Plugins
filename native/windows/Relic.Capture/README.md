@@ -82,3 +82,33 @@ node-local offscreen diagnostic handling does not apply to descendants.
 
 The COM path requires CI runtime validation. A successful build alone does
 not establish native/managed range identity or text coverage.
+
+## Runtime identity index and interrupted-capture diagnostics
+
+Each actual HWND gets one native `IUIAutomation.RawViewWalker` enumeration
+per observer process. The index contains the returned COM elements keyed by
+their actual RuntimeId. It includes raw-only peers, without a control/content
+view filter. A duplicate or empty RuntimeId, foreign-process node, or failed
+traversal makes the index incomplete and identity lookup fails. Incomplete
+indexes are retained rather than retried once per text field. No name, text,
+class, or coordinate heuristic substitutes for a missing RuntimeId.
+
+Each Attach still re-reads both managed and native RuntimeId and ProcessId.
+Full document snapshots and unique exact range-prefix endpoint checks remain
+mandatory, including after the native ranges have been read. The cache only
+avoids repeated whole-tree searches; it does not make old properties current.
+
+Alongside `scene.uia.json`, the observer writes
+`scene.uia.json.progress.jsonl`. Every record is flushed before the next
+provider stage. This journal contains monotonic elapsed/duration timings,
+index progress and failures, individual lookup evidence, Attach stages,
+native raw range rectangles, and measured node snapshots. A supervisor kill
+therefore leaves completed records and the most recent started stage. The
+final line may be incomplete if termination occurs during its write; earlier
+complete JSONL lines remain readable. Preserve this sidecar even when the
+final JSON does not exist. Partial records are diagnostic evidence, never a
+replacement for the complete raw tree or a successful parity check.
+
+The original native zero-area rectangles remain in both the raw capture and
+journal and continue to fail unresolved coverage. Performance changes do not
+change the capture timeout, geometry tolerance, or visibility decisions.

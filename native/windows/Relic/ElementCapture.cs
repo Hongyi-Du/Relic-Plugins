@@ -20,6 +20,7 @@ public sealed partial class MainWindow
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Element capture is CI-only");
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
         var declaredContent = new Dictionary<DependencyObject, (string Owner, string Property)>();
+        var renderIds = new Dictionary<DependencyObject, string>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -39,6 +40,7 @@ public sealed partial class MainWindow
         {
             if (!visited.Add(value)) return;
             var id = "xaml-" + nodes.Count; var type = value.GetType().Name; region = Region(value, region);
+            renderIds[value] = id;
             var node = new JsonObject { ["id"] = id, ["parent"] = parent, ["type"] = type, ["region"] = region, ["order"] = nodes.Count };
             if (value is UIElement ordered) node["canvas_z_index"] = Canvas.GetZIndex(ordered);
             node["render_sibling_order"] = siblingOrder;
@@ -109,10 +111,46 @@ public sealed partial class MainWindow
                     node["transformed_corners"] = corners;
                     node["transformed_corners_order"] = "top-left,top-right,bottom-right,bottom-left";
                     node["name"] = element.Name; node["accessible_name"] = AutomationProperties.GetName(element);
+                    node["automation_id"] = AutomationProperties.GetAutomationId(element);
                     if (box.Width <= 0 || box.Height <= 0 || visible.Width <= 0 || visible.Height <= 0) hidden ??= "zero area or ancestor clip";
                     node["hidden_reason"] = hidden;
                     if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
                     node["style"] = CaptureStyle(element, opacity, id, errors, hidden == null);
+                    if (element is NativeLabel nativeLabel)
+                    {
+                        var production = CaptureNativeLabel(nativeLabel);
+                        node["native_label_evidence"] = production;
+                        if (hidden == null && production["coverage_complete"]?.GetValue<bool>() != true)
+                            errors.Add(id + ": actual DirectWrite production label evidence is incomplete: " + production["coverage_reason"]);
+                    }
+                    if (element is NativeTextarea textarea)
+                    {
+                        node["textarea_resize_evidence"] = new JsonObject
+                        {
+                            ["source"] = "Live production NativeTextarea properties",
+                            ["sequence"] = textarea.ResizeSequence, ["delta_count"] = textarea.ResizeDeltaCount,
+                            ["resizing"] = textarea.IsResizing, ["template_failure"] = textarea.ResizeTemplateFailure,
+                            ["handle_attached"] = textarea.ResizeGrip?.IsLoaded == true
+                        };
+                        if (hidden == null && textarea.ResizeTemplateFailure != null) errors.Add(id + ": " + textarea.ResizeTemplateFailure);
+                    }
+                    if (element is Thumb resizeHandle && VisualTreeHelper.GetParent(resizeHandle) is NativeTextareaResizeGrip grip
+                        && ReferenceEquals(grip.Handle, resizeHandle))
+                    {
+                        DependencyObject? owner = VisualTreeHelper.GetParent(grip);
+                        while (owner != null && owner is not NativeTextarea) owner = VisualTreeHelper.GetParent(owner);
+                        if (owner is NativeTextarea resizeOwner && ReferenceEquals(resizeOwner.ResizeGrip, grip) && renderIds.TryGetValue(owner, out var ownerId))
+                            node["resize_handle_evidence"] = new JsonObject
+                            {
+                                ["source"] = "actual NativeTextarea.ResizeGrip.Handle object identity",
+                                ["owner_id"] = ownerId, ["owner_type"] = resizeOwner.GetType().Name,
+                                ["handle_type"] = resizeHandle.GetType().Name,
+                                ["dragging"] = resizeHandle.IsDragging,
+                                ["resize_sequence"] = resizeOwner.ResizeSequence,
+                                ["resize_delta_count"] = resizeOwner.ResizeDeltaCount
+                            };
+                        else errors.Add(id + ": production textarea resize handle has no independently observed owner in this tree");
+                    }
                     if (element is NativeShadowPanel nativeShadows)
                     {
                         var actual = new JsonArray();
@@ -128,7 +166,7 @@ public sealed partial class MainWindow
                     node["paint_kind"] = element switch
                     {
                         Border or ContentPresenter => "rounded-rectangle", Panel => "rectangle", Rectangle => "rounded-rectangle",
-                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or WorkspaceCodeView or IconElement => "glyphs",
+                        Ellipse => "ellipse", Shape => "path", Image => "image", TextBlock or RichTextBlock or WorkspaceCodeView or NativeLabel or IconElement => "glyphs",
                         Control => "template", _ => "none"
                     };
                     node["render_type_evidence"] = new JsonObject { ["is_panel"] = element is Panel,
@@ -209,7 +247,8 @@ public sealed partial class MainWindow
             ["schema_version"] = 1, ["scene_id"] = caseId, ["client"] = "windows",
             ["viewport"] = new JsonObject { ["width"] = width, ["height"] = height, ["scale"] = root.XamlRoot.RasterizationScale },
             ["raw_nodes"] = nodes, ["extraction_errors"] = errors,
-            ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone() },
+            ["capture_evidence"] = new JsonObject { ["message_scene"] = capturedMessageEvidence?.DeepClone(),
+                ["textarea_resize_action"] = capturedTextareaEvidence?.DeepClone() },
             ["paint_order_source"] = "VisualTreeHelper children, stable Canvas.ZIndex then actual child index; popup roots above main root",
             ["popup_roots"] = popups.Length,
             ["pointer"] = new JsonObject { ["x"] = cursor.x - clientOrigin.x, ["y"] = cursor.y - clientOrigin.y }
@@ -292,10 +331,13 @@ public sealed partial class MainWindow
         errors.Add(path + ": non-finite actual SVG dimension " + value.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
         return null;
     }
-    private static JsonArray? CaptureColor(Brush? brush) => brush is SolidColorBrush solid ? new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, Math.Round(solid.Color.A * solid.Opacity)) : brush == null ? new JsonArray(0, 0, 0, 0) : null;
+    private static JsonArray? CaptureColor(Brush? brush) => brush is SolidColorBrush solid ? new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, solid.Color.A * solid.Opacity) : brush == null ? new JsonArray(0, 0, 0, 0) : null;
     private static JsonObject CaptureBrushEvidence(Brush? brush)
     {
         var result = new JsonObject { ["type"] = brush?.GetType().FullName, ["opacity"] = brush?.Opacity, ["solid_rgba"] = CaptureColor(brush) };
+        if (brush is SolidColorBrush solid)
+            result["solid_color_rgba8"] = new JsonArray(solid.Color.R, solid.Color.G, solid.Color.B, solid.Color.A);
+        result["solid_rgba_quantity"] = "Actual unpremultiplied brush sRGB components in 0..255; color alpha multiplied by live Brush.Opacity without raster rounding";
         if (brush is GradientBrush gradient)
         {
             result["mapping_mode"] = gradient.MappingMode.ToString(); result["spread_method"] = gradient.SpreadMethod.ToString();
@@ -314,6 +356,7 @@ public sealed partial class MainWindow
     private static string CaptureText(FrameworkElement element) => element switch
     {
         TextBlock text => text.Text,
+        NativeLabel text => text.Text,
         WorkspaceCodeView code => code.ReadSourceText(),
         ComposerInput input => input.Text,
         TextBox box => box.Text,
@@ -549,6 +592,12 @@ public sealed partial class MainWindow
             ["character_boxes_coordinate_space"] = "content-window", ["local_character_boxes"] = localBoxes,
             ["text_geometry_status"] = visible ? "measured-or-explicit-error" : "not-visible",
             ["rich_text_runs"] = runs,
+            ["actual_trimming"] = element is TextBlock trimmed ? new JsonObject
+            {
+                ["is_text_trimmed"] = trimmed.IsTextTrimmed,
+                ["source"] = "Live TextBlock.IsTextTrimmed; actual control overflow state, not an ellipsis glyph rectangle",
+                ["ellipsis_bounds"] = null
+            } : null,
             ["placeholder"] = element is TextBox text ? text.PlaceholderText : null
         };
     }

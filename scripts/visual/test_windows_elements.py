@@ -112,6 +112,108 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(elements["composer"]["evidence"]["rich_text_runs"], ranges)
         self.assertIsNone(elements["composer"]["style"]["rendered_fonts"])
 
+    @staticmethod
+    def textarea_fixture():
+        editor = xaml_node("editor", "NativeTextarea", "Purpose", bounds=box(30, 100, 300, 120),
+                           interaction_evidence={"is_control": True, "is_tab_stop": True, "is_hit_test_visible": True})
+        wrapper = xaml_node("grip-wrapper", "NativeTextareaResizeGrip", parent="editor", bounds=box(315, 205, 14, 14),
+                            render_type_evidence={"is_panel": True})
+        grip = xaml_node("grip", "Thumb", parent="grip-wrapper", bounds=wrapper["bounds"], accessible_name="Resize purpose",
+                         interaction_evidence={"is_control": True, "is_tab_stop": False, "is_hit_test_visible": True},
+                         resize_handle_evidence={"source": "actual NativeTextarea.ResizeGrip.Handle object identity",
+                                                 "owner_id": "editor", "owner_type": "NativeTextarea", "handle_type": "Thumb",
+                                                 "dragging": True, "resize_sequence": 1, "resize_delta_count": 4})
+        template = xaml_node("grip-template", "Grid", parent="grip", bounds=grip["bounds"])
+        path = xaml_node("grip-path", "Path", parent="grip-template", bounds=grip["bounds"])
+        path["style"]["stroke_width"] = 1
+        nodes = measured([editor, wrapper, grip, template, path])
+        providers = [uia_node("uia-editor", "Edit", bounds=editor["bounds"], class_name="NativeTextarea", value="Purpose",
+                              supported_patterns=["ValuePattern", "TextPattern"]),
+                     uia_node("uia-grip", "Thumb", name="Resize purpose", parent="uia-editor", bounds=grip["bounds"],
+                              automation_id="textarea-resize-handle")]
+        return nodes, providers
+
+    def test_textarea_and_identity_measured_resize_thumb_keep_input_and_independent_uia(self):
+        nodes, providers = self.textarea_fixture()
+        providers[1]["state"].update(enabled=False, focused=False, focusable=False)
+        result = self.capture(nodes, providers)
+        elements = self.by_id(result)
+        self.assertEqual(elements["editor"]["kind"], "input")
+        self.assertEqual(elements["editor"]["text"], "Purpose")
+        grip = elements["grip"]
+        self.assertEqual(grip["kind"], "resize-handle")
+        self.assertEqual(grip["bounds"], nodes[2]["bounds"])
+        self.assertEqual(grip["evidence"]["uia_id"], "uia-grip")
+        self.assertIs(grip["state"]["enabled"], False)
+        self.assertIs(grip["state"]["focused"], False)
+        self.assertTrue(grip["evidence"]["interaction_applicability"]["applicable"])
+        self.assertEqual(grip["evidence"]["resize_handle_evidence"], nodes[2]["resize_handle_evidence"])
+        self.assertIn("grip-path", elements)
+        self.assertNotIn("grip-template", elements)
+        self.assertTrue(any(row.get("source") == "grip-template" and row.get("owner") == "grip" for row in result["projection"]))
+
+    def test_resize_wrapper_own_paint_is_not_deleted_by_its_class_name(self):
+        nodes, providers = self.textarea_fixture()
+        nodes[1]["style"]["background"] = [140, 140, 140, 60]
+        nodes[1]["paint_kind"] = "rectangle"
+        result = self.capture(nodes, providers)
+        elements = self.by_id(result)
+        self.assertEqual(elements["grip-wrapper"]["kind"], "card")
+        self.assertEqual(elements["grip-wrapper"]["style"]["background"], [140, 140, 140, 60])
+        self.assertIn("grip-path", elements)
+
+    def test_named_thumb_without_production_identity_is_not_invented_as_resize_handle(self):
+        for evidence in (None, {}, {"source": "AutomationId textarea-resize-handle"}):
+            with self.subTest(evidence=evidence):
+                nodes, providers = self.textarea_fixture()
+                nodes[2]["resize_handle_evidence"] = evidence
+                nodes[2]["automation_id"] = "textarea-resize-handle"
+                result = self.capture(nodes, providers)
+                self.assertFalse(any(element["kind"] == "resize-handle" for element in result["elements"]))
+                self.assertTrue(any(row.get("id") == "uia-grip" and row.get("property") == "render correspondence"
+                                    for row in result["coverage"]["unmeasured"]))
+
+    def test_resize_handle_without_measured_box_never_borrows_uia_geometry(self):
+        nodes, providers = self.textarea_fixture()
+        nodes[2]["bounds"] = nodes[2]["visible_bounds"] = None
+        result = self.capture(nodes, providers)
+        self.assertNotIn("grip", self.by_id(result))
+        self.assertTrue(any(row.get("id") == "grip" and row.get("property") == "bounds"
+                            for row in result["coverage"]["unmeasured"]))
+
+    def test_resize_handle_without_independent_thumb_provider_keeps_coverage_failure(self):
+        nodes, providers = self.textarea_fixture()
+        result = self.capture(nodes, providers[:1])
+        self.assertEqual(self.by_id(result)["grip"]["kind"], "resize-handle")
+        self.assertIsNone(self.by_id(result)["grip"]["evidence"]["uia_id"])
+        self.assertTrue(any(row.get("id") == "grip" and row.get("property") == "UIA correspondence"
+                            for row in result["coverage"]["unmeasured"]))
+
+    def test_native_label_draw_receipt_is_forwarded_even_when_its_button_owns_the_text(self):
+        button = xaml_node("button", "Button")
+        label = xaml_node("label", "NativeLabel", "File", parent="button", bounds=box(20, 25, 40, 18))
+        receipt = {"source": "NativeLabel production SurfaceImageSource / DirectWrite renderer",
+                   "coverage_complete": False, "presentation_frame": None,
+                   "draw": {"surface_end_draw_succeeded": True, "glyph_runs": [{"glyph_indices": [12, 14]}]}}
+        label["native_label_evidence"] = deepcopy(receipt)
+        result = self.capture(measured([button, label]), [uia_node("uia-button", "Button", "File")])
+        actual = self.by_id(result)["button"]
+        self.assertEqual(actual["evidence"]["native_label_evidence"], receipt)
+        self.assertEqual(actual["evidence"]["label_source"], "label")
+        self.assertNotIn("label", self.by_id(result))
+        self.assertIsNone(actual["style"]["rendered_fonts"])
+        self.assertTrue(any(row.get("property") == "style.rendered_fonts" for row in result["coverage"]["unmeasured"]))
+
+    def test_actual_trimming_is_raw_evidence_and_does_not_invent_an_ellipsis_box(self):
+        label = xaml_node("label", text="Long label")
+        trimming = {"is_text_trimmed": True, "source": "Live TextBlock.IsTextTrimmed", "ellipsis_bounds": None}
+        label["layout"].update(truncation="character-ellipsis", actual_trimming=deepcopy(trimming))
+        result = self.capture(measured([label]), [uia_node("uia-label", name="Long label")])
+        actual = self.by_id(result)["label"]
+        self.assertEqual(actual["evidence"]["actual_trimming"], trimming)
+        self.assertEqual(actual["layout"]["truncation"], "character-ellipsis")
+        self.assertEqual(len(result["elements"]), 1)
+
     def test_simple_label_is_owned_once_with_rendered_typography(self):
         button = xaml_node("button", "Button")
         label = xaml_node("label", text="发送", parent="button", bounds=box(20, 25, 40, 18))

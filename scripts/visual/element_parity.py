@@ -26,13 +26,13 @@ from paint_patterns import (MeasurementError, background_pattern_kind,
 PLATFORMS = ("windows", "macos")
 CLIENTS = ("reference",) + PLATFORMS
 REGIONS = {"window", "header", "sidebar", "conversation", "composer", "right-pane", "dialog", "menu"}
-KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link"}
+KINDS = {"region", "text", "button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "chip", "badge", "avatar", "state-dot", "card", "list-row", "divider", "code", "chart-node", "chart-edge", "icon", "image", "link", "resize-handle"}
 STYLE_FIELDS = ("font_size", "font_weight", "foreground", "background", "border_color", "border_width", "corner_radius")
 PAINT_FIELDS = ("border_widths", "border_colors", "border_styles", "corner_radii", "opacity", "background_image", "shadow")
 STROKE_FIELDS = ("stroke_dash", "stroke_dash_offset", "stroke_linecap", "stroke_linejoin")
 STATE_FIELDS = ("enabled", "selected", "checked", "expanded", "focused", "hovered", "unread")
 LAYOUT_FIELDS = ("wrap", "truncation", "line_count")
-INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link"}
+INTERACTIVE = {"button", "icon-button", "input", "toggle", "checkbox", "tab", "menu-item", "dropdown", "link", "resize-handle"}
 CATEGORIES = ("missing", "extra", "text_mismatch", "geometry_out_of_tolerance", "style_out_of_tolerance", "state_mismatch", "kind_mismatch", "region_mismatch", "order_mismatch", "layout_mismatch", "icon_mismatch", "extraction_errors")
 SMOKE_SCENES = ("group", "private", "overview", "settings-appearance", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized")
 TOLERANCES = {"geometry_small_px": 4, "geometry_large_threshold_px": 130, "geometry_large_fraction": .03, "font_size_px": .5, "font_weight": 0, "color_delta_e_76": 3, "alpha": 0, "corner_radius_px": 1, "border_width_px": 0}

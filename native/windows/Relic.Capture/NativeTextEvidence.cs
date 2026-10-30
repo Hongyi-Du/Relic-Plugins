@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -9,10 +10,19 @@ using System.Windows.Automation.Text;
 // height is <= 0 with Rect.Empty. Its +/-Infinity values therefore do not prove
 // that the provider returned infinities. Read the COM SAFEARRAY before that
 // lossy projection. Never recover a range by searching its text or screen box.
-internal sealed class NativeTextEvidence(int processId, double originX, double originY)
+internal sealed class NativeTextEvidence(int processId, double originX, double originY, CaptureProgress progress)
 {
     private readonly IAutomation automation = (IAutomation)Activator.CreateInstance(
         Type.GetTypeFromCLSID(new Guid("ff48dba4-60ef-4201-aa87-54103eef594e"), throwOnError: true)!)!;
+    private readonly Dictionary<IntPtr, WindowIndex> indexes = new();
+    private JsonObject? activeContext;
+
+    private sealed class WindowIndex
+    {
+        public readonly Dictionary<string, INativeElement> Elements = new(StringComparer.Ordinal);
+        public readonly JsonObject Evidence = new() { ["status"] = "incomplete", ["source"] = "One actual IUIAutomation.RawViewWalker HWND subtree enumeration" };
+        public Exception? Error;
+    }
 
     public void Attach(AutomationElement managedElement, TextPattern managedPattern, JsonObject pattern, JsonArray errors)
     {
@@ -22,26 +32,33 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             ["status"] = "incomplete", ["range_identity_basis"] = "Same RuntimeId, stable full document text, and unique exact document-prefix endpoints"
         };
         pattern["native_com"] = evidence;
+        var watch = Stopwatch.StartNew();
         try
         {
             var runtimeId = managedElement.GetRuntimeId();
             evidence["runtime_id"] = Ints(runtimeId);
-            var element = Resolve(managedElement, runtimeId);
-            var nativePattern = (INativeTextPattern)element.GetCurrentPattern(TextPattern.Pattern.Id);
-            var document = nativePattern.GetDocumentRange();
-            var documentText = document.GetText(-1);
+            activeContext = new JsonObject { ["runtime_id"] = Ints(runtimeId) };
+            progress.Record("native.attach", "started", activeContext);
+            var lookup = new JsonObject(); evidence["lookup"] = lookup;
+            var element = progress.Measure("native.resolve", () => Resolve(managedElement, runtimeId, lookup), activeContext);
+            var nativePattern = progress.Measure("native.text-pattern", () => (INativeTextPattern)element.GetCurrentPattern(TextPattern.Pattern.Id), activeContext);
+            var document = progress.Measure("native.document-range", nativePattern.GetDocumentRange, activeContext);
+            var documentText = progress.Measure("native.document-text-before", () => document.GetText(-1), activeContext);
             evidence["document_text_before"] = documentText;
             var nativeDocument = ReadRange(document, document, false, errors);
             evidence["document"] = nativeDocument;
             var visible = new JsonArray(); evidence["visible_ranges"] = visible;
-            var nativeRanges = nativePattern.GetVisibleRanges();
+            var nativeRanges = progress.Measure("native.visible-ranges", nativePattern.GetVisibleRanges, activeContext);
             var rangeCount = nativeRanges.GetLength();
             if (rangeCount < 0 || rangeCount > 10000) throw new InvalidOperationException("Invalid COM visible range count: " + rangeCount);
             for (var index = 0; index < rangeCount; index++)
+            {
+                progress.Record("native.visible-range", "started", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["index"] = index });
                 visible.Add(ReadRange(nativeRanges.GetElement(index), document, true, errors));
+            }
 
-            var nativeAfter = document.GetText(-1);
-            var managedAfter = managedPattern.DocumentRange.GetText(-1);
+            var nativeAfter = progress.Measure("native.document-text-after", () => document.GetText(-1), activeContext);
+            var managedAfter = progress.Measure("managed.document-text-after", () => managedPattern.DocumentRange.GetText(-1), activeContext);
             evidence["document_text_after"] = nativeAfter;
             evidence["managed_document_text_after"] = managedAfter;
             var capturedText = pattern["document"]?["text"]?.GetValue<string>();
@@ -49,6 +66,9 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
                 throw new InvalidOperationException("Managed/COM document changed or differs; range identities cannot be established.");
             if (!runtimeId.SequenceEqual(managedElement.GetRuntimeId()) || !runtimeId.SequenceEqual(element.GetRuntimeId()))
                 throw new InvalidOperationException("RuntimeId changed while reading text evidence.");
+            if (managedElement.Current.ProcessId != processId ||
+                Convert.ToInt32(element.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture) != processId)
+                throw new InvalidOperationException("Process identity changed while reading text evidence.");
 
             // Check the entire correspondence before replacing any managed box.
             // Prefixes are obtained through MoveEndpointByRange/GetText on the
@@ -75,10 +95,17 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             evidence["error"] = error.GetType().Name + ": " + error.Message;
             errors.Add("Native COM text evidence: " + evidence["error"]!.ToString());
         }
+        finally
+        {
+            evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
+            progress.Record("native.attach", evidence["status"]!.GetValue<string>(), new JsonObject { ["evidence"] = evidence.DeepClone() });
+            activeContext = null;
+        }
     }
 
-    private INativeElement Resolve(AutomationElement managed, int[] runtimeId)
+    private INativeElement Resolve(AutomationElement managed, int[] runtimeId, JsonObject evidence)
     {
+        var watch = Stopwatch.StartNew();
         var ancestor = managed; var hwnd = IntPtr.Zero;
         for (var depth = 0; ancestor != null && depth < 1000; depth++)
         {
@@ -88,19 +115,87 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             ancestor = TreeWalker.RawViewWalker.GetParent(ancestor);
         }
         if (hwnd == IntPtr.Zero) throw new InvalidOperationException("No same-process HWND ancestor for native RuntimeId lookup.");
-        var root = automation.ElementFromHandle(hwnd);
-        INativeElement found;
-        if (root.GetRuntimeId().SequenceEqual(runtimeId)) found = root;
-        else
+        evidence["hwnd"] = hwnd.ToInt64();
+        evidence["ancestor_lookup_ms"] = watch.Elapsed.TotalMilliseconds;
+        var cached = indexes.TryGetValue(hwnd, out var index);
+        evidence["index_cache_hit"] = cached;
+        if (!cached)
         {
-            var condition = automation.CreatePropertyCondition(AutomationElement.RuntimeIdProperty.Id, runtimeId);
-            var matches = root.FindAll((int)TreeScope.Subtree, condition);
-            if (matches.GetLength() != 1) throw new InvalidOperationException("RuntimeId lookup did not identify exactly one COM element.");
-            found = matches.GetElement(0);
+            index = new WindowIndex();
+            // Cache failed/incomplete enumeration too: retrying it for each text
+            // node multiplies provider stalls and cannot establish completeness.
+            indexes.Add(hwnd, index);
+            BuildIndex(hwnd, index);
         }
-        if (!found.GetRuntimeId().SequenceEqual(runtimeId) || Convert.ToInt32(found.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture) != processId)
+        evidence["index"] = index!.Evidence.DeepClone();
+        if (index.Error != null) throw new InvalidOperationException("Native HWND index is incomplete; identity cannot be established.", index.Error);
+        if (runtimeId.Length == 0) throw new InvalidOperationException("Managed RuntimeId is empty.");
+        var foundMatch = index.Elements.TryGetValue(RuntimeKey(runtimeId), out var found);
+        evidence["match_count"] = foundMatch ? 1 : 0;
+        progress.Record("native.index.lookup", "measured", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["lookup"] = evidence.DeepClone() });
+        if (!foundMatch) throw new InvalidOperationException("RuntimeId is absent from the completed native raw HWND index.");
+        var freshWatch = Stopwatch.StartNew();
+        if (!found!.GetRuntimeId().SequenceEqual(runtimeId) || Convert.ToInt32(found.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture) != processId ||
+            !managed.GetRuntimeId().SequenceEqual(runtimeId) || managed.Current.ProcessId != processId)
             throw new InvalidOperationException("Native element identity/process does not equal the managed observation.");
+        evidence["fresh_identity_check_ms"] = freshWatch.Elapsed.TotalMilliseconds;
+        evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
         return found;
+    }
+
+    private static string RuntimeKey(int[] runtimeId) => string.Join(".", runtimeId);
+
+    private void BuildIndex(IntPtr hwnd, WindowIndex index)
+    {
+        var watch = Stopwatch.StartNew();
+        var context = new JsonObject { ["hwnd"] = hwnd.ToInt64() };
+        progress.Record("native.index", "started", context);
+        try
+        {
+            var root = progress.Measure("native.index.root", () => automation.ElementFromHandle(hwnd), context);
+            var walker = progress.Measure("native.index.raw-walker", automation.GetRawViewWalker, context);
+            Visit(root, 0);
+            index.Evidence["status"] = "complete";
+
+            void Visit(INativeElement element, int depth)
+            {
+                if (depth > 1000 || index.Elements.Count >= 100000)
+                    throw new InvalidOperationException("Native raw tree exceeded the traversal safety bound; index is incomplete.");
+                var stage = new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["depth"] = depth, ["indexed_nodes"] = index.Elements.Count };
+                progress.Record("native.index.node", "started", stage);
+                var pid = Convert.ToInt32(element.GetCurrentPropertyValue(AutomationElement.ProcessIdProperty.Id), CultureInfo.InvariantCulture);
+                if (pid != processId)
+                    throw new InvalidOperationException("Native raw HWND subtree exposed a different process; index is incomplete.");
+                var runtimeId = element.GetRuntimeId();
+                stage["runtime_id"] = Ints(runtimeId);
+                if (runtimeId.Length == 0) throw new InvalidOperationException("Native raw tree contains an empty RuntimeId.");
+                if (!index.Elements.TryAdd(RuntimeKey(runtimeId), element))
+                {
+                    index.Evidence["duplicate_runtime_id"] = Ints(runtimeId);
+                    throw new InvalidOperationException("Native raw tree contains a duplicate RuntimeId; no element is chosen and index is incomplete.");
+                }
+                progress.Record("native.index.node", "indexed", stage);
+                var child = progress.Measure("native.index.first-child", () => walker.GetFirstChildElement(element), stage);
+                while (child != null)
+                {
+                    Visit(child, depth + 1);
+                    var current = child;
+                    child = progress.Measure("native.index.next-sibling", () => walker.GetNextSiblingElement(current), stage);
+                }
+            }
+        }
+        catch (Exception error)
+        {
+            index.Error = error;
+            index.Evidence["error"] = error.ToString();
+        }
+        finally
+        {
+            index.Evidence["node_count"] = index.Elements.Count;
+            index.Evidence["duration_ms"] = watch.Elapsed.TotalMilliseconds;
+            index.Evidence["hwnd"] = hwnd.ToInt64();
+            progress.Record("native.index", index.Evidence["status"]!.GetValue<string>(), index.Evidence);
+        }
     }
 
     public static JsonObject ManagedIdentity(TextPatternRange range, TextPatternRange document)
@@ -137,12 +232,17 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
 
     private JsonObject ReadRange(INativeTextRange range, INativeTextRange document, bool includeRuns, JsonArray errors)
     {
-        var result = new JsonObject { ["text"] = range.GetText(-1), ["range_identity"] = NativeIdentity(range, document) };
-        var values = range.GetBoundingRectangles();
+        var result = new JsonObject
+        {
+            ["text"] = progress.Measure("native.range.text", () => range.GetText(-1), activeContext),
+            ["range_identity"] = progress.Measure("native.range.identity", () => NativeIdentity(range, document), activeContext)
+        };
+        var values = progress.Measure("native.range.bounding-rectangles", range.GetBoundingRectangles, activeContext);
         result["bounds_raw"] = values == null ? null : new JsonArray(values.Select(Number).ToArray());
         result["bounds_raw_ieee754_bits"] = values == null ? null : new JsonArray(values.Select(value =>
             (JsonNode?)JsonValue.Create(BitConverter.DoubleToInt64Bits(value).ToString("X16", CultureInfo.InvariantCulture))).ToArray());
         result["raw_coordinate_space"] = "UI Automation screen coordinates before window-origin subtraction";
+        progress.Record("native.range.raw-bounds", "measured", new JsonObject { ["runtime"] = activeContext?.DeepClone(), ["range"] = result.DeepClone() });
         var rectangles = new JsonArray(); result["bounds"] = rectangles;
         var statuses = new JsonArray(); result["rectangle_statuses"] = statuses;
         var degenerate = result["range_identity"]!["degenerate"]!.GetValue<bool>();
@@ -281,10 +381,17 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         INativeElement ElementFromHandle(IntPtr hwnd);
         void UnusedElementFromPoint(); void UnusedGetFocusedElement(); void UnusedGetRootElementBuildCache();
         void UnusedElementFromHandleBuildCache(); void UnusedElementFromPointBuildCache(); void UnusedGetFocusedElementBuildCache();
-        void UnusedCreateTreeWalker(); void UnusedControlViewWalker(); void UnusedContentViewWalker(); void UnusedRawViewWalker();
+        void UnusedCreateTreeWalker(); void UnusedControlViewWalker(); void UnusedContentViewWalker(); INativeTreeWalker GetRawViewWalker();
         void UnusedRawViewCondition(); void UnusedControlViewCondition(); void UnusedContentViewCondition();
         void UnusedCreateCacheRequest(); void UnusedCreateTrueCondition(); void UnusedCreateFalseCondition();
         INativeCondition CreatePropertyCondition(int propertyId, [MarshalAs(UnmanagedType.Struct)] object value);
+    }
+    [ComImport, Guid("4042c624-389c-4afc-a630-9df854a541fc"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface INativeTreeWalker
+    {
+        INativeElement? GetParentElement(INativeElement element);
+        INativeElement? GetFirstChildElement(INativeElement element);
+        INativeElement? GetNextSiblingElement(INativeElement element);
     }
     [ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface INativeElement

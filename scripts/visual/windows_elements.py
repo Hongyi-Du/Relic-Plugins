@@ -17,7 +17,7 @@ from paint_patterns import MeasurementError, captured_pattern, pattern_measureme
 
 CONTROL_KINDS = {
     "Button": "button", "AppBarButton": "button", "RepeatButton": "button",
-    "HyperlinkButton": "link", "TextBox": "input", "ComposerInput": "input", "PasswordBox": "input",
+    "HyperlinkButton": "link", "TextBox": "input", "ComposerInput": "input", "NativeTextarea": "input", "PasswordBox": "input",
     "CheckBox": "checkbox", "RadioButton": "checkbox", "ToggleSwitch": "toggle",
     "ToggleButton": "toggle", "ComboBox": "dropdown", "SelectorBarItem": "tab",
     "TabViewItem": "tab", "MenuBarItem": "menu-item", "MenuFlyoutItem": "menu-item",
@@ -27,17 +27,26 @@ CONTROL_KINDS = {
     "ChartNodeButton": "chart-node", "ChartSurface": "region", "WorkspaceCodeView": "code",
 }
 PAINT_CONTROL_KINDS = {"OverviewChipView": "chip", "OverviewBadgeView": "badge", "PersonPicture": "avatar"}
-TEXT_TYPES = {"TextBlock", "RichTextBlock", "WorkspaceCodeView", "Run"}
+TEXT_TYPES = {"TextBlock", "RichTextBlock", "WorkspaceCodeView", "NativeLabel", "Run"}
 ICON_TYPES = {"FontIcon", "SymbolIcon", "PathIcon", "BitmapIcon", "AnimatedIcon", "ReferenceVectorIcon"}
 STATE_KEYS = ("enabled", "selected", "current", "checked", "indeterminate", "expanded", "focused", "hovered", "unread")
 UIA_KINDS = {"Button": {"button", "icon-button", "chart-node"}, "Text": {"text"}, "Edit": {"input"}, "CheckBox": {"checkbox"},
              "RadioButton": {"checkbox"}, "ComboBox": {"dropdown"}, "TabItem": {"tab"}, "MenuItem": {"menu-item"},
              "ListItem": {"list-row"}, "TreeItem": {"list-row"}, "Image": {"image", "avatar", "icon"},
              "Hyperlink": {"link"}, "Separator": {"divider"}, "Group": {"region", "card"}, "Pane": {"region", "card"},
-             "Custom": {"region", "card"}, "Window": {"region"}, "Document": {"code"}}
-INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row"}
+             "Custom": {"region", "card"}, "Window": {"region"}, "Document": {"code"}, "Thumb": {"resize-handle"}}
+INTERACTIVE_KINDS = {"button", "icon-button", "chart-node", "link", "input", "checkbox", "toggle", "dropdown", "tab", "menu-item", "list-row", "resize-handle"}
 ACTION_PATTERNS = ("InvokePattern", "TogglePattern", "SelectionItemPattern", "ExpandCollapsePattern", "ValuePattern", "RangeValuePattern")
 PAINT_ONLY_TYPES = TEXT_TYPES | ICON_TYPES | set(PAINT_CONTROL_KINDS) | {"Image", "PersonPicture", "Border", "Rectangle", "Ellipse", "Line", "Path", "Polyline", "Grid", "StackPanel", "Canvas", "ContentPresenter"}
+
+
+def semantic_control_kind(node):
+    """Use captured production object identity, not a Thumb name or guessed role."""
+    evidence = node.get("resize_handle_evidence")
+    if (node.get("type") == "Thumb" and isinstance(evidence, dict)
+            and evidence.get("source") == "actual NativeTextarea.ResizeGrip.Handle object identity"):
+        return "resize-handle"
+    return CONTROL_KINDS.get(node.get("type"))
 
 
 def project_background_pattern(element, node):
@@ -403,6 +412,7 @@ def project_text_leaves(raw, unmeasured, pointer):
                                          "end_offset": run.get("end_offset")},
                         layout={"wrap": node["layout"].get("wrap"), "truncation": node["layout"].get("truncation"),
                                 "line_count": len(text_line_boxes(boxes)) if boxes else None,
+                                "actual_trimming": copy.deepcopy(node["layout"].get("actual_trimming")),
                                 "character_boxes": boxes, "character_boxes_coordinate_space": "content-window",
                                 "rich_text_runs": [copy.deepcopy(run)]})
             if boxes and not positive(clipped):
@@ -555,9 +565,9 @@ def transparent_uia_ownership(uia_nodes, raw):
         if not isinstance(name, str) or not name or not native_class:
             continue
         candidates = [node for node in raw
-                      if node.get("type") in CONTROL_KINDS
+                      if semantic_control_kind(node)
                       and node["type"] == native_class
-                      and uia_kind_matches(provider, CONTROL_KINDS[node["type"]])
+                      and uia_kind_matches(provider, semantic_control_kind(node))
                       and node.get("accessible_name") == name
                       and positive(node.get("bounds"))
                       and node["bounds"] == provider.get("bounds")]
@@ -610,7 +620,7 @@ def project(xaml_path, uia_path, png_path):
     projection = []
     elements = []
     owned = {}
-    semantic = {n["id"] for n in raw if n["type"] in CONTROL_KINDS or n["type"] in PAINT_CONTROL_KINDS}
+    semantic = {n["id"] for n in raw if semantic_control_kind(n) or n["type"] in PAINT_CONTROL_KINDS}
     def ancestor(node, choices):
         parent = by_id.get(node.get("parent"))
         while parent:
@@ -677,7 +687,7 @@ def project(xaml_path, uia_path, png_path):
                                           and child["style"]["border_width"] > 0)
                                      for child in descendants(node))
         compound = distinct_semantics or distinct_content_paint and node["type"] != "PersonPicture"
-        if len(labels) == 1 and not compound and (CONTROL_KINDS.get(node["type"]) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
+        if len(labels) == 1 and not compound and (semantic_control_kind(node) or PAINT_CONTROL_KINDS.get(node["type"])) not in {"card", "list-row", "chart-node", "region"}:
             control_label[node["id"]] = labels[0]
             owned[labels[0]["id"]] = (node["id"], "single simple control label")
     icons = {n["id"] for n in raw if n["type"] in ICON_TYPES}
@@ -704,6 +714,10 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "UIA control_type", "reason": "Visible provider node did not report its control type"})
     order = defaultdict(int)
     for node in raw:
+        if semantic_control_kind(node) == "resize-handle" and not node.get("hidden_reason"):
+            measured_box = node.get("bounds")
+            if not isinstance(measured_box, dict) or not all(finite(measured_box.get(k)) for k in ("x", "y", "width", "height")):
+                unmeasured.append({"id": node["id"], "property": "bounds", "reason": "Production resize handle has no finite measured XAML bounds; no box is synthesized"})
         if not visible(node):
             reason = node.get("hidden_reason") or ("fully occluded by measured opaque paint" if positive(node.get("visible_bounds")) and not fragments.get(node["id"]) else "not a visible rendered box")
             projection.append({"source": node["id"], "reason": reason, "occlusion_masks": occlusion_masks.get(node["id"], [])})
@@ -714,7 +728,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         typ = node["type"]
         style = copy.deepcopy(node.get("style", {}))
-        kind = CONTROL_KINDS.get(typ) or PAINT_CONTROL_KINDS.get(typ)
+        kind = semantic_control_kind(node) or PAINT_CONTROL_KINDS.get(typ)
         text = node.get("text", "")
         if typ in TEXT_TYPES:
             if typ == "WorkspaceCodeView":
@@ -802,7 +816,7 @@ def project(xaml_path, uia_path, png_path):
             state["enabled"] = state["focused"] = None
         elif interactive is None:
             unmeasured.append({"id": node["id"], "property": "state.interaction_applicability", "reason": interaction_reason})
-        if typ in CONTROL_KINDS and not witness:
+        if semantic_control_kind(node) and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
         actual_text_boxes = [copy.deepcopy(b) for b in layout.get("character_boxes", [])
                              if isinstance(b, dict) and all(finite(b.get(k)) for k in ("x", "y", "width", "height"))
@@ -922,6 +936,9 @@ def project(xaml_path, uia_path, png_path):
                                                              "status": "reported" if isinstance(reported_name, str) else "not-provided",
                                                              "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
+                                "resize_handle_evidence": copy.deepcopy(node.get("resize_handle_evidence")),
+                                "native_label_evidence": copy.deepcopy(text_source.get("native_label_evidence")),
+                                "actual_trimming": copy.deepcopy(layout.get("actual_trimming")),
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),
@@ -946,7 +963,7 @@ def project(xaml_path, uia_path, png_path):
             continue
         covered = next((r for r in raw if positive(r.get("bounds")) and positive(r.get("visible_bounds"))
                         and not r.get("hidden_reason") and not fragments.get(r["id"])
-                        and uia_kind_matches(n, CONTROL_KINDS.get(r["type"], "text" if r["type"] in TEXT_TYPES else ""))
+                        and uia_kind_matches(n, semantic_control_kind(r) or ("text" if r["type"] in TEXT_TYPES else ""))
                         and distance(b, r["bounds"]) <= 8), None)
         if covered:
             projection.append({"source": n["id"], "owner": covered["id"], "reason": "UIA box corresponds to measured fully occluded render node",

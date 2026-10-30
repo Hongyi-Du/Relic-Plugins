@@ -38,6 +38,10 @@ public sealed partial class MainWindow
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(7), UseLayoutRounding = false, AllowFocusOnInteraction = false };
         AutomationProperties.SetName(anchor, title);
+        // Replace the actual visible text content, not merely its capture data.
+        // The Button keeps the accessible name and native keyboard/Invoke peer.
+        anchor.Content = new NativeLabel(title, FontFamilies.UI, 13, 400,
+            words.Language, 13 * 1.6);
         // One real Button owns one label and one painted surface. No nested
         // MenuBarItem/ContentButton pair or rewritten automation role is used.
         anchor.Template = (ControlTemplate)XamlReader.Load("""

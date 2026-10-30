@@ -338,7 +338,7 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel();
         body.Children.Add(OverviewText(T("common.new_org"), 17, weight: 650));
         var form = new StackPanel { Spacing = 12 };
-        var name = FormInput("", T("neworg.name_placeholder")); var purpose = FormInput("", T("neworg.purpose_placeholder"), multiline: true);
+        var name = FormInput("", T("neworg.name_placeholder")); var purpose = FormInput("", T("neworg.purpose_placeholder"), "new-org-purpose", multiline: true);
         form.Children.Add(FormLabel("common.name", SettingsVoiceField(name, double.NaN)));
         form.Children.Add(FormLabel("neworg.purpose", SettingsVoiceField(purpose, double.NaN)));
         var governance = FormSelect([("leader", T("neworg.gov_leader")), ("peer", T("neworg.gov_peer"))], "leader");

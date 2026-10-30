@@ -34,11 +34,12 @@ internal static class Program
         }
         if (requestPath == null || outputPath == null) return Usage();
 
+        using var progress = new CaptureProgress(outputPath);
         JsonObject result;
         try
         {
             var request = JsonNode.Parse(File.ReadAllText(requestPath))!.AsObject();
-            result = new Capture(request).Run();
+            result = progress.Measure("capture.run", () => new Capture(request, progress).Run());
         }
         catch (Exception error)
         {
@@ -51,6 +52,8 @@ internal static class Program
         }
         NumericEvidence.Sanitize(result, result["extraction_errors"]!.AsArray());
         SeparateKnownOffscreenDiagnostics(result);
+        progress.Record("capture", "completed", new JsonObject { ["errors"] = result["extraction_errors"]!.AsArray().Count });
+        result["capture_progress"] = progress.Summary();
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
@@ -104,6 +107,7 @@ internal static class Program
 internal sealed class Capture
 {
     private readonly JsonObject request;
+    private readonly CaptureProgress progress;
     private readonly int processId;
     private readonly double originX, originY;
     private readonly HashSet<string> seen = new(StringComparer.Ordinal);
@@ -112,9 +116,10 @@ internal sealed class Capture
     private NativeTextEvidence? nativeText;
     private int nextId;
 
-    public Capture(JsonObject request)
+    public Capture(JsonObject request, CaptureProgress progress)
     {
         this.request = request;
+        this.progress = progress;
         processId = request["pid"]!.GetValue<int>();
         if (processId <= 0) throw new ArgumentException("A positive native process ID is required.");
         originX = request["origin"]!["x"]!.GetValue<double>();
@@ -126,15 +131,15 @@ internal sealed class Capture
     public JsonObject Run()
     {
         var handle = request["hwnd"]!.GetValue<long>();
-        var primary = AutomationElement.FromHandle(new IntPtr(handle));
+        var primary = progress.Measure("managed.primary-window", () => AutomationElement.FromHandle(new IntPtr(handle)));
         if (primary.Current.ProcessId != processId)
             throw new InvalidOperationException("Requested HWND does not belong to the requested process.");
         Walk(primary, null, "primary-window");
 
         // Menu/Flyout HWNDs can be separate desktop children. Only enumerate
         // this PID's immediate desktop children; never inspect other apps.
-        var roots = AutomationElement.RootElement.FindAll(TreeScope.Children,
-            new PropertyCondition(AutomationElement.ProcessIdProperty, processId));
+        var roots = progress.Measure("managed.process-popup-roots", () => AutomationElement.RootElement.FindAll(TreeScope.Children,
+            new PropertyCondition(AutomationElement.ProcessIdProperty, processId)));
         foreach (AutomationElement root in roots) Walk(root, null, "process-popup-or-window");
 
         if (nodes.Count == 0) errors.Add("The native process exposed no UI Automation nodes.");
@@ -161,6 +166,7 @@ internal sealed class Capture
     private void Walk(AutomationElement element, string? parent, string rootKind)
     {
         var id = "uia-" + nextId++.ToString(CultureInfo.InvariantCulture);
+        progress.Record("managed.node", "started", new JsonObject { ["id"] = id, ["parent"] = parent });
         try
         {
             // Do not emit embedded foreign-process content, even when a native
@@ -197,8 +203,11 @@ internal sealed class Capture
                 ["unsupported_properties"] = unsupported,
                 ["measurement_errors"] = nodeErrors
             };
-            ReadPatterns(element, node, nodeErrors);
+            progress.Record("managed.node.properties", "measured", new JsonObject { ["node"] = node.DeepClone() });
+            progress.Measure("managed.node.patterns", () => { ReadPatterns(element, node, nodeErrors); return true; },
+                new JsonObject { ["id"] = id, ["runtime_id"] = runtimeId });
             nodes.Add(node);
+            progress.Record("managed.node", "measured", new JsonObject { ["node"] = node.DeepClone() });
             foreach (var error in nodeErrors) errors.Add(id + ": " + error?.ToString());
 
             // Do not prune offscreen/zero-size/title-bar parents here: visible
@@ -210,7 +219,11 @@ internal sealed class Capture
                 child = walker.GetNextSibling(child);
             }
         }
-        catch (Exception error) { errors.Add(id + ": tree traversal/identity: " + error.GetType().Name + ": " + error.Message); }
+        catch (Exception error)
+        {
+            errors.Add(id + ": tree traversal/identity: " + error.GetType().Name + ": " + error.Message);
+            progress.Record("managed.node", "failed", new JsonObject { ["id"] = id, ["error"] = error.ToString() });
+        }
     }
 
     private void ReadPatterns(AutomationElement element, JsonObject node, JsonArray nodeErrors)
@@ -259,7 +272,8 @@ internal sealed class Capture
                 ["supported_text_selection"] = value.SupportedTextSelection.ToString()
             };
             node["text_pattern"] = pattern;
-            nativeText ??= new NativeTextEvidence(processId, originX, originY);
+            progress.Record("managed.text-pattern", "measured", new JsonObject { ["id"] = node["id"]!.DeepClone(), ["pattern"] = pattern.DeepClone() });
+            nativeText ??= progress.Measure("native.initialize", () => new NativeTextEvidence(processId, originX, originY, progress));
             nativeText.Attach(element, value, pattern, nodeErrors);
         });
     }
