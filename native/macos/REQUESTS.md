@@ -1,3 +1,22 @@
+## 2026-10-30: mounted dark/light painters pass; message receipts preserve other evidence
+
+Native apps 41090924802 / macOS 124185072559 (`06890e8`) builds and runs 230 tests.
+The new exact-inventory navigation-order test, all three owned-fill bitmap
+fixtures, and actual Aqua/DarkAqua label/icon/fill comparisons pass. Two old
+pointer assertions still fail; the subsequent content-view hit change awaits CI.
+Owned fill images are now enabled, retaining their exact draw and identity checks.
+
+The actual `7ce27b4` new-org input is focused. Recipients and live-tool disclosures
+still leave the conversation viewport focused. Those two controls now explicitly
+participate in native focus, with their existing focus bindings. Actual capture
+must verify both the focused object and the unchanged element inventory.
+
+MessageCaptureSession previously replaced the whole capture_evidence dictionary,
+dropping independent pointer/fill/layer observations in message action scenes.
+It now appends only message_action, with a regression preserving even incomplete
+observations and prior extraction errors. No hover value or failed measurement
+is replaced by a default. No shared change or exception is requested here.
+
 ## 2026-10-30: six hosted icon bitmaps passed; pointer owner binding still under test
 
 Native apps 41089755638 / macOS job 124181361073 (`7ce27b4`) builds and executes

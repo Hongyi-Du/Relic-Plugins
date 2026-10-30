@@ -8,7 +8,7 @@ struct NativeSurfaceFill: NSViewRepresentable {
     let color: Color
     let corners: [CGFloat]
     let owner: String?
-    var ownedLayer = false
+    var ownedLayer = true
     @Environment(\.captureRegion) private var region
     private static let live = NSHashTable<NativeSurfaceFillView>.weakObjects()
     func makeNSView(context: Context) -> NativeSurfaceFillView {
