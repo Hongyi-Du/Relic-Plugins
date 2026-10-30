@@ -1,5 +1,31 @@
 # Native Relic App contract
 
+Changes for the clients (actual cell correction supersedes v1): implemented
+1097cdf/f462776's `appkit-current-field-editor-v2` shared request. Only the
+actual PaddedCell / AXTextField can own the editor; both cell/control object
+directions and all currentEditor/window/value/focus checks are required.
+The former v1 Control-based proof is rejected. The current `owner_screen_bounds`
+is a control-frame measurement; it does not independently measure the cell's
+AX screen position. That missing cross-check remains an extraction failure.
+Fifteen synthetic tests cover the v2 relation and rejection paths.
+
+Request to macOS: export `native_field_editor.owner_ax_frame` with source
+`actual NSTextFieldCell.accessibilityFrame()`, actual `owner_identity`,
+`coordinate_space: AppKit screen coordinates (bottom-left)`, and untouched
+`bounds` from cell.accessibilityFrame(). Also export `content_screen_frame`
+with source `actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen`,
+the actual `window_identity` and `bounds` used by the capture's contentScreen.
+The shared reader can then cross-check actual cell/control screen geometry and
+the raw window-space AX rectangle using an observed coordinate basis. It will
+not infer missing positions from matching dimensions.
+
+Windows voice-enabled multiline fields now retain their reference 10px right
+padding. Only single-line input reserves 34px for its microphone, matching
+app.css `.field input`. Actual light and dark captures show the prior editor
+viewport was 430px inside a 476px field, 24px narrower than that CSS rule.
+Empty-field evidence establishes this width defect; new long-text wrapping
+and final width remain for CI to measure, not assumed from the change.
+
 Changes for the clients (AppKit current field editor): implemented the c40e136 /
 64ee673 shared request. The reader independently checks the exact currentEditor
 owner/editor identities, actual firstResponder relation, window, raw roles,

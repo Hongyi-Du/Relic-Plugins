@@ -384,6 +384,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         for alias in field_editor_aliases(elements):
             for issue in alias["issues"]:
                 error("Mac field editor: " + issue, alias["owner"])
+            for issue in alias["measurement_issues"]:
+                error("Mac field editor geometry: " + issue["reason"], alias["owner"], quantities=issue["quantities"])
             retained = alias["retained_measurements"]
             if retained is not None:
                 validation_elements.append((retained, (alias["owner"], retained.get("id"))))

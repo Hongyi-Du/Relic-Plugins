@@ -11,8 +11,8 @@ from copy import deepcopy
 import math
 
 
-CONTRACT = "appkit-current-field-editor-v1"
-PROVIDER = "mounted NSTextField.currentEditor and NSWindow.firstResponder"
+CONTRACT = "appkit-current-field-editor-v2"
+PROVIDER = "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder"
 SOURCE = "live-AppKit-AX-selectors"
 STRUCTURE_SOURCE = "production parent environment and current NSView.subviews ancestry"
 INPUT_ROLES = {"AXTextField", "AXTextArea", "AXSearchField"}
@@ -82,7 +82,8 @@ def field_editor_aliases(elements):
 
     Both pre-be16164 system editors and actual ObservedFieldEditor instances are
     supported by their independently recorded class/identity, not a class-name
-    substitution. The contract's owner is the final MemberRenameField.Control.
+    substitution. The v2 owner is the final MemberRenameField.PaddedCell, not
+    its AX-ignored NSTextField Control. V1 is never accepted as a cell binding.
     This result proves only the current alias relation, never frame continuity,
     presentation, glyph drawing or absence of independent editor paint.
     """
@@ -102,7 +103,7 @@ def field_editor_aliases(elements):
             continue
         receipt, editor = raw.get("native_field_editor"), raw.get("owned_editor_evidence")
         issues = []
-        result = {"owner": item.get("id"), "binding_valid": False, "issues": issues,
+        result = {"owner": item.get("id"), "binding_valid": False, "issues": issues, "measurement_issues": [],
                   "retained_measurements": retained_editor_measurements(editor) if isinstance(editor, dict) else None}
         results.append(result)
 
@@ -128,8 +129,19 @@ def field_editor_aliases(elements):
             continue
         require(receipt.get("contract") == CONTRACT and receipt.get("provider") == PROVIDER,
                 "Unknown or missing actual currentEditor/firstResponder contract")
+        if receipt.get("contract") == CONTRACT:
+            # The v2 producer exports the control's screen frame, not a second
+            # measured cell.accessibilityFrame call or the capture coordinate
+            # origin. Size agreement below is not a proof of screen position.
+            result["measurement_issues"].append({
+                "reason": "Cell screen-position cross-check is unmeasured: no independently checked actual cell accessibilityFrame and capture content-screen frame",
+                "quantities": {
+                    "cell_ax_window_frame": {"source": "retained cell AX frame after capture topLeft conversion", "bounds": deepcopy(raw.get("rect"))},
+                    "control_screen_frame": {"source": "actual control.convert(bounds,to:nil) then window.convertToScreen", "bounds": deepcopy(receipt.get("owner_screen_bounds"))},
+                    "screen_position_relation_proven": False}})
         owner_id, editor_id = raw.get("id"), editor.get("id")
         owner_object, editor_object = receipt.get("owner_identity"), receipt.get("editor_identity")
+        control_object = receipt.get("control_identity")
         require(_string(owner_id) and item.get("id") == owner_id == raw.get("raw_node_id")
                 and canonical_ids[owner_id] == 1, "Owner is not one uniquely retained canonical/raw input")
         require(_string(editor_id) and editor_id != owner_id and retained_ids[editor_id] == 1
@@ -141,14 +153,18 @@ def field_editor_aliases(elements):
                 and editor_object != owner_object and receipt.get("current_editor_identity") == editor_object
                 and canonical_objects[editor_object] == 0 and retained_objects[editor_object] == 1,
                 "Editor is not the one unique actual currentEditor object")
+        require(_string(control_object) and control_object != owner_object and control_object != editor_object
+                and receipt.get("owner_control_view_identity") == control_object
+                and receipt.get("control_cell_identity") == owner_object,
+                "Cell/control ownership is not the actual bidirectional controlView/cell object relation")
         require(item.get("kind") == raw.get("kind") == editor.get("kind") == "input"
-                and isinstance(raw.get("role"), str) and raw["role"] in INPUT_ROLES
+                and raw.get("role") == "AXTextField"
                 and isinstance(editor.get("role"), str) and editor["role"] in INPUT_ROLES,
                 "Owner and retained editor must both preserve actual input roles")
         require(raw.get("source") == editor.get("source") == SOURCE,
                 "Owner or retained editor has no original live AppKit AX source")
-        require(receipt.get("owner_class") == raw.get("class") == "Control",
-                "Alias owner is not the contract's actual MemberRenameField.Control")
+        require(receipt.get("owner_class") == raw.get("class") == "PaddedCell",
+                "Alias owner is not the contract's actual MemberRenameField.PaddedCell")
         require(_string(receipt.get("editor_class")) and receipt["editor_class"] == editor.get("class"),
                 "Retained editor class disagrees with the actual currentEditor class")
         require(_string(receipt.get("owner_identifier")) and receipt["owner_identifier"] == raw.get("identifier"),
@@ -171,11 +187,23 @@ def field_editor_aliases(elements):
                     label + " raw AX focused value was not retained")
             # AXFocused and window.firstResponder are distinct APIs. In actual
             # AppKit capture the active editor's AXFocused can be false.
-            geometry = node.get("native_view_geometry")
             measured = receipt.get(label + "_screen_bounds")
-            require(isinstance(geometry, dict) and _rect(measured)
-                    and geometry.get("screen_bounds") == measured,
-                    label + " current screen bounds disagree with the actual retained NSView geometry")
+            if label == "editor":
+                geometry = node.get("native_view_geometry")
+                require(isinstance(geometry, dict) and _rect(measured)
+                        and geometry.get("screen_bounds") == measured,
+                        "Editor current screen bounds disagree with the actual retained NSView geometry")
+            else:
+                # NSTextFieldCell is not an NSView. Its raw rect is the actual
+                # accessibilityFrame in top-left window coordinates; the
+                # receipt retains control.convert(bounds) in screen coordinates.
+                # PaddedCell.accessibilityFrame uses that same control operation.
+                # topLeft changes origin only, not size. Do not fabricate a
+                # cell native_view_geometry or compare unlike x/y coordinates.
+                ax_rect = node.get("rect")
+                require(_rect(measured) and _rect(ax_rect)
+                        and all(measured[key] == ax_rect[key] for key in ("width", "height")),
+                        "Cell AX frame and actual control screen frame have missing or conflicting sizes")
             structure = node.get("native_structure")
             if isinstance(structure, dict):
                 require(structure.get("source") == STRUCTURE_SOURCE

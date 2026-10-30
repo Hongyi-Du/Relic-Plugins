@@ -160,7 +160,10 @@ public sealed partial class MainWindow
         var row = new Grid { Width = width }; input.Width = double.NaN; row.Children.Add(input);
         if (always || preferences.Text("voice") != "off")
         {
-            input.Padding = new Thickness(10, 7, 34, 7); var mic = Microphone(input, always); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
+            // Reference .field reserves microphone space only for input;
+            // textarea keeps its normal 10px right padding and full text width.
+            if (!input.AcceptsReturn) input.Padding = new Thickness(10, 7, 34, 7);
+            var mic = Microphone(input, always); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
             mic.HorizontalAlignment = HorizontalAlignment.Right; mic.VerticalAlignment = VerticalAlignment.Center; mic.Margin = new Thickness(0, 0, 4, 0); row.Children.Add(mic);
         }
         return row;

@@ -1,4 +1,4 @@
-"""Synthetic c40e136/be16164 field-editor contracts, not recorded AppKit captures.
+"""Synthetic 1097cdf/f462776 v2 contracts, not recorded AppKit captures.
 
 The tests launch no application. Actual producer tests/captures remain in CI.
 """
@@ -24,13 +24,16 @@ def synthetic_alias(editor_class="ObservedFieldEditor", value="人😀"):
                 "native_view_geometry": {"screen_bounds": deepcopy(box)}}
     box = {"x": 40, "y": 50, "width": 195, "height": 32.4}
     edit_box = {"x": 49, "y": 56, "width": 151, "height": 20}
-    owner = raw_input("synthetic-owner", "synthetic-field-object", "Control", "AXTextField", box, True)
+    owner = raw_input("synthetic-owner", "synthetic-cell-object", "PaddedCell", "AXTextField", box, True)
+    del owner["native_view_geometry"]  # The actual AX owner is an NSCell, not an NSView.
     editor = raw_input("synthetic-editor", "synthetic-editor-object", editor_class, "AXTextArea", edit_box, False)
     owner["identifier"] = "relic-input/member-rename"
     owner["raw_node_id"] = owner["id"]
     owner["native_field_editor"] = {
         "contract": CONTRACT, "provider": PROVIDER, "owner_identity": owner["object_identity"],
         "owner_class": owner["class"], "owner_identifier": owner["identifier"],
+        "control_identity": "synthetic-control-object", "owner_control_view_identity": "synthetic-control-object",
+        "control_cell_identity": owner["object_identity"],
         "editor_identity": editor["object_identity"], "editor_class": editor["class"],
         "current_editor_identity": editor["object_identity"], "window_identity": "synthetic-window",
         "is_field_editor": True, "same_window": True, "first_responder_is_editor": True,
@@ -69,6 +72,9 @@ class MacFieldEditorTests(unittest.TestCase):
             ("contract", "unknown"), ("provider", "guessed from AX name"),
             ("owner_identity", "other"), ("editor_identity", "other"),
             ("current_editor_identity", "stale"), ("owner_class", "OtherControl"),
+            ("control_identity", ""), ("control_identity", "synthetic-cell-object"),
+            ("control_identity", "synthetic-editor-object"), ("owner_control_view_identity", "foreign-control"),
+            ("control_cell_identity", "foreign-cell"),
             ("editor_class", "OtherEditor"), ("owner_identifier", "foreign-input"),
             ("window_identity", ""), ("same_window", False), ("is_field_editor", 1),
             ("first_responder_is_editor", False), ("owner_value", "different"),
@@ -83,6 +89,41 @@ class MacFieldEditorTests(unittest.TestCase):
                 result, = field_editor_aliases([item])
                 self.assertFalse(result["binding_valid"])
                 self.assertTrue(result["issues"])
+
+    def test_v1_control_binding_is_explicitly_rejected(self):
+        item = synthetic_alias()
+        item["evidence"]["native_field_editor"]["contract"] = "appkit-current-field-editor-v1"
+        result, = field_editor_aliases([item])
+        self.assertFalse(result["binding_valid"])
+        self.assertTrue(any("contract" in issue for issue in result["issues"]))
+        item = synthetic_alias()
+        item["evidence"]["class"] = "Control"
+        item["evidence"]["native_field_editor"]["owner_class"] = "Control"
+        self.assertFalse(field_editor_aliases([item])[0]["binding_valid"])
+
+    def test_cell_geometry_keeps_its_real_coordinate_quantity_without_inventing_a_view(self):
+        item = synthetic_alias()
+        self.assertNotIn("native_view_geometry", item["evidence"])
+        # Actual AX topLeft(window) and control screen positions differ. No
+        # screen origin is inferred from a fixture or a reference screenshot.
+        screen = item["evidence"]["native_field_editor"]["owner_screen_bounds"]
+        screen.update(x=1000, y=2000)
+        result, = field_editor_aliases([item])
+        self.assertTrue(result["binding_valid"])
+        self.assertEqual(len(result["measurement_issues"]), 1)
+        quantities = result["measurement_issues"][0]["quantities"]
+        self.assertFalse(quantities["screen_position_relation_proven"])
+        self.assertEqual(quantities["control_screen_frame"]["bounds"], screen)
+        self.assertEqual(quantities["cell_ax_window_frame"]["bounds"], item["evidence"]["rect"])
+        screen["width"] += 1
+        self.assertFalse(field_editor_aliases([item])[0]["binding_valid"])
+
+    def test_each_actual_cell_control_link_is_required(self):
+        for key in ("control_identity", "owner_control_view_identity", "control_cell_identity"):
+            with self.subTest(key=key):
+                item = synthetic_alias()
+                del item["evidence"]["native_field_editor"][key]
+                self.assertFalse(field_editor_aliases([item])[0]["binding_valid"])
 
     def test_raw_identity_role_value_and_geometry_cannot_be_replaced_by_receipt(self):
         mutations = [("object_identity", "foreign"), ("role", "AXButton"), ("role", []),
@@ -164,6 +205,7 @@ class MacFieldEditorTests(unittest.TestCase):
         self.assertTrue(any("outline" in error["reason"].lower() for error in owned))
         self.assertTrue(any("font families" in error["reason"] for error in owned))
         self.assertTrue(all(error["element"] == "synthetic-owner" for error in owned))
+        self.assertTrue(any("Cell screen-position cross-check is unmeasured" in error["reason"] for error in errors))
         self.assertEqual(data, original)
         self.assertEqual(data["coverage"]["emitted_elements"], 1)
         self.assertEqual(len(data["elements"]), 1)
