@@ -1,5 +1,6 @@
 """Capture the real reference/native UI in CI; no local execution is permitted."""
 import argparse
+import base64
 import datetime
 import json
 import os
@@ -199,6 +200,23 @@ class MessageSceneCapture:
     def save(self):
         self.receipt_path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def progress(self, step, status="started", **details):
+        self.evidence.setdefault("steps", []).append({"step": step, "status": status,
+            "host_monotonic": time.monotonic(), **details})
+        self.save()
+
+    def read_clipboard(self, phase):
+        if self.paused:
+            raise RuntimeError("Async Clipboard must not be awaited while the browser virtual clock is paused")
+        self.progress("clipboard:" + phase)
+        before = self.page.evaluate(self.READ_CLOCK)
+        value = self.page.evaluate("() => navigator.clipboard.readText()")
+        after = self.page.evaluate(self.READ_CLOCK)
+        self.evidence.setdefault("clipboard_reads", {})[phase] = {"value": value, "before": before, "after": after,
+            "quantity": "actual async clipboard read while virtual time is running; not a paused-checkpoint measurement"}
+        self.progress("clipboard:" + phase, "completed")
+        return value
+
     def open(self):
         message_id = str(self.fixture["thread"])
         if not message_id.isdecimal():
@@ -217,7 +235,9 @@ class MessageSceneCapture:
         self.body = matches[0]["body"]
         self.evidence.update(selector=self.selector, message_api={"path": chat_path, "message": matches[0]},
                              vocabulary={"lang": vocabulary.get("lang"), "common.copy": self.copy_label, "msg.copied": self.copied_label})
+        self.progress("fonts_before_action")
         self.evidence["fonts_before_action"] = self.page.evaluate("async () => {await document.fonts.ready; return {status:document.fonts.status,count:document.fonts.size};}")
+        self.progress("fonts_before_action", "completed")
         if self.evidence["fonts_before_action"].get("status") != "loaded":
             raise RuntimeError("Actual page fonts were not ready before the message action")
         self.observer = self.page.evaluate_handle("""() => {
@@ -232,23 +252,26 @@ class MessageSceneCapture:
         row = self.page.locator(self.selector)
         if row.count() != 1:
             raise RuntimeError("Expected exactly one real group message for " + message_id)
+        self.progress("production_message_hover")
         row.hover()
         toolbar = row.locator(":scope > .hover-acts")
         toolbar.wait_for(state="visible")
         self.message = row.element_handle()
         if self.message is None:
             raise RuntimeError("Message detached after the real hover action")
+        self.progress("production_message_hover", "completed")
         if self.scene == "message-copy-toast":
             origin = f"http://127.0.0.1:{self.fixture['port']}"
             permissions = ["clipboard-read", "clipboard-write"]
             self.page.context.grant_permissions(permissions, origin=origin)
             self.evidence["permissions"] = {"source": "Playwright BrowserContext.grant_permissions in CI", "origin": origin, "permissions": permissions}
-            self.evidence["clipboard_before"] = self.page.evaluate("() => navigator.clipboard.readText()")
+            self.evidence["clipboard_before"] = self.read_clipboard("before_copy")
             if self.page.locator(".toast").count() != 0:
                 raise RuntimeError("Copy scene already contains a toast before the production action")
             button = toolbar.get_by_title(self.copy_label, exact=True)
             if button.count() != 1:
                 raise RuntimeError("Expected exactly one actual Copy button on the target message")
+            self.progress("production_copy_click_and_toast")
             button.click()
             notice = self.page.locator(".toast[role='status']")
             notice.wait_for(state="visible")
@@ -257,6 +280,12 @@ class MessageSceneCapture:
             self.toast = notice.element_handle()
             if self.toast is None or self.toast.evaluate("el => el.textContent") != self.copied_label:
                 raise RuntimeError("The real Copy action did not show its success toast")
+            self.progress("production_copy_click_and_toast", "completed")
+            self.evidence["clipboard_after"] = self.read_clipboard("after_copy_before_pause")
+            self.evidence["clipboard_after_phase"] = "after_copy_before_pause"
+            if self.evidence["clipboard_after"] != self.body:
+                raise RuntimeError("Actual clipboard contents do not equal the selected API message body before pause")
+            self.progress("clock_pause")
             before_clock = self.page.evaluate(self.READ_CLOCK)
             self.paused = True  # Ensure cleanup attempts to resume even if CDP disconnects mid-command.
             receipt = self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "pause"})
@@ -265,19 +294,19 @@ class MessageSceneCapture:
                 "host_monotonic": time.monotonic(), "scope": "this isolated page target; actual toast already created"}
             if not isinstance(receipt.get("virtualTimeTicksBase"), (int, float)):
                 raise RuntimeError("CDP did not return the actual virtual clock receipt")
-            self.evidence["clipboard_after"] = self.page.evaluate("() => navigator.clipboard.readText()")
-            if self.evidence["clipboard_after"] != self.body:
-                raise RuntimeError("Actual clipboard contents do not equal the selected API message body")
+            self.progress("clock_pause", "completed")
         self.checkpoint("after_action")
 
     def checkpoint(self, stage):
+        self.progress("checkpoint:" + stage)
         message = self.message.evaluate(self.READ_MESSAGE, self.selector)
         toast = self.toast.evaluate(self.READ_TOAST) if self.toast is not None else None
         pointer_events = self.observer.evaluate("capture => capture.events")
         point = next((event for event in reversed(pointer_events) if event["type"] == "pointermove"), None)
         state = {"message": message, "toast": toast, "pointer": {key: point.get(key) for key in ("x", "y", "trusted")} if point else None}
         clock = self.page.evaluate(self.READ_CLOCK)
-        record = {"stage": stage, "state": state, "clock": clock, "pointer_events": pointer_events, "host_monotonic": time.monotonic()}
+        record = {"stage": stage, "state": state, "clock": clock, "pointer_events": pointer_events, "host_monotonic": time.monotonic(),
+            "clipboard_measurement": "not read at this checkpoint; see actual before-pause and after-resume read receipts"}
         self.evidence["checkpoints"].append(record)
         self.save()
         toolbar = message.get("toolbar")
@@ -294,23 +323,27 @@ class MessageSceneCapture:
             if not any(event.get("type") == "click" and event.get("trusted") is True
                        and event.get("target", {}).get("message_id") == str(self.fixture["thread"]) for event in pointer_events):
                 raise RuntimeError("No trusted production Copy click was observed")
-            if self.page.evaluate("() => navigator.clipboard.readText()") != self.body:
-                raise RuntimeError("Actual clipboard changed during Copy capture at " + stage)
         if self.baseline is None:
             self.baseline = record
         elif state != self.baseline["state"]:
             raise RuntimeError("Message/toolbar/toast geometry, text, state or actual pointer changed during capture at " + stage)
         elif self.paused and clock["performance_now"] != self.baseline["clock"]["performance_now"]:
             raise RuntimeError("Actual browser virtual time advanced during paused toast capture at " + stage)
-        self.save()
+        self.progress("checkpoint:" + stage, "completed")
 
     def close(self):
         try:
             if self.paused:
+                self.progress("clock_resume")
                 self.evidence["clock_resume"] = {"method": "Emulation.setVirtualTimePolicy", "parameters": {"policy": "advance"},
                     "receipt": self.cdp.send("Emulation.setVirtualTimePolicy", {"policy": "advance"}), "host_monotonic": time.monotonic()}
+                self.paused = False
+                self.progress("clock_resume", "completed")
+                self.evidence["clipboard_after_resume"] = self.read_clipboard("after_resume")
+                if self.evidence["clipboard_after_resume"] != self.body:
+                    raise RuntimeError("Actual clipboard changed between the before-pause and after-resume reads")
         except Exception as error:
-            self.evidence["errors"].append("Could not resume actual virtual clock: " + str(error))
+            self.evidence["errors"].append("Message capture cleanup failed: " + str(error))
             raise
         finally:
             self.save()
@@ -591,26 +624,64 @@ def open_member_card_scene(page, scene):
     return evidence
 
 
+def capture_paused_message_png(page, cdp, path, width, height, action):
+    """Save the original CDP page PNG without Playwright's async preparation.
+
+    Its screenshotter awaits document.fonts.ready even with animations=allow
+    and temporarily hides carets. Neither belongs inside the frozen phase.
+    """
+    action.progress("screenshot:viewport")
+    viewport = page.evaluate("() => ({width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio,scroll_x:scrollX,scroll_y:scrollY})")
+    if viewport.get("width") != width or viewport.get("height") != height or viewport.get("device_pixel_ratio") != 1:
+        raise RuntimeError("The actual frozen reference viewport does not equal the requested 1:1 screenshot dimensions")
+    parameters = {"format": "png", "fromSurface": True, "captureBeyondViewport": False,
+        "clip": {"x": viewport["scroll_x"], "y": viewport["scroll_y"], "width": width, "height": height, "scale": 1}}
+    action.evidence["screenshot"] = {"method": "Page.captureScreenshot", "parameters": parameters, "actual_viewport": viewport,
+        "quantity": "original browser page-surface PNG; no DOM/caret/style/animation mutation or image composition"}
+    action.progress("screenshot:viewport", "completed")
+    action.progress("screenshot:Page.captureScreenshot")
+    result = cdp.send("Page.captureScreenshot", parameters)
+    encoded = base64.b64decode(result["data"], validate=True)
+    if len(encoded) < 24 or encoded[:8] != b"\x89PNG\r\n\x1a\n" or encoded[12:16] != b"IHDR":
+        raise RuntimeError("CDP screenshot did not return a PNG with an actual IHDR")
+    actual_size = [int.from_bytes(encoded[16:20], "big"), int.from_bytes(encoded[20:24], "big")]
+    action.evidence["screenshot"].update(png_dimensions=actual_size, png_bytes=len(encoded))
+    path.write_bytes(encoded)
+    action.progress("screenshot:Page.captureScreenshot", "completed")
+    if actual_size != [width, height]:
+        raise RuntimeError("Actual CDP PNG dimensions differ from the requested viewport; original bytes are retained")
+
+
 def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None):
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
     resize = TextareaResizeCapture(page, cdp, case["scene"], output / (case["id"] + ".scene-action.json")) if case["scene"] in RESIZE_SCENES else None
     actions = [action for action in (message, resize) if action is not None]
+    def source_step(name, operation):
+        if message is not None:
+            message.progress(name)
+        result = operation()
+        if message is not None:
+            message.progress(name, "completed")
+        return result
     try:
         for action in actions:
             action.open()
             action.checkpoint("before_screenshot")
-        page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled")
+        if case["scene"] == "message-copy-toast":
+            capture_paused_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
+        else:
+            source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES else "disabled"))
         for action in actions:
             action.checkpoint("after_screenshot")
-        snapshot = cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True})
+        snapshot = source_step("source:DOMSnapshot", lambda: cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True}))
         for action in actions:
             action.checkpoint("after_dom_snapshot")
-        ax_tree = cdp.send("Accessibility.getFullAXTree")
-        input_text = input_text_evidence(cdp)
-        fonts = font_evidence(cdp, snapshot, input_text)
-        environment = page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})")
+        ax_tree = source_step("source:Accessibility", lambda: cdp.send("Accessibility.getFullAXTree"))
+        input_text = source_step("source:input_text", lambda: input_text_evidence(cdp))
+        fonts = source_step("source:platform_fonts", lambda: font_evidence(cdp, snapshot, input_text))
+        environment = source_step("source:environment", lambda: page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true})"))
         environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
                            browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
         (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
@@ -619,7 +690,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         for action in actions:
             action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-        elements = page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment})
+        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment}))
         for action in actions:
             action.checkpoint("after_element_extraction")
         if message is not None:
@@ -950,6 +1021,52 @@ def native(manifest_path, manifest, exe):
     return aggregate
 
 
+def capture_components(manifest_path, manifest, exe=None, reference_output=None):
+    """Attempt independent clients; a reference failure cannot suppress native work.
+
+    Native goes first so a stuck browser protocol cannot prevent its attempts.
+    Every side still uses the same fixture's real reset endpoint. Existing error
+    receipts remain failures; file presence is diagnostic, never a passing count.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Visual capture is CI-only; no local component is launched.")
+    result = {"expected_count": len(manifest["cases"]), "components": [], "errors": []}
+    destination = manifest_path.parent / "components.json"
+    def save():
+        destination.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    components = [(manifest["client"], manifest)]
+    if reference_output is not None and manifest["client"] != "reference":
+        components.append(("reference", dict(manifest, client="reference", output=str(reference_output))))
+    for client, current in components:
+        entry = {"client": client, "status": "started", "count": 0, "errors": []}
+        result["components"].append(entry)
+        Path(current["output"]).mkdir(parents=True, exist_ok=True)
+        save()
+        try:
+            if client == "reference":
+                reference(current)
+                entry["count"] = len(current["cases"])
+            else:
+                if exe is None:
+                    raise ValueError("Native capture needs --exe")
+                receipt = native(manifest_path, current, exe.resolve())
+                entry["receipt"] = receipt
+                entry["count"] = receipt.get("count", 0)
+                entry["errors"] = receipt.get("errors", [])
+            entry["status"] = "failed" if entry["errors"] else "completed"
+        except Exception as error:
+            entry["status"] = "failed"
+            entry["errors"].append(str(error))
+            (manifest_path.parent / (client + "-component-exception.log")).write_text(traceback.format_exc(), encoding="utf-8")
+        finally:
+            entry["artifacts_present"] = {suffix: sum((Path(current["output"]) / (case["id"] + suffix)).is_file()
+                for case in current["cases"]) for suffix in (".png", ".elements.json")}
+            entry["artifacts_present_quantity"] = "Existing files only; incomplete captures and extraction failures are not acceptance"
+            result["errors"].extend(client + ": " + error for error in entry["errors"])
+            save()
+    return result
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Visual capture is CI-only; no app is opened locally.")
@@ -971,7 +1088,7 @@ def main():
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     sizes = spec["sizes"] if args.matrix == "full" else [[1440, 900]]
-    capture_errors, captured_windows = [], 0
+    capture_errors, captured_client, captured_reference = [], 0, 0
     for lang in languages:
         data = output / "data" / lang
         data.mkdir(parents=True, exist_ok=True)
@@ -993,33 +1110,27 @@ def main():
                         manifest["uia_exe"] = str(args.uia_exe.resolve())
                     path = work / "manifest.json"
                     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-                    if args.reference:
-                        reference_output.mkdir(exist_ok=True)
-                        reference(dict(manifest, client="reference", output=str(reference_output)))
-                    if args.client == "reference":
-                        reference(manifest)
-                    else:
-                        if not args.exe:
-                            raise ValueError("Native capture needs --exe")
-                        receipt = native(path, manifest, args.exe.resolve())
-                        if args.client == "windows":
-                            captured_windows += receipt["count"]
-                            capture_errors.extend(receipt["errors"])
+                    receipt = capture_components(path, manifest, args.exe, reference_output if args.reference else None)
+                    capture_errors.extend(receipt["errors"])
+                    for component in receipt["components"]:
+                        if component["client"] == args.client: captured_client += component["count"]
+                        elif component["client"] == "reference": captured_reference += component["count"]
             finally:
                 server.terminate()
                 server.wait(timeout=20)
     receipt_name = "capture-complete" + ("-" + args.lang + "-" + args.theme if args.lang and args.theme else "") + ".json"
     expected_count = len(scenes) * len(sizes) * len(languages) * len(themes)
-    receipt = {"client": args.client, "matrix": args.matrix, "count": captured_windows if args.client == "windows" else expected_count}
-    if args.client == "windows":
-        receipt.update(expected_count=expected_count, errors=capture_errors)
+    receipt = {"client": args.client, "matrix": args.matrix, "count": captured_client,
+               "expected_count": expected_count, "errors": capture_errors}
     (output / receipt_name).write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
     if args.reference:
-        (reference_output / receipt_name).write_text(json.dumps({"client": "reference", "platform": args.client, "matrix": args.matrix, "count": len(scenes) * len(sizes) * len(languages) * len(themes)}), encoding="utf-8")
+        (reference_output / receipt_name).write_text(json.dumps({"client": "reference", "platform": args.client,
+            "matrix": args.matrix, "count": captured_reference, "expected_count": expected_count,
+            "errors": capture_errors}, ensure_ascii=False), encoding="utf-8")
 
 
     if capture_errors:
-        raise RuntimeError(f"Windows capture failed for {len(capture_errors)} case(s); see {output / receipt_name}")
+        raise RuntimeError(f"Capture has {len(capture_errors)} component/case error(s); see {output / receipt_name}")
 
 
 if __name__ == "__main__":

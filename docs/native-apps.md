@@ -1,5 +1,35 @@
 # Native Relic App contract
 
+Changes for the clients (shared checker correction): the macOS request in
+`907dcb2` and Windows checker run `40982586850` identify the same stale test
+expectations. The lifecycle regression still requires all 53 real manifest
+entries to be attempted; its final case is now `new-org-textarea-resized` and
+52 succeed after one deliberate mocked failure. No assertion is removed.
+
+Changes for the clients (paused reference Copy toast): actual clipboard reads
+now occur before the virtual-time pause and after resume, with their distinct
+receipts. Paused checkpoints do not await Async Clipboard. The frozen scene's
+PNG comes directly from CDP Page.captureScreenshot, with real viewport and PNG
+dimension checks; no toast, caret or pixels are constructed. Durable per-step
+receipts identify future stalls. See `native-message-capture.md`; CI runtime
+verification is still required.
+
+Changes for the clients (independent capture attempts): `c568f13` stopped inside
+the reference Copy-toast clipboard read after pausing virtual time, before either
+native application launched. The coordinator now attempts native capture first,
+then the matching reference, retaining either side's errors and actual completion
+count in `components.json`. An exception on one side does not suppress the other;
+existing PNG/JSON file counts are diagnostic only. Canonical scenes, fixture
+inputs and all acceptance requirements remain unchanged.
+
+Changes for the clients (macOS integration): `58d0179` merges the native AppKit
+textarea handle, real drag receipts and stable geometry snapshots requested
+for the shared 53-state matrix. `native-geometry.json` retains actual mounted
+view geometry across PNG and AX phases; capture drift is a failure. The source
+tree now includes both native gesture implementations; this is not a statement
+that the real captures or handle paint match. No additional shared exception
+or reference geometry is supplied to the macOS client.
+
 Changes for the clients (Windows UIA performance): actual COM RuntimeId lookup
 now builds one raw UIA subtree index per HWND instead of searching the whole
 subtree for every text control. Every attachment still checks fresh RuntimeId,
