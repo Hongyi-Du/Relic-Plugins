@@ -206,25 +206,24 @@ struct DecisionView: View {
                 if !decision["detail"].text.isEmpty { ReferenceLabel(decision["detail"].text, size: 12.5, color: RelicStyle.muted).help(decision["detail"].text) }
                 FlowLayout {
                     Rows(decision["options"].rows) { option in
-                        Button(option["name"].text.isEmpty ? option["kind"].text : option["name"].text) { sending = true; m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(decision["id"].text), ["option": option["id"].text]); try await m.refresh() } }
-                            .buttonStyle(ReferenceButtonStyle(primary: option["kind"].text.hasPrefix("allow"), small: true))
+                        ReferenceActionButton(option["name"].text.isEmpty ? option["kind"].text : option["name"].text, primary: option["kind"].text.hasPrefix("allow"), small: true) { sending = true; m.run { defer { sending = false }; try await m.post("/api/permission/" + Client.segment(decision["id"].text), ["option": option["id"].text]); try await m.refresh() } }
                     }
                 }
             case "trajectory":
                 ReferenceLabel(m.t("decision.reason", ["reason": decision["reason"].text.isEmpty ? "—" : decision["reason"].text]), size: 12.5, lines: 0)
-                FlowLayout { Button(m.t("decision.approve_redacted")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
+                FlowLayout { ReferenceActionButton(m.t("decision.approve_redacted"), primary: true, small: true) { act("approve") }; ReferenceActionButton(m.t("decision.deny"), small: true) { act("deny") } }
             case "approval":
                 if !decision["reason"].text.isEmpty { ReferenceLabel(m.t("decision.reason", ["reason": decision["reason"].text]), size: 12.5, lines: 0) }
                 ReferenceLabel([m.shortWhen(decision["at"]), m.approvalNote(decision)].filter { !$0.isEmpty }.joined(separator: " · "), size: 12, color: RelicStyle.muted, lines: 0)
-                FlowLayout { Button(m.t("decision.approve")) { act("approve") }.buttonStyle(ReferenceButtonStyle(primary: true, small: true)); Button(m.t("decision.deny")) { act("deny") }.buttonStyle(ReferenceButtonStyle(small: true)) }
+                FlowLayout { ReferenceActionButton(m.t("decision.approve"), primary: true, small: true) { act("approve") }; ReferenceActionButton(m.t("decision.deny"), small: true) { act("deny") } }
             case "wake":
                 ReferenceLabel(m.clippedDecisionError(decision["error"].text), size: 12.5, color: RelicStyle.muted, lines: 0)
-                Button(m.t("decision.open_chat")) { m.run { try await m.select(m.organization, decision["member"].text) } }.buttonStyle(ReferenceButtonStyle(small: true))
+                ReferenceActionButton(m.t("decision.open_chat"), small: true) { m.run { try await m.select(m.organization, decision["member"].text) } }
             case "task":
                 ReferenceLabel(m.t("decision.task_owner", ["name": decision["member"].text.isEmpty ? "—" : m.name(decision["member"].text)]), size: 12.5, color: RelicStyle.muted, lines: 0)
                 FlowLayout {
-                    Button(m.t("decision.view_task")) { m.openDetails("tasks", task: decision["id"].text) }.buttonStyle(ReferenceButtonStyle(small: true))
-                    if !decision["member"].text.isEmpty { Button(m.t("decision.ask", ["name": m.name(decision["member"].text)])) { m.run { try await m.select(m.organization, decision["member"].text) } }.buttonStyle(ReferenceButtonStyle(small: true)) }
+                    ReferenceActionButton(m.t("decision.view_task"), small: true) { m.openDetails("tasks", task: decision["id"].text) }
+                    if !decision["member"].text.isEmpty { ReferenceActionButton(m.t("decision.ask", ["name": m.name(decision["member"].text)]), small: true) { m.run { try await m.select(m.organization, decision["member"].text) } } }
                 }
             default: Text(pretty(decision)).textSelection(.enabled)
             }
