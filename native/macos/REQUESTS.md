@@ -1,5 +1,15 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+The e9206ea diagnostic images isolate the alternate glyph failure inside the
+actual callback: the callback and final bitmap are both empty. TextKit supplies
+user-space positions, whereas CGContext.showGlyphs(at:) consumes text-space
+positions. The alternate path now inverse-maps each actual callback position
+through its actual text matrix before submitting it to CoreGraphics; both the
+original and submitted positions remain in the receipt. Production stays on
+AppKit until the unchanged bitmap and layer tests pass. Apple API contracts:
+https://developer.apple.com/documentation/coregraphics/cgcontext/showglyphs(_:at:)
+https://developer.apple.com/documentation/appkit/nslayoutmanager/showcgglyphs(_:positions:count:font:textmatrix:attributes:in:)
+
 macOS now draws unordered-list discs with NativeListMarkerView's actual
 CGContext.fillEllipse, using its own primary font metrics and device-space
 pixel snapping. Ordered markers keep their actual text renderer. Raw element
