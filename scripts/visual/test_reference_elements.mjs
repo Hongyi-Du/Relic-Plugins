@@ -740,14 +740,96 @@ test('inline child text retains an ancestor ellipsis coverage gap', () => {
 test('zero scrollbar gutter is not proof that overlay scrollbars are absent', () => {
   const owner = element({ x: 10, y: 20, width: 200, height: 300 }, { offsetWidth: 200, clientWidth: 200, offsetHeight: 300, clientHeight: 300, scrollHeight: 900 });
   owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto', direction: 'ltr', writingMode: 'horizontal-tb' };
-  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'readingOrderIds') + ')', {
+  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'scrollbarGutter') + ')', {
     styleOf: context.styleOf, rect: box => ({ ...box }), pseudoByOwner: new WeakMap(),
+    pathOf: () => '#actual-owner', snapshotBackend: new WeakMap(), computedSrgb: () => ({ rgba: null }),
     getComputedStyle: () => ({ display: 'inline', visibility: 'visible', opacity: '1', width: '10px', height: '10px' }),
   });
   const result = normalize(read(owner));
   assert.deepEqual(result.axes, ['vertical']); assert.equal(result.offset_width - result.client_width, 0);
   assert.equal(result.actual_ua_parts_presence, null); assert.equal(result.measured_part_bounds, null);
   assert.equal(result.measured_part_pixels, null);
+});
+
+const scrollbarGutter = vm.runInNewContext('(' + expression('scrollbarGutter', 'emitScrollbarParts') + ')');
+const actualScrollOwner = () => ({ axes: ['vertical'], owner_backend_node_id: 171,
+  owner_bounds: { x: 276, y: 96, width: 824, height: 698 }, client_width: 814, client_height: 698,
+  client_left: 0, client_top: 0, offset_width: 824, offset_height: 698,
+  scroll_width: 814, scroll_height: 907, scroll_left: 0, scroll_top: 209,
+  writing_mode: 'horizontal-tb', direction: 'ltr',
+  owner_style: { border_widths: ['0px', '0px', '0px', '0px'], flex_direction: 'column' },
+  ancestry: [{ transform: 'none', perspective: 'none', zoom: '1' }],
+  parts: [{ pseudo: '::-webkit-scrollbar', width: '10px', height: '10px' }, { pseudo: '::-webkit-scrollbar-thumb' }],
+});
+
+test('recorded reference gutter is measured from client/offset geometry without thumb ratios', () => {
+  const actual = actualScrollOwner(), result = normalize(scrollbarGutter(actual, 'vertical'));
+  assert.deepEqual(result.bounds, { x: 1090, y: 96, width: 10, height: 698 });
+  assert.equal(result.side, 'right'); assert.equal(result.reason, null);
+  actual.scroll_top = 0; actual.scroll_height = 4000;
+  assert.deepEqual(normalize(scrollbarGutter(actual, 'vertical')).bounds, result.bounds, 'Scroll ratios cannot affect any measured gutter extent');
+  actual.client_left = 10;
+  assert.deepEqual(normalize(scrollbarGutter(actual, 'vertical')).bounds, { x: 276, y: 96, width: 10, height: 698 });
+  actual.client_left = 0; actual.client_height = 688; actual.axes.push('horizontal');
+  assert.deepEqual(normalize(scrollbarGutter(actual, 'horizontal')).bounds, { x: 276, y: 784, width: 814, height: 10 });
+});
+
+test('overlay, fractional, transformed and ambiguous reserved scrollbar geometry stays unknown', () => {
+  for (const mutate of [
+    value => { value.client_width = value.offset_width; },
+    value => { value.owner_bounds.x += .5; },
+    value => { value.ancestry[0].transform = 'matrix(1, 0, 0, 1, 1, 0)'; },
+    value => { value.ancestry[0].zoom = '1.25'; },
+    value => { value.writing_mode = 'vertical-rl'; },
+    value => { value.client_left = 5; },
+    value => { value.parts[0].width = 'auto'; },
+    value => { value.client_height = 0; },
+  ]) {
+    const actual = actualScrollOwner(); mutate(actual);
+    const result = normalize(scrollbarGutter(actual, 'vertical'));
+    assert.equal(result.bounds, null); assert.ok(result.reason);
+  }
+});
+
+test('unmeasured scrollbar thumb is emitted and fails instead of inheriting gutter or ratio bounds', () => {
+  const items = [], errors = [], gaps = [], slots = new WeakMap();
+  const emit = vm.runInNewContext('(' + expression('emitScrollbarParts', 'readingOrderIds') + ')', {
+    elements: items, extraction_errors: errors, unmeasured: gaps, scrollbarOrder: slots, scrollbarGutter,
+    regionOf: () => 'conversation', pathOf: () => '#stream', visibleRect: (_, box) => box,
+    fragmentsOf: (_, box) => [box], occlusionMasks: new WeakMap(),
+  });
+  const owner = {}, raw = { id: 'dom-171', emitted: [] }, actual = actualScrollOwner();
+  emit(owner, raw, actual, 'dom-170');
+  const [bar, thumb] = normalize(items);
+  assert.deepEqual(bar.bounds, { x: 1090, y: 96, width: 10, height: 698 });
+  assert.equal(thumb.bounds, null); assert.equal(thumb.evidence.outer_bounds, null);
+  assert.equal(thumb.evidence.hit_bounds, null); assert.equal(thumb.evidence.ink_bounds, null);
+  assert.equal(thumb.style.background, null); assert.equal(thumb.state.hovered, null);
+  assert.equal(thumb.state.orientation, 'vertical'); assert.equal(thumb.state.scroll_position, 1);
+  assert.equal(thumb.name, null, 'An unexposed UA accessible name is not invented');
+  assert.deepEqual(raw.emitted, items.map(item => item.id)); assert.equal(errors.length, 2); assert.equal(gaps.length, 2);
+  assert.deepEqual(normalize(slots.get(owner)), items.map(item => item.id));
+});
+
+test('unresolved overlay ordering prevents scrollbar PNG attribution without discarding raw geometry', () => {
+  const items = [], errors = [], gaps = [{ element: 'dom-171', property: 'visibility.paint_order', reason: 'Actual overlay ordering is unavailable' }];
+  const emit = vm.runInNewContext('(' + expression('emitScrollbarParts', 'readingOrderIds') + ')', {
+    elements: items, extraction_errors: errors, unmeasured: gaps, scrollbarOrder: new WeakMap(), scrollbarGutter,
+    regionOf: () => 'conversation', pathOf: () => '#stream', visibleRect: (_, box) => box,
+    fragmentsOf: (_, box) => [box], occlusionMasks: new WeakMap(),
+  });
+  const actual = actualScrollOwner();
+  emit({}, { id: 'dom-171', emitted: [] }, actual, 'dom-170');
+  assert.equal(actual.gutters.vertical.fully_visible, false);
+  assert.deepEqual(normalize(actual.gutters.vertical.bounds), { x: 1090, y: 96, width: 10, height: 698 });
+  assert.equal(actual.gutters.vertical.visibility_gaps[0].property, 'visibility.paint_order');
+});
+
+test('actual scrollbar part slots follow their owner content without erasing DOM children', () => {
+  const owner = readingElement(readingText()), ids = new Map([[owner, 'owner']]);
+  const slots = new WeakMap([[owner, ['owner:scrollbar:vertical', 'owner:scrollbar-thumb:vertical']]]);
+  assert.deepEqual(normalize(readingOrderIds(owner, ids, slots)), ['owner', 'owner::marker', 'owner::before',
+    'owner:text-0', 'owner::after', 'owner:scrollbar:vertical', 'owner:scrollbar-thumb:vertical']);
 });
 
 const panelResizeDocument = { body: { classList: { contains: () => false } }, activeElement: null };

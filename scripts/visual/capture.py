@@ -942,6 +942,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
         elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "panel_listeners": panel_listeners, "screenshot_file": case["file"], "reference_environment": environment}))
+        from scrollbar_pixels import append_scrollbar_pixels
+        source_step("source:scrollbar_original_png", lambda: append_scrollbar_pixels(elements, output / case["file"], output / (case["id"] + ".scrollbar-pixels.json")))
         for action in actions:
             action.checkpoint("after_element_extraction")
         if message is not None:
