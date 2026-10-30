@@ -2,15 +2,25 @@ import XCTest
 import AppKit
 import SwiftUI
 import RelicAX
+import ApplicationServices
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
     func testPaddedTextButtonExposesItsWholeInteractiveBox() async throws {
+        _ = NSApplication.shared
         let owner = "relic-tab/padded-button-test"
         let sample = TextButton("Tab", size: 12, weight: 400, height: 24, padding: 9, fillsWidth: true, identifier: owner) {}.buttonStyle(.plain)
         let host = NSHostingView(rootView: sample)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 100, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
+        // Use the same public self-process AX activation as the CI app capture.
+        // SwiftUI otherwise may leave its accessibility tree unmaterialized.
+        let axResult = await Task.detached {
+            let app = AXUIElementCreateApplication(getpid())
+            AXUIElementSetMessagingTimeout(app, 2)
+            var windows: CFTypeRef?
+            return AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows).rawValue
+        }.value
         host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
         // SwiftUI publishes hosted accessibility nodes on its next transaction.
         try await Task.sleep(for: .milliseconds(50))
@@ -26,7 +36,7 @@ import RelicAX
             return nil
         }
         let measured = find(host)
-        let actual = try XCTUnwrap(measured, observed.joined(separator: ", "))
+        let actual = try XCTUnwrap(measured, "AX initialization=\(axResult); " + observed.joined(separator: ", "))
         XCTAssertEqual(actual.size, NSSize(width: 100, height: 24), "The button's padding participates in native interaction and accessibility")
     }
 
