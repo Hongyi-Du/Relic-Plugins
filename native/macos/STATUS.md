@@ -10,6 +10,22 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+当前构建证据：`33a67ec` 的 [Native apps 40999624975](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40999624975)
+macOS 构建和 **132 个测试通过**，包含真实头像双环像素及头像/徽章文字归属回归测试。
+侧栏圆角、结束状态透明度、组织头像/标签、菜单前景和选中背景已按生产参考修正。
+静态检查仍为 52 条路由、686 个词条、214 条流程无遗漏；这些不是逐元素验收结果。
+`9bfbcf5` 接入共享 `vector-image-v1` 图像格式，数据来自实际 CoreGraphics 绘制参数与当前原生视图绑定；
+保留实际路径、渐变 stops、颜色空间、延伸标志和绘制顺序，不把资源身份当成最终 PNG 像素归属。
+该提交新增真实字母/圆点像素及方向测试，等待 CI。
+
+完整捕获 [40996703093 / 56253c7](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40996703093)
+的四组 macOS 任务已在 CI 执行（55 场景 × 3 尺寸 × 2 语言 × 2 主题），原生新截图尚待上传。
+已下载的最新完整失败报告为 `S:\Codex\Outputs\Relic-native-visual\parity-b3d2385\report\`，
+包含 `parity-report.json`、`summary.json`、各场景 HTML 和热图；该历史版本仍是 636 case 矩阵。
+其两个平台均为 0 个验收通过场景；macOS 原始元素 149725、有效元素 147565、缺失 28765、
+多余 55978、文字差异 21812、几何差异 159363、样式差异 195544、状态差异 17944，完整类别以原 JSON 为准。
+没有例外、容差变更或场景删减。
+
 **最新采集回归待验证修复**：`ee478c5` 的 [40993478737](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40993478737)
 虽然旧 17 个动作完成、两个新增动作尚未实现，但其原生 PNG 的所有 RGBA 通道都是 0，不能作为有效截图。
 文件保留在 `S:\Codex\Outputs\Relic-native-visual\smoke-ee478c5\`。`9990d4f` 修正最终画布的合成路径，
@@ -22,7 +38,7 @@
 未知 thumb 几何或样式仍失败。macOS 保留实际 NSScroller draw rect、AX hit bounds 和实际值域，
 不从滚动比例猜测 thumb 外框。新诊断矩阵仍为 19 case，完整矩阵为 660 case。
 
-最新构建证据：`14b78e0` 的 [Native apps 40994507899](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40994507899)
+历史构建证据：`14b78e0` 的 [Native apps 40994507899](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40994507899)
 macOS 构建与 128 个测试全部通过，包含原容差下的发送按钮真实像素断言和 PNG 编解码一致性。
 CI 原始通道为启用 `[27,27,26,255]`、禁用 `[175,175,175,255]`；此前失败来自
 `colorAt` 生成校准色后的二次转换。现在读取位图实际 sRGB 通道，同时保留颜色空间、格式、alpha 回执。
