@@ -28,6 +28,10 @@ import SwiftUI
             if case .ignored = keyboard.handle("a", modifiers: []) {} else { XCTFail("Typing belongs to an editing responder") }
             if case .ignored = keyboard.handle(.downArrow, modifiers: [.command]) {} else { XCTFail("Command shortcuts must remain in the responder chain") }
             XCTAssertEqual(scroll.contentView.bounds.origin, position)
+            keyboard.enabled = false
+            if case .ignored = keyboard.handle(.pageDown, modifiers: []) {} else { XCTFail("Disabled viewport must not consume scrolling keys") }
+            XCTAssertEqual(scroll.contentView.bounds.origin, position)
+            keyboard.enabled = true
             _ = keyboard.handle(.end, modifiers: [])
             XCTAssertEqual(abs(scroll.contentView.bounds.origin.y - start), 480, accuracy: 0.01)
             _ = keyboard.handle(.pageDown, modifiers: [])
@@ -48,6 +52,12 @@ import SwiftUI
         document.addSubview(actual); actual.resolveScroll()
         XCTAssertTrue(keyboard.scroll === scroll)
         XCTAssertEqual(scroll.accessibilityIdentifier(), ConversationKeyboard.identifier)
+        actual.update(enabled: false, focused: false)
+        XCTAssertFalse(keyboard.enabled); XCTAssertFalse(scroll.isAccessibilityEnabled())
+        actual.update(enabled: true, focused: true)
+        XCTAssertTrue(keyboard.enabled); XCTAssertTrue(scroll.isAccessibilityEnabled())
+        XCTAssertEqual(actual.observation()["focused"] as? Bool, true)
+        XCTAssertEqual(actual.observation()["controller_bound"] as? Bool, true)
         let position = scroll.contentView.bounds.origin
         actual.removeFromSuperview()
         XCTAssertNil(keyboard.scroll)

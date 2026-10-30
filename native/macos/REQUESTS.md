@@ -1,3 +1,27 @@
+## 2026-10-30: actual 3934d53 draw and scroll-focus receipts
+
+Downloaded actual 20-case smoke macOS/reference files to `parity-3934d53`.
+Its new settings-navigation-hover row predates the implementation in 61e9830;
+it opened the fallback About page, so capture completion is not scene acceptance.
+The implemented pointer/selection guard remains required in the next capture.
+
+Actual icon receipts now contain completed CGContext strokes and current mounted
+bindings. Group icons have real measured own-outline absence; their final PNG
+attribution remains separately unknown. Actual text own-outline inspection found
+an AppKit ContentLayer with CATintedImage contents. Its drawing duty is unproven,
+so it remains unknown; no class-name allow-list or optimistic absence was added.
+
+The real conversation HostingScrollView now exposes its production keyboard mount
+identifier, but AppKit reports enabled=false despite working scroll actions and
+the SwiftUI focus/key handler. Native production now synchronizes its AX enabled
+value with the same environment binding used by scrollDisabled, focusable and the
+keyboard controller. Disabled keys are ignored and tested. Focus comes from the
+actual SwiftUI FocusState on that viewport, with raw AX state kept separately.
+`nodes[].native_keyboard_scroll` binds the unique mounted observer to the actual
+scroll/window/controller, records first responder identity and both live bindings;
+canonical enabled/focused use it only for that actual bound scroll object.
+No focus state is supplied for unrelated regions. CI must verify this correction.
+
 ## 2026-10-30: actual 86b52e7 geometry evidence and native spacing fixes
 
 Downloaded the formal diagnostic report plus all 19 macOS/reference captures to

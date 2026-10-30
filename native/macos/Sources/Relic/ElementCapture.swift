@@ -324,6 +324,9 @@ import CoreText
             let visible = !ax["hidden"].flag && !visibleRect.isNull && visibleRect.width > 0 && visibleRect.height > 0
             var node: [String: Any] = ["id": path, "parent": parent as Any? ?? NSNull(), "role": role, "subrole": ax["subrole"].text, "kind": elementKind, "text": text, "name": label, "title": title, "value": valueText, "placeholder": ax["placeholder"].text, "identifier": ax["identifier"].text, "help": ax["help"].text, "region": assignedRegion, "rect": box(rect), "visibleRect": visibleRect.isNull ? NSNull() : box(visibleRect), "visible": visible, "axElement": ax["element"].flag, "order": raw.count, "source": "live-AppKit-AX-selectors", "class": String(describing: type(of: object))]
             node["state"] = ["enabled": attributes["enabled"] ?? NSNull(), "focused": attributes["focused"] ?? NSNull(), "selected": attributes["selected"] ?? NSNull(), "expanded": attributes["expanded"] ?? NSNull(), "indeterminate": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 2 } as Any? ?? NSNull() : NSNull(), "checked": ["AXCheckBox", "AXRadioButton"].contains(role) ? (attributes["value"] as? NSNumber).map { $0.intValue == 1 } as Any? ?? NSNull() : NSNull()]
+            if let viewport = object as? NSScrollView, let binding = ConversationKeyboardMount.observation(for: viewport) {
+                node["native_keyboard_scroll"] = binding
+            }
             node["style"] = style(object, text: text)
             if let logo = object as? NativeLogoView {
                 node["native_image_draw"] = logo.lastDraw as Any? ?? NSNull()
@@ -574,6 +577,10 @@ import CoreText
             }
             if let actualControl = node["native_control_state"] as? [String: Any] {
                 state.merge(actualControl, uniquingKeysWith: { _, measured in measured })
+            }
+            if let keyboard = node["native_keyboard_scroll"] as? [String: Any] {
+                state["enabled"] = keyboard["enabled"] ?? NSNull()
+                state["focused"] = keyboard["focused"] ?? NSNull()
             }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
