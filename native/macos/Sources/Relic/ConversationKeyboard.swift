@@ -8,6 +8,38 @@ import SwiftUI
     static let identifier = "relic-conversation-scroll"
     weak var scroll: NSScrollView?
     var enabled = true
+    private var disclosureOrigin: NSPoint?
+    private var disclosureHeight: CGFloat = 0
+    private var disclosureGeneration = 0
+
+    func preserveDisclosurePosition() {
+        discardDisclosurePosition()
+        guard let scroll, let document = scroll.documentView else { return }
+        disclosureOrigin = scroll.contentView.bounds.origin
+        disclosureHeight = document.frame.height
+    }
+
+    func discardDisclosurePosition() {
+        disclosureGeneration += 1; disclosureOrigin = nil
+    }
+
+    func finishDisclosureLayout() {
+        guard let origin = disclosureOrigin, let scroll, let document = scroll.documentView,
+              document.frame.height != disclosureHeight else { return }
+        let generation = disclosureGeneration
+        // SwiftUI can preserve the bottom edge while laying out a disclosure.
+        // Restore the real pre-click reading offset after that layout transaction,
+        // once only. This is production interaction behavior, not capture setup.
+        DispatchQueue.main.async { [weak self, weak scroll] in
+            guard let self, let scroll, self.scroll === scroll,
+                  self.disclosureGeneration == generation, self.disclosureOrigin != nil else { return }
+            self.discardDisclosurePosition()
+            let clip = scroll.contentView
+            var target = clip.bounds; target.origin = origin
+            clip.scroll(to: clip.constrainBoundsRect(target).origin)
+            scroll.reflectScrolledClipView(clip)
+        }
+    }
 
     func handle(_ key: KeyEquivalent, modifiers: EventModifiers) -> KeyPress.Result {
         guard enabled, modifiers.intersection([.command, .control, .option]).isEmpty,
@@ -26,6 +58,7 @@ import SwiftUI
         case .end: target.origin.y = document.isFlipped ? document.frame.maxY - clip.bounds.height : document.frame.minY
         default: return .ignored
         }
+        discardDisclosurePosition()
         let constrained = clip.constrainBoundsRect(target)
         clip.scroll(to: constrained.origin)
         scroll.reflectScrolledClipView(clip)
