@@ -343,7 +343,7 @@ struct MessageView: View {
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
                 if mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Avatar(member: "human", size: inThread ? 30 : 36) } }
                 else { Spacer(minLength: 0) }
-            }.overlay(alignment: mine ? .topLeading : .topTrailing) {
+            }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {
                 if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
             }.background(MessageInteractionAnchor(messageID: item["id"].text))
                 .onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
