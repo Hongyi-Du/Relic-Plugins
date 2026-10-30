@@ -1,3 +1,14 @@
+## 2026-10-30: exact viewport focus versus a surrounding SwiftUI focus binding
+
+Actual `86357fe` live-tool-output has one remaining focus error: the button's
+AXFocused is true and the scroll's own AXFocused is false, but the surrounding
+SwiftUI FocusState is still true. The extractor had promoted that binding to
+the exact scroll element. ConversationKeyboardMount now records the scope
+binding separately and reads the actual scroll.isAccessibilityFocused getter
+for exact focus. It retains both observations and makes no production focus
+change. The mounted regression explicitly verifies that a true scope binding
+does not replace a false native AX observation. This needs the next CI result.
+
 ## 2026-10-30: 86357fe formal report and passed actual mouse-hit test
 
 Downloaded the unchanged joint report/HTML/heatmaps from 41098292475 into

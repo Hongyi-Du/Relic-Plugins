@@ -99,12 +99,17 @@ struct ConversationKeyboardMount: NSViewRepresentable {
             self.enabled = enabled; self.focused = focused; keyboard?.enabled = enabled; resolveScroll()
         }
         func observation() -> [String: Any] {
-            ["source": "mounted production scrollDisabled/focusable/FocusState bindings and actual keyboard controller",
+            ["source": "mounted production scrollDisabled binding, actual scroll AX focus getter and keyboard controller",
              "mount_identity": String(describing: ObjectIdentifier(self)),
              "scroll_identity": attachedScroll.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
              "window_identity": window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
              "first_responder_identity": window?.firstResponder.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
-             "enabled": enabled, "focused": focused,
+             "enabled": enabled,
+             // SwiftUI's surrounding focus binding can stay true when a child
+             // disclosure owns focus. Preserve that binding separately; the
+             // exact scroll element has its own native AX focus observation.
+             "focus_scope_binding": focused,
+             "focused": attachedScroll.map { $0.isAccessibilityFocused() } as Any? ?? NSNull(),
              "keyboard_enabled": keyboard?.enabled as Any? ?? NSNull(),
              "controller_bound": keyboard?.scroll != nil && keyboard?.scroll === attachedScroll]
         }
