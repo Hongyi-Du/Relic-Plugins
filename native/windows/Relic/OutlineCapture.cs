@@ -134,6 +134,41 @@ public sealed partial class MainWindow
                         ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/controls/generated/CScrollContentPresenter.g.h"
                     };
                 }
+                if (actual == typeof(NativeSidebarRow))
+                {
+                    var row = (NativeSidebarRow)value;
+                    var template = row.Template;
+                    var presenter = count == 1 ? VisualTreeHelper.GetChild(row, 0) as ContentPresenter : null;
+                    var content = row.Content as DependencyObject;
+                    // This sealed local ListViewItem adds only state/AX behavior.
+                    // Its current authored template is one ContentPresenter;
+                    // that presenter's background/content are separate records.
+                    // Do not extend the exact SDK ListViewItem contract to
+                    // arbitrary derived controls or an unapplied template.
+                    receipt["sidebar_row_content"] = new JsonObject
+                    {
+                        ["source"] = "actual sealed NativeSidebarRow runtime, current template and ContentPresenter/Content object identities",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["is_sealed"] = actual.IsSealed,
+                        ["audited_source"] = "native/windows/Relic/NativeSidebarRow.cs#NativeSidebarRow",
+                        ["template_present"] = template != null, ["template_type"] = template?.GetType().FullName,
+                        ["visual_child_count"] = count,
+                        ["presenter_id"] = presenter != null && ids.TryGetValue(presenter, out var rowPresenterId) ? rowPresenterId : null,
+                        ["presenter_runtime_type"] = presenter?.GetType().FullName,
+                        ["presenter_is_current_only_child"] = presenter != null && presenter.GetType() == typeof(ContentPresenter)
+                            && count == 1 && ReferenceEquals(VisualTreeHelper.GetChild(row, 0), presenter)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(presenter), row),
+                        ["content_id"] = content != null && ids.TryGetValue(content, out var rowContentId) ? rowContentId : null,
+                        ["content_type"] = content?.GetType().Name,
+                        ["presenter_content_same_object"] = presenter != null && content != null && ReferenceEquals(presenter.Content, content),
+                        ["content_is_current_presenter_child"] = presenter != null && content != null
+                            && VisualTreeHelper.GetChildrenCount(presenter) == 1
+                            && ReferenceEquals(VisualTreeHelper.GetChild(presenter, 0), content)
+                            && ReferenceEquals(VisualTreeHelper.GetParent(content), presenter),
+                        ["same_template_after"] = template != null && ReferenceEquals(row.Template, template),
+                        ["same_content_after"] = content != null && ReferenceEquals(row.Content, content)
+                    };
+                }
                 if (actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView))
                 {
                     var token = (OverviewTokenView)value;
@@ -296,6 +331,7 @@ public sealed partial class MainWindow
         // The original native ToggleButton, child/focus/Composition checks
         // remain independent; this does not cover arbitrary derived controls.
         : actual == typeof(NativeOverviewToggle) ? "relic-overview-toggle-template-parts-only"
+        : actual == typeof(NativeSidebarRow) ? "relic-sidebar-row-template-content"
         // Exact SDK 1.6.9, commit da699b040bddc2a6adf660512a7c6db8a96bfbe3:
         // src/dxaml/xcp/core/inc/Viewbox.h and core/elements/Viewbox.cpp:
         // CFrameworkElement scale/arrange only; the internal Border is a child.

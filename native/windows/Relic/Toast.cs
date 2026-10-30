@@ -78,6 +78,11 @@ public sealed partial class MainWindow
             item.Row.Visibility == Visibility.Visible && item.Row.ActualWidth > 0 && item.Row.ActualHeight > 0).ToArray();
         if (candidates.Length != 1) throw new InvalidOperationException("Expected one loaded production message for " + messageId);
         var target = candidates[0];
+        // Playwright's real row.hover() scrolls the reference target into view.
+        // Request the same operation from the actual native scroll presenter,
+        // then keep the full-visibility assertion before moving the pointer.
+        target.Row.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+        root.UpdateLayout(); await Task.Delay(150); root.UpdateLayout();
         var rowBounds = target.Row.TransformToVisual(root).TransformBounds(new Rect(0, 0, target.Row.ActualWidth, target.Row.ActualHeight));
         var viewport = chatScroll.TransformToVisual(root).TransformBounds(new Rect(0, 0, chatScroll.ActualWidth, chatScroll.ActualHeight));
         if (rowBounds.Left < viewport.Left || rowBounds.Right > viewport.Right || rowBounds.Top < viewport.Top || rowBounds.Bottom > viewport.Bottom)

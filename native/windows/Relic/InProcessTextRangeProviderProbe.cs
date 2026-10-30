@@ -40,7 +40,7 @@ internal static partial class InProcessTextRangeProviderProbe
             ["winrt_file"] = caseId + ".text-range-provider-probe.json", ["external_com_file"] = caseId + ".uia.json",
             ["canonical_geometry_supplied"] = false, ["canonical_identity_supplied"] = false, ["provider_errors_resolved"] = false,
             ["create_peer_for_element_called"] = false, ["capture_completed"] = false,
-            ["range_filter"] = "Actual DocumentRange and every GetVisibleRanges range for selected owners; no format-run enumeration in this bounded diagnostic" };
+            ["range_filter"] = "Actual DocumentRange, every GetVisibleRanges range and its observed TextUnit_Format subranges for selected owners" };
         void Save() => File.WriteAllText(path, receipt.ToJsonString());
         void Trace(string? ownerId, JsonObject step)
         {

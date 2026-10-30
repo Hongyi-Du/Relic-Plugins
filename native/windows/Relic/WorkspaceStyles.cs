@@ -140,8 +140,8 @@ public sealed partial class MainWindow
             characterEllipsis: true, accessibleText: true) { Foreground = Muted };
         ToolTipService.SetToolTip(path, filePath);
         labels.Children.Add(title); labels.Children.Add(path); Grid.SetColumn(labels, 1); row.Children.Add(labels);
-        var copy = IconButton("\uE8C8", "file.copy_path", () => { Copy(filePath); return Task.CompletedTask; }); copy.Content = WorkspaceIcon("copy", 15); Grid.SetColumn(copy, 2); row.Children.Add(copy);
-        var open = IconButton("\uE8A7", "file.open_default", () => OpenDefault(filePath)); open.Content = WorkspaceIcon("open", 15); Grid.SetColumn(open, 3); row.Children.Add(open);
+        var copy = IconButton("\uE8C8", "file.copy_path", () => { Copy(filePath); return Task.CompletedTask; }, iconSize: 15); Grid.SetColumn(copy, 2); row.Children.Add(copy);
+        var open = IconButton("\uE8A7", "file.open_default", () => OpenDefault(filePath), iconSize: 15); Grid.SetColumn(open, 3); row.Children.Add(open);
         var header = new Border { Child = row, Padding = new Thickness(14, 10, 8, 9), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1), Background = Paint("F8F7F5", "191918") };
         Canvas.SetZIndex(header, 2); return header;
     }

@@ -168,7 +168,7 @@ public sealed partial class MainWindow
             // Reference .field reserves microphone space only for input;
             // textarea keeps its normal 10px right padding and full text width.
             if (!input.AcceptsReturn) input.Padding = new Thickness(10, 7, 34, 7);
-            var mic = Microphone(input, always); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5);
+            var mic = Microphone(input, always); mic.Width = mic.Height = 26; mic.MinHeight = 0; mic.Padding = new Thickness(4.5); mic.CornerRadius = new CornerRadius(13);
             mic.HorizontalAlignment = HorizontalAlignment.Right; mic.VerticalAlignment = VerticalAlignment.Center; mic.Margin = new Thickness(0, 0, 4, 0); row.Children.Add(mic);
         }
         return row;
@@ -189,6 +189,7 @@ public sealed partial class MainWindow
                 content = raised;
             }
             var item = new SelectorBarItem { Text = text, Tag = content, IsSelected = selected, Padding = new Thickness(0), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
+                BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
             // The custom visual template has no default Text presenter from
@@ -361,6 +362,7 @@ public sealed partial class MainWindow
         {
             var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = new NativeSettingsNavigationLabel(T(label), words.Language); labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
+                BorderThickness = new Thickness(0),
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tab, T(label));

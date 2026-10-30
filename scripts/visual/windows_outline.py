@@ -22,6 +22,9 @@ PERSON_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b0
 TOKEN_RUNTIMES = {"Relic.OverviewChipView", "Relic.OverviewBadgeView"}
 TOKEN_CONTRACT = "relic-overview-token-template-content"
 TOKEN_SOURCE = "actual sealed OverviewTokenView leaf runtime, template and ContentPresenter/Content object identities"
+SIDEBAR_RUNTIME = "Relic.NativeSidebarRow"
+SIDEBAR_CONTRACT = "relic-sidebar-row-template-content"
+SIDEBAR_SOURCE = "actual sealed NativeSidebarRow runtime, current template and ContentPresenter/Content object identities"
 DOT_RUNTIME = "Relic.NativeStateDotView"
 DOT_CONTRACT = "relic-state-dot-grid-owned-ellipses"
 DOT_SOURCE = "actual sealed NativeStateDotView runtime and Surround/VacancyRing object identities"
@@ -127,6 +130,7 @@ def native_outline(node, by_id):
                 else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
                 else DOT_CONTRACT if runtime == DOT_RUNTIME else SCROLL_PRESENTER_CONTRACT if runtime == SCROLL_PRESENTER_RUNTIME
                 else TOGGLE_CONTRACT if runtime == TOGGLE_RUNTIME
+                else SIDEBAR_CONTRACT if runtime == SIDEBAR_RUNTIME
                 else local_contract[0] if local_contract
                 else CONTRACTS.get(runtime) if isinstance(runtime, str) else None)
     expected_type = "ReferenceVectorIcon" if runtime == VECTOR_RUNTIME else runtime.rsplit(".", 1)[-1] if isinstance(runtime, str) else None
@@ -173,6 +177,43 @@ def native_outline(node, by_id):
         else:
             evidence["scope"] = ("Exact SDK ScrollContentPresenter own fill/border only; actual scroll/clip geometry "
                                  "and independently captured children retain their own obligations")
+    if runtime == SIDEBAR_RUNTIME:
+        row = raw.get("sidebar_row_content")
+        render_type = node.get("render_type_evidence")
+        valid_row = (isinstance(row, dict) and row.get("source") == SIDEBAR_SOURCE
+                     and row.get("status") == "measured" and row.get("owner_id") == node["id"]
+                     and row.get("base_type") == "Microsoft.UI.Xaml.Controls.ListViewItem"
+                     and row.get("is_sealed") is True
+                     and row.get("audited_source") == "native/windows/Relic/NativeSidebarRow.cs#NativeSidebarRow"
+                     and row.get("template_present") is True
+                     and row.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
+                     and row.get("same_template_after") is True and row.get("same_content_after") is True
+                     and type(row.get("visual_child_count")) is int and row["visual_child_count"] == 1
+                     and row.get("presenter_runtime_type") == "Microsoft.UI.Xaml.Controls.ContentPresenter"
+                     and row.get("presenter_is_current_only_child") is True
+                     and row.get("presenter_content_same_object") is True
+                     and row.get("content_is_current_presenter_child") is True
+                     and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+                     and render_type.get("is_control") is True and render_type.get("is_content_control") is True
+                     and render_type.get("control_template_present") is True)
+        presenter_id = row.get("presenter_id") if isinstance(row, dict) else None
+        content_id = row.get("content_id") if isinstance(row, dict) else None
+        presenter = by_id.get(presenter_id) if isinstance(presenter_id, str) else None
+        content = by_id.get(content_id) if isinstance(content_id, str) else None
+        valid_row = (valid_row and isinstance(presenter, dict) and isinstance(content, dict)
+                     and len({node["id"], presenter_id, content_id}) == 3
+                     and presenter.get("type") == "ContentPresenter" and presenter.get("parent") == node["id"]
+                     and content.get("type") == row.get("content_type") and isinstance(row.get("content_type"), str)
+                     and bool(row["content_type"]) and content.get("parent") == presenter_id
+                     and [child["id"] for child in by_id.values()
+                          if child.get("parent") == node["id"] and not child.get("text_run_source")] == [presenter_id]
+                     and [child["id"] for child in by_id.values()
+                          if child.get("parent") == presenter_id and not child.get("text_run_source")] == [content_id])
+        if not valid_row:
+            gap("Exact sidebar row lacks its sealed ListViewItem class, current template and ContentPresenter/Content object binding")
+        else:
+            evidence["scope"] = ("Exact sealed NativeSidebarRow ListViewItem parent only; current template children, "
+                                 "their background/content, focus and Composition retain independent obligations")
     if token_runtime:
         # Only the two audited sealed leaves over OverviewTokenView. The fixed
         # SDK ContentControl render branch handles ListViewBaseItem chrome;

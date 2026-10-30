@@ -133,7 +133,7 @@ public sealed partial class MainWindow
                 var modelFields = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
                 ComboBox Select(string selected, string defaultText, IEnumerable<string> values)
                 {
-                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
+                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Foreground = Ink, Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
                     // The stock DropDownGlyph has its own ThemeResource minimum;
                     // lowering the outer control's MinHeight alone leaves 32px.
                     choice.Resources["ComboBoxMinHeight"] = 28d;
