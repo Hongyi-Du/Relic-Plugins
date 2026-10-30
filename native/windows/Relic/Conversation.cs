@@ -640,7 +640,7 @@ public sealed partial class MainWindow
         var targetOrg = org;
         if (pane != "thread") previousPane = pane;
         threadId = id; pane = "thread"; threadEditor.Text = drafts.GetValueOrDefault(org + "/thread/" + id, "");
-        threadData = new JsonObject(); panelOpen = true; LayoutColumns(); DrawDetail(); SaveViewState();
+        threadData = new JsonObject(); panelOpen = true; LayoutColumns(); DrawToolbar(); DrawDetail(); SaveViewState();
         var data = await api!.Get(PathFor("/thread?root=" + Client.Segment(id)));
         if (org != targetOrg || threadId != id || pane != "thread") return;
         threadData = data; DrawDetail();

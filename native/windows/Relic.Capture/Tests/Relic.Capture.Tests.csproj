@@ -11,6 +11,7 @@
     <Compile Include="../ObserverLease.cs" Link="ObserverLease.cs" />
     <Compile Include="../../Relic/NativeLabelInterop.cs" Link="NativeLabelInterop.cs" />
     <Compile Include="../../Relic/NativeLabelRenderer.cs" Link="NativeLabelRenderer.cs" />
+    <Compile Include="../../Relic/NativeGlyphBounds.cs" Link="NativeGlyphBounds.cs" />
     <Compile Include="../../Relic/AutomationIdentityCapture.cs" Link="AutomationIdentityCapture.cs" />
     <Compile Include="../../Relic/InProcessTextRangeNative.cs" Link="InProcessTextRangeNative.cs" />
     <Compile Include="../../Relic/NativeCaptureNumbers.cs" Link="NativeCaptureNumbers.cs" />
