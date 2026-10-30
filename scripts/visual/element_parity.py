@@ -24,6 +24,7 @@ from outline_paint import outline_measurement, compare_outlines
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import compare_font_weights, font_weight_issues
 from macos_icon_draw import icon_draw_issues
+from macos_field_editor import field_editor_aliases
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -322,8 +323,13 @@ def native_path_failure_owners(elements: list[dict]) -> dict[str, dict]:
 
 def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list[dict]:
     errors = []
+    retained_editor_context = None
     def error(message, element=None, **evidence):
         if element is not None and not isinstance(element, (str, int)): element = repr(element)
+        if retained_editor_context is not None:
+            owner, source = retained_editor_context
+            evidence = {"source_element": source, "retained_measurement_audit": "actual owned AppKit field editor", **evidence}
+            element = owner
         errors.append({"client": client, "element": element, "reason": message, **evidence})
     if not isinstance(data, dict):
         error("Capture is not a JSON object")
@@ -370,8 +376,19 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
                           failure_ownership=dict(ownership))
                 else:
                     error("Unmeasured: " + str(gap), target)
+    # A valid currentEditor relation owns one input's semantics, not its paint.
+    # Audit the retained raw editor using these same strict measurement checks.
+    # These nodes are never added to the capture, pairings or element counts.
+    validation_elements = [(element, None) for element in elements]
+    if client == "macos":
+        for alias in field_editor_aliases(elements):
+            for issue in alias["issues"]:
+                error("Mac field editor: " + issue, alias["owner"])
+            retained = alias["retained_measurements"]
+            if retained is not None:
+                validation_elements.append((retained, (alias["owner"], retained.get("id"))))
     ids = set()
-    for index, element in enumerate(elements):
+    for index, (element, retained_editor_context) in enumerate(validation_elements):
         if not isinstance(element, dict):
             error("Element must be an object", index)
             continue
@@ -489,6 +506,9 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
             for issue in icon_draw_issues(element): error("Mac icon draw: " + issue, eid)
         if not isinstance(element.get("evidence"), dict):
             error("Evidence must be an object", eid)
+    retained_editor_context = None
+    # Removed editor IDs cannot make a dangling canonical parent appear valid.
+    ids = set(source_ids)
     for element in elements:
         if isinstance(element, dict) and element.get("parent") is not None and (not isinstance(element.get("parent"), str) or element.get("parent") not in ids):
             error("parent does not refer to an extracted element", element.get("id"))

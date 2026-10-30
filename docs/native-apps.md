@@ -1,5 +1,28 @@
 # Native Relic App contract
 
+Changes for the clients (AppKit current field editor): implemented the c40e136 /
+64ee673 shared request. The reader independently checks the exact currentEditor
+owner/editor identities, actual firstResponder relation, window, raw roles,
+class, identifier, value, screen bounds and UTF-16 selection. Both the system
+editor and be16164's actual ObservedFieldEditor are checked against their own
+recorded class. The retained editor still undergoes the full independent
+measurement audit; its failures keep the original source ID under its owner.
+No missing style/geometry is filled from the owner, and no extra counterpart
+is added to pairing. Twelve synthetic tests cover valid and rejected aliases.
+
+Windows SettingsInput now explicitly paints placeholders opaque #757575,
+matching actual reference captures in light and dark themes, instead of the
+SDK's translucent default. New-org actual 78c7f6b reference dom-499/505 and
+7df43bd dark reference dom-319/325 show [117,117,117,255]; Windows template
+xaml-1232/1259 had [0,0,0,158]. Text, selection and layout are unchanged.
+
+The 099b036 shared CI checks pass 106 Node and 685 Python tests. The archived
+full strict report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-ca8d997-full-recompare-ae9498c\report`:
+672 scene reports / 1344 platform comparisons, zero accepted scenes, empty
+exceptions. Its comparison-provenance.json records the older ca8d997 capture
+and ae9498c tools separately; this is diagnostic evidence, not final delivery.
+
 Changes for the clients (974c89b startup regression and measurement repair):
 the Windows artifact's actual unhandled exception says the PersonPicture Style
 cannot target the derived runtime Control (0x800F1000, then 0xC000027B).

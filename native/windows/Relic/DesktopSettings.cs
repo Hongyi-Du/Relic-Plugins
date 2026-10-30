@@ -133,6 +133,9 @@ public sealed partial class MainWindow
     {
         TextBox input = multiline ? new NativeTextarea { ResizeAccessibleName = T("panel.resize"), OwnerWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this) } : new TextBox();
         input.Text = value; input.PlaceholderText = placeholder; input.Width = width; input.FontSize = fontSize;
+        // The reference input/textarea placeholder is opaque #757575 in both
+        // themes. An unset brush uses WinUI's theme-dependent translucent ink.
+        input.PlaceholderForeground = Paint("757575");
         input.FontFamily = new FontFamily(mono ? "Cascadia Code" : FontFamilies.UI);
         input.AcceptsReturn = multiline; input.TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap;
         input.Height = multiline ? 60.8 : fontSize * 1.6 + 16; input.MinHeight = 0;
