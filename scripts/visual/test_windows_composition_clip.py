@@ -1,5 +1,7 @@
 """Synthetic real-API-shaped Composition clip receipts; CI only, no UI."""
 from copy import deepcopy
+from pathlib import Path
+import re
 import unittest
 
 from windows_composition_clip import (SOURCE, PREFIX, IDENTITY3, IDENTITY4,
@@ -39,6 +41,55 @@ def change_snapshot(node, mutator):
 
 
 class CompositionClipTests(unittest.TestCase):
+    def test_authoritative_collection_without_retained_visual_is_unknown_not_absent(self):
+        # Pure fixture of the new collector contract, not an SDK observation.
+        # Even a missing UIElement.Clip says nothing about the backing Visual.
+        for xaml_clip in (None, {"kind": "rectangle", "bounds": {"x": 12, "y": 10.5, "width": 18, "height": 18}}):
+            with self.subTest(xaml_clip=xaml_clip):
+                node = sample(); node["clip"] = deepcopy(xaml_clip)
+                node["composition_clip_evidence"] = {
+                    "source": "Actual XAML owner; backing Visual not read during authoritative capture",
+                    "status": "not-measured", "owner_id": node["id"], "owner_type": "Image",
+                    "owner_runtime_type": "Microsoft.UI.Xaml.Controls.Image", "owner_is_loaded": True,
+                    "owner_local_bounds": deepcopy(node["local_bounds"]),
+                    "owner_to_window": deepcopy(node["transform"]), "xaml_clip_present": xaml_clip is not None,
+                    "backing_visual_read": False, "production_backing_visual_binding_available": False,
+                    "before": None, "after": None, "binding": None, "properties_stable": None,
+                    "reason": "No production-retained backing Visual/owner binding is available.",
+                    "presentation_identity_proven": False}
+                original = deepcopy(node)
+                audit, gaps = composition_clip(node)
+                self.assertEqual(audit["status"], "unavailable")
+                self.assertEqual(audit["xaml_clip"], xaml_clip)
+                self.assertIsNone(audit["window_geometry"])
+                self.assertIsNone(audit["image_corner_radius"])
+                self.assertTrue(any(g["property"] == "clip.composition" for g in gaps))
+                self.assertEqual(audit["raw"], node["composition_clip_evidence"])
+                self.assertEqual(node, original)
+
+    def test_unmeasured_status_cannot_be_overridden_by_an_old_absent_snapshot(self):
+        node = sample()
+        change_snapshot(node, lambda s: s.update(clip_present=False, clip=None))
+        node["composition_clip_evidence"].update(status="not-measured", backing_visual_read=False)
+        audit, gaps = composition_clip(node)
+        self.assertEqual(audit["status"], "unavailable")
+        self.assertIsNone(audit["window_geometry"])
+        self.assertTrue(gaps)
+
+    def test_authoritative_clip_collector_does_not_create_a_handoff_visual(self):
+        # A source-contract regression: running this test never loads WinUI or
+        # an app. The SDK getter has creation side effects despite its name.
+        root = Path(__file__).resolve().parents[2]
+        for relative in ("native/windows/Relic/CompositionClipCapture.cs", "native/windows/Relic/ElementCapture.cs"):
+            source = (root / relative).read_text(encoding="utf-8-sig")
+            with self.subTest(source=relative):
+                self.assertIsNone(re.search(r"\bGetElementVisual\s*\(", source))
+                self.assertIsNone(re.search(r"\bSetElementChildVisual\s*\(", source))
+        collector = (root / "native/windows/Relic/CompositionClipCapture.cs").read_text(encoding="utf-8-sig")
+        self.assertIn('["status"] = "not-measured"', collector)
+        self.assertNotIn('["status"] = "measured"', collector)
+        self.assertNotIn('["clip_present"] = false', collector)
+
     def test_actual_radius_is_projected_without_resource_uri_or_reference(self):
         for radius in (0, 3.25, 5, 8):
             with self.subTest(radius=radius):

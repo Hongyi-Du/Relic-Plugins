@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (non-mutating composition observation): the Windows
+extractor no longer calls GetElementVisual for each element between the PNG and
+UIA reads. Fixed WinUI source shows this getter can create handoff visuals and
+register transform listeners. Actual 2f4bd19 evidence has newly zero-sized visuals,
+an extra dialog-origin offset in UIA, and a later PointerExited while pixels stay
+in place. This is a cause candidate, not a proven fix until CI recapture. Without
+a production-retained backing Visual binding, Composition clip now explicitly
+remains unmeasured and fails. XAML Clip evidence is retained. No offset subtraction,
+hover restoration, SDK upgrade, missing-value default or tolerance change occurs.
+Three pure regressions cover unknown-versus-absent and the capture API boundary.
+
+Changes for the clients (macOS focus request consumed): the owner added actual
+initial focus for the new organization/member, edit-member, session search and
+forward-reply dialogs, plus clicked recipient/tool disclosures. Mounted native
+responder tests accompany this; current scene state still needs CI verification.
+
 Changes for the clients (avatar object lifetime): the actual PersonPicture now
 owns its composition through a private attached dependency property, preserving
 the existing paint/template. The capture records every lookup, including absent,
