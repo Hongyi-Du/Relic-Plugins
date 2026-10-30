@@ -5,15 +5,15 @@ import SwiftUI
 
 @MainActor final class ConversationKeyboardTests: XCTestCase {
     private final class Document: NSView {
-        var flipped = true
-        override var isFlipped: Bool { flipped }
+        var documentCoordinatesFlipped = true
+        override var isFlipped: Bool { documentCoordinatesFlipped }
     }
 
     func testKeyboardScrollUsesTheMountedClipAndPreservesOtherRespondersKeys() {
         for flipped in [true, false] {
             let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
             scroll.borderType = .noBorder; scroll.verticalLineScroll = 20; scroll.verticalPageScroll = 10
-            let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 600)); document.flipped = flipped
+            let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 600)); document.documentCoordinatesFlipped = flipped
             scroll.documentView = document; scroll.tile()
             let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
             _ = keyboard.handle(.home, modifiers: [])
