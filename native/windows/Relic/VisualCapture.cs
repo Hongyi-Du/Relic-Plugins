@@ -72,7 +72,7 @@ public sealed partial class MainWindow
                     else if (scene.StartsWith("menu-"))
                     {
                         var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, scene[5..]);
-                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(menu.Items[index]);
+                        root.UpdateLayout(); await Task.Delay(150); CaptureClick(nativeMenus[index].Anchor);
                     }
                     else switch (scene)
                     {
@@ -265,9 +265,8 @@ public sealed partial class MainWindow
     }
     private void CaptureClick(FrameworkElement element)
     {
-        // Drive the real MenuBar using the CI desktop. Directly constructing a
-        // WinUI MenuBarItemAutomationPeer can dereference an uninitialized native
-        // expand/collapse provider on Windows App SDK 1.6.
+        // Drive the production control through actual CI desktop input. Capture
+        // never opens a substitute flyout or manufactures an automation peer.
         if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
         CaptureHover(element);
         mouse_event(0x0002, 0, 0, 0, 0); mouse_event(0x0004, 0, 0, 0, 0);

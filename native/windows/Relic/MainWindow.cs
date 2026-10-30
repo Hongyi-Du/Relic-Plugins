@@ -35,7 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ScrollViewer chatScroll;
     private readonly Grid chatHead = new() { Height = 56, Padding = new Thickness(20, 0, 14, 0), ColumnSpacing = 12, BorderThickness = new Thickness(0, 0, 0, 1) };
-    private readonly MenuBar menu = new();
+    private readonly StackPanel menu = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock appTitle = new() { FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
     private Button Button(string label, Func<Task> action)
     {
         var button = new Button { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, FontSize = 13 }, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 5, 10, 5), MinWidth = 0, MinHeight = 28, CornerRadius = new CornerRadius(6) };
+        if (label.Length > 0) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
         button.Click += async (_, _) => { button.IsEnabled = false; await Run(action); button.IsEnabled = true; if (button == sendButton) UpdateSendState(); };
         return button;
     }

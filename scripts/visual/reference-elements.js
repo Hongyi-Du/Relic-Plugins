@@ -405,7 +405,32 @@
     }
     return { fonts: Array.from(combined.values()).sort((a, b) => a.family_name.localeCompare(b.family_name) || a.postscript_name.localeCompare(b.postscript_name)), evidence };
   };
-  const kindOf = (el, s) => {
+  const supplementalRegionEvidence = (el, s, ax = accessibilityOf(el)) => {
+    // A generic layout wrapper is not a region just because it has a box.
+    // These additions require independent DOM and actual CDP AX witnesses.
+    if (!ax.measured || ax.ignored !== false) return null;
+    if ((el.localName === 'nav' || el.getAttribute('role') === 'navigation') &&
+        ax.role === 'navigation' && typeof ax.name === 'string' && ax.name.trim()) {
+      return { reason: 'named-navigation', source: 'live DOM navigation semantics + CDP AX role/name',
+        dom_tag: el.localName, dom_role: el.getAttribute('role'), accessibility: ax };
+    }
+    const tabindex = el.getAttribute('tabindex');
+    const focusable = (Array.isArray(ax.properties) ? ax.properties : []).find(property => property.name === 'focusable')?.value?.value;
+    if (tabindex === null || el.tabIndex !== 0 || Number(tabindex) !== 0 || focusable !== true) return null;
+    const metrics = { client_width: el.clientWidth, client_height: el.clientHeight,
+      scroll_width: el.scrollWidth, scroll_height: el.scrollHeight, scroll_left: el.scrollLeft, scroll_top: el.scrollTop };
+    const axes = [];
+    if (['auto', 'scroll'].includes(s.overflowX) && Number.isFinite(el.clientWidth) && el.clientWidth > 0 &&
+        Number.isFinite(el.scrollWidth) && el.scrollWidth > el.clientWidth) axes.push('horizontal');
+    if (['auto', 'scroll'].includes(s.overflowY) && Number.isFinite(el.clientHeight) && el.clientHeight > 0 &&
+        Number.isFinite(el.scrollHeight) && el.scrollHeight > el.clientHeight) axes.push('vertical');
+    if (!axes.length) return null;
+    return { reason: 'focusable-scroll-region', source: 'live DOM tabindex/scroll metrics/computed overflow + CDP AX focusable',
+      dom_tabindex: tabindex, tab_index: el.tabIndex, overflow_x: s.overflowX, overflow_y: s.overflowY,
+      axes, metrics, accessibility: ax,
+      scrollbar_measurement: 'A focusable scroll region does not establish UA scrollbar part visibility or geometry.' };
+  };
+  const kindOf = (el, s, supplementalRegion = supplementalRegionEvidence(el, s)) => {
     const tag = el.localName, role = el.getAttribute('role');
     if (el === document.body || el.matches('#appbar,.side,.chat,#composer,#panel,.scrim,.settings,.dialog,.details,.menu')) return 'region';
     if (el.matches('.oc-node')) return 'chart-node';
@@ -433,6 +458,9 @@
     const background = color(s.backgroundColor, pathOf(el), 'background-color');
     const border = ['Top', 'Right', 'Bottom', 'Left'].some(side => number(s['border' + side + 'Width']) > 0 && !['none', 'hidden'].includes(s['border' + side + 'Style']));
     if ((background?.[3] > 0 || border || s.boxShadow !== 'none' || s.backgroundImage !== 'none') && tag !== 'html') return el.getBoundingClientRect().width <= 2 || el.getBoundingClientRect().height <= 2 ? 'divider' : 'card';
+    // Add previously missing regions; never replace an existing control,
+    // decoration, text owner or explicitly named region classification.
+    if (supplementalRegion) return 'region';
     return null;
   };
   const semanticOwnerKinds = new Set(['button', 'icon-button', 'link', 'tab', 'chip', 'badge', 'avatar']);
@@ -886,11 +914,13 @@
     if (el instanceof SVGElement && el.localName !== 'svg' && !el.matches('.oc-lines .edge,.oc-lines .link')) { raw.projection_reason = 'vector-owned-by-svg-icon'; continue; }
     let parent = null;
     for (let p = el.parentElement; p && !parent; p = p.parentElement) parent = emittedIds.get(p) || null;
-    const kind = kindOf(el, s), own = kind ? ownedText(el, kind) : null;
+    const regionEvidence = supplementalRegionEvidence(el, s, raw.accessibility);
+    if (regionEvidence) raw.region_projection_evidence = regionEvidence;
+    const kind = kindOf(el, s, regionEvidence), own = kind ? ownedText(el, kind) : null;
     if (kind) {
       const text = own?.text || '';
       const inputMeasurement = kind === 'input' || kind === 'dropdown' ? inputTextMeasurement(el) : null;
-      const emitted = emit(el, kind, text, bounds, parent, '', { style: own?.style || s, ownedTextNodes: own?.nodes || [], textBoxes: own ? own.nodes.length ? textRects(own.nodes) : inputMeasurement?.boxes || [] : [], evidence: { visible_fragments: fragments, text_ownership: own?.nodes.map(n => ({ parent: nodeIds.get(n.parentElement), text: n.nodeValue })) || [], input_text_measurement: inputMeasurement?.evidence || null } });
+      const emitted = emit(el, kind, text, bounds, parent, '', { style: own?.style || s, ownedTextNodes: own?.nodes || [], textBoxes: own ? own.nodes.length ? textRects(own.nodes) : inputMeasurement?.boxes || [] : [], evidence: { visible_fragments: fragments, region_projection: regionEvidence, text_ownership: own?.nodes.map(n => ({ parent: nodeIds.get(n.parentElement), text: n.nodeValue })) || [], input_text_measurement: inputMeasurement?.evidence || null } });
       raw.emitted.push(emitted); parent = emitted;
       if (own) own.nodes.forEach(n => { suppressedText.add(n); for (const t of raw.text_nodes) if (t.text === n.nodeValue) t.owned_by = emitted; });
       if (el.localName === 'canvas') extraction_errors.push({ type: 'canvas_semantics_unavailable', node: id, reason: 'Canvas pixels are captured but internal element identities require a separate instrumentation contract.' });

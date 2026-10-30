@@ -119,7 +119,7 @@ public sealed partial class MainWindow
                 var modelFields = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
                 ComboBox Select(string selected, string defaultText, IEnumerable<string> values)
                 {
-                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text"), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
+                    var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 0, FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Padding = new Thickness(8, 4, 8, 4), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(8) };
                     choice.Items.Add(new ComboBoxItem { Content = defaultText, Tag = "" }); foreach (var value in values) choice.Items.Add(new ComboBoxItem { Content = value, Tag = value }); SetChoice(choice, selected); modelFields.Children.Add(choice); return choice;
                 }
                 var model = Select(c.Text("model"), T("common.default_model"), c.Rows("models").Select(x => x.Text())); var effort = Select(c.Text("effort"), T("common.default_effort"), c.Rows("efforts").Select(x => x.Text()));
@@ -135,7 +135,7 @@ public sealed partial class MainWindow
             else if (c.Rows("tasks").Count > 0) TextRow("card.owns", T("card.tasks_done", ("n", c.Rows("tasks").Count)));
             if (c.Text("agent").Length > 0)
             {
-                var session = new TextBlock { FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text"), Foreground = Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+                var session = new TextBlock { FontSize = 12.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI), Foreground = Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
                 session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "subagent " }); session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = c.Text("agent")[..Math.Min(12, c.Text("agent").Length)], FontSize = 11.5, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code") });
                 if (c.Text("parent").Length > 0) session.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = T("card.in_parent_session", ("parent", Display(c.Text("parent")))) }); ToolTipService.SetToolTip(session, c.Text("agent")); Row("common.session", session);
             }

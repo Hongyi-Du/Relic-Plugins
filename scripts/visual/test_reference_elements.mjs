@@ -440,3 +440,97 @@ test('zero scrollbar gutter is not proof that overlay scrollbars are absent', ()
   assert.equal(result.actual_ua_parts_presence, null); assert.equal(result.measured_part_bounds, null);
   assert.equal(result.measured_part_pixels, null);
 });
+
+const supplementalRegionEvidence = vm.runInNewContext('(' + expression('supplementalRegionEvidence', 'kindOf') + ')', {
+  accessibilityOf: owner => owner.accessibility,
+});
+const kindOf = vm.runInNewContext('(' + expression('kindOf', 'semanticOwnerKinds') + ')', {
+  supplementalRegionEvidence, document: { body: {} },
+  color: value => value === 'rgba(0, 0, 0, 0)' ? [0, 0, 0, 0] : [248, 247, 245, 255],
+  number: value => parseFloat(value) || 0, pathOf: () => '#fixture-owner', textNodes: () => [],
+});
+const regionOwner = (values = {}) => ({
+  localName: 'div', tabIndex: -1, attrs: {}, selectors: new Set(),
+  clientWidth: 824, clientHeight: 698, scrollWidth: 824, scrollHeight: 698, scrollLeft: 0, scrollTop: 0,
+  accessibility: { measured: true, ignored: false, role: 'generic', name: '', properties: [] },
+  getAttribute(name) { return this.attrs[name] ?? null; },
+  matches(selectors) { return selectors.split(',').some(selector => this.selectors.has(selector.trim())); },
+  getBoundingClientRect: () => ({ x: 276, y: 96, width: 824, height: 698 }), ...values,
+});
+const regionStyle = (values = {}) => ({
+  backgroundColor: 'rgba(0, 0, 0, 0)', boxShadow: 'none', backgroundImage: 'none', overflowX: 'hidden', overflowY: 'auto',
+  ...Object.fromEntries(['Top', 'Right', 'Bottom', 'Left'].flatMap(side => [
+    ['border' + side + 'Width', '0px'], ['border' + side + 'Style', 'none']])), ...values,
+});
+
+test('recorded named navigation becomes a region from its own DOM and actual AX evidence', () => {
+  // 5ff6706/reference-macos/en-US-light-1440x900-group: dom-56 was raw-only.
+  const owner = regionOwner({ localName: 'nav', attrs: { 'aria-label': 'Organizations' },
+    accessibility: { measured: true, ignored: false, backend_node_id: 108, node_ids: ['108'],
+      role: 'navigation', name: 'Organizations', properties: [] } });
+  const evidence = normalize(supplementalRegionEvidence(owner, regionStyle()));
+  assert.equal(evidence.reason, 'named-navigation');
+  assert.equal(evidence.dom_tag, 'nav'); assert.equal(evidence.dom_role, null);
+  assert.equal(evidence.accessibility.name, 'Organizations');
+  assert.equal(evidence.accessibility.backend_node_id, 108);
+  assert.equal(kindOf(owner, regionStyle()), 'region');
+  owner.localName = 'section'; owner.attrs.role = 'navigation';
+  assert.equal(kindOf(owner, regionStyle()), 'region', 'Explicit live navigation semantics also qualify');
+});
+
+test('recorded focusable scrollport is retained independently of unknown scrollbar parts', () => {
+  // 5ff6706/reference-macos/en-US-light-1440x900-group: dom-171/#stream.
+  const owner = regionOwner({ attrs: { tabindex: '0' }, tabIndex: 0, scrollHeight: 969, scrollTop: 271,
+    accessibility: { measured: true, ignored: false, backend_node_id: 9, node_ids: ['9'], role: 'generic', name: '',
+      properties: [{ name: 'focusable', value: { type: 'booleanOrUndefined', value: true } }] } });
+  const evidence = normalize(supplementalRegionEvidence(owner, regionStyle()));
+  assert.equal(evidence.reason, 'focusable-scroll-region'); assert.deepEqual(evidence.axes, ['vertical']);
+  assert.equal(evidence.metrics.scroll_height, 969); assert.equal(evidence.metrics.client_height, 698);
+  assert.equal(evidence.metrics.scroll_top, 271); assert.equal(evidence.dom_tabindex, '0');
+  assert.equal(evidence.accessibility.properties[0].value.value, true);
+  assert.equal(kindOf(owner, regionStyle()), 'region');
+  assert.equal(evidence.measured_part_bounds, undefined, 'Region classification supplies no scrollbar geometry');
+  owner.scrollWidth = 900; owner.scrollHeight = 698;
+  assert.deepEqual(normalize(supplementalRegionEvidence(owner, regionStyle({ overflowX: 'scroll' })).axes), ['horizontal']);
+});
+
+test('navigation requires a live semantic role and an independently measured nonempty AX name', () => {
+  for (const invalid of [{ measured: false }, { ignored: true }, { role: 'generic' }, { name: '' }, { name: ' ' }]) {
+    const owner = regionOwner({ localName: 'nav', attrs: { 'aria-label': 'Expected-looking name' },
+      accessibility: { measured: true, ignored: false, role: 'navigation', name: 'Actual name', properties: [], ...invalid } });
+    assert.equal(supplementalRegionEvidence(owner, regionStyle()), null);
+    assert.equal(kindOf(owner, regionStyle()), null);
+  }
+  const generic = regionOwner({ accessibility: { measured: true, ignored: false, role: 'navigation', name: 'Name', properties: [] } });
+  assert.equal(kindOf(generic, regionStyle()), null, 'AX role alone does not replace missing DOM semantic evidence');
+});
+
+test('scroll metrics or tabindex alone cannot invent an interactive region', () => {
+  const valid = () => regionOwner({ attrs: { tabindex: '0' }, tabIndex: 0, scrollHeight: 969,
+    accessibility: { measured: true, ignored: false, role: 'generic', name: '',
+      properties: [{ name: 'focusable', value: { value: true } }] } });
+  for (const mutate of [
+    owner => { owner.attrs = {}; }, owner => { owner.tabIndex = -1; },
+    owner => { owner.attrs.tabindex = '-1'; }, owner => { owner.scrollHeight = owner.clientHeight; },
+    owner => { owner.clientHeight = 0; }, owner => { owner.scrollHeight = NaN; },
+    owner => { owner.accessibility.measured = false; }, owner => { owner.accessibility.ignored = true; },
+    owner => { owner.accessibility.properties = []; },
+    owner => { owner.accessibility.properties[0].value.value = false; },
+  ]) {
+    const owner = valid(); mutate(owner);
+    assert.equal(supplementalRegionEvidence(owner, regionStyle()), null);
+    assert.equal(kindOf(owner, regionStyle()), null);
+  }
+  assert.equal(kindOf(valid(), regionStyle({ overflowY: 'hidden' })), null, 'Clipped overflow is not independent user scrolling');
+});
+
+test('supplemental regions add missing elements without replacing existing semantic or painted kinds', () => {
+  const owner = regionOwner({ attrs: { tabindex: '0' }, tabIndex: 0, scrollHeight: 969,
+    accessibility: { measured: true, ignored: false, role: 'generic', name: '',
+      properties: [{ name: 'focusable', value: { value: true } }] } });
+  assert.equal(kindOf(owner, regionStyle()), 'region');
+  assert.equal(kindOf(owner, regionStyle({ backgroundColor: 'rgb(248, 247, 245)' })), 'card');
+  owner.localName = 'button'; assert.equal(kindOf(owner, regionStyle()), 'icon-button');
+  owner.localName = 'pre'; assert.equal(kindOf(owner, regionStyle()), 'code');
+  owner.localName = 'div'; owner.selectors.add('.chat-row'); assert.equal(kindOf(owner, regionStyle()), 'list-row');
+});

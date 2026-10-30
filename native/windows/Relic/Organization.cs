@@ -143,7 +143,7 @@ public sealed partial class MainWindow
     {
         box.Children.Remove(choice); choice.Header = null;
         var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        choice.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text"); choice.FontSize = 14; choice.MinHeight = 0; choice.Height = 37; choice.Padding = new Thickness(10, 7, 10, 7); choice.CornerRadius = new CornerRadius(9); choice.BorderThickness = new Thickness(1); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.Background = Paint("FFFFFF", "1F1F1E");
+        choice.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(FontFamilies.UI); choice.FontSize = 14; choice.MinHeight = 0; choice.Height = 37; choice.Padding = new Thickness(10, 7, 10, 7); choice.CornerRadius = new CornerRadius(9); choice.BorderThickness = new Thickness(1); choice.BorderBrush = Paint("DEDBD4", "3A3936"); choice.Background = Paint("FFFFFF", "1F1F1E");
         foreach (var item in choice.Items.OfType<ComboBoxItem>()) if (item.Content is TextBlock text) { text.FontSize = 14; text.FontFamily = choice.FontFamily; text.Foreground = Ink; }
         var title = OverviewText(T(label)); title.Foreground = Paint("5A5853", "B8B5AE"); title.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(title); Grid.SetColumn(choice, 1); row.Children.Add(choice); box.Children.Add(row);
     }
