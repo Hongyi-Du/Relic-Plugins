@@ -30,7 +30,7 @@ struct ChartView: View {
                 chartToggle("chart.show_closed", value: $showEnded)
                 chartToggle("chart.show_links", value: $showShared)
             }.padding(.leading, 16).padding(.trailing, 54).padding(.vertical, 12).padding(.bottom, 1)
-                .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
+                .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
             ChartLegend()
             let graph = layout
             ZStack(alignment: .topLeading) {
