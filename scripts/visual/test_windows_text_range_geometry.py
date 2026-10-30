@@ -227,9 +227,14 @@ class ObservedTextRangeGeometryTests(unittest.TestCase):
         self.assertEqual(source, original)
         effective = result["effective_uia"]["raw_nodes"][0]["text_pattern"]
         original_pattern = source["uia"]["raw_nodes"][0]["text_pattern"]
+        selected = next(entry for entry in result["audit"]["selections"]
+                        if entry["path"] == "visible_ranges[2]")
+        self.assertEqual(selected["original_managed_range"], original_pattern["visible_ranges"][2])
+        self.assertEqual(selected["original_external_range"], original_pattern["native_com"]["visible_ranges"][2])
         for pattern, original_pattern in ((effective, original_pattern), (effective["native_com"], original_pattern["native_com"])):
+            self.assertEqual(pattern["visible_ranges"][2]["bounds_source"], SOURCE)
             for key in original_pattern["visible_ranges"][2]:
-                if key not in {"bounds", "bounds_status", "format_runs"}:
+                if key not in {"bounds", "bounds_status", "bounds_source", "format_runs"}:
                     self.assertEqual(pattern["visible_ranges"][2][key], original_pattern["visible_ranges"][2][key])
         self.assertEqual(result["effective_uia"]["raw_extraction_errors"], source["uia"]["raw_extraction_errors"])
 
