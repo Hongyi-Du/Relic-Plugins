@@ -384,6 +384,7 @@ import CoreText
                         return box(topLeft(textWindow.convertToScreen(textView.convert(local, to: nil)), in: contentScreen))
                     }
                     if let label = textView as? ReferenceLabelView, let owner = label.productionOwner { projected["production_owner"] = owner }
+                    if let label = textView as? ReferenceLabelView, let owner = label.productionControlLabelOwner { projected["native_control_label_owner"] = owner }
                     raw.append(projected)
                     if projected["visible"] as? Bool == true { elements.append(projected) }
                 }
@@ -504,6 +505,7 @@ import CoreText
         // that production layer order when supplementing AX with path paint.
         elements.insert(contentsOf: chartEdges, at: elements.firstIndex { $0["kind"] as? String == "chart-node" } ?? elements.count)
         surfaceGaps.append(contentsOf: ElementOwnership.attachMeasuredChildren(to: &elements))
+        surfaceGaps.append(contentsOf: NativeControlState.attach(to: &elements))
 
         let stem = png.deletingPathExtension()
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
@@ -550,6 +552,9 @@ import CoreText
             if ["scrollbar", "scrollbar-thumb"].contains(kind) {
                 state["orientation"] = sourceState["orientation"] ?? NSNull()
                 state["scroll_position"] = sourceState["scroll_position"] ?? NSNull()
+            }
+            if let actualControl = node["native_control_state"] as? [String: Any] {
+                state.merge(actualControl, uniquingKeysWith: { _, measured in measured })
             }
             if !pointerOutside && node["hovered"] == nil { unmeasured.append(id + ":state.hovered") }
             if !text.isEmpty && node["layout"] == nil { unmeasured.append(id + ":layout") }
