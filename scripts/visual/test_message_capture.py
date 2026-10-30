@@ -1,5 +1,6 @@
 """Pure hover/copy capture fixtures. No browser, clipboard, process or HTTP runs."""
 import copy
+import base64
 import json
 from pathlib import Path
 import tempfile
@@ -44,6 +45,7 @@ class MessageCaptureTests(unittest.TestCase):
             if expression == capture.MessageSceneCapture.READ_CLOCK:
                 return dict(clock)
             if expression == "() => navigator.clipboard.readText()":
+                self.assertFalse(action.paused, "Async Clipboard cannot resolve reliably on the paused browser scheduler")
                 return clipboard.pop(0) if len(clipboard) > 1 else clipboard[0]
             raise AssertionError("Unexpected evaluated page program: " + expression)
         page.evaluate.side_effect = evaluate
@@ -84,6 +86,9 @@ class MessageCaptureTests(unittest.TestCase):
             self.assertEqual(cdp.send.call_args_list[1].args, ("Emulation.setVirtualTimePolicy", {"policy": "advance"}))
             self.assertEqual(action.evidence["clipboard_before"], "Previous clipboard")
             self.assertEqual(action.evidence["clipboard_after"], api[1]["items"][0]["body"])
+            self.assertEqual(action.evidence["clipboard_after_phase"], "after_copy_before_pause")
+            self.assertEqual(action.evidence["clipboard_after_resume"], api[1]["items"][0]["body"])
+            self.assertEqual(set(action.evidence["clipboard_reads"]), {"before_copy", "after_copy_before_pause", "after_resume"})
             self.assertEqual(action.evidence["clock_pause"]["receipt"], {"virtualTimeTicksBase": 1500.25})
             self.assertIsNone(action.evidence["toast_remaining_ms"])
             self.assertEqual(json.loads(action.receipt_path.read_text()), action.evidence)
@@ -122,7 +127,10 @@ class MessageCaptureTests(unittest.TestCase):
                         action.open()
                     action.close()
                 button.click.assert_called_once_with()
-                self.assertEqual(cdp.send.call_args_list[-1].args, ("Emulation.setVirtualTimePolicy", {"policy": "advance"}))
+                if problem == "clipboard":
+                    cdp.send.assert_not_called()
+                else:
+                    self.assertEqual(cdp.send.call_args_list[-1].args, ("Emulation.setVirtualTimePolicy", {"policy": "advance"}))
 
     def test_untrusted_or_different_message_click_is_not_a_copy_action_witness(self):
         for change in ("untrusted", "other-message"):
@@ -141,10 +149,12 @@ class MessageCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             page, cdp, browser, action = Mock(), Mock(), Mock(), Mock()
             browser.version = "fixture-browser"
-            cdp.send.return_value = {"actual": "DOM or AX fixture"}
-            page.evaluate.side_effect = [{"navigator_platform": "fixture"}, {"elements": []}]
+            png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=")
+            cdp.send.side_effect = lambda method, *args: {"data": base64.b64encode(png).decode()} if method == "Page.captureScreenshot" else {"actual": "DOM or AX fixture"}
+            page.evaluate.side_effect = [{"width": 1, "height": 1, "device_pixel_ratio": 1, "scroll_x": 0, "scroll_y": 0},
+                                         {"navigator_platform": "fixture"}, {"elements": []}]
             action.evidence = {"source": "actual action fixture", "errors": []}
-            case = {"id": "fixture-copy", "scene": "message-copy-toast", "file": "fixture-copy.png"}
+            case = {"id": "fixture-copy", "scene": "message-copy-toast", "file": "fixture-copy.png", "width": 1, "height": 1}
             manifest = {"output": folder, "fixture": {}, "lang": "en-US", "theme": "light"}
             with patch.object(capture, "MessageSceneCapture", return_value=action), \
                     patch.object(capture, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
@@ -153,7 +163,10 @@ class MessageCaptureTests(unittest.TestCase):
             action.open.assert_called_once_with()
             self.assertEqual([call.args[0] for call in action.checkpoint.call_args_list],
                 ["before_screenshot", "after_screenshot", "after_dom_snapshot", "after_source_evidence", "after_element_extraction"])
-            page.screenshot.assert_called_once_with(path=Path(folder) / "fixture-copy.png", animations="allow")
+            page.screenshot.assert_not_called()
+            self.assertEqual(cdp.send.call_args_list[0].args, ("Page.captureScreenshot", {"format": "png", "fromSurface": True,
+                "captureBeyondViewport": False, "clip": {"x": 0, "y": 0, "width": 1, "height": 1, "scale": 1}}))
+            self.assertEqual((Path(folder) / "fixture-copy.png").read_bytes(), png, "The original CDP bytes are saved unchanged")
             action.close.assert_called_once_with(); page.close.assert_called_once_with(); cdp.detach.assert_called_once_with()
             actual = json.loads((Path(folder) / "fixture-copy.elements.json").read_text())
             self.assertEqual(actual["capture_evidence"]["message_action"], action.evidence)
@@ -161,9 +174,10 @@ class MessageCaptureTests(unittest.TestCase):
     def test_failed_screenshot_keeps_failure_receipt_and_closes_observer_page_and_clock_owner(self):
         with tempfile.TemporaryDirectory() as folder:
             page, cdp, browser, action = Mock(), Mock(), Mock(), Mock()
-            page.screenshot.side_effect = RuntimeError("actual screenshot failed")
+            page.evaluate.return_value = {"width": 1440, "height": 900, "device_pixel_ratio": 1, "scroll_x": 0, "scroll_y": 0}
+            cdp.send.side_effect = RuntimeError("actual screenshot failed")
             action.evidence = {"errors": []}
-            case = {"id": "fixture-copy", "scene": "message-copy-toast", "file": "fixture-copy.png"}
+            case = {"id": "fixture-copy", "scene": "message-copy-toast", "file": "fixture-copy.png", "width": 1440, "height": 900}
             manifest = {"output": folder, "fixture": {}, "lang": "en-US", "theme": "light"}
             with patch.object(capture, "MessageSceneCapture", return_value=action):
                 with self.assertRaisesRegex(RuntimeError, "actual screenshot failed"):
@@ -171,6 +185,53 @@ class MessageCaptureTests(unittest.TestCase):
             self.assertEqual(action.evidence["errors"], ["actual screenshot failed"])
             action.save.assert_called_once_with(); action.close.assert_called_once_with()
             cdp.detach.assert_called_once_with(); page.close.assert_called_once_with()
+
+    def test_paused_checkpoints_never_reread_clipboard_and_keep_explicit_read_timing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, api, page, _, _, _, _, _, _, _, _ = self.setup_capture(folder)
+            with patch.object(capture, "read_fixture_json", side_effect=api):
+                action.open()
+                calls_before = len([entry for entry in page.evaluate.call_args_list if entry.args[0] == "() => navigator.clipboard.readText()"])
+                action.checkpoint("after_screenshot"); action.checkpoint("after_source_evidence")
+                calls_after = len([entry for entry in page.evaluate.call_args_list if entry.args[0] == "() => navigator.clipboard.readText()"])
+                self.assertEqual((calls_before, calls_after), (2, 2))
+                self.assertTrue(all("not read" in row["clipboard_measurement"] for row in action.evidence["checkpoints"]))
+                with self.assertRaisesRegex(RuntimeError, "must not be awaited"):
+                    action.read_clipboard("forbidden_paused_read")
+                action.close()
+            phases = [row["step"] for row in action.evidence["steps"] if row["status"] == "completed"]
+            self.assertLess(phases.index("clipboard:after_copy_before_pause"), phases.index("clock_pause"))
+            self.assertLess(phases.index("clock_resume"), phases.index("clipboard:after_resume"))
+
+    def test_changed_actual_clipboard_after_resume_fails_without_claiming_continuous_reads(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, api, page, _, _, _, _, _, _, _, clipboard = self.setup_capture(folder)
+            with patch.object(capture, "read_fixture_json", side_effect=api):
+                action.open(); clipboard[0] = "An actual different clipboard value"
+                with self.assertRaisesRegex(RuntimeError, "before-pause and after-resume"):
+                    action.close()
+            self.assertEqual(action.evidence["clipboard_reads"]["after_resume"]["value"], clipboard[0])
+            self.assertFalse(action.paused)
+            self.assertTrue(action.evidence["errors"])
+            page.context.clear_permissions.assert_called_once_with()
+
+    def test_durable_pending_step_exists_before_an_async_clipboard_read_can_stall(self):
+        with tempfile.TemporaryDirectory() as folder:
+            action, api, page, cdp, *_ = self.setup_capture(folder)
+            evaluate = page.evaluate.side_effect
+            def fail_read(expression):
+                if expression == "() => navigator.clipboard.readText()":
+                    retained = json.loads(action.receipt_path.read_text())
+                    self.assertEqual(retained["steps"][-1]["status"], "started")
+                    self.assertTrue(retained["steps"][-1]["step"].startswith("clipboard:"))
+                    raise RuntimeError("simulated pending clipboard task")
+                return evaluate(expression)
+            page.evaluate.side_effect = fail_read
+            with patch.object(capture, "read_fixture_json", side_effect=api):
+                with self.assertRaisesRegex(RuntimeError, "pending clipboard"):
+                    action.open()
+                action.close()
+            cdp.send.assert_not_called()
 
 
 if __name__ == "__main__":

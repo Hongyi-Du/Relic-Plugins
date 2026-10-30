@@ -28,7 +28,7 @@ message body, DOM node or toast text is replaced by the harness.
 The headless reference context grants `clipboard-read` and `clipboard-write`
 only for the fixture's local origin through the documented
 [Playwright permission API](https://playwright.dev/python/docs/api/class-browsercontext#browser-context-grant-permissions).
-It records the requested permission grant and both real clipboard reads, then
+It records the requested permission grant and the real clipboard read phases, then
 clears the context's permission overrides during cleanup. This is CI-only;
 no local clipboard or installed application is accessed.
 
@@ -36,7 +36,8 @@ no local clipboard or installed application is accessed.
 
 Production `toast()` creates a real `role=status` element and schedules its
 removal after 3,600 ms. Full font and source collection may take longer than
-that. After the real Copy click has already created its success toast, the
+that. After the real Copy click has already created its success toast and the
+actual asynchronous clipboard read has completed and matched the API body, the
 reference uses the actual browser
 [`Emulation.setVirtualTimePolicy`](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Emulation.pdl)
 command with `policy=pause`. It records the original command receipt, including
@@ -54,7 +55,7 @@ The reference retains handles to the same message and toast objects. A passive
 capture listener records trusted pointer/click events, coordinates, target
 message ID and event timestamp without changing DOM or application state.
 The capture records and checks the same actual message, visible toolbar,
-pointer position, toast identity/text/style/bounds and clipboard at these
+pointer position and toast identity/text/style/bounds at these
 boundaries:
 
 1. After the real action and before the screenshot.
@@ -64,19 +65,63 @@ boundaries:
 5. After canonical element extraction.
 
 Changes, lost hover, an expired/replaced toast, unknown trusted-pointer
-evidence, changed clipboard, or advancement of the paused performance clock
-fail capture. The actual failing observation remains in the receipt; no value
-is substituted to match the earlier state. Message scenes use screenshot
-`animations=allow` so screenshot preparation does not temporarily change the
-captured state. The receipt is `<case>.scene-action.json`; successful element
+evidence, or advancement of the paused performance clock fail capture. The
+actual failing observation remains in the receipt; no value is substituted to
+match the earlier state. The receipt is `<case>.scene-action.json`; successful element
 output also contains `capture_evidence.message_action` with its capture-phase
 observations. The sidecar additionally retains the later cleanup receipt.
 
 Cleanup resumes virtual time with `policy=advance`, records that CDP receipt,
-removes the passive listener, releases handles and closes the isolated page
+reads and verifies the actual clipboard again, removes the passive listener,
+releases handles and closes the isolated page
 target. Cleanup runs after failures too. No capture-only setting leaves the
 production toast permanently alive, and normal application expiration behavior
 is unchanged outside the isolated CI target.
+
+## Scheduler-safe reads and original page PNG
+
+The `c568f13` smoke artifact's actual Copy receipt contains a completed
+`clock_pause`, no `clipboard_after`, and zero checkpoints: the reference was
+waiting for `navigator.clipboard.readText()` after freezing browser virtual
+time. The asynchronous read requires browser task scheduling. No native result
+can be inferred from that reference-stage stall.
+
+The collector now reads clipboard contents at three explicit running-clock
+phases: `before_copy`, `after_copy_before_pause`, and `after_resume`.
+`clipboard_after` is retained for existing consumers but its
+`clipboard_after_phase` explicitly says `after_copy_before_pause`. Each actual
+read has its own before/after clock receipt. The post-Copy value is validated
+before pausing. A different value on the later post-resume read also fails
+capture. No Async Clipboard promise is awaited inside a paused checkpoint;
+the receipt explicitly states that clipboard contents were **not** measured
+at those checkpoints. Agreement between two reads does not prove uninterrupted
+clipboard continuity, and the collector does not claim it. The actual visible
+message/toolbar/toast state is still measured at every boundary above.
+
+Playwright's screenshot preparation still waits for `document.fonts.ready`
+when `animations=allow`; it also defaults to temporarily hiding caret paint.
+Thus that option alone does not make screenshot preparation suitable for a
+frozen browser scheduler. [Playwright screenshotter implementation](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/screenshotter.ts)
+
+For `message-copy-toast` only, after the normal pre-action font readiness and
+the paused-state checkpoint, capture uses the actual CDP
+`Page.captureScreenshot` with `format=png`, `fromSurface=true`,
+`captureBeyondViewport=false`, and a clip taken from the actual viewport scroll
+origin and requested size at scale 1. A synchronous viewport read must confirm
+the requested width/height and devicePixelRatio 1. The returned PNG is decoded
+from base64 and saved byte-for-byte, without editing, compositing, resizing or
+DOM/style mutation. Its actual IHDR dimensions must match the viewport; a
+different-sized original is retained and fails. Other scenes retain their
+existing capture method. [CDP Page captureScreenshot schema](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Page.pdl)
+
+Every potentially waiting phase writes a durable `steps` entry before the
+operation and a completion entry afterward: fonts, pointer/Copy, clipboard,
+pause/resume, screenshot, source extraction and each state checkpoint. A
+stalled call therefore leaves its exact pending phase on disk. These receipts
+identify actual completed operations; they are not replacements for the
+pixel, visible-state or element checks, whose tolerances and failures remain
+unchanged. The CDP path still requires real CI verification; this correction
+does not itself establish capture success or parity.
 
 ## Native requirements and validation boundary
 
