@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (archived-capture recompare): `native-recompare.yml`
+can verify the bounded-storage path against all immutable artifacts from a
+specified existing capture run without launching new app windows. It still
+uses the full current matrix and the unchanged strict matcher. An older run
+missing newly required states fails coverage. `comparison-provenance.json`
+records the capture run/commits separately from the comparison tool commit;
+recomparison is never reported as verification of a newer native binary.
+
 Changes for the clients (full-matrix artifact storage failure): ca8d997 full
 run 41038721093 exhausted the comparison runner's disk while downloading raw
 capture artifacts; the matcher and final upload had not started. This is an
