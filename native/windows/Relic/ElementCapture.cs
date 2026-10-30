@@ -125,6 +125,7 @@ public sealed partial class MainWindow
                     node["transformed_corners_order"] = "top-left,top-right,bottom-right,bottom-left";
                     node["composition_clip_evidence"] = CaptureCompositionClip(element, node);
                     node["name"] = element.Name; node["accessible_name"] = AutomationProperties.GetName(element);
+                    node["language"] = element.Language;
                     if (ReferenceEquals(element, chatScroll))
                         node["region_container_evidence"] = new JsonObject
                         {

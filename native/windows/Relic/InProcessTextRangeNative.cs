@@ -74,6 +74,75 @@ internal static class InProcessTextRangeNative
     [DllImport("oleaut32.dll", EntryPoint = "SafeArrayGetElement", ExactSpelling = true)] private static extern int SafeArrayGetUnknown(IntPtr array, ref int index, out IntPtr value);
     [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern int SafeArrayDestroy(IntPtr array);
 
+    // 20e17bc measured that Simple is unavailable directly on the actual WinRT
+    // peer, while its public Fragment -> Simple route succeeds for that same
+    // retained owner. Keep the direct failure and use exactly the already
+    // measured public interface chain, never a guessed IID or replacement peer.
+    // The returned Simple reference belongs to the caller; all intermediate
+    // successful QI references are released here.
+    internal static IntPtr AcquireSimpleThroughFragment(IntPtr actualPeer, IApi api,
+        JsonObject receipt, Action<JsonObject>? progress = null)
+    {
+        var calls = new JsonArray(); var errors = new JsonArray(); var lifecycle = new JsonArray();
+        receipt["source"] = "Actual retained peer QI(Fragment) then actual Fragment QI(Simple)";
+        receipt["direct_simple_query_preserved"] = true; receipt["calls"] = calls;
+        receipt["errors"] = errors; receipt["lifecycle"] = lifecycle; receipt["status"] = "unavailable";
+        var direct = IntPtr.Zero; var fragment = IntPtr.Zero; var simple = IntPtr.Zero;
+        bool directOwned = false, fragmentOwned = false, simpleOwned = false, transferred = false;
+        bool Query(string name, IntPtr source, Guid iid, out IntPtr pointer, out bool owned)
+        {
+            progress?.Invoke(new JsonObject { ["api"] = name, ["status"] = "pending" });
+            pointer = IntPtr.Zero; owned = false;
+            var hr = api.Query(source, iid, out pointer);
+            var step = AutomationIdentityNative.HResult(name, hr);
+            step["source_pointer"] = AutomationIdentityNative.Pointer(source);
+            step["iid"] = iid.ToString(); step["returned_pointer"] = AutomationIdentityNative.Pointer(pointer);
+            calls.Add(step); progress?.Invoke((JsonObject)step.DeepClone());
+            owned = hr >= 0 && pointer != IntPtr.Zero;
+            if (!owned)
+            {
+                errors.Add(new JsonObject { ["api"] = name, ["hresult"] = hr,
+                    ["hresult_hex"] = "0x" + unchecked((uint)hr).ToString("X8"),
+                    ["returned_pointer"] = AutomationIdentityNative.Pointer(pointer),
+                    ["failure"] = hr < 0 ? "Actual public QueryInterface failed" : "Successful QueryInterface returned null",
+                    ["failed_pointer_ownership_unknown"] = hr < 0 && pointer != IntPtr.Zero });
+            }
+            return owned;
+        }
+        void Release(IntPtr pointer, bool owned, string name)
+        {
+            if (!owned) return;
+            try { lifecycle.Add(new JsonObject { ["api"] = "IUnknown.Release", ["owner"] = name,
+                ["pointer"] = AutomationIdentityNative.Pointer(pointer), ["remaining_references"] = api.Release(pointer) }); }
+            catch (Exception ex) { errors.Add(new JsonObject { ["api"] = "Release " + name, ["error"] = ex.ToString(), ["hresult"] = ex.HResult }); }
+        }
+        try
+        {
+            // This result is diagnostic, not silently retried or discarded.
+            // Even if it succeeds, use the same public route as the held-ID read.
+            Query("QI(IRawElementProviderSimple, actual peer direct)", actualPeer, AutomationIdentityNative.SimpleId, out direct, out directOwned);
+            if (!Query("QI(IRawElementProviderFragment, actual peer)", actualPeer, AutomationIdentityNative.FragmentId, out fragment, out fragmentOwned))
+                return IntPtr.Zero;
+            if (!Query("QI(IRawElementProviderSimple, actual fragment)", fragment, AutomationIdentityNative.SimpleId, out simple, out simpleOwned))
+                return IntPtr.Zero;
+            receipt["status"] = "acquired-through-actual-fragment";
+            receipt["simple_pointer"] = AutomationIdentityNative.Pointer(simple);
+            receipt["simple_reference_transferred_to_caller"] = true; transferred = true;
+            return simple;
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new JsonObject { ["api"] = "Acquire public Simple through actual Fragment", ["error"] = ex.ToString(), ["hresult"] = ex.HResult });
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            if (!transferred) Release(simple, simpleOwned, "untransferred Fragment Simple QI");
+            Release(fragment, fragmentOwned, "actual peer Fragment QI");
+            Release(direct, directOwned, "direct peer Simple QI diagnostic");
+        }
+    }
+
     // The caller owns simple. SAFEARRAYGetElement AddRefs VT_UNKNOWN values;
     // release each copied reference separately from destruction of its array.
     internal static JsonObject Read(IntPtr simple, IApi api, Action<JsonObject>? progress = null)

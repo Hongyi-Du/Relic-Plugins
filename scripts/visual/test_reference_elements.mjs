@@ -6,6 +6,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import './test_reference_colors.mjs';
 import './test_reference_cc.mjs';
+import './test_reference_markers.mjs';
 
 const source = readFileSync(new URL('./reference-elements.js', import.meta.url), 'utf8');
 const expression = (name, next) => {

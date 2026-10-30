@@ -10,15 +10,30 @@ public sealed class InProcessTextRangeNativeTests
     private sealed class Api : InProcessTextRangeNative.IApi
     {
         public readonly List<IntPtr> Released = [], Destroyed = [];
+        public readonly List<(IntPtr source, Guid iid)> Queries = [];
         private readonly Dictionary<IntPtr, (int start, int end)> ranges = new() { [(IntPtr)8] = (0, 3), [(IntPtr)9] = (1, 3) };
         private readonly Dictionary<IntPtr, string> strings = [];
         private int nextRange = 100, nextString = 1000;
         public readonly double[] Values = [475.125, 127, 251.783203125, 0.8499908447265625];
         public bool PatternUnavailable, FailProviderQuery, WrongArrayType, FailRectangles, FailDestroy;
+        public bool DirectSimpleAvailable, FailFragmentQuery, FailFragmentSimpleQuery;
         public int TextQueries, DoubleReads;
         private const string DocumentText = "A\uD800B";
         public int Query(IntPtr source, Guid iid, out IntPtr result)
         {
+            Queries.Add((source, iid));
+            if (iid == AutomationIdentityNative.FragmentId)
+            {
+                Assert.Equal((IntPtr)1, source); result = FailFragmentQuery ? IntPtr.Zero : (IntPtr)50;
+                return FailFragmentQuery ? unchecked((int)0x80004002) : 0;
+            }
+            if (iid == AutomationIdentityNative.SimpleId)
+            {
+                if (source == (IntPtr)1)
+                { result = DirectSimpleAvailable ? (IntPtr)70 : IntPtr.Zero; return DirectSimpleAvailable ? 0 : unchecked((int)0x80004002); }
+                Assert.Equal((IntPtr)50, source); result = FailFragmentSimpleQuery ? IntPtr.Zero : (IntPtr)60;
+                return FailFragmentSimpleQuery ? unchecked((int)0x80004002) : 0;
+            }
             if (iid == InProcessTextRangeNative.TextProviderId)
             { result = FailProviderQuery ? IntPtr.Zero : (IntPtr)4; return FailProviderQuery ? unchecked((int)0x80004002) : 0; }
             Assert.Equal(InProcessTextRangeNative.TextRangeProviderId, iid); result = source; return 0;
@@ -122,5 +137,51 @@ public sealed class InProcessTextRangeNativeTests
         var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { FailDestroy = true });
         Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
         Assert.NotNull(receipt["document_range"]!["bounding_rectangle_values"]); Assert.NotEmpty(receipt["errors"]!.AsArray());
+    }
+
+    [Fact]
+    public void ActualPublicFragmentRouteRetainsDirectQiFailureAndTransfersOnlySimpleReference()
+    {
+        var api = new Api(); var receipt = new JsonObject();
+        var simple = InProcessTextRangeNative.AcquireSimpleThroughFragment((IntPtr)1, api, receipt);
+        Assert.Equal((IntPtr)60, simple);
+        Assert.Equal(new[] { ((IntPtr)1, AutomationIdentityNative.SimpleId), ((IntPtr)1, AutomationIdentityNative.FragmentId),
+            ((IntPtr)50, AutomationIdentityNative.SimpleId) }, api.Queries);
+        Assert.Equal("acquired-through-actual-fragment", receipt["status"]!.ToString());
+        Assert.Single(receipt["errors"]!.AsArray());
+        Assert.Equal(unchecked((int)0x80004002), receipt["calls"]![0]!["hresult"]!.GetValue<int>());
+        Assert.Equal(new[] { (IntPtr)50 }, api.Released); // Caller still owns 60.
+        Assert.True(receipt["simple_reference_transferred_to_caller"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void SuccessfulDirectDiagnosticReferenceIsReleasedWithoutReplacingFragmentRoute()
+    {
+        var api = new Api { DirectSimpleAvailable = true }; var receipt = new JsonObject();
+        Assert.Equal((IntPtr)60, InProcessTextRangeNative.AcquireSimpleThroughFragment((IntPtr)1, api, receipt));
+        Assert.Equal(new[] { (IntPtr)50, (IntPtr)70 }, api.Released);
+        Assert.Empty(receipt["errors"]!.AsArray());
+        Assert.DoesNotContain((IntPtr)60, api.Released);
+    }
+
+    [Fact]
+    public void UnavailableFragmentRemainsUnavailableWithoutTryingAnotherPeerOrInterface()
+    {
+        var api = new Api { FailFragmentQuery = true }; var receipt = new JsonObject();
+        Assert.Equal(IntPtr.Zero, InProcessTextRangeNative.AcquireSimpleThroughFragment((IntPtr)1, api, receipt));
+        Assert.Equal(2, api.Queries.Count); Assert.Empty(api.Released);
+        Assert.Equal("unavailable", receipt["status"]!.ToString());
+        Assert.Equal(2, receipt["errors"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public void FragmentSimpleFailureReleasesTheRealIntermediateAndDoesNotManufactureAProvider()
+    {
+        var api = new Api { FailFragmentSimpleQuery = true }; var receipt = new JsonObject();
+        Assert.Equal(IntPtr.Zero, InProcessTextRangeNative.AcquireSimpleThroughFragment((IntPtr)1, api, receipt));
+        Assert.Equal(new[] { (IntPtr)50 }, api.Released);
+        Assert.Null(receipt["simple_reference_transferred_to_caller"]);
+        Assert.Equal("unavailable", receipt["status"]!.ToString());
+        Assert.Equal(2, receipt["errors"]!.AsArray().Count);
     }
 }

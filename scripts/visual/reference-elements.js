@@ -1376,6 +1376,78 @@
   const all = Array.from(document.body.querySelectorAll('*'));
   all.unshift(document.body);
   all.forEach((el, index) => nodeIds.set(el, 'dom-' + index));
+  const markerCounterStyles = () => {
+    const rules = [], errors = [], seen = new Set();
+    const visitSheet = sheet => {
+      if (!sheet || seen.has(sheet) || sheet.disabled) return;
+      seen.add(sheet);
+      let contents;
+      try { contents = Array.from(sheet.cssRules); }
+      catch (error) { errors.push({ href: sheet.href || null, error: String(error) }); return; }
+      const visitRule = rule => {
+        if (/^@counter-style\b/i.test(rule.cssText || '')) {
+          rules.push({ name: typeof rule.name === 'string' ? rule.name : null, css_text: rule.cssText, href: sheet.href || null });
+          if (typeof rule.name !== 'string') errors.push({ href: sheet.href || null, error: 'Actual counter-style rule has no readable name.' });
+        }
+        if (rule.styleSheet) visitSheet(rule.styleSheet);
+        try { if (rule.cssRules) for (const child of Array.from(rule.cssRules)) visitRule(child); }
+        catch (error) { errors.push({ href: sheet.href || null, error: String(error) }); }
+      };
+      for (const rule of contents) visitRule(rule);
+    };
+    for (const sheet of [...Array.from(document.styleSheets), ...Array.from(document.adoptedStyleSheets || [])]) visitSheet(sheet);
+    return { source: 'Actual document stylesheet CSSOM, including imports and grouping rules', rules, errors };
+  };
+  const markerSymbolEvidence = (pseudo, ownerStyle, pseudoStyle, snapshot, browser, counterStyles) => {
+    if (pseudo !== '::marker' || pseudoStyle.content !== 'normal' || ownerStyle.listStyleImage !== 'none') return null;
+    const type = ownerStyle.listStyleType;
+    if (!['disc', 'circle', 'square'].includes(type)) return null;
+    const fixedEngine = browser?.name === 'Chromium' && browser?.version === '156.0.8078.4';
+    const builtinKnown = counterStyles && !counterStyles.errors.length && !counterStyles.rules.some(rule => rule.name === type);
+    const classificationKnown = fixedEngine && builtinKnown;
+    const rawStyle = style => Object.fromEntries(['content', 'display', 'listStyleType', 'listStyleImage', 'listStylePosition',
+      'color', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'writingMode', 'direction', 'zoom'].map(key => [key, style[key] ?? null]));
+    return { source: 'Actual computed marker configuration and matching fixed-engine PaintSymbol branch; not a paint receipt',
+      version: 1, browser: browser || null, source_revision: 'f842f52ef39fd97b449eb27cff414bf05a98ddce',
+      source_files: ['third_party/blink/renderer/core/paint/text_fragment_painter.cc', 'third_party/blink/renderer/core/layout/list/list_marker.cc'],
+      symbol_type: type, classification_verified: classificationKnown,
+      primitive: classificationKnown ? type === 'square' ? 'rect' : 'ellipse' : null,
+      paint_operation: classificationKnown ? type === 'disc' ? 'FillEllipse' : type === 'circle' ? 'StrokeEllipse' : 'FillRect' : null,
+      computed_owner: rawStyle(ownerStyle), computed_pseudo: rawStyle(pseudoStyle), counter_styles: counterStyles,
+      backend_node_id: snapshot?.backend_node_id ?? null, snapshot_node: snapshot?.index ?? null,
+      alternative_text: snapshot?.text ?? null,
+      alternative_text_quantity: 'Generated marker alternative/accessibility text; not evidence that a font glyph was painted',
+      layout_outer_bounds: snapshot?.bounds ?? null, layout_rows: snapshot?.layout_rows || [],
+      alternative_text_bounds: snapshot?.text_element_bounds ?? null, alternative_text_fragments: snapshot?.text_fragments || [],
+      alternative_text_source_span_coverage: snapshot?.text_source_span_coverage || null,
+      bounds: null, visible_bounds: null, path: null, radius: null, paint: null, pixels: null,
+      measurement_limit: 'The actual marker and generated accessibility text are retained, but DOMSnapshot exposes marker layout/alternative-text boxes, not the painted symbol rectangle. Blink uses primary-font ascent and pixel snapping; neither box, a substitute bullet glyph, CSS font size, nor native geometry supplies those actual paint values.' };
+  };
+  const applyMarkerSymbolEvidence = (item, evidence, gaps, errors) => {
+    const prior = { text: item.text, name: item.name, bounds: item.bounds, visible_bounds: item.visible_bounds,
+      style: item.style, layout: item.layout, icon: item.icon, text_bounds: item.evidence.text_bounds,
+      text_layout_bounds: item.evidence.text_layout_bounds, text_bounds_quantity: item.evidence.text_bounds_quantity };
+    item.text = '';
+    item.bounds = { x: null, y: null, width: null, height: null };
+    item.visible_bounds = { x: null, y: null, width: null, height: null };
+    item.icon = { source: 'geometry', primitive: evidence.primitive, glyph: null, path: null };
+    item.style = { ...item.style, foreground: null, background: null, border_color: null, border_width: null,
+      border_widths: null, border_colors: null, border_styles: null, corner_radius: null, corner_radii: null,
+      background_image: null, shadow: null };
+    item.evidence.marker_symbol = { ...evidence, accessibility: item.evidence.accessibility, prior_projection: prior };
+    item.evidence.text_bounds = null;
+    item.evidence.text_layout_bounds = [];
+    item.evidence.text_bounds_quantity = 'not-applicable-symbol-paint; generated alternative-text geometry is preserved separately';
+    for (const property of ['marker.symbol_paint_geometry', 'marker.symbol_paint_style', 'marker.symbol_paint_visibility']) {
+      gaps.push({ element: item.id, property, reason: evidence.measurement_limit });
+      errors.push({ type: 'marker_symbol_paint_unmeasured', node: item.id, property, reason: evidence.measurement_limit });
+    }
+    if (!evidence.classification_verified) {
+      const reason = 'Actual browser version or counter-style definitions do not prove the pinned built-in symbol branch; no generated text is substituted for unknown marker paint.';
+      gaps.push({ element: item.id, property: 'marker.symbol_classification', reason });
+      errors.push({ type: 'marker_symbol_classification_unmeasured', node: item.id, reason });
+    }
+  };
   const suppressedText = new WeakSet();
   for (const el of all) {
     const id = nodeIds.get(el), s = styleOf(el), unclipped = rect(el.getBoundingClientRect());
@@ -1463,6 +1535,8 @@
         continue;
       }
       const p = snapshotPseudoElement;
+      const symbol = pseudo === '::marker' ? markerSymbolEvidence(pseudo, s, ps, p, meta.reference_environment?.browser, markerCounterStyles()) : null;
+      if (symbol) pseudoRecord.marker_symbol = symbol;
       for (const problem of p.problems || []) {
         unmeasured.push({ element: id + pseudo, ...problem, layout_rows: p.layout_rows });
         extraction_errors.push({ type: 'pseudo_layout_measurement_unavailable', node: id + pseudo, ...problem });
@@ -1471,11 +1545,25 @@
         unmeasured.push({ element: id + pseudo, ...problem, text_fragments: p.text_fragments });
         extraction_errors.push({ type: 'pseudo_text_measurement_unavailable', node: id + pseudo, ...problem });
       }
-      if (!p.bounds) { pseudoRecord.projection_reason = 'unresolved-pseudo-layout'; continue; }
-      const vb = visibleRect(el, p.bounds);
+      if (!p.bounds && !symbol) { pseudoRecord.projection_reason = 'unresolved-pseudo-layout'; continue; }
+      const vb = p.bounds ? visibleRect(el, p.bounds) : null;
       const pseudoFragments = vb ? fragmentsOf(el, vb) : [];
       pseudoRecord.visible_bounds = vb; pseudoRecord.visible_fragments = pseudoFragments;
-      if (!vb || !pseudoFragments.length) { pseudoRecord.projection_reason = !vb ? 'hidden-or-fully-clipped' : 'fully-occluded'; continue; }
+      if (p.bounds && (!vb || !pseudoFragments.length)) { pseudoRecord.projection_reason = !vb ? 'hidden-or-fully-clipped' : 'fully-occluded'; continue; }
+      if (symbol) {
+        const unknown = { x: null, y: null, width: null, height: null };
+        const emitted = emit(el, 'icon', '', unknown, parent, pseudo, { style: ps, pseudo, pseudoBox: p.bounds,
+          textBoxes: [], unclippedBounds: unknown, axBackend: p.backend_node_id,
+          evidence: { source: 'CDP.DOMSnapshot + actual computed marker configuration', snapshot_node: p.index,
+            snapshot_layout_rows: p.layout_rows, pseudo_outer_bounds: p.bounds, pseudo_text_fragments: p.text_fragments,
+            backend_node_id: p.backend_node_id, paint_order: p.paint_order } });
+        // iconOf's generic SVG structural serializer is not a marker paint source.
+        elements[elements.length - 1].icon = null;
+        applyMarkerSymbolEvidence(elements[elements.length - 1], symbol, unmeasured, extraction_errors);
+        pseudoRecord.projection_reason = 'actual-marker-symbol-unmeasured-paint'; pseudoRecord.emitted = emitted;
+        raw.emitted.push(emitted);
+        continue;
+      }
       const pkind = p.text ? pseudo === '::marker' ? 'icon' : 'text' : 'card';
       const textBounds = p.text_element_bounds, geometryBox = p.text ? textBounds || { x: null, y: null, width: null, height: null } : p.bounds;
       const geometryVisible = p.text ? textBounds ? visibleRect(el, textBounds) : geometryBox : vb;

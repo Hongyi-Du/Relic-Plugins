@@ -262,7 +262,13 @@ public sealed partial class MainWindow : Window
         preferences = await api!.Get("/api/prefs");
         var language = Words.Normalize(preferences.Text("lang"));
         if (language != words.Language) { plain.Clear(); plainPending.Clear(); plainFailed.Clear(); digest = new JsonObject(); }
-        words.Load(await api.Get("/api/i18n?lang=" + language)); ApplyAppearance(); DrawMenu();
+        words.Load(await api.Get("/api/i18n?lang=" + language));
+        // The reference sets document.documentElement.lang with its word list.
+        // Native text shaping/fallback must use that same selected language,
+        // including an already-open settings dialog outside the main tree.
+        root.Language = words.Language;
+        if (visibleDialog != null) visibleDialog.Language = words.Language;
+        ApplyAppearance(); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();

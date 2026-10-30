@@ -29,10 +29,13 @@ internal static class InProcessTextRangeProviderProbe
         using var progress = new StreamWriter(new FileStream(Path.Combine(directory, caseId + ".inprocess-text-range-provider-probe.progress.jsonl"),
             FileMode.Create, FileAccess.Write, FileShare.Read), new UTF8Encoding(false)) { AutoFlush = true };
         var owners = new JsonArray(); var selection = new JsonArray(); var errors = new JsonArray();
+        var inapplicableNativePaths = new JsonArray();
         var receipt = new JsonObject { ["contract"] = "actual-inprocess-com-text-range-diagnostic-v1", ["case_id"] = caseId,
             ["source"] = "Same retained actual TextBlock/peer, public COM provider vtables while independent observer holds UIA references",
             ["observer"] = observer.DeepClone(), ["started_qpc"] = Stopwatch.GetTimestamp(), ["qpc_frequency"] = Stopwatch.Frequency,
             ["selection_rule"] = "Actual current WinRT rectangle height > 0 and < 1, without name, position or expected-reference lookup",
+            ["selection_scope"] = "Original actual TextBlock owners sampled by TextRangeProviderProbe; NativePathText is a different provider and has no applicable TextBlock WinRT source receipt",
+            ["inapplicable_native_path_owners"] = inapplicableNativePaths,
             ["selection"] = selection, ["owners"] = owners, ["errors"] = errors,
             ["winrt_file"] = caseId + ".text-range-provider-probe.json", ["external_com_file"] = caseId + ".uia.json",
             ["canonical_geometry_supplied"] = false, ["canonical_identity_supplied"] = false, ["provider_errors_resolved"] = false,
@@ -49,6 +52,9 @@ internal static class InProcessTextRangeProviderProbe
         Save();
         foreach (var (value, ownerId) in identities)
         {
+            if (value is NativePathText)
+                inapplicableNativePaths.Add(new JsonObject { ["owner_id"] = ownerId, ["actual_type"] = value.GetType().FullName,
+                    ["reason"] = "Actual NativePathText is outside the original TextBlock WinRT probe scope; no source range or rectangle is inferred" });
             if (value is not TextBlock owner) continue;
             var records = winrtProbe["owners"]?.AsArray().OfType<JsonObject>()
                 .Where(item => item["owner_id"]?.ToString() == ownerId).ToArray() ?? [];
@@ -101,9 +107,12 @@ internal static class InProcessTextRangeProviderProbe
                 inspectable = WinRT.MarshalInspectable<object>.FromManaged(peer);
                 record["actual_peer_inspectable"] = AutomationIdentityNative.Pointer(inspectable);
                 var iid = AutomationIdentityNative.SimpleId;
-                Check("QI(IRawElementProviderSimple, actual peer)", Marshal.QueryInterface(inspectable, ref iid, out simple));
+                var entry = new JsonObject(); record["public_provider_entry"] = entry;
+                simple = InProcessTextRangeNative.AcquireSimpleThroughFragment(inspectable, new InProcessTextRangeNative.Api(), entry, step => Trace(ownerId, step));
+                foreach (var failure in entry["errors"]!.AsArray())
+                    errors.Add(new JsonObject { ["owner_id"] = ownerId, ["source"] = "Actual public provider-entry diagnostic", ["error"] = failure?.DeepClone() });
                 record["origin_simple_pointer"] = AutomationIdentityNative.Pointer(simple);
-                if (simple == IntPtr.Zero) throw new InvalidOperationException("Actual Simple QI returned null");
+                if (simple == IntPtr.Zero) throw new InvalidOperationException("The actual public Fragment-to-Simple provider route is unavailable; original QI failures retained");
                 Check("CoMarshalInterThreadInterfaceInStream(Simple)", CoMarshalInterThreadInterfaceInStream(ref iid, simple, out stream));
                 marshaled = true;
                 if (stream == IntPtr.Zero) throw new InvalidOperationException("Simple marshal returned a null stream");
@@ -176,7 +185,9 @@ internal static class InProcessTextRangeProviderProbe
             }
         }
         receipt["capture_completed"] = true; receipt["completed_qpc"] = Stopwatch.GetTimestamp();
-        receipt["selected_owner_count"] = owners.Count; Save(); return receipt;
+        receipt["selected_owner_count"] = owners.Count;
+        receipt["selection_result"] = owners.Count == 0 ? "no-applicable-owner-in-original-TextBlock-scope" : "selected-actual-subpixel-TextBlock-owners";
+        Save(); return receipt;
     }
 
     private static void CollectFractionalHeights(JsonObject owner, JsonArray reasons)

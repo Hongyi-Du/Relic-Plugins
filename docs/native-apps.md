@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (native locale and public provider chain): Windows now
+sets FrameworkElement.Language on the actual main root and dialog when loading
+the selected `/api/i18n` language, matching the reference's document lang update.
+The raw tree retains each actual inherited Language. This corrects a native
+configuration omission, not an unmeasured assertion about a rendered font face.
+The in-process range probe now follows the same publicly observed
+peer-to-Fragment-to-Simple chain as the successful retained identity capture;
+the failed direct QI and every HRESULT remain recorded. 20e17bc did not reach
+the in-process SAFEARRAY, so the precision-loss layer is still unresolved.
+
 Changes for the clients (actual decoder build): archived paint diagnostic run
 41068736846 passes 14 input tests and its pinned source checks. GN generation
 succeeds; Ninja finds a missing Expat dependency before compiling. The original
@@ -9,8 +19,10 @@ unused feature explicitly. Font/source/frame measurements remain unresolved.
 
 Changes for the clients (latest macOS requests): the actual list-disc paint in
 Chromium 156.0.8078.4 is a FillEllipse symbol, not its accessibility bullet text.
-The requested separate shape/source measurement is being implemented in the
-reference extractor; it is not currently a measured match. The branch also
+The reference extractor now retains the actual AX name and original DOM/text
+boxes, identifies the verified builtin symbol branch, and reports unknown
+ellipse/rectangle paint geometry separately. Seven pure recorded/synthetic
+tests cover that distinction; there is still no measured shape match. The branch also
 exports actual rename outline/local-owner contours. Those native contours do
 not supply the still-missing reference focus contour. Opaque-dialog occlusion
 remains unmeasured and its extra elements remain reported.

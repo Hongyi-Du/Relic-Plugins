@@ -22,6 +22,7 @@ public sealed partial class MainWindow
 
     private async Task Dialog(ContentDialog dialog, bool contentOwnsPadding = false)
     {
+        dialog.Language = words.Language;
         transientFlyout?.Hide();
         if (visibleDialog != null)
         {
