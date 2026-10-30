@@ -165,6 +165,10 @@ class NativeGlyphLayoutManager: NSLayoutManager {
             var matrix = textMatrix
             matrix.tx = 0; matrix.ty = 0
             let drawingFont = CTFontCreateCopyWithAttributes(font as CTFont, 0, &matrix, nil)
+            // AppKit's callback context does not guarantee a usable inherited
+            // text drawing mode for a custom primitive. These plain labels have
+            // foreground ink, not stroked glyphs or a text clipping operation.
+            context.setTextDrawingMode(.fill)
             if let foreground = attributes[.foregroundColor] as? NSColor {
                 context.setFillColor(foreground.cgColor)
             }

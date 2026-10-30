@@ -1,5 +1,12 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+f0c2487 CI 41064042324 also fails: 212 tests, six failures. CTFontDrawGlyphs
+still produces empty label rasters and an AppKit ContentLayer; it is NOT a
+verified repair. The callback's actual clip, CTM and glyph positions are valid
+in the preceding raw capture. The next candidate explicitly sets glyph fill
+mode and retains every strict assertion. Current native binaries must not be
+accepted while these tests fail.
+
 Shared CI request: the macOS unit-test job should upload
 `native/macos/.build/draw-diagnostics/**` with `if: failure()` and
 `if-no-files-found: ignore`, artifact name `native-macos-draw-diagnostics`.
