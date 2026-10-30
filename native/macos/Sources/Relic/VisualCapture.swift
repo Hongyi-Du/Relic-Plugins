@@ -52,7 +52,8 @@ import RelicAX
             for item in manifest["cases"].rows {
                 var sceneMounted = false
                 var caseDefaults: (UserDefaults, String)?
-                defer { model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
+                var messageCapture: MessageCaptureSession?
+                defer { messageCapture?.finish(); model.stop(); if let (defaults, suite) = caseDefaults { defaults.removePersistentDomain(forName: suite) } }
                 do {
                 let scene = item["scene"].text, width = item["width"].integer, height = item["height"].integer
                 for editor in textEditors(window.contentView) { editor.closeMentions() }
@@ -147,7 +148,8 @@ import RelicAX
                 }
                 if scene == "message-hover" || scene == "message-copy-toast" {
                     let action = try await openMessageAction(scene, messageID: fixture["thread"].text, model: model, window: window)
-                    try evidence(action, suffix: ".scene-action.json", item: item, output: output)
+                    messageCapture = MessageCaptureSession(model: model, messageID: fixture["thread"].text, copying: scene == "message-copy-toast", action: action, path: output.appendingPathComponent(item["id"].text + ".scene-action.json"))
+                    try messageCapture?.begin(window: window)
                 }
                 if scene == "live-tool-output" {
                     let action = try await openLiveOutput(prepared, model: model, window: window)
@@ -188,8 +190,12 @@ import RelicAX
                     }
                     try evidence(["provider": "production NSAnimation clocks", "clocks": clocks], suffix: ".animations.json", item: item, output: output)
                 }
+                try messageCapture?.observe("before-screenshot", window: window)
                 try capture(window, to: output.appendingPathComponent(item["file"].text), width: width, height: height)
+                try messageCapture?.observe("after-screenshot", window: window)
                 try ElementCapture.write(window: window, png: output.appendingPathComponent(item["file"].text), item: item, language: language, theme: theme)
+                try messageCapture?.observe("after-native-source-and-element-extraction", window: window)
+                try messageCapture?.annotateElements(output.appendingPathComponent(item["id"].text + ".elements.json"))
                 results.append(["id": item["id"].text, "file": item["file"].text, "status": "captured"])
                 print("Relic visual capture: " + item["file"].text); fflush(stdout)
                 } catch {

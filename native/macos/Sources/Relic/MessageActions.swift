@@ -15,7 +15,7 @@ struct MessageActionButton: View {
             HStack(spacing: 4) {
                 ReferenceIcon(name: icon, size: 14, color: hovered ? RelicStyle.ink : RelicStyle.secondary, owner: identity)
                 if !title.isEmpty { ReferenceLabel(title, size: 12, color: hovered ? RelicStyle.ink : RelicStyle.secondary, owner: identity) }
-            }.padding(.horizontal, 8).frame(height: 26)
+            }.padding(.horizontal, 8).frame(height: 26).contentShape(Rectangle())
                 .modifier(RecordedSurface(background: hovered ? RelicStyle.hover : .clear, radius: 6, owner: identity, hovered: hovered))
         }.buttonStyle(.plain).onHover { hovered = $0 }.help(hint)
             .accessibilityLabel(title.isEmpty ? hint : title).accessibilityIdentifier(identity)

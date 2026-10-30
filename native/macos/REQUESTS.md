@@ -1,5 +1,14 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The 52-state / 624-case matrix and 16-case diagnostic from `native-message-capture.md`
+are consumed. macOS toast expiry now has a production ContinuousClock deadline;
+capture pauses that same task with measured remaining duration and resumes it in
+per-case cleanup. It retains the same message/tooltip-toolbar/toast objects,
+actual pointer, clipboard, paint and bounds across action, PNG and native source/
+element extraction phases. Drift is a capture failure. The action sidecar keeps
+all observations plus timer cleanup; successful elements embed `capture_evidence.message_action`.
+CI validation is pending; no permanent-toast flag or repeated Copy action is used.
+
 Latest native evidence: `838f96c` build/test run `40978875575` passes 110 tests.
 Smoke `40978583080` captures all 11 cases but retains one actual state failure:
 the tool row hovers at the requested center, yet expanded remains false. The
