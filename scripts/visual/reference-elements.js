@@ -722,6 +722,27 @@
     if (kind === 'image' && el.localName === 'img') return { source: 'image', glyph: el.currentSrc || el.src };
     return null;
   };
+  const imageResourceEvidence = el => {
+    if (el.localName !== 'img') return null;
+    const backend = snapshotBackend.get(el) ?? null, r = el.getBoundingClientRect();
+    const current = { tag: el.localName, connected: el.isConnected, owner_document_url: el.ownerDocument.URL,
+      in_current_document: el.ownerDocument === document, src: el.src, current_src: el.currentSrc,
+      src_attribute: el.getAttribute('src'), srcset_attribute: el.getAttribute('srcset'), sizes_attribute: el.getAttribute('sizes'),
+      complete: el.complete, natural_width: el.naturalWidth, natural_height: el.naturalHeight,
+      bounds: { x: r.x, y: r.y, width: r.width, height: r.height } };
+    const supplied = meta.image_resources?.images?.[String(backend)], errors = [...(meta.image_resources?.errors || []), ...(supplied?.errors || [])];
+    const after = supplied?.owner?.after_source_evidence;
+    if (backend === null || !supplied || supplied.owner?.backend_node_id !== backend)
+      errors.push('No observed image resource is bound to this actual DOMSnapshot backend node.');
+    if (!after || Object.keys(current).some(key => JSON.stringify(current[key]) !== JSON.stringify(after[key])))
+      errors.push('Actual image identity, loaded state or geometry changed between retained-object evidence and extraction.');
+    const evidence = { ...(supplied || { source: 'actual loaded resource unavailable', status: 'unknown', binding: null,
+      media_type: null, byte_length: null, body_base64: null, body_file: null, decoded_paint: null }),
+      owner: { ...(supplied?.owner || {}), backend_node_id: backend, at_extraction: current },
+      receipt_file: meta.image_resources?.file || null, errors };
+    if (errors.length || evidence.status !== 'loaded-response-bytes') evidence.status = 'unknown';
+    return evidence;
+  };
   const emit = (el, kind, text, bounds, parent, suffix = '', options = {}) => {
     const region = regionOf(el), id = nodeIds.get(el) + suffix;
     const s = options.style || styleOf(el), boxes = options.textBoxes || [];
@@ -761,7 +782,7 @@
         clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
         font_request: text ? fontRequestEvidence(s) : null,
-        panel_resize: panelResize, name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
+        panel_resize: panelResize, image_resource: imageResourceEvidence(el), name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
           source: 'getComputedStyle request + CSS.getPlatformFontsForNode resolved identity',
@@ -770,6 +791,14 @@
           background_size: s.backgroundSize, background_position: s.backgroundPosition, background_repeat: s.backgroundRepeat, background_origin: s.backgroundOrigin, background_clip: s.backgroundClip }, ...options.evidence } };
     regionOrders.set(region, item.order + 1);
     elements.push(item);
+    if (item.evidence.image_resource) {
+      const image = item.evidence.image_resource;
+      if (image.status !== 'loaded-response-bytes') {
+        unmeasured.push({ element: id, property: 'image.loaded_resource', reason: image.errors.join(' ') || 'Actual loaded image bytes are unavailable.' });
+        extraction_errors.push({ type: 'image_resource_binding_unavailable', node: id, reason: image.errors.join(' ') || 'No independently bound actual loaded image response.' });
+      }
+      unmeasured.push({ element: id, property: 'image.rendered_content', reason: 'Actual resource bytes are preserved separately; decoded vector/raster paint is not measured by the URI or this transport collector.' });
+    }
     if (text && !boxes.length) unmeasured.push({ element: id, property: 'layout.line_count', reason: 'No measured text-line rectangles were available.' });
     if (!accessibility.measured && !options.pseudo && ['button', 'icon-button', 'input', 'toggle', 'checkbox', 'tab', 'menu-item', 'dropdown', 'link', 'text'].includes(kind)) unmeasured.push({ element: id, property: 'accessibility.name_role', reason: 'No actual AX node was linked to this visible semantic element; empty names are not guessed.' });
     if (!suffix) emittedIds.set(el, id);
@@ -1126,7 +1155,7 @@
     const raw = { id, parent: nodeIds.get(el.parentElement) || null, selector: pathOf(el), tag: el.localName,
       attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])), bounds: unclipped,
       visible_bounds: bounds, paint_bounds: paintBounds, visible_fragments: fragments, occlusion_masks: occlusionMasks.get(el) || [], display: s.display, visibility: s.visibility, opacity: s.opacity, emitted: [],
-      accessibility: accessibilityOf(el), details_visibility: detailsVisibilityEvidence(el),
+      accessibility: accessibilityOf(el), details_visibility: detailsVisibilityEvidence(el), image_resource: imageResourceEvidence(el),
       text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue,
         details_visibility: detailsVisibilityEvidence(el, true), owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
@@ -1217,7 +1246,9 @@
       reading_order_policy: 'Actual DOM child-node order with CSS tree-abiding pseudo-elements: originating semantic container, ::marker, ::before, mixed text/element descendants, ::after. Regions have independent contiguous order. No element or measurement is removed to fix order.',
       visibility_policy: 'Viewport/ancestor clips, SVG stroke visibility, actual paint order, and analytic rounded-rectangle subtraction masks. visible_fragments are rectangular envelopes; occlusion_masks retain exact curved clipping. Unresolved compound masks remain failures.' },
     capture_evidence: { color_policy: 'Canonical colors are independently parsed computed, unpremultiplied sRGB float RGBA channels on 0..255. Canvas RGBA8 is a separate raster diagnostic, never a fallback or a source of canonical channels.',
-      colors: Array.from(colors.values()) },
+      colors: Array.from(colors.values()), image_resources: meta.image_resources ? { file: meta.image_resources.file,
+        image_count: Object.keys(meta.image_resources.images || {}).length, response_count: meta.image_resources.responses?.length || 0,
+        errors: meta.image_resources.errors || [] } : null },
     elements, raw_nodes, raw_ax_nodes, extraction_errors, coverage: { raw_nodes: raw_nodes.length, emitted_elements: elements.length, unmeasured },
     summary: { dom_nodes: raw_nodes.length, elements: elements.length, extraction_errors: extraction_errors.length } };
 }

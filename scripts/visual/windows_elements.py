@@ -13,6 +13,7 @@ from pathlib import Path
 from PIL import Image
 
 from paint_patterns import MeasurementError, captured_pattern, pattern_measurement_issue
+from image_projection import project_windows_image
 
 
 CONTROL_KINDS = {
@@ -1580,6 +1581,7 @@ def project(xaml_path, uia_path, png_path):
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
         project_background_pattern(element, node)
+        project_windows_image(element, unmeasured, errors)
         for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):
             if style.get(key) is None:
                 unmeasured.append({"id": node["id"], "property": "style." + key, "reason": "Unsupported rendered brush/property"})

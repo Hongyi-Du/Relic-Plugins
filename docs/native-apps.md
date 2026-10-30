@@ -1,5 +1,26 @@
 # Native Relic App contract
 
+Changes for the clients (actual image content comparison): the reference now
+collects only the page's actual completed Image responses and retains the real
+DOM backend/object identity through PNG and extraction. Windows records its
+actual loaded SvgImageSource bytes (68da37d group confirms the 514-byte source,
+successful decode and current COM binding). Shared `image_projection.py` rechecks
+these receipts before strict SVG decoding into `vector-image-v1`; original bytes,
+transport URI and unrelated errors stay in evidence. Unsupported features/formats
+fail. The matcher validates the entire representation and compares ordered paint
+layers exactly; this is not an icon equivalence mapping. See
+`docs/native-image-evidence.md` for the format and macOS draw-receipt obligations.
+Integration now awaits CI. The unrelated scrollbar Node fixture slicing regression
+has been corrected without suppressing its case.
+
+Changes for the clients (pending outline request): the latest macOS request adds
+actual inward dashed outline evidence for subgroup avatars. Common reference
+outline capture/comparison is still required; neither border substitution nor
+unmeasured dash/curve equivalence is accepted. This request remains open. The
+sidebar UIA zero-area diagnosis is recorded in `docs/native-uia-zero-area.md`;
+the current provider rectangles are retained as failures while actual production
+trimming evidence is implemented.
+
 Changes for the clients (b89f80b runtime): Windows diagnostic `40996427962`
 now produces all 19 original PNGs. All 76 actual text-surface readbacks report
 `surface-pixels-read`, current draw versions and successful submission; journal

@@ -89,6 +89,54 @@ test('unmapped emitted identities remain visible failures rather than being disc
   assert.equal(errors[0].node, 'unknown-painted-item');
 });
 
+function imageFixture() {
+  const doc = { URL: 'http://127.0.0.1:7777/' }, url = doc.URL + 'static/icon.svg';
+  const image = { localName: 'img', ownerDocument: doc, isConnected: true, src: url, currentSrc: url,
+    complete: true, naturalWidth: 256, naturalHeight: 256,
+    getAttribute: name => name === 'src' ? '/static/icon.svg' : null,
+    getBoundingClientRect: () => ({ x: 18, y: 17, width: 26, height: 26 }) };
+  const state = { tag: 'img', connected: true, owner_document_url: doc.URL, in_current_document: true,
+    src: url, current_src: url, src_attribute: '/static/icon.svg', srcset_attribute: null, sizes_attribute: null,
+    complete: true, natural_width: 256, natural_height: 256, bounds: image.getBoundingClientRect() };
+  const body = 'PHN2Zy8+';
+  const meta = { image_resources: { file: 'actual.image-resources.json', errors: [], images: { '42': {
+    source: 'actual response fixture', status: 'loaded-response-bytes', owner: { backend_node_id: 42,
+      before_screenshot: state, after_source_evidence: state }, errors: [], body_base64: body,
+      body_file: 'actual.body', byte_length: 6, media_type: 'image/svg+xml', decoded_paint: null } } } };
+  const read = vm.runInNewContext('(' + expression('imageResourceEvidence', 'emit') + ')', {
+    document: doc, meta, snapshotBackend: new WeakMap([[image, 42]]),
+  });
+  return { image, doc, meta, read, body };
+}
+
+test('actual img backend object and currentSrc bind original response bytes without using URI as content', () => {
+  const { image, read, body } = imageFixture(), result = normalize(read(image));
+  assert.equal(result.status, 'loaded-response-bytes'); assert.equal(result.body_base64, body);
+  assert.equal(result.owner.backend_node_id, 42); assert.equal(result.owner.at_extraction.current_src, image.currentSrc);
+  assert.equal(result.decoded_paint, null); assert.deepEqual(result.errors, []);
+});
+
+test('changed live img state, wrong backend or absent source stays unknown with original evidence retained', () => {
+  for (const mutate of [
+    fixture => { fixture.image.currentSrc += '?changed'; },
+    fixture => { fixture.image.isConnected = false; },
+    fixture => { fixture.image.complete = false; },
+    fixture => { fixture.meta.image_resources.images['42'].owner.backend_node_id = 99; },
+    fixture => { delete fixture.meta.image_resources.images['42']; },
+    fixture => { fixture.meta.image_resources.errors.push('Actual request observation incomplete'); },
+  ]) {
+    const fixture = imageFixture(); mutate(fixture);
+    const result = normalize(fixture.read(fixture.image));
+    assert.equal(result.status, 'unknown'); assert.ok(result.errors.length);
+    assert.equal(result.owner.at_extraction.current_src, fixture.image.currentSrc);
+  }
+});
+
+test('only actual img elements receive external-image resource evidence', () => {
+  const { read } = imageFixture();
+  for (const localName of ['svg', 'div', 'canvas']) assert.equal(read({ localName }), null);
+});
+
 const context = {
   innerWidth: 1440, innerHeight: 900, intersect,
   nonempty: box => box.width > 0 && box.height > 0,
@@ -250,9 +298,9 @@ test('overflow scrollbar evidence retains actual metrics without inventing thumb
     offsetWidth: 340, offsetHeight: 816, scrollLeft: 0,
   });
   owner.style = { ...owner.style, overflowY: 'auto', scrollbarWidth: 'auto' };
-  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'readingOrderIds') + ')', {
+  const read = vm.runInNewContext('(' + expression('scrollbarEvidence', 'scrollbarGutter') + ')', {
     styleOf: context.styleOf, rect: box => ({ ...box }),
-    pseudoByOwner: new WeakMap(),
+    pseudoByOwner: new WeakMap(), pathOf: () => '#actual-overflow-owner', snapshotBackend: new WeakMap(), computedSrgb: () => ({ rgba: null }),
     getComputedStyle: (_owner, pseudo) => ({ display: 'inline', visibility: 'visible', opacity: '1',
       width: '10px', height: '10px', backgroundColor: pseudo.endsWith('-thumb') ? 'rgba(143, 140, 134, 0.35)' : 'rgba(0, 0, 0, 0)' }),
   });

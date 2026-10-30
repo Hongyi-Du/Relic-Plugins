@@ -899,7 +899,7 @@ def record_caret_coverage(elements, evidence):
     elements.setdefault("extraction_errors", []).append({"type": "ua_caret_measurement_unavailable", "node": owner, "reason": reason})
 
 
-def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None):
+def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None, image_resources=None):
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
@@ -917,6 +917,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         for action in actions:
             action.open()
             action.checkpoint("before_screenshot")
+        if image_resources is not None:
+            source_step("source:image_objects_before_screenshot", lambda: image_resources.before_screenshot(cdp))
         if case["scene"] == "message-copy-toast":
             capture_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
             message.pause_for_sources()
@@ -934,6 +936,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         environment = source_step("source:environment", lambda: page.evaluate("({navigator_platform:navigator.platform,user_agent:navigator.userAgent,language:navigator.language,device_pixel_ratio:devicePixelRatio,url:location.href,display_mode:matchMedia('(display-mode: standalone)').matches?'standalone':matchMedia('(display-mode: minimal-ui)').matches?'minimal-ui':'browser',navigator_standalone:navigator.standalone===true,caret_context:(" + CARET_CONTEXT + ")()})"))
         environment.update(platform="macos" if sys.platform == "darwin" else "windows" if sys.platform == "win32" else sys.platform,
                            browser={"name": "Chromium", "version": browser.version}, fonts=fonts)
+        image_evidence = source_step("source:loaded_image_resources", image_resources.collect) if image_resources is not None else None
         (output / (case["id"] + ".dom.json")).write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".ax.json")).write_text(json.dumps(ax_tree, ensure_ascii=False), encoding="utf-8")
         (output / (case["id"] + ".input-text.json")).write_text(json.dumps(input_text, ensure_ascii=False), encoding="utf-8")
@@ -941,7 +944,11 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         for action in actions:
             action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "panel_listeners": panel_listeners, "screenshot_file": case["file"], "reference_environment": environment}))
+        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "panel_listeners": panel_listeners, "image_resources": image_evidence, "screenshot_file": case["file"], "reference_environment": environment}))
+        if image_resources is not None:
+            source_step("source:image_binding_after_extraction", lambda: image_resources.after_extraction(elements))
+        from image_projection import project_reference_images
+        source_step("source:image_content_projection", lambda: project_reference_images(elements, image_evidence))
         from scrollbar_pixels import append_scrollbar_pixels
         source_step("source:scrollbar_original_png", lambda: append_scrollbar_pixels(elements, output / case["file"], output / (case["id"] + ".scrollbar-pixels.json")))
         for action in actions:
@@ -970,7 +977,11 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
                 action.close()
         finally:
             try:
-                cdp.detach()
+                try:
+                    if image_resources is not None:
+                        image_resources.close()
+                finally:
+                    cdp.detach()
             finally:
                 page.close()
 
@@ -1007,6 +1018,8 @@ def reference_browser(manifest):
             case_fixture = dict(manifest["fixture"], scene_state=prepared)
             (Path(manifest["output"]) / (case["id"] + ".scene-fixture.json")).write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
             page = context.new_page()
+            from image_resource_capture import ImageResourceCapture
+            image_resources = ImageResourceCapture(page, manifest["output"], case["id"])
             page.set_viewport_size({"width": case["width"], "height": case["height"]})
             page.clock.set_fixed_time(manifest["fixture"]["clock"])
             page.route("**/app.js", lambda route: route.fulfill(body=source, content_type="application/javascript"))
@@ -1038,7 +1051,7 @@ def reference_browser(manifest):
             if animation is not None:
                 (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
             progress("capturing actual actions, PNG and source evidence")
-            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist)
+            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist, image_resources)
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
         progress("closing browser context and runtime")

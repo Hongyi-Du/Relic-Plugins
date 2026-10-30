@@ -10,7 +10,8 @@ import unittest
 
 from element_parity import (CATEGORIES, STATE_FIELDS, compare_elements, delta_e,
                             expected_cases, geometry_tolerance, image_info, match_elements,
-                            outlines, run, validate_capture)
+                            outlines, run, validate_capture, has_font_glyph)
+from image_paint import decode_svg_bytes
 
 
 def element(eid="r0", text="今天 11:00", order=0, kind="text", region="conversation"):
@@ -37,6 +38,14 @@ def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group
         data["reference_environment"] = {"platform": "macos" if client == "reference-macos" else "windows",
                                          "browser": {"name": "fixture-browser", "version": "1"}, "fonts": ["fixture font evidence"]}
     return data
+
+
+def vector_image_fixture():
+    # Synthetic independently captured content, not an approved icon mapping.
+    return decode_svg_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">'
+                            b'<rect width="20" height="20" rx="3" fill="#123456"/>'
+                            b'<path d="M1 2L3 4Z" fill="#ffffff"/>'
+                            b'<circle cx="12" cy="13" r="2" fill="#abcdef"/></svg>')
 
 
 class ElementComparisonTests(unittest.TestCase):
@@ -156,6 +165,26 @@ class ElementComparisonTests(unittest.TestCase):
         a["icon"] = {"source": "svg", "glyph": "M0,0L10,10"}
         b["icon"] = {"source": "font", "glyph": "E123"}
         self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_vector_image_key_order_is_not_a_paint_difference(self):
+        a, b = element(), element("n")
+        a["icon"] = vector_image_fixture()
+        def reversed_keys(value):
+            if isinstance(value, dict):
+                return {key: reversed_keys(item) for key, item in reversed(list(value.items()))}
+            return [reversed_keys(item) for item in value] if isinstance(value, list) else value
+        b["icon"] = reversed_keys(a["icon"])
+        self.assertFalse(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_vector_image_layer_color_and_path_changes_are_exact_mismatches(self):
+        a, b = element(), element("n")
+        a["icon"] = vector_image_fixture()
+        changed = deepcopy(a["icon"]); changed["glyph"]["layers"].reverse()
+        color = deepcopy(a["icon"]); color["glyph"]["layers"][0]["fill"]["color"][0] += 1
+        path = deepcopy(a["icon"]); path["glyph"]["layers"][1]["d"] = "M1 2L3 5Z"
+        for altered in (changed, color, path):
+            b["icon"] = altered
+            self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
 
     def test_svg_identity_compares_parsed_tree_without_json_serialization_noise(self):
         a, b = element(), element("n")
@@ -325,6 +354,40 @@ class ExtractionContractTests(unittest.TestCase):
 
     def test_complete_capture_is_valid(self):
         self.assertEqual(self.validate(capture()), [])
+
+    def test_strict_vector_image_glyph_is_accepted_without_font_measurements(self):
+        item = element(text="", kind="icon")
+        item["icon"] = vector_image_fixture()
+        item["style"]["font_size"] = item["style"]["font_weight"] = None
+        item["style"]["rendered_fonts"] = None
+        item["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        self.assertFalse(has_font_glyph(item))
+        self.assertEqual([], self.validate(capture(elements=[item])))
+        item["icon"] = {"source": "font", "glyph": "E123"}
+        self.assertTrue(has_font_glyph(item))
+        self.assertTrue(any("Font glyph" in error["reason"] for error in self.validate(capture(elements=[item]))))
+
+    def test_invalid_vector_descriptions_fail_validation_and_even_equal_pairing(self):
+        valid = vector_image_fixture()
+        missing = deepcopy(valid); del missing["glyph"]["view_box"]
+        unknown = deepcopy(valid); unknown["glyph"]["layers"][0]["shadow"] = "unmeasured"
+        nonfinite = deepcopy(valid); nonfinite["glyph"]["layers"][2]["radius"] = float("inf")
+        malformed_path = deepcopy(valid); malformed_path["glyph"]["layers"][1]["d"] = "M1 2C3"
+        bad_source = deepcopy(valid); bad_source["expected_uri"] = "reference-icon.svg"
+        for icon in (missing, unknown, nonfinite, malformed_path, bad_source,
+                     {"source": "vector-image-v1", "glyph": "not a structured resource"},
+                     {"source": "vector-image-v1", "glyph": {}}):
+            a, b = element(), element("native")
+            a["icon"] = deepcopy(icon); b["icon"] = deepcopy(icon)
+            with self.subTest(icon=icon):
+                self.assertTrue(any("vector-image-v1" in error["reason"] for error in self.validate(capture(elements=[a]))))
+                self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_arbitrary_dict_glyphs_are_not_accepted_for_other_icon_sources(self):
+        for source in ("image", "font", "geometry", "path", "unknown-source"):
+            item = element(); item["icon"] = {"source": source, "glyph": vector_image_fixture()["glyph"]}
+            with self.subTest(source=source):
+                self.assertTrue(any("Invalid icon identity" in error["reason"] for error in self.validate(capture(elements=[item]))))
 
     def test_missing_measurements_even_on_both_clients_are_errors(self):
         for field in ("font_size", "font_weight", "foreground"):

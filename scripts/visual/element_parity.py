@@ -18,6 +18,7 @@ import re
 import shutil
 from typing import Any
 
+from image_paint import ImagePaintError, validate_vector_paint
 from paint_patterns import (MeasurementError, background_pattern_kind,
                             captured_pattern, compare_paint_patterns,
                             pattern_measurement_issue)
@@ -68,7 +69,7 @@ def has_text(element: dict) -> bool:
 def has_font_glyph(element: dict) -> bool:
     icon = element.get("icon")
     return (element.get("kind") == "icon" and isinstance(icon, dict)
-            and icon.get("source") not in ("svg", "image", "path", "geometry"))
+            and icon.get("source") not in ("svg", "image", "path", "geometry", "vector-image-v1"))
 
 
 def paint_issues(style: dict) -> list[str]:
@@ -198,6 +199,14 @@ def icon_identity(icon: Any) -> tuple[Any, str | None]:
     icon equivalence mapping, or tolerance is introduced; raw glyphs survive in
     the extraction file and every mismatch record.
     """
+    if isinstance(icon, dict) and icon.get("source") == "vector-image-v1":
+        try:
+            validate_vector_paint(icon)
+        except ImagePaintError as exc:
+            return None, "Invalid vector-image-v1 identity: " + str(exc)
+        # Dict key order is serialization detail; ordered layers, actual path
+        # strings and every paint number remain exact, with no icon mapping.
+        return icon, None
     if not isinstance(icon, dict) or icon.get("source") != "svg":
         return icon, None
     glyph = icon.get("glyph")
@@ -384,7 +393,8 @@ def validate_capture(data: Any, client: str, scene: str, viewport: dict) -> list
         if element.get("kind") in ("icon", "chart-edge", "image") and not element.get("icon"):
             error("Visible glyph/vector/image has no independently extracted identity", eid)
         icon = element.get("icon")
-        if icon is not None and (not isinstance(icon, dict) or not isinstance(icon.get("source"), str) or not isinstance(icon.get("glyph"), str) or not icon.get("glyph")):
+        vector_image = isinstance(icon, dict) and icon.get("source") == "vector-image-v1"
+        if icon is not None and not vector_image and (not isinstance(icon, dict) or not isinstance(icon.get("source"), str) or not isinstance(icon.get("glyph"), str) or not icon.get("glyph")):
             error("Invalid icon identity", eid)
         _, icon_error = icon_identity(icon)
         if icon_error: error(icon_error, eid)
