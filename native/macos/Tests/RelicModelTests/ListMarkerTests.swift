@@ -24,5 +24,11 @@ import AppKit
         XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 3, y: 6))[3], 0)
         XCTAssertTrue(view.observation()["current_draw"] is NSNull, "A detached bitmap is not a mounted capture")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draw))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        XCTAssertNotNil(view.observation()["current_draw"] as? [String: Any])
+        view.configure(font: font, color: .red, region: "right-pane")
+        XCTAssertTrue(view.observation()["current_draw"] is NSNull, "A changed marker paint must not reuse the earlier draw")
     }
 }

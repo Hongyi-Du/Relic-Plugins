@@ -50,6 +50,10 @@ struct NativeListMarkerMetrics {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        revision += 1; needsDisplay = true
+    }
     func configure(font: NSFont, color: NSColor, region: String) {
         self.region = region
         guard self.font != font || self.color != color else { return }
@@ -84,12 +88,15 @@ struct NativeListMarkerMetrics {
         }
     }
     func observation() -> [String: Any] {
+        var currentColor: [Double]?
+        effectiveAppearance.performAsCurrentDrawingAppearance { currentColor = ElementCapture.rgba(color) as? [Double] }
         guard let window, let draw = lastDraw,
               window.isVisible, !isHiddenOrHasHiddenAncestor,
               draw["revision"] as? Int == revision,
               draw["view_identity"] as? String == String(describing: ObjectIdentifier(self)),
               draw["window_identity"] as? String == String(describing: ObjectIdentifier(window)),
-              ElementCapture.rect(draw["local_bounds"]) == bounds else {
+              ElementCapture.rect(draw["local_bounds"]) == bounds,
+              let currentColor, draw["foreground"] as? [Double] == currentColor else {
             return ["source": "production native disc observation", "current_draw": NSNull(), "errors": ["No current mounted native symbol draw"]]
         }
         let screen = window.convertToScreen(convert(bounds, to: nil))
