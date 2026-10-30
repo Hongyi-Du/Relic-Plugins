@@ -39,6 +39,7 @@ struct ReferenceLabel: NSViewRepresentable {
     }
     func makeLabelView() -> ReferenceLabelView {
         let storage = NSTextStorage(), layout = NativeGlyphLayoutManager()
+        layout.drawsGlyphsIntoCurrentContext = true
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         layout.recordDraws = VisualCapture.enabled
         // Keep AppKit's working production paint until the alternate primitive

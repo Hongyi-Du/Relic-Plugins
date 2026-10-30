@@ -6,6 +6,7 @@ import AppKit
 @MainActor enum ComposerPlaceholder {
     static func makeLabel() -> ReferenceLabelView {
         let storage = NSTextStorage(), manager = NativeGlyphLayoutManager()
+        manager.drawsGlyphsIntoCurrentContext = true
         manager.recordDraws = VisualCapture.enabled
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
