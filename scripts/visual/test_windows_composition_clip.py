@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import unittest
 
-from windows_composition_clip import (SOURCE, PREFIX, IDENTITY3, IDENTITY4,
+from windows_composition_clip import (SOURCE, RETAINED_SOURCE, PREFIX, IDENTITY3, IDENTITY4,
                                       composition_clip, apply_composition_clip)
 
 
@@ -38,6 +38,19 @@ def change_snapshot(node, mutator):
     raw = node["composition_clip_evidence"]
     mutator(raw["before"])
     raw["after"] = deepcopy(raw["before"])
+
+
+def retained_sample():
+    node = sample()
+    node["composition_clip_evidence"].update(
+        source=RETAINED_SOURCE, backing_visual_read=True, production_backing_visual_binding_available=True,
+        production_binding={
+            "source": "Actual ClipToolbarLogo assignment and retained owner/root/Visual fields",
+            "owner_same_object": True, "owner_is_current_logo": True, "same_xaml_root": True,
+            "owner_is_loaded_after": True, "visual_same_retained_object": True,
+            "clip_is_installed_production_object": True, "geometry_is_installed_production_object": True,
+            "read_only": True, "revision_before": 7, "revision_after": 7})
+    return node
 
 
 class CompositionClipTests(unittest.TestCase):
@@ -87,8 +100,49 @@ class CompositionClipTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"\bSetElementChildVisual\s*\(", source))
         collector = (root / "native/windows/Relic/CompositionClipCapture.cs").read_text(encoding="utf-8-sig")
         self.assertIn('["status"] = "not-measured"', collector)
-        self.assertNotIn('["status"] = "measured"', collector)
+        self.assertIn('if (!ReferenceEquals(owner, toolbarLogoBackingOwner) || toolbarLogoBackingVisual == null)', collector)
         self.assertNotIn('["clip_present"] = false', collector)
+
+    def test_retained_production_binding_measures_geometry_but_not_presentation(self):
+        node = retained_sample(); original = deepcopy(node)
+        audit, gaps = composition_clip(node)
+        self.assertEqual(audit["image_corner_radius"], 5)
+        self.assertEqual(audit["status"], "geometry-measured")
+        self.assertEqual([gap["property"] for gap in gaps], ["clip.presentation"])
+        self.assertFalse(audit["presentation_identity_proven"])
+        self.assertEqual(node, original)
+
+    def test_retained_owner_root_clip_and_unload_revision_must_be_proven(self):
+        keys = ("owner_same_object", "owner_is_current_logo", "same_xaml_root", "owner_is_loaded_after",
+                "visual_same_retained_object", "clip_is_installed_production_object",
+                "geometry_is_installed_production_object", "read_only")
+        for key in keys:
+            for value in (False, None, 1, "true"):
+                with self.subTest(key=key, value=value):
+                    node = retained_sample()
+                    node["composition_clip_evidence"]["production_binding"][key] = value
+                    audit, gaps = composition_clip(node)
+                    self.assertIsNone(audit["image_corner_radius"])
+                    self.assertTrue(gaps)
+        for before, after in ((7, 8), (0, 0), (None, None), (True, True), (7, 7.0)):
+            node = retained_sample()
+            node["composition_clip_evidence"]["production_binding"].update(revision_before=before, revision_after=after)
+            self.assertTrue(composition_clip(node)[1])
+            self.assertIsNone(composition_clip(node)[0]["image_corner_radius"])
+
+    def test_retained_receipt_does_not_replace_actual_getters_or_unknown_absence(self):
+        for mutate in (
+            lambda raw: raw.update(backing_visual_read=False),
+            lambda raw: raw.update(production_backing_visual_binding_available=False),
+            lambda raw: raw.pop("production_binding"),
+            lambda raw: raw.update(properties_stable=False),
+            lambda raw: raw["binding"].update(geometry_same_object_after=False),
+            lambda raw: raw["after"]["clip"]["geometry"].update(corner_radius=[4, 4]),
+        ):
+            node = retained_sample(); mutate(node["composition_clip_evidence"])
+            audit, gaps = composition_clip(node)
+            self.assertIsNone(audit["image_corner_radius"])
+            self.assertTrue(gaps)
 
     def test_actual_radius_is_projected_without_resource_uri_or_reference(self):
         for radius in (0, 3.25, 5, 8):

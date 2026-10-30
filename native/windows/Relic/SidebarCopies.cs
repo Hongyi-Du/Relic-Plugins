@@ -16,6 +16,10 @@ public sealed partial class MainWindow
     private Image? toolbarLogo;
     private Microsoft.UI.Composition.CompositionRoundedRectangleGeometry? toolbarLogoClipGeometry;
     private Microsoft.UI.Composition.CompositionGeometricClip? toolbarLogoClip;
+    private Microsoft.UI.Composition.Visual? toolbarLogoBackingVisual;
+    private Image? toolbarLogoBackingOwner;
+    private XamlRoot? toolbarLogoBackingRoot;
+    private long toolbarLogoClipRevision;
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private void DrawToolbar()
@@ -42,6 +46,11 @@ public sealed partial class MainWindow
             };
             toolbarLogo.Loaded += (_, _) => ClipToolbarLogo();
             toolbarLogo.SizeChanged += (_, _) => ClipToolbarLogo();
+            toolbarLogo.Unloaded += (_, _) =>
+            {
+                toolbarLogoBackingVisual = null; toolbarLogoBackingOwner = null;
+                toolbarLogoBackingRoot = null; toolbarLogoClipRevision++;
+            };
             NativeSvgAsset.LoadPackagedInto(toolbarLogo, "Assets/Relic.svg");
         }
         navigationButtons.Children.Add(toolbarLogo);
@@ -69,6 +78,10 @@ public sealed partial class MainWindow
         toolbarLogoClip ??= visual.Compositor.CreateGeometricClip(toolbarLogoClipGeometry);
         // Clip this Image's real paint, matching .ab-logo without an extra visual wrapper.
         visual.Clip = toolbarLogoClip;
+        // Retain the actual production binding. Capture reads these objects;
+        // it never invokes the handoff-visual getter to discover them.
+        toolbarLogoBackingOwner = image; toolbarLogoBackingRoot = image.XamlRoot;
+        toolbarLogoBackingVisual = visual; toolbarLogoClipRevision++;
     }
     private Button ToolbarIconButton(string glyph, string tip, Func<Task> action, int badge = 0, bool selected = false, bool alert = false)
     {

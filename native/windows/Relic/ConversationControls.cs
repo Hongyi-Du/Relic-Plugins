@@ -59,7 +59,8 @@ public sealed partial class MainWindow
         Add(OverviewText(call == null ? T("common.result") : TraceToolLabel(call.Text("tool")), 12.5, weight: 600), 1);
         var argument = OverviewText(call == null ? TraceClip(result.Text("text"), 120) : TraceArgument(call), 11.5, true);
         argument.FontFamily = new FontFamily("Cascadia Code"); argument.TextWrapping = TextWrapping.NoWrap; argument.TextTrimming = TextTrimming.CharacterEllipsis; Add(argument, 2);
-        Add(OverviewText(TraceClock((call ?? result).Text("at")), 11, true), 3);
+        var clock = OverviewText(TraceClock((call ?? result).Text("at")), 11, true);
+        clock.TextWrapping = TextWrapping.WrapWholeWords; Add(clock, 3);
         var sources = new StackPanel { Spacing = 6, Padding = new Thickness(27, 2, 10, 8) };
         var disclosure = DetailsDisclosure(header, sources);
         disclosure.Expanding += async (_, _) =>
@@ -93,7 +94,10 @@ public sealed partial class MainWindow
         var title = OverviewText(T("step.actions", ("n", pairs.Count)), 12.5, weight: 600); title.Foreground = Paint("5A5853", "B8B5AE"); Add(title, 1);
         var preview = OverviewText(summary, 12.5, true); preview.TextWrapping = TextWrapping.NoWrap; preview.TextTrimming = TextTrimming.CharacterEllipsis; Add(preview, 2);
         if (failed > 0) Add(OverviewChip(T("step.failed", ("n", failed)), "bad"), 3);
-        Add(OverviewText(TraceClock(group.Text("at")), 12.5, true), 4);
+        // Summary metadata inherits normal CSS wrapping; an unbreakable clock
+        // must not be split by WinUI's default Wrap emergency behavior.
+        var clock = OverviewText(TraceClock(group.Text("at")), 12.5, true);
+        clock.TextWrapping = TextWrapping.WrapWholeWords; Add(clock, 4);
         var rows = new StackPanel { Padding = new Thickness(0, 4, 0, 4) };
         var inner = new Border { Child = rows, BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = Line };
         var disclosure = DetailsDisclosure(header, inner);

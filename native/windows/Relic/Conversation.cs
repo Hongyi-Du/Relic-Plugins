@@ -335,6 +335,8 @@ public sealed partial class MainWindow
             if (separatorText != null)
             {
                 separator = OverviewText(separatorText, 11.5, true); separator.TextAlignment = TextAlignment.Center;
+                // .day uses normal word wrapping, without overflow-wrap:anywhere.
+                separator.TextWrapping = TextWrapping.WrapWholeWords;
                 separator.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(separator);
             }
             var rendered = Message(item!, false, Transcript.SameMessageGroup(previous, item!));
@@ -442,6 +444,8 @@ public sealed partial class MainWindow
         {
             var others = item.Rows("to").Where(x => x.Text() != "human").Select(x => x.Text()).ToArray(); var read = item.Rows("read_by").Count(x => others.Contains(x.Text()));
             var receipt = Quiet(others.Length == 1 ? read > 0 ? T("msg.read") : T("msg.unread") : T("msg.read_count", ("read", read), ("total", others.Length)), 11);
+            // .read sits outside the bubble's emergency-wrap policy.
+            receipt.TextWrapping = TextWrapping.WrapWholeWords;
             receipt.LineHeight = 17.6; receipt.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             // .msg.mine .body uses justify-items:end for each child, including
             // this receipt independently of the wider thread button below it.

@@ -8,6 +8,7 @@ import math
 
 
 SOURCE = "actual ElementCompositionPreview.GetElementVisual(owner).Clip"
+RETAINED_SOURCE = "production-retained backing Visual from ClipToolbarLogo"
 PREFIX = "Microsoft.UI.Composition."
 IDENTITY3 = [1, 0, 0, 1, 0, 0]
 IDENTITY4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
@@ -42,11 +43,27 @@ def composition_clip(node):
         issues.append({"id": node.get("id"), "property": property_name, "reason": reason})
 
     try:
-        require(isinstance(raw, dict) and raw.get("source") == SOURCE, "Backing Visual clip has no actual-owner receipt")
+        require(isinstance(raw, dict) and raw.get("source") in (SOURCE, RETAINED_SOURCE), "Backing Visual clip has no actual-owner receipt")
         require(raw.get("status") == "measured" and raw.get("owner_id") == node.get("id"), "Composition clip collection or owner identity is incomplete")
         require(isinstance(raw.get("owner_runtime_type"), str) and bool(raw["owner_runtime_type"])
                 and raw.get("owner_type") == node.get("type"), "Composition clip runtime owner differs from the rendered node")
         require(raw.get("owner_is_loaded") is True, "Composition clip owner is not actually loaded")
+        if raw.get("source") == RETAINED_SOURCE:
+            retained = raw.get("production_binding")
+            require(isinstance(retained, dict)
+                    and retained.get("source") == "Actual ClipToolbarLogo assignment and retained owner/root/Visual fields"
+                    and raw.get("backing_visual_read") is True
+                    and raw.get("production_backing_visual_binding_available") is True,
+                    "Production backing Visual has no retained owner assignment receipt")
+            require(all(retained.get(key) is True for key in (
+                "owner_same_object", "owner_is_current_logo", "same_xaml_root", "owner_is_loaded_after",
+                "visual_same_retained_object", "clip_is_installed_production_object",
+                "geometry_is_installed_production_object", "read_only")),
+                "Production backing Visual/owner/root or installed clip binding changed or is incomplete")
+            require(type(retained.get("revision_before")) is int and retained["revision_before"] > 0
+                    and type(retained.get("revision_after")) is int
+                    and retained["revision_before"] == retained["revision_after"],
+                    "Production clip was detached/reassigned or its revision is missing")
         binding = raw.get("binding") or {}
         require(binding.get("source") == "actual IUnknown identity comparison; acquired references released in finally"
                 and all(binding.get(k) is True for k in ("visual_same_object_after", "clip_same_object_after", "geometry_same_object_after")),
