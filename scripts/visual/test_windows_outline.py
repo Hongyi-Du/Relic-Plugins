@@ -1,10 +1,13 @@
-"""Pure synthetic receipt regressions; CI only, no native UI or subprocesses."""
+"""Pure synthetic/recorded receipt regressions; CI only, no native UI or subprocesses."""
 from copy import deepcopy
+import json
+from pathlib import Path
 import unittest
 
 from windows_outline import (CONTRACTS, LOCAL_LAYOUT_CONTRACTS, LOCAL_LAYOUT_SOURCE,
                              RUN_SOURCE, SOURCE, VECTOR_CONTRACT, VECTOR_RUNTIME,
-                             VECTOR_SOURCE, TEMPLATE_CONTROL_TYPES, native_outline)
+                             VECTOR_SOURCE, TEMPLATE_CONTROL_TYPES, LABEL_RUNTIME,
+                             LABEL_CONTRACT, LABEL_SOURCE, LABEL_SURFACE_SOURCE, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
@@ -61,6 +64,27 @@ def local_layout(runtime="Relic.ActionRow", eid="layout"):
         local_layout={"source": LOCAL_LAYOUT_SOURCE, "owner_id": eid,
                       "base_type": base, "is_sealed": True, "audited_source": audited_source})
     return node
+
+
+def native_label():
+    """Synthetic new-contract receipt, not a relabelled historical capture."""
+    node = primitive("label", "NativeLabel")
+    image = primitive("surface", "Image", "label")
+    binding = {"source": LABEL_SURFACE_SOURCE, "owner_id": "label",
+               "same_image_object": True, "surface_binding_same_com_identity": True,
+               "source_type": "Microsoft.UI.Xaml.Media.Imaging.SurfaceImageSource",
+               "layout_revision": 7, "surface_revision": 1, "draw_ordinal": 4}
+    image["native_label_surface_evidence"] = deepcopy(binding)
+    raw = node["outline_owner_evidence"]
+    raw.update(runtime_type=LABEL_RUNTIME, own_paint_contract=LABEL_CONTRACT,
+        native_label_content={"source": LABEL_SOURCE, "status": "measured", "owner_id": "label",
+                              "base_type": "Microsoft.UI.Xaml.Controls.Panel", "is_sealed": True,
+                              "audited_source": "native/windows/Relic/NativeLabel.cs#NativeLabel",
+                              "visual_child_count": 1, "panel_child_count": 1, "image_id": "surface",
+                              "production_image_is_current_only_child": True,
+                              "production_image_binding": deepcopy(binding)})
+    raw["children"]["items"] = [{"id": "surface", "index": 0, "same_parent_object": True}]
+    return node, image
 
 
 class WindowsOutlineTests(unittest.TestCase):
@@ -319,6 +343,114 @@ class WindowsOutlineTests(unittest.TestCase):
                 self.assertUnknown(node, [child])
                 node["outline_owner_evidence"]["children"]["items"] = []
                 self.assertUnknown(node, [child])
+
+    def test_exact_native_label_proves_only_parent_panel_paint_without_mutating_receipts(self):
+        node, image = native_label()
+        before = deepcopy([node, image])
+        value, proof, gaps = self.result(node, [image])
+        self.assertEqual(value, "none")
+        self.assertTrue(proof["absence_proven"])
+        self.assertIn("native Panel paint only", proof["scope"])
+        self.assertEqual(gaps, [])
+        self.assertEqual([node, image], before)
+        self.assertEqual(proof["raw"], before[0]["outline_owner_evidence"])
+        self.assertEqual(self.result(image, [node])[0], "none")
+
+    def test_native_label_requires_complete_exact_runtime_and_child_contract(self):
+        keys = tuple(native_label()[0]["outline_owner_evidence"]["native_label_content"])
+        for key in keys:
+            with self.subTest(missing=key):
+                node, image = native_label()
+                node["outline_owner_evidence"]["native_label_content"].pop(key)
+                self.assertUnknown(node, [image])
+        for changed in ({"base_type": "Relic.OtherPanel"}, {"is_sealed": False}, {"is_sealed": 1},
+                        {"audited_source": "native/windows/Relic/Design.cs#ActionRow"}, {"owner_id": "other"},
+                        {"image_id": "label"}, {"visual_child_count": 2}, {"panel_child_count": True},
+                        {"production_image_is_current_only_child": False}):
+            with self.subTest(changed=changed):
+                node, image = native_label()
+                node["outline_owner_evidence"]["native_label_content"].update(changed)
+                self.assertUnknown(node, [image])
+        for changed in ({"runtime_type": "Relic.OtherLabel"}, {"own_paint_contract": None},
+                        {"own_paint_contract": "native-panel-background"}):
+            node, image = native_label()
+            node["outline_owner_evidence"].update(changed)
+            self.assertUnknown(node, [image])
+
+    def test_native_label_binds_both_actual_surface_observations_and_current_revisions(self):
+        for side in ("parent", "image"):
+            for key in tuple(native_label()[1]["native_label_surface_evidence"]):
+                with self.subTest(side=side, missing=key):
+                    node, image = native_label()
+                    binding = (node["outline_owner_evidence"]["native_label_content"]["production_image_binding"]
+                               if side == "parent" else image["native_label_surface_evidence"])
+                    binding.pop(key)
+                    self.assertUnknown(node, [image])
+            for changed in ({"same_image_object": False}, {"surface_binding_same_com_identity": False},
+                            {"source_type": "Microsoft.UI.Xaml.Media.Imaging.BitmapImage"},
+                            {"owner_id": "other"}, {"layout_revision": 8}, {"surface_revision": 0},
+                            {"draw_ordinal": True}, {"draw_ordinal": 5}):
+                with self.subTest(side=side, changed=changed):
+                    node, image = native_label()
+                    binding = (node["outline_owner_evidence"]["native_label_content"]["production_image_binding"]
+                               if side == "parent" else image["native_label_surface_evidence"])
+                    binding.update(changed)
+                    self.assertUnknown(node, [image])
+
+    def test_native_label_rejects_changed_visual_identity_or_an_additional_actual_child(self):
+        node, image = native_label()
+        self.assertUnknown(node)
+        image["parent"] = None
+        self.assertUnknown(node, [image])
+        node, image = native_label()
+        image["outline_owner_evidence"]["runtime_type"] = "Relic.OtherImage"
+        self.assertUnknown(node, [image])
+        node, image = native_label()
+        extra = primitive("unaccounted", "Border", "label")
+        extra["render_sibling_order"] = 1
+        # Even mutually complete children receipts cannot change the audited
+        # production renderer's requirement of one actual bound Image.
+        node["outline_owner_evidence"]["children"]["items"].append(
+            {"id": "unaccounted", "index": 1, "same_parent_object": True})
+        self.assertUnknown(node, [image, extra])
+
+    def test_native_label_retains_focus_composition_shadow_and_children_failures(self):
+        for section, updates in (
+            ("focus", {"state": "Keyboard"}),
+            ("focus", {"owner_ancestry_complete": False}),
+            ("composition", {"child_visual_present": True, "child_visual_type": "ActualAttachedVisual"}),
+            ("composition", {"shadow_present": True, "shadow_type": "Microsoft.UI.Xaml.Media.ThemeShadow"}),
+            ("children", {"complete": False}),
+        ):
+            with self.subTest(section=section, changed=updates):
+                node, image = native_label()
+                node["outline_owner_evidence"][section].update(updates)
+                self.assertUnknown(node, [image])
+
+    def test_native_label_never_proves_the_child_images_own_outline(self):
+        node, image = native_label()
+        image["outline_owner_evidence"]["composition"].update(
+            shadow_present=True, shadow_type="Microsoft.UI.Xaml.Media.ThemeShadow")
+        self.assertEqual(self.result(node, [image])[0], "none")
+        self.assertUnknown(image, [node])
+        image["outline_owner_evidence"]["status"] = "error"
+        self.assertEqual(self.result(node, [image])[0], "none")
+        self.assertUnknown(image, [node])
+
+    def test_recorded_a374_label_null_contract_stays_unknown_and_image_remains_independent(self):
+        path = Path(__file__).parent / "fixtures" / "native_label_outline_recorded_a37467a.json"
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["provenance"]["commit"], "a37467a")
+        nodes = fixture["raw_nodes"]
+        by_id = {node["id"]: node for node in nodes}
+        node, image = by_id["xaml-31"], by_id["xaml-32"]
+        before = deepcopy(nodes)
+        self.assertIsNone(node["outline_owner_evidence"]["own_paint_contract"])
+        self.assertTrue(image["native_label_surface_evidence"]["same_image_object"])
+        self.assertTrue(image["native_label_surface_evidence"]["surface_binding_same_com_identity"])
+        self.assertUnknown(node, [other for other in nodes if other is not node])
+        self.assertEqual(native_outline(image, by_id)[0], "none")
+        self.assertEqual(nodes, before)
 
     def test_real_text_run_does_not_copy_its_owners_outline_proof(self):
         owner = primitive("text", "TextBlock")

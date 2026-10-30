@@ -18,7 +18,9 @@ public sealed partial class MainWindow : Window
     private readonly CancellationTokenSource lifetime = new();
     private readonly Words words = new();
     private Client? api;
-    private JsonArray orgs = new(), messages = new(), copies = new();
+    private JsonArray orgs = new(), messages = new();
+    private readonly CopyInbox copyInbox = new();
+    private JsonArray copies => copyInbox.Items;
     private JsonNode snap = new JsonObject(), preferences = new JsonObject();
     private string org = "", member = "", pane = "overview";
     private readonly HashSet<string> folded = new();
@@ -193,8 +195,8 @@ public sealed partial class MainWindow : Window
             var selectedOrg = org; var selectedMember = member;
             try { orgs = (await api.Get("/api/orgs")).Rows(); }
             catch (Exception ex) { throw new InvalidOperationException(T("boot.load_orgs_failed", ("error", ex.Message)), ex); }
-            copies = (await api.Get("/api/cc")).Rows("items");
-            CopyNotifications(); DrawCopies();
+            var newCopy = copyInbox.Update(await api.Get("/api/cc"));
+            CopyNotifications(newCopy); DrawCopies();
             if (org.Length > 0 && !orgs.Any(x => x.Text("id") == org)) { org = ""; member = ""; }
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
             if (org.Length > 0)
@@ -380,10 +382,10 @@ public sealed partial class MainWindow : Window
     }
     private Task Copies() => ShowCopies();
     private Task Settings() => SettingsScreen();
-    private void Notify(string message)
+    private void Notify(string message, string title = "Relic")
     {
         if (!notificationsAvailable) { Note(T("settings.notify_unsupported")); return; }
-        try { AppNotificationManager.Default.Show(new AppNotificationBuilder().AddText("Relic").AddText(message).BuildNotification()); }
+        try { AppNotificationManager.Default.Show(new AppNotificationBuilder().AddText(title).AddText(message).BuildNotification()); }
         catch (Exception ex) { error.Message = T("settings.notify_denied") + " " + ex.Message; error.IsOpen = true; }
     }
     private Task Chart() => ShowChart();

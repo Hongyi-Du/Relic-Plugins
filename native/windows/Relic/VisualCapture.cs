@@ -33,6 +33,8 @@ public sealed partial class MainWindow
         try
         {
             var manifest = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(path))!; var fixture = manifest["fixture"]!;
+            RunTextBindingProbe.Capture(System.IO.Path.GetDirectoryName(path)!,
+                manifest.Rows("cases").Select(shot => shot.Text("id")).ToArray());
             foreach (var shot in manifest.Rows("cases"))
             {
                 capturePointerReceipts = new JsonArray();

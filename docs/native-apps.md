@@ -1,5 +1,31 @@
 # Native Relic App contract
 
+Changes for the clients (CC totals, form bounds and measured label ownership):
+Windows now uses the server's `/api/cc.unread` for toolbar/card-header counts,
+including copies omitted from `items`. Like production `loadCc`, notifications
+require a count increase after initial load and the first available unread item;
+their shared message receives org/id/title instead of the old incorrect n field.
+Five core regression cases cover omitted cards, initial load and count changes.
+FormDialog constrains the outer ScrollViewer width so its real scrollbar stays
+inside the declared dialog bounds, instead of adding 10px to the whole modal.
+
+The exact sealed NativeLabel parent now reports its actual Panel/unique Image
+ownership and current source/revisions. Its own-outline contract requires those
+facts and all existing focus/Composition/Shadow checks; the child's independent
+paint failures and old null-contract receipts still fail. Seven focused tests
+cover rejection paths. A separate CI-only SDK diagnostic tests an unattached
+Run.Text OneWay binding with isolated objects. It does not mutate scene Runs,
+resolve COM rectangles, or mark frame continuity proven. All main WinUI changes
+in this batch build headlessly with zero warnings/errors; CI tests/captures remain
+required. At 75fddb6 CI passed 28 core, 91 capture, 101 Node and 540 Python tests.
+macOS compiled but its tests again exited with signal 11; no crash report was
+found. The latest native-macos branch includes a scroller accessibility fix, whose
+actual result is still pending. No element-parity scene is accepted.
+
+Read native-macos REQUESTS at 79b2cf1: the reference must await its real CC load
+before every scene and retain the actual response/readiness. That shared capture
+change is in progress; it must not manufacture the badge or clear unread copies.
+
 Changes for the clients (full report storage and real text ranges): immutable
 captured PNG/element/raw-tree files now share storage with the report through
 same-filesystem hard links; cross-device copies exclusively create new files.

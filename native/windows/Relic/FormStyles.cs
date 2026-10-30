@@ -79,8 +79,11 @@ public sealed partial class MainWindow
     }
     private async Task FormDialog(ContentDialog dialog, StackPanel body, double width, Control? focus = null)
     {
-        body.Width = Math.Min(width, Math.Max(0, root.ActualWidth - 32)); body.Padding = new Thickness(22); body.Spacing = 14;
-        var scroll = Scroll(body); scroll.MaxHeight = Math.Max(0, root.ActualHeight - 60); dialog.Content = scroll;
+        // The dialog width includes any visible scrollbar. Constrain the
+        // viewport owner and let its native layout allocate the body width.
+        body.Width = double.NaN; body.HorizontalAlignment = HorizontalAlignment.Stretch; body.Padding = new Thickness(22); body.Spacing = 14;
+        var scroll = Scroll(body); scroll.Width = Math.Min(width, Math.Max(0, root.ActualWidth - 32)); scroll.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        scroll.MaxHeight = Math.Max(0, root.ActualHeight - 60); dialog.Content = scroll;
         dialog.Opened += (_, _) =>
         {
             if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
@@ -89,7 +92,7 @@ public sealed partial class MainWindow
             if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands) commands.Visibility = Visibility.Collapsed;
             focus?.Focus(FocusState.Programmatic);
         };
-        void Resize(object sender, SizeChangedEventArgs args) { body.Width = Math.Min(width, Math.Max(0, args.NewSize.Width - 32)); scroll.MaxHeight = Math.Max(0, args.NewSize.Height - 60); }
+        void Resize(object sender, SizeChangedEventArgs args) { scroll.Width = Math.Min(width, Math.Max(0, args.NewSize.Width - 32)); scroll.MaxHeight = Math.Max(0, args.NewSize.Height - 60); }
         root.SizeChanged += Resize;
         try { await Dialog(dialog, contentOwnsPadding: true); } finally { root.SizeChanged -= Resize; }
     }
