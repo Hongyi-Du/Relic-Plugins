@@ -34,7 +34,7 @@ struct Overview: View {
                     OverviewChip(text: m.t("common.members", ["n": String(m.members.count)]))
                     if !m.secretary.isEmpty { OverviewChip(text: m.t("org.secretary_chip", ["name": roleName(m.secretary, "common.secretary")]), tone: "sec") }
                 }
-                if !["", "active"].contains(org["status"].text) { Text(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
+                if !["", "active"].contains(org["status"].text) { ReferenceLabel(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved"), size: 12, color: RelicStyle.muted, lineHeight: 18.6, lines: 0) }
                 ReferenceSwitchRow(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
             }
             OverviewBlock {
@@ -53,13 +53,13 @@ struct Overview: View {
             .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
     }
     private func sectionTitle(_ key: String) -> some View { ReferenceLabel(m.t(key), size: 12, color: RelicStyle.muted, lineHeight: 19.2, lines: 0) }
-    private func empty(_ key: String) -> some View { Text(m.t(key)).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted).fixedSize(horizontal: false, vertical: true) }
+    private func empty(_ key: String) -> some View { ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.muted, lines: 0).fixedSize(horizontal: false, vertical: true) }
     private var currentWork: some View {
         let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
         return OverviewBlock {
             HStack { OverviewLink(text: m.t("org.current_work")) { m.openDetails("tasks", filter: "open") }; Spacer(); OverviewLink(text: m.t("org.done_count", ["n": String(done.count)])) { m.openDetails("tasks", filter: "done") } }
             if tasks.isEmpty { empty("org.no_tasks") }
-            else if open.isEmpty { Text(m.t("org.nothing_open", ["n": String(done.count)])).font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.muted) }
+            else if open.isEmpty { ReferenceLabel(m.t("org.nothing_open", ["n": String(done.count)]), size: 12.5, color: RelicStyle.muted, lines: 0) }
             Rows(Array(open.prefix(8))) { overviewTask($0, report: false) }
             if open.count > 8 { OverviewLink(text: m.t("common.more_items", ["n": String(open.count - 8)]), icon: "") { m.openDetails("tasks", filter: "open") } }
             let reports = done.filter { !$0["report"].text.isEmpty }.sorted { $0["done_at"].text > $1["done_at"].text }
@@ -129,11 +129,11 @@ struct HierarchyView: View {
             ($0["id"].text == parent || $0["status"].text == "active" && (org["kind"].text == "subgroup" || $0["kind"].text != "subgroup"))
         }.map { ($0["id"].text, $0["name"].text) }
     }
-    private func note(_ value: String) -> some View { Text(value).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineSpacing(4.6).fixedSize(horizontal: false, vertical: true) }
+    private func note(_ value: String) -> some View { ReferenceLabel(value, size: 12, color: RelicStyle.muted, lineHeight: 18.6, lines: 0).fixedSize(horizontal: false, vertical: true) }
     private func stats(_ child: Node) -> String { m.t("org.child_stats", ["decisions": child["decisions"].text, "blocked": child["blocked"].text, "working": child["working"].text]) }
     var body: some View {
         OverviewBlock {
-            HStack { Text(m.t("org.hierarchy")).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted); Spacer(); OverviewLink(text: m.t("chart.title")) { m.sheet = .chart } }
+            HStack { ReferenceLabel(m.t("org.hierarchy"), size: 12, color: RelicStyle.muted, lines: 0); Spacer(); OverviewLink(text: m.t("chart.title")) { m.sheet = .chart } }
             OverviewPicker(title: m.t("org.parent_label"), selection: Binding(get: { parent }, set: { value in m.run {
                 do { try await m.post(m.path("/parent"), ["parent": value.isEmpty ? NSNull() : value as Any]); try await m.refresh() }
                 catch { throw RelicError.message(m.t("org.parent_failed", ["error": error.localizedDescription])) }

@@ -93,14 +93,19 @@ struct OverviewLink: View {
     var icon = "chev"
     var leading = false
     let action: () -> Void
+    @State private var hovered = false
+    @State private var identity = "relic-text-button/overview-link/" + UUID().uuidString
+    private var color: Color { hovered ? RelicStyle.accent : RelicStyle.muted }
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: RelicStyle.muted) }
-                Text(text).font(RelicStyle.font(12, weight: 400))
-                if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: RelicStyle.muted) }
-            }.foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2)
-        }.buttonStyle(.plain)
+                if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: color, owner: identity) }
+                ReferenceLabel(text, size: 12, color: color, lines: 0, owner: identity)
+                if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: color, owner: identity) }
+            }.frame(minHeight: 19.2)
+                .modifier(RecordedSurface(background: .clear, owner: identity, hovered: hovered))
+        }.buttonStyle(.plain).onHover { hovered = $0 }
+            .accessibilityIdentifier(identity).accessibilityLabel(text)
     }
 }
 
