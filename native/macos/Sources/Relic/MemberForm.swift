@@ -140,7 +140,7 @@ struct MemberForm: View {
                     NativeRadio(selected: Binding(get: { harness == option["id"].text }, set: { if $0 { harness = option["id"].text } }), accessibleName: [option["title"].text, option["vendor"].text, detail].filter { !$0.isEmpty }.joined(separator: " "))
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: (" " as NSString).size(withAttributes: [.font: RelicStyle.nativeFont(12.5, weight: 400)]).width) {
-                            ReferenceLabel(option["title"].text, size: 12.5, weight: 700)
+                            ReferenceLabel(option["title"].text, size: 12.5, weight: 700, color: RelicStyle.secondary)
                             ReferenceLabel(option["vendor"].text, size: 12.5, color: RelicStyle.muted)
                         }
                         ReferenceLabel(detail, size: 12, color: RelicStyle.muted, lines: 0)
