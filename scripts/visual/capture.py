@@ -1438,8 +1438,20 @@ def native_process(manifest_path, manifest, exe):
                 raise RuntimeError(f"Element request is not bound to this case/process: {last_request}, request PID {request.get('pid')}, client PID {process.pid}")
             output = Path(manifest["output"])
             raw = output / (last_request + ".uia.json")
+            receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
+            def publish_observer_receipt(observer_pid=None):
+                receipt.parent.mkdir(exist_ok=True)
+                receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request,
+                    "observer_pid": observer_pid, "observer_held": observer_pid is not None}), encoding="utf-8")
+                receipt.with_suffix(".tmp").replace(receipt)
+            def observer_ready(held, deadline):
+                from uia_observer import wait_native_probe_receipt
+                publish_observer_receipt(held["observer_pid"])
+                wait_native_probe_receipt(receipt.with_name(last_request + ".probes.json"),
+                    request, held["observer_pid"], process, deadline)
             try:
-                result = subprocess.run([manifest["uia_exe"], "--request", str(request_path), "--output", str(raw)], timeout=75, capture_output=True, text=True)
+                from uia_observer import observe
+                result = observe(manifest["uia_exe"], request_path, raw, process, observer_ready)
                 with (manifest_path.parent / "uia.log").open("a", encoding="utf-8") as observer_log:
                     observer_log.write(f"case={last_request} pid={process.pid} returncode={result.returncode}\n{result.stdout}\n{result.stderr}\n")
                 if result.returncode:
@@ -1456,10 +1468,8 @@ def native_process(manifest_path, manifest, exe):
                 capture_errors.append("Projection failed: " + str(error))
                 projected = {"schema_version": 1, "scene_id": last_request, "client": "windows", "viewport": {"width": request["width"], "height": request["height"], "scale": 1}, "elements": [], "extraction_errors": ["Projection failed: " + str(error)]}
             (output / (last_request + ".elements.json")).write_text(json.dumps(projected, ensure_ascii=False), encoding="utf-8")
-            receipt = manifest_path.parent / "element-receipts" / (last_request + ".json")
-            receipt.parent.mkdir(exist_ok=True)
-            receipt.with_suffix(".tmp").write_text(json.dumps({"case_id": last_request}), encoding="utf-8")
-            receipt.with_suffix(".tmp").replace(receipt)
+            if not receipt.exists():
+                publish_observer_receipt()
             completed_requests.add(last_request)
         try:
             (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,

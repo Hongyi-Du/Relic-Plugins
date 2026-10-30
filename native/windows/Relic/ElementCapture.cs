@@ -537,8 +537,26 @@ public sealed partial class MainWindow
         }
         var completed = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(receipt))!;
         if (completed["case_id"]?.GetValue<string>() != caseId) throw new InvalidOperationException("Stale element capture acknowledgement");
-        providerProbe.CaptureAfter();
-        TextRangeProviderProbe.Capture(directory, caseId, renderIds);
+        var observerPid = completed["observer_pid"]?.GetValue<int>();
+        if (completed["observer_held"]?.GetValue<bool>() != true || observerPid is not > 0)
+            throw new InvalidOperationException("Independent UIA observer was not held for the native provider observation");
+        var probeStatus = "failed";
+        try
+        {
+            providerProbe.CaptureAfter();
+            TextRangeProviderProbe.Capture(directory, caseId, renderIds);
+            probeStatus = "observed";
+        }
+        finally
+        {
+            // The independent observer retains its actual element/provider
+            // references until Python receives this bound observation receipt.
+            // "observed" means these reads completed, not that QI/parity passed.
+            var probeReceipt = System.IO.Path.Combine(receipts, caseId + ".probes.json");
+            await System.IO.File.WriteAllTextAsync(probeReceipt + ".tmp", JsonSerializer.Serialize(new
+            { case_id = caseId, app_pid = Environment.ProcessId, observer_pid = observerPid, status = probeStatus }));
+            System.IO.File.Move(probeReceipt + ".tmp", probeReceipt);
+        }
     }
 
     private static Rect IntersectCapture(Rect a, Rect b)
@@ -642,6 +660,8 @@ public sealed partial class MainWindow
             case RichTextBlock t: foreground = t.Foreground; size = t.FontSize; weight = t.FontWeight.Weight; break;
             case Border b: background = b.Background; border = b.BorderBrush; thickness = b.BorderThickness; radius = b.CornerRadius; break;
             case ContentPresenter p: foreground = p.Foreground; background = p.Background; border = p.BorderBrush; thickness = p.BorderThickness; radius = p.CornerRadius; size = p.FontSize; weight = p.FontWeight.Weight; break;
+            case Grid g: background = g.Background; border = g.BorderBrush; thickness = g.BorderThickness; radius = g.CornerRadius; break;
+            case StackPanel s: background = s.Background; border = s.BorderBrush; thickness = s.BorderThickness; radius = s.CornerRadius; break;
             case Panel p: background = p.Background; break;
             case FontIcon i: foreground = i.Foreground; size = i.FontSize; weight = i.FontWeight.Weight; break;
             case IconElement i: foreground = i.Foreground; break;

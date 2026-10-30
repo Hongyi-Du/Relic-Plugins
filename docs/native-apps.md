@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (live observer ownership): the UIA observer now keeps
+its actual AutomationElement/root/NativeTextEvidence references alive through
+a PID/case-bound ready/release handshake. The native provider probes run before
+release. The same 75-second total process deadline includes startup, capture,
+handshake and exit; timeout or bad identities fail and preserve original errors.
+Mock lifecycle tests cover both processes and the original deadline. Both native
+projects pass headless builds. This addresses a gap in the 53aa451 diagnostic:
+all 1,564 QIs failed, but the "after" phase ran after observer exit, when the
+SDK's weak provider wrapper could already have been released. Nine ListViewItem
+EventsSource references also changed and cannot count as unchanged aliases.
+
+The Windows style reader now reads actual Grid and StackPanel border brushes,
+edge thicknesses and corner radii before its generic Panel background branch.
+Those real properties were previously lost, including the conversation header's
+bottom divider. This is an extraction correction; no reference values or
+matching thresholds are used to fill paint data.
+
+`27e39b3` CI passes 87 Node and 448 Python tests, Windows build plus 28 core
+and 47 capture/layout tests. Its macOS 19-scene capture completed; the Windows
+capture and final parity still fail. New observer-lifetime changes require their
+own fresh CI, and no diagnostic result is a full 660-state acceptance result.
+
 Changes for the clients (actual WinRT text-range diagnostic): Windows now emits
 `*.text-range-provider-probe.json` after the unchanged UIA hand-off and peer
 probe. It reads DocumentRange and every GetVisibleRanges result from each real

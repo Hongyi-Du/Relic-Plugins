@@ -116,17 +116,30 @@ class WindowsCaptureProcessTests(unittest.TestCase):
             (output / (case["id"] + ".xaml.json")).write_text("{}")
             on_tick()
             return {"count": 1, "errors": []}
-        def observe(arguments, **kwargs):
-            request = json.loads(Path(arguments[arguments.index("--request") + 1]).read_text())
+        def observe(executable, request_path, raw_path, actual_process, on_ready):
+            self.assertEqual(executable, manifest["uia_exe"])
+            self.assertIs(actual_process, process)
+            request = json.loads(Path(request_path).read_text())
             self.assertEqual(request["pid"], process.pid)
             self.assertEqual(request["hwnd"], 123456, "Never replace the actual native HWND")
-            Path(arguments[arguments.index("--output") + 1]).write_text('{"raw_nodes":[]}')
+            Path(raw_path).write_text('{"raw_nodes":[]}')
+            on_ready({"case_id": case["id"], "app_pid": process.pid, "observer_pid": 9876,
+                      "exit_code": 1 if reader_error else 0}, 75)
             return SimpleNamespace(returncode=1 if reader_error else 0, stdout="real reader stdout fixture", stderr="provider error" if reader_error else "")
+        def native_ack(path, request, observer_pid, actual_process, deadline):
+            held = json.loads((work / "element-receipts" / (case["id"] + ".json")).read_text())
+            self.assertEqual(held, {"case_id": case["id"], "observer_pid": 9876, "observer_held": True})
+            self.assertIs(actual_process, process); self.assertEqual(observer_pid, 9876)
+            self.assertEqual(deadline, 75)
+            Path(path).write_text(json.dumps({"case_id": case["id"], "app_pid": process.pid,
+                                            "observer_pid": observer_pid, "status": "observed"}))
+        observer = Mock(side_effect=observe)
+        native_probe_wait = Mock(side_effect=native_ack)
         projector = Mock(return_value={"elements": [], "extraction_errors": []})
         with patch.object(capture.subprocess, "Popen", return_value=process) as launch, \
-                patch.object(capture.subprocess, "run", side_effect=observe) as observer, \
                 patch.object(capture, "wait_file", side_effect=wait), \
-                patch.dict("sys.modules", {"windows_elements": SimpleNamespace(project=projector)}):
+                patch.dict("sys.modules", {"windows_elements": SimpleNamespace(project=projector),
+                    "uia_observer": SimpleNamespace(observe=observer, wait_native_probe_receipt=native_probe_wait)}):
             if wrong_pid or reader_error:
                 with self.assertRaisesRegex(RuntimeError, "not bound" if wrong_pid else "UIA capture failed"):
                     capture.native_process(work / "manifest.json", manifest, Path("Relic.exe"))
@@ -138,9 +151,11 @@ class WindowsCaptureProcessTests(unittest.TestCase):
             process.wait.assert_called_once_with(timeout=20)
             if wrong_pid:
                 observer.assert_not_called()
+                native_probe_wait.assert_not_called()
                 projector.assert_not_called()
             else:
                 observer.assert_called_once()
+                native_probe_wait.assert_called_once()
                 self.assertTrue((work / "element-receipts" / (case["id"] + ".json")).exists())
                 self.assertTrue((output / (case["id"] + ".elements.json")).exists())
             self.assertEqual(json.loads((work / "process-exit.json").read_text())["pid"], process.pid)

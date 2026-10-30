@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,13 +16,15 @@ internal static class Program
     [MTAThread]
     private static int Main(string[] args)
     {
+        var observerClock = Stopwatch.StartNew();
+        var clockStartedUtc = DateTimeOffset.UtcNow;
         if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true")
         {
             Console.Error.WriteLine("UI Automation capture is CI-only; no local app is inspected.");
             return 2;
         }
 
-        string? requestPath = null, outputPath = null;
+        string? requestPath = null, outputPath = null, holdReadyPath = null, holdReleasePath = null;
         for (var index = 0; index < args.Length; index++)
         {
             if (index + 1 >= args.Length) return Usage();
@@ -29,17 +32,23 @@ internal static class Program
             {
                 case "--request": requestPath = args[++index]; break;
                 case "--output": outputPath = args[++index]; break;
+                case "--hold-ready": holdReadyPath = args[++index]; break;
+                case "--hold-release": holdReleasePath = args[++index]; break;
                 default: return Usage();
             }
         }
         if (requestPath == null || outputPath == null) return Usage();
+        if ((holdReadyPath == null) != (holdReleasePath == null)) return Usage();
 
         using var progress = new CaptureProgress(outputPath);
+        JsonObject? request = null;
+        Capture? capture = null;
         JsonObject result;
         try
         {
-            var request = JsonNode.Parse(File.ReadAllText(requestPath))!.AsObject();
-            result = progress.Measure("capture.run", () => new Capture(request, progress).Run());
+            request = JsonNode.Parse(File.ReadAllText(requestPath))!.AsObject();
+            capture = new Capture(request, progress, retainOwners: holdReadyPath != null);
+            result = progress.Measure("capture.run", capture.Run);
         }
         catch (Exception error)
         {
@@ -58,12 +67,57 @@ internal static class Program
         File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
         // Measurements survive provider failures so the caller can create a
         // complete parity report rather than silently dropping this scene.
-        return result["extraction_errors"]!.AsArray().Count == 0 ? 0 : 1;
+        var exitCode = result["extraction_errors"]!.AsArray().Count == 0 ? 0 : 1;
+        if (holdReadyPath == null) return exitCode;
+
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var processStartedUtc = new DateTimeOffset(process.StartTime.ToUniversalTime());
+            var ageAtClockStart = (clockStartedUtc - processStartedUtc).TotalSeconds;
+            if (!double.IsFinite(ageAtClockStart) || ageAtClockStart < 0)
+                throw new InvalidOperationException("Actual observer process StartTime could not be bound to the Main-entry clock.");
+            var owners = capture?.RetainedOwnerEvidence() ?? new JsonObject
+            {
+                ["capture_instance_retained"] = false,
+                ["reason"] = "Capture initialization failed; no owner references were acquired"
+            };
+            var held = ObserverLease.Hold(request?["case_id"]?.GetValue<string>() ?? "",
+                request?["pid"]?.GetValue<int>() ?? 0, Environment.ProcessId, exitCode,
+                holdReadyPath, holdReleasePath!, owners, new ObserverLeaseFiles(observerClock, ageAtClockStart), progress.Record);
+            held.Receipt["process_started_utc"] = processStartedUtc.ToString("O", CultureInfo.InvariantCulture);
+            result["observer_hold"] = held.Receipt;
+            exitCode = held.ExitCode;
+        }
+        catch (Exception error)
+        {
+            result["observer_hold"] = new JsonObject
+            {
+                ["status"] = "failed", ["capture_exit_code"] = exitCode, ["exit_code"] = 1,
+                ["errors"] = new JsonArray("UIA observer hold initialization failed: " + error)
+            };
+            progress.Record("observer-hold", "failed", result["observer_hold"]!.AsObject());
+            exitCode = 1;
+        }
+        finally
+        {
+            // Keep the complete graph alive across the external app's probe,
+            // including actual root collections and NativeTextEvidence indexes.
+            GC.KeepAlive(capture);
+        }
+        foreach (var error in result["observer_hold"]!["errors"]!.AsArray())
+        {
+            result["extraction_errors"]!.AsArray().Add(error?.DeepClone());
+            result["raw_extraction_errors"]!.AsArray().Add(error?.DeepClone());
+        }
+        result["capture_progress"] = progress.Summary();
+        File.WriteAllText(outputPath, result.ToJsonString(new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }));
+        return exitCode;
     }
 
     private static int Usage()
     {
-        Console.Error.WriteLine("Relic.Capture --request request.json --output scene.uia.json");
+        Console.Error.WriteLine("Relic.Capture --request request.json --output scene.uia.json [--hold-ready ready.json --hold-release release.json]");
         return 2;
     }
 
@@ -115,13 +169,18 @@ internal sealed class Capture
     private readonly JsonArray treeEdges = new();
     private readonly JsonArray nodes = new(), errors = new();
     private readonly TreeWalker walker = TreeWalker.RawViewWalker;
+    private readonly bool retainOwners;
+    private readonly List<AutomationElement> heldElements = new();
+    private AutomationElement? heldPrimaryRoot;
+    private AutomationElementCollection? heldProcessRoots;
     private NativeTextEvidence? nativeText;
     private int nextId;
 
-    public Capture(JsonObject request, CaptureProgress progress)
+    public Capture(JsonObject request, CaptureProgress progress, bool retainOwners = false)
     {
         this.request = request;
         this.progress = progress;
+        this.retainOwners = retainOwners;
         processId = request["pid"]!.GetValue<int>();
         if (processId <= 0) throw new ArgumentException("A positive native process ID is required.");
         originX = request["origin"]!["x"]!.GetValue<double>();
@@ -134,6 +193,7 @@ internal sealed class Capture
     {
         var handle = request["hwnd"]!.GetValue<long>();
         var primary = progress.Measure("uia-capture/managed/primary-window", () => AutomationElement.FromHandle(new IntPtr(handle)));
+        if (retainOwners) heldPrimaryRoot = primary;
         if (primary.Current.ProcessId != processId)
             throw new InvalidOperationException("Requested HWND does not belong to the requested process.");
         Walk(primary, null, "primary-window");
@@ -142,6 +202,7 @@ internal sealed class Capture
         // this PID's immediate desktop children; never inspect other apps.
         var roots = progress.Measure("uia-capture/managed/process-popup-roots", () => AutomationElement.RootElement.FindAll(TreeScope.Children,
             new PropertyCondition(AutomationElement.ProcessIdProperty, processId)));
+        if (retainOwners) heldProcessRoots = roots;
         foreach (AutomationElement root in roots) Walk(root, null, "process-popup-or-window");
 
         if (nodes.Count == 0) errors.Add("The native process exposed no UI Automation nodes.");
@@ -168,6 +229,7 @@ internal sealed class Capture
 
     private void Walk(AutomationElement element, string? parent, string rootKind)
     {
+        if (retainOwners) heldElements.Add(element);
         var id = "uia-" + nextId++.ToString(CultureInfo.InvariantCulture);
         progress.Record("uia-capture/managed/node", "started", new JsonObject { ["id"] = id, ["parent"] = parent });
         try
@@ -233,6 +295,9 @@ internal sealed class Capture
             var siblingIds = new HashSet<string>(StringComparer.Ordinal);
             while (child != null)
             {
+                // Retain even a repeated sibling whose identity check stops
+                // this branch before Walk can observe it.
+                if (retainOwners) heldElements.Add(child);
                 var childRuntimeId = string.Join(".", child.GetRuntimeId());
                 if (!siblingIds.Add(childRuntimeId))
                 {
@@ -252,6 +317,18 @@ internal sealed class Capture
             progress.Record("uia-capture/managed/node", "failed", new JsonObject { ["id"] = id, ["error"] = error.ToString() });
         }
     }
+
+    public JsonObject RetainedOwnerEvidence() => new()
+    {
+        ["capture_instance_retained"] = true, ["retention_requested"] = retainOwners,
+        ["primary_root_retained"] = heldPrimaryRoot != null,
+        ["process_root_collection_retained"] = heldProcessRoots != null,
+        ["process_root_count"] = heldProcessRoots?.Count,
+        ["retained_element_reference_count"] = heldElements.Count,
+        ["element_reference_count_quantity"] = "Actual retained references; repeated observations may refer to the same object",
+        ["native_text_evidence_retained"] = nativeText != null,
+        ["scope"] = "Strong references to actual observed owners only; not proof of provider interface support or unchanged state"
+    };
 
     private void ReadPatterns(AutomationElement element, JsonObject node, JsonArray nodeErrors)
     {
