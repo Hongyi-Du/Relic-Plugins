@@ -26,7 +26,7 @@ class PaintTraceTests(unittest.TestCase):
             paint_trace.launch_browser(playwright, "unrecognized")
         self.assertEqual(playwright.chromium.launch.call_count, 1)
 
-    def test_supported_trace_configuration_retains_all_paint_and_frame_sources(self):
+    def test_supported_trace_configuration_retains_complete_picture_and_frame_sources(self):
         parameters = paint_trace.trace_parameters()
         self.assertNotIn("categories", parameters)
         self.assertNotIn("options", parameters)
@@ -37,9 +37,22 @@ class PaintTraceTests(unittest.TestCase):
         self.assertEqual(set(config["includedCategories"]), {
             "devtools.timeline", "disabled-by-default-devtools.timeline.frame",
             "disabled-by-default-devtools.timeline.picture",
-            "disabled-by-default-cc.debug.picture", "disabled-by-default-cc.debug.display_items"})
+            "disabled-by-default-cc.debug.picture"})
         config["includedCategories"].clear()
-        self.assertEqual(len(paint_trace.TRACE_CATEGORIES), 5)
+        self.assertEqual(len(paint_trace.TRACE_CATEGORIES), 4)
+
+    def test_category_receipt_retains_actual_request_without_claiming_loss_or_attribution_fixed(self):
+        parameters = paint_trace.trace_parameters()
+        result = paint_trace.trace_category_receipt(parameters)
+        self.assertEqual(result["requested_categories"], parameters["traceConfig"]["includedCategories"])
+        self.assertEqual(result["omitted_categories"], ["disabled-by-default-cc.debug.display_items"])
+        self.assertIn("156.0.8078.4/cc/paint/display_item_list.cc", result["source"])
+        self.assertFalse(result["loss_prevention_verified"])
+        self.assertFalse(result["trace_completeness_proven"])
+        self.assertFalse(result["canonical_measurements_changed"])
+        self.assertIsNone(result["final_scene_attribution"])
+        parameters["traceConfig"]["includedCategories"].append("later-mutation-fixture")
+        self.assertNotIn("later-mutation-fixture", result["requested_categories"])
 
     def test_recorded_writer_loss_is_preserved_even_when_central_buffer_is_not_full(self):
         # Scalar values transcribed from 05fe5cf group trace metadata. No SKP is
@@ -133,6 +146,26 @@ class PaintTraceTests(unittest.TestCase):
             self.assertEqual(result["errors"][0]["trace_json_pointer"], "/traceEvents/0/args/skp64")
             self.assertEqual(list(Path(folder).glob("*.skp")), [])
 
+    def test_complete_picture_without_per_operation_items_preserves_bytes_and_unknown_attribution(self):
+        # The no-items shape follows DisplayItemList::AddToValue(false). Bytes
+        # are synthetic transport input, not a claimed decoded browser picture.
+        raw = b"complete-record-fixture"
+        trace = {"traceEvents": [{"name": "cc::DisplayItemList:snapshot", "pid": 1588,
+            "args": {"snapshot": {"params": {"layer_rect": [0, 0, 1440, 900]},
+                "skp64": base64.b64encode(raw).decode()}}}]}
+        original = copy.deepcopy(trace)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            result = paint_trace.extract_pictures(trace, root / "pictures")
+            self.assertEqual(result["errors"], [])
+            self.assertEqual(len(result["pictures"]), 1)
+            picture = result["pictures"][0]
+            self.assertEqual(picture["trace_json_pointer"], "/traceEvents/0/args/snapshot/skp64")
+            self.assertEqual((root / picture["file"]).read_bytes(), raw)
+            self.assertIsNone(picture["parsed_skp"])
+            self.assertIsNone(picture["final_scene_attribution"])
+        self.assertEqual(trace, original)
+
     def test_scene_receipt_distinguishes_raw_collection_from_measured_parity(self):
         cases = [
             {"has_picture": True, "expected": "raw_records_collected"},
@@ -214,6 +247,9 @@ class PaintTraceTests(unittest.TestCase):
                 self.assertIsNone(result["scrollbar_parts"])
                 self.assertEqual(json.loads((Path(folder) / "scene" / "trace.json").read_text()), trace)
                 self.assertEqual(json.loads((Path(folder) / "scene" / "trace-config.json").read_text()), paint_trace.trace_parameters())
+                category_receipt = json.loads((Path(folder) / "scene" / "trace-category-selection.json").read_text())
+                self.assertEqual(category_receipt, paint_trace.trace_category_receipt(paint_trace.trace_parameters()))
+                self.assertEqual(result["trace_category_selection"], category_receipt)
                 self.assertEqual(json.loads((Path(folder) / "scene" / "buffer-usage.json").read_text())[0]["params"],
                                  {"percentFull": 0.25, "eventCount": 1})
                 diagnostics = json.loads((Path(folder) / "scene" / "trace-diagnostics.json").read_text())

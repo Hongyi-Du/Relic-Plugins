@@ -18,12 +18,11 @@ import time
 from capture import HERE, ROOT, configure, font_evidence, input_text_evidence, prepare_scene, wait_file, wait_reference_boot
 
 TRACE_CATEGORIES = [
-    # Keep Paint/frame attribution and every picture export category. General
-    # blink/cc layout/compositor events dominated the first lossy recording.
+    # Keep Paint/frame attribution and complete picture exports. Do not request
+    # a second serialized SKP for every operation in each complete picture.
     "devtools.timeline", "disabled-by-default-devtools.timeline.frame",
     "disabled-by-default-devtools.timeline.picture",
     "disabled-by-default-cc.debug.picture",
-    "disabled-by-default-cc.debug.display_items",
 ]
 DEFAULT_SCENES = ["group", "file-code", "file-markdown"]
 
@@ -32,12 +31,22 @@ def trace_parameters():
     """Explicit supported CDP configuration; the buffer is the prior default.
 
     Producer packet loss is not repaired by claiming a larger central buffer.
-    Keep the original picture categories until final-frame attribution works.
+    Complete-picture categories remain enabled; attribution remains unproved.
     """
     return {"traceConfig": {"recordMode": "recordUntilFull",
             "traceBufferSizeInKb": 200 * 1024, "includedCategories": list(TRACE_CATEGORIES)},
             "bufferUsageReportingInterval": 250, "transferMode": "ReturnAsStream",
             "streamFormat": "json", "streamCompression": "none"}
+
+
+def trace_category_receipt(parameters):
+    """Explain the actual request without claiming it prevents producer loss."""
+    return {"requested_categories": copy.deepcopy(parameters["traceConfig"]["includedCategories"]),
+        "omitted_categories": ["disabled-by-default-cc.debug.display_items"],
+        "reason": "Chromium DisplayItemList::AddToValue(include_items) exports per-operation SKPs in addition to the complete SKP. Request only the complete-picture categories to avoid duplicate serialization; retain every payload actually returned.",
+        "source": "https://github.com/chromium/chromium/blob/156.0.8078.4/cc/paint/display_item_list.cc#L211-L287",
+        "loss_prevention_verified": False, "trace_completeness_proven": False,
+        "final_scene_attribution": None, "canonical_measurements_changed": False}
 
 
 def launch_browser(playwright, channel="headless-shell"):
@@ -518,6 +527,8 @@ def collect_scene(browser, context, manifest, case, output, source):
         read(cdp, "LayerTree.enable")
         parameters = trace_parameters()
         write_json(output / "trace-config.json", parameters)
+        report["trace_category_selection"] = trace_category_receipt(parameters)
+        write_json(output / "trace-category-selection.json", report["trace_category_selection"])
         checkpoint("Tracing.start", "started")
         trace_cdp.send("Tracing.start", parameters)
         checkpoint("Tracing.start", "completed")

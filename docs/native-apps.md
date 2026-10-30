@@ -1,5 +1,36 @@
 # Native Relic App contract
 
+Changes for the clients (browser paint diagnostic load): tracing retains full
+picture/frame exports but omits the category that additionally serializes each
+operation as another SKP. Actual 9f11a82 has 705 such references plus 38 complete
+picture references and recorded producer packet loss. The 118 unique SKPs were
+all decoded, without a missed page glyph payload. The new category receipt does
+not claim loss prevention or final-scene attribution; those remain CI questions.
+No canonical font, ellipsis measurement or strict comparison is changed.
+
+Changes for the clients (macOS navigation request consumed): actual AX navigation
+order is used only when it is an exact object-identity permutation of ordinary
+children. Both arrays and the chosen API are retained. No missing, duplicated or
+foreign child is accepted, and no ordering is derived from reference geometry.
+The owner's current hosted tests and production captures still need CI review.
+
+Changes for the clients (source-derived platform vocabulary): the static scan
+now records each original reference key occurrence and its proven source branch.
+The reference's four desktop-connection keys exist only inside if(isMac()) and
+are still required on macOS; Windows must not add controls absent from its actual
+reference. Only a unique, unshadowed canonical platform predicate and explicit
+braced branches constrain uses. Unknown syntax, other uses or HTML occurrences
+remain dual-platform. The complete original key union, source lines and guards
+are retained in native-parity.json. This corrects the former unconditional union
+scan; no key exception, dead native reference, route/flow change or element-gate
+change is added. Sixteen source-only regression methods run in CI.
+
+Changes for the clients (macOS appearance request consumed at efd2025): owned
+label/icon/fill painters now execute the existing drawing in the mounted view's
+actual effectiveAppearance. Hosted Aqua/Dark Aqua bitmap tests compare original
+and candidate paint and require the themes to differ; no expected colors are
+inserted into receipts. Candidate/production and occlusion limits remain intact.
+
 Changes for the clients (report count definitions): the report now separately
 counts cases with both JSON/PNG artifact sets and cases with at least one paired
 element. Neither count implies readable, complete or matching measurements.

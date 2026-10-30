@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 import re
 
+from native_reference_platforms import reference_key_platforms
+
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "plugins/relic/app/static/app.js"
 
@@ -79,17 +81,27 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "test-results/native-parity.json")
     parser.add_argument("--platform", choices=("windows", "macos"), help="Report one client on its development branch; combined gate remains required on native-apps")
     args = parser.parse_args()
-    keys, routes, functions = reference_contract(REFERENCE.read_text(encoding="utf-8"))
+    reference = REFERENCE.read_text(encoding="utf-8")
+    keys, routes, functions = reference_contract(reference)
+    reachability = reference_key_platforms(reference, keys,
+        (ROOT / "plugins/relic/app/static/index.html").read_text(encoding="utf-8"))
     allow = json.loads((ROOT / "native/parity-allowlist.json").read_text(encoding="utf-8"))
     docs = (ROOT / "docs/native-apps.md").read_text(encoding="utf-8")
     inventory = dict((name, (windows, macos)) for name, windows, macos in re.findall(
         r"^\| `([^`]+)` \| [^|]+ \| (done|pending) \| (done|pending) \|", docs, re.M))
-    result = {"reference_functions": len(functions), "reference_keys": len(keys), "reference_routes": len(routes)}
+    result = {"reference_functions": len(functions), "reference_keys": len(keys), "reference_routes": len(routes),
+              "reference_platform_keys": {platform: sum(platform in required for required in reachability["key_platforms"].values())
+                                          for platform in ("windows", "macos")},
+              "reference_key_reachability": reachability}
     platforms = (args.platform,) if args.platform else ("windows", "macos")
     for platform in platforms:
         source = implementation(platform)
         exemptions = dict(allow["keys"], **allow.get("platform_keys", {}).get(platform, {}))
-        missing_keys = sorted(key for key in keys if key not in exemptions and not key_present(key, source))
+        # This is source-derived reachability, not a platform exemption list.
+        # The full key union and every occurrence/guard remain in the report;
+        # an unproven occurrence always requires both implementations.
+        required_keys = {key for key in keys if platform in reachability["key_platforms"][key]}
+        missing_keys = sorted(key for key in required_keys if key not in exemptions and not key_present(key, source))
         missing_routes = sorted(route for route in routes if route not in allow["routes"] and not route_present(route, source))
         column = 0 if platform == "windows" else 1
         missing_flows = [name + "@" + str(line) for name, line in functions
@@ -107,7 +119,9 @@ def main():
             raise ValueError("Every platform substitution requires a specific native rationale")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    # The complete occurrence/guard ledger is in the uploaded JSON, rather than
+    # repeating thousands of source receipts in the CI console.
+    print(json.dumps({key: value for key, value in result.items() if key != "reference_key_reachability"}, indent=2, ensure_ascii=False))
     return int(any(any(result[p].values()) for p in platforms))
 
 
