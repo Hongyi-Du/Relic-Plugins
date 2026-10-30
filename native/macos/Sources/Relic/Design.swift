@@ -51,6 +51,14 @@ enum RelicStyle {
     static func monoFont(_ size: CGFloat) -> NSFont {
         NSFont(name: "Menlo-Regular", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
+    static func convertedFont(_ font: NSFont, trait: NSFontTraitMask) -> NSFont {
+        let converted = NSFontManager.shared.convert(font, toHaveTrait: trait)
+        // NSFontManager drops CoreText's optical-size attribute when selecting
+        // a bold/italic face. Preserve the actual base font configuration.
+        guard let optical = CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute) else { return converted }
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontOpticalSizeAttribute: optical] as CFDictionary)
+        return CTFontCreateCopyWithAttributes(converted as CTFont, converted.pointSize, nil, descriptor) as NSFont
+    }
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
         // app.css reaches PingFang SC on macOS after the Windows-only faces.
         // Select its real installed face, including the CSS 500/550 boundary.

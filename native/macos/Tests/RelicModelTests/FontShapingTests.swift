@@ -4,6 +4,17 @@ import CoreText
 @testable import Relic
 
 @MainActor final class FontShapingTests: XCTestCase {
+    func testChineseStrongEmphasisKeepsTheBaseOpticalConfigurationAndMeasuredAdvance() throws {
+        // Actual DOM Range from bbe04a3 zh-CN/light/1440x900/group. The old
+        // NSFontManager conversion lost optical sizing and measured 168px.
+        let value = try AttributedString(markdown: "**聊天、概况、工作区、设置**")
+        let production = NativeTextStyle.render(value, size: 14)
+        let font = try XCTUnwrap(production.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute) as? String, "auto")
+        let actual = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(production), nil, nil, nil)
+        print("FONT STRONG CJK actual=\(actual) reference=171.375")
+        XCTAssertEqual(actual, 171.375, accuracy: 0.5)
+    }
     func testNativeStrongEmphasisPreservesTheReferenceFaceAndOpticalAdvances() throws {
         // Independent DOMRange / CDP font evidence from 8fbed05,
         // en-US/light/1440x900/group. Never consumed by production rendering.
