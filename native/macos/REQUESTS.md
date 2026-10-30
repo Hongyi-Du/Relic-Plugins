@@ -1,3 +1,21 @@
+## 2026-10-30: actual accessibility navigation order, with inventory preservation
+
+`528fcdb` completes 22 actual native captures with visible label text and current
+owned-image receipts. Group now has 70 text elements with independently proven
+own-outline absence. This does not cover controls or icons. Its raw regular AX
+children still put the right-hand avatar after metadata and the pinned file
+header after code, so those prior source/layout changes are not claimed fixed.
+
+The AppKit bridge previously preferred accessibilityChildren and only read
+accessibilityChildrenInNavigationOrder when ordinary children were empty. It now
+uses actual navigation order only when it is an exact permutation of the same
+object identities, with no omissions, duplicates or foreign objects. Otherwise
+it retains all ordinary children. Raw selector evidence records both identity
+arrays and the chosen API. This reads the platform's real linear navigation
+order; it never sorts by reference text, geometry or expected order. Native
+permutation/omission/duplicate/foreign-child cases run in CI. Actual SwiftUI
+reading-order corrections remain pending capture.
+
 ## 2026-10-30: own image rendering uses actual effective appearance
 
 CALayer.display does not provide NSView.draw's implicit appearance context.

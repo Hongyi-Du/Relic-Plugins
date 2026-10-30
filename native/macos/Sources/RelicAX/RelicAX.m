@@ -23,13 +23,33 @@ NSString *RelicAXRole(id object) {
         return [role isKindOfClass:NSString.class] ? role : nil;
     } @catch (NSException *exception) { return nil; }
 }
+static NSDictionary *ChildrenObservation(id object) {
+    id raw = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);
+    id ordered = Attribute(object, @"accessibilityChildrenInNavigationOrder", @"AXChildrenInNavigationOrder");
+    NSArray *children = [raw isKindOfClass:NSArray.class] ? raw : @[];
+    NSArray *navigation = [ordered isKindOfClass:NSArray.class] ? ordered : @[];
+    NSHashTable *remaining = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    for (id child in children) [remaining addObject:child];
+    BOOL permutation = children.count > 0 && navigation.count == children.count && remaining.count == children.count;
+    if (permutation) for (id child in navigation) {
+        if (![remaining containsObject:child]) { permutation = NO; break; }
+        [remaining removeObject:child];
+    }
+    permutation = permutation && remaining.count == 0;
+    // Navigation order is authoritative only when it contains exactly the
+    // same actual objects. A partial navigation array must not hide siblings.
+    NSArray *selected = permutation || !children.count ? navigation : children;
+    NSMutableArray *rawIDs = [NSMutableArray array], *navigationIDs = [NSMutableArray array];
+    for (id child in children) [rawIDs addObject:[NSString stringWithFormat:@"%p", (__bridge void *)child]];
+    for (id child in navigation) [navigationIDs addObject:[NSString stringWithFormat:@"%p", (__bridge void *)child]];
+    return @{@"children": selected, @"ordinary": children,
+        @"evidence": @{@"source": permutation ? @"accessibilityChildrenInNavigationOrder" : !children.count ? @"navigation-only fallback" : @"accessibilityChildren",
+            @"same_object_inventory": @(permutation), @"ordinary_identities": rawIDs, @"navigation_identities": navigationIDs,
+            @"navigation_available": @([ordered isKindOfClass:NSArray.class])}};
+}
 NSArray *RelicAXChildren(id object) {
-    @try {
-        id children = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);
-        if (![children isKindOfClass:NSArray.class] || ![children count])
-            children = Attribute(object, @"accessibilityChildrenInNavigationOrder", @"AXChildrenInNavigationOrder");
-        return [children isKindOfClass:NSArray.class] ? children : @[];
-    } @catch (NSException *exception) { return @[]; }
+    @try { return ChildrenObservation(object)[@"children"]; }
+    @catch (NSException *exception) { return @[]; }
 }
 id RelicAXHitTest(id object, NSPoint screenPoint) {
     @try {
@@ -128,14 +148,15 @@ NSDictionary<NSString *, id> *RelicAXRead(id object) {
         }
     } @catch (NSException *exception) { [errors addObject:[@"frame: " stringByAppendingString:exception.reason]]; }
     @try {
-        id actualChildren = Attribute(object, @"accessibilityChildren", NSAccessibilityChildrenAttribute);
-        NSArray *children = [actualChildren isKindOfClass:NSArray.class] ? actualChildren : @[];
+        NSDictionary *observation = ChildrenObservation(object);
+        NSArray *children = observation[@"ordinary"];
         result[@"child_count"] = @(children.count);
         NSMutableArray *classes = [NSMutableArray array];
         for (id child in children) [classes addObject:NSStringFromClass([child class])];
         result[@"child_classes"] = classes;
-        id navigation = Attribute(object, @"accessibilityChildrenInNavigationOrder", @"AXChildrenInNavigationOrder");
-        result[@"navigation_child_count"] = [navigation isKindOfClass:NSArray.class] ? @([navigation count]) : NSNull.null;
+        result[@"child_order"] = observation[@"evidence"];
+        result[@"navigation_child_count"] = [observation[@"evidence"][@"navigation_available"] boolValue]
+            ? @([observation[@"evidence"][@"navigation_identities"] count]) : NSNull.null;
         if (result[@"element"] == NSNull.null && [object respondsToSelector:@selector(accessibilityIsIgnored)])
             result[@"element"] = @(![object accessibilityIsIgnored]);
     } @catch (NSException *exception) { [errors addObject:[@"children: " stringByAppendingString:exception.reason]]; }
