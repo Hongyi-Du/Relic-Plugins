@@ -1,3 +1,28 @@
+## 2026-10-30: actual 86b52e7 geometry evidence and native spacing fixes
+
+Downloaded the formal diagnostic report plus all 19 macOS/reference captures to
+`S:\Codex\Outputs\Relic-native-visual\parity-86b52e7`. Mac: 4757 native,
+4263 valid reference, 4210 paired; missing 53, extra 547, text 0, geometry 1000,
+style 7960, state 1200, kind 0, region 2, order 596, layout 2231, icon 0,
+extraction 29250. Complete 660-case coverage at that head still fails, with zero
+accepted scenes/elements and no exceptions. New matrix remains 672 required.
+
+The private scene's date label already aligned, but every subsequent message
+was 8px too low: SwiftUI added `.day` bottom margin to the next message margin
+instead of the reference's collapsed maximum. Native separator spacing now
+implements the same collapse for comfortable/compact/continued/notice/activity
+rows, with a focused policy test and new captures required.
+
+Actual Settings segment AX frames included only the title (e.g. 50x19 instead
+of the padded 67x23 box). TextButton now applies its content shape after padding
+and sizing, making the whole native button interactive. Segment paint is bound
+to its actual owner identity. A mounted AX test checks the full interactive box;
+no exporter bounding boxes are fabricated or enlarged to match reference values.
+
+3934d53 compiled in release; 196/197 tests passed, including quote/draft/radio
+and original-disclosure regressions. Its only failure was the same pre-fix icon
+alpha assertion. The c8ea3df hover/alpha build and latest captures remain pending.
+
 ## 2026-10-30: required settings navigation hover capture and CI correction
 
 Implemented the new `settings-navigation-hover` case without omitting prior cases.

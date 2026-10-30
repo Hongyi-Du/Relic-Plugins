@@ -148,7 +148,11 @@ struct TextButton: View {
         self.fillsWidth = fillsWidth
     }
     var body: some View {
-        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity).padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil) }
+        Button(role: role, action: action) {
+            ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity)
+                .padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil)
+                .contentShape(Rectangle())
+        }
             .accessibilityIdentifier(identity).accessibilityLabel(title)
     }
 }

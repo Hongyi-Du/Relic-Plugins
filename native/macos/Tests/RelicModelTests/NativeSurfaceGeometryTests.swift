@@ -5,6 +5,22 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
+    func testPaddedTextButtonExposesItsWholeInteractiveBox() throws {
+        let owner = "relic-tab/padded-button-test"
+        let sample = TextButton("Tab", size: 12, weight: 400, height: 24, padding: 9, fillsWidth: true, identifier: owner) {}.buttonStyle(.plain)
+        let host = NSHostingView(rootView: sample)
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 100, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        func find(_ value: AnyObject) -> NSRect? {
+            let ax = RelicAXRead(value)
+            if ax["identifier"] as? String == owner { return (ax["frame"] as? NSValue)?.rectValue }
+            return RelicAXChildren(value).lazy.compactMap { find($0 as AnyObject) }.first
+        }
+        let actual = try XCTUnwrap(find(host))
+        XCTAssertEqual(actual.size, NSSize(width: 100, height: 24), "The button's padding participates in native interaction and accessibility")
+    }
+
     func testMountedWindowBackgroundHasItsOwnNativeOwnerIdentity() throws {
         let host = NSHostingView(rootView: Color.white.background(InitialWindowFocus()))
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 240, height: 140), styleMask: [.borderless], backing: .buffered, defer: false)

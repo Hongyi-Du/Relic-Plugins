@@ -9,6 +9,19 @@ struct ConversationRow: Identifiable {
     let continued: Bool
 }
 
+enum ConversationSpacing {
+    static func messageTop(kind: String, continued: Bool, compact: Bool) -> CGFloat {
+        if kind == "notice" { return 8 }
+        if kind == "acts" { return 4 }
+        return continued ? 4 : compact ? 7 : 14
+    }
+    // The reference's block margins collapse: .day's bottom 8px and the
+    // following message's top margin take their maximum, not their sum.
+    static func separatorBottom(kind: String, continued: Bool, compact: Bool) -> CGFloat {
+        max(0, 8 - messageTop(kind: kind, continued: continued, compact: compact))
+    }
+}
+
 // Opening/resizing the inspector changes line wrapping without adding a
 // message. Preserve the current scroll offset through that reflow, just as
 // the reference's applyPanelWidth does. New content at the same viewport can

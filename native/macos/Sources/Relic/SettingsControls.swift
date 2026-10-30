@@ -74,7 +74,7 @@ struct SettingsSegments: View {
             ForEach(options, id: \.0) { value, title in
                 TextButton(title, size: 12, weight: 400, color: value == selection ? RelicStyle.ink : RelicStyle.secondary, height: 23.2, padding: 9, identifier: "relic-tab/segment/" + identity + "/" + value) { selection = value }
                     .buttonStyle(.plain)
-                    .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
+                    .modifier(RecordedSurface(background: value == selection ? RelicStyle.card : .clear, radius: 6, owner: "relic-tab/segment/" + identity + "/" + value, shadows: value == selection ? SurfaceShadow.small : [], selected: value == selection))
                     .accessibilityAddTraits(value == selection ? .isSelected : [])
             }
         }.padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card"))
