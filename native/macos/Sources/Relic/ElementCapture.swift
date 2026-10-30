@@ -237,6 +237,9 @@ import CoreText
             node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
             node["object_identity"] = String(describing: ObjectIdentifier(object))
             if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
+            if let text = object as? NSTextView, let drawing = text.layoutManager as? NativeGlyphLayoutManager {
+                node["native_glyph_drawing"] = drawing.lastDraw as Any? ?? NSNull()
+            }
             if let view = object as? NSView {
                 node["native_view_geometry"] = ["frame": box(view.frame), "bounds": box(view.bounds), "flipped": view.isFlipped,
                     "screen_bounds": view.window.map { box($0.convertToScreen(view.convert(view.bounds, to: nil))) } as Any? ?? NSNull(),

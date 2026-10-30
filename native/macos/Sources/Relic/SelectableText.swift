@@ -23,6 +23,7 @@ struct SelectableText: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
+        layout.recordDraws = VisualCapture.enabled
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         let view = QuoteTextView(frame: .zero, textContainer: container)

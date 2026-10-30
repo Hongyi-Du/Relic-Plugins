@@ -1,5 +1,15 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+macOS now retains `raw nodes[].native_glyph_drawing` from the production
+`NSLayoutManager.showCGGlyphs` callback for native labels and selectable Markdown.
+It records the actual substituted font, glyph IDs/positions, font glyph bounds,
+text/context matrices, clip and draw completion. These are raw independent draw
+receipts, not another attributed-string reshaping or reference-derived geometry.
+Canonical values are unchanged pending verified mapping to the captured bitmap
+and corresponding text runs. A CI bitmap test requires real painted pixels and
+no receipt from layout alone. This also supplies evidence for the unresolved
+conversation coordinate discrepancy and the requested/actual font distinction.
+
 Shared checker failure to fix on `native-apps`: full run `40982407855`, job
 `123825557731`, fails `test_all_52_cases_get_fresh_process_inputs_and_continue_after_menu_crash`
 in `scripts/visual/test_windows_capture_processes.py:54`. The 53-scene matrix
