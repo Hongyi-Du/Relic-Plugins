@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (macOS evidence-shape request consumed): the latest
+native-macos merge includes `raw`/`applicable` line-break evidence and explicit
+non-text values required by the shared schema. Unknown text modes remain
+unknown. The owner's new rename capture waits for the fetched member's actual
+AX card before the single real action, fixing an observed pre-load click.
+Their 597e113 diagnostic captured 18/19 scenes and still failed parity;
+these newly merged fixes require a fresh capture. The reported paragraph ink
+measurement is a local paragraph result, not whole-matrix font equivalence.
+
 Changes for the clients (Windows provider timing diagnostic): the Windows
 capture now retains its actual owner/peer/EventsSource objects across the
 normal independent UIA traversal. `*.provider-probe.json` and its auto-flushed
