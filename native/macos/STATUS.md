@@ -2,7 +2,25 @@
 
 **当前未完成 Amendment 4；没有已获接受的例外。**
 
-最新一轮 `0d3d681` 的 22 个 macOS 场景完成采集，但 `updateLayer` 候选造成了
+最新正式诊断 `63fc431` 完成22个 macOS 场景，截图中标签已恢复。
+报告、原始 PNG / AX、逐元素 HTML 和热图保存在
+`S:\Codex\Outputs\Relic-native-visual\parity-63fc431\`，
+[CI 41081504755](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41081504755)。
+macOS 原始元素5522、配对4907：缺失52、多余615、文字0、几何840、样式8897、
+状态1339、种类0、区域0、顺序667、布局2448、图标3、提取34174。
+Windows 原始元素5203、配对4863：缺失99、多余339、文字669、几何1792、样式14926、
+状态1008、种类16、区域20、顺序664、布局1662、图标0、提取37836。
+这些是22场景诊断，不是全量672场景验收；两平台接受场景仍为0，例外为空。
+
+最新已完成构建 `02df6a9` release 成功；222项测试有7个断言失败，均属于隔离的标签
+自有图层候选。生产绘制及原生填充测试通过，候选仍未启用到生产。
+[CI 41083211569](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41083211569)。
+实际宿主诊断表明候选尚无绘制回调；`76a9b9f` 改用自身 CALayer 的 display 回调，待 CI 验证。
+`63fc431` 中展开工具输出仍实际跳动97px；`7046f32` 保存并恢复生产滚动视图的原阅读位置，
+新的实际点击采集正在运行。`00c623b` 让自己的消息头像在实际组件层级中先于正文，
+视觉上仍在右侧；文件预览固定标题的真实辅助功能顺序及空行多余文本也已修正，待截图检查。
+
+此前 `0d3d681` 的22个 macOS 场景完成采集，但 `updateLayer` 候选造成了
 标签空白回归；这一轮不能作为可用版本。完整失败报告与原始 PNG、AX 文件已保存到
 `S:\Codex\Outputs\Relic-native-visual\parity-0d3d681\`，
 [CI 41078665367](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41078665367)。
@@ -14,7 +32,7 @@ macOS 原始元素 5524、配对 4912：缺失47、多余612、文字0、几何8
 真实 `ReferenceLabel / NSHostingView / cacheDisplay` 的非空像素及完整位图比较。
 原有 ContentLayer 的绘制归属仍未解决，未新增白名单或例外。
 `b9a3328` release 构建成功，但测试编译遇到 `CGImageGetTypeID()` 名称错误；
-`cc4d1cd` 已改为 `CGImage.typeID`，修正后的断言仍等待 CI 执行。
+`cc4d1cd` 已改为 `CGImage.typeID`；后续编译已通过，候选绘制断言的失败见上。
 [构建记录 41077661037](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41077661037)。
 
 最近已提交的修复还包括：Markdown 与引用预览的真实卡片归属、快速开始页的22px空输入区、
@@ -28,8 +46,7 @@ macOS 原始元素 5524、配对 4912：缺失47、多余612、文字0、几何8
 [测试记录 41075744457](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41075744457)。
 
 过时完整运行 `41075744455` 及已知空白回归诊断 `41080662897` 已请求取消，已上传产物保留在 CI。
-它们不算完成或通过；新的完整矩阵仍要求每平台全部672场景。当前诊断运行是
-[41081504755](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41081504755)，尚未验收。
+它们不算完成或通过；新的完整矩阵仍要求每平台全部672场景。
 
 完整 CI 报告 `1ffe201` 已下载至
 `S:\Codex\Outputs\Relic-native-visual\parity-1ffe201\report\`：原始 `parity-report.json`

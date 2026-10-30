@@ -191,6 +191,7 @@ struct FilePreview: View {
     @EnvironmentObject var m: Model
     @State private var mode = "preview"
     @State private var codeWidth: CGFloat = 0
+    @State private var headerIdentity = "relic-card/file-header/" + UUID().uuidString
     private var lines: [String] { FilePresentation.lines(m.file["kind"].text == "json" && !m.file["display_text"].isNull ? m.file["display_text"].text : m.file["text"].text) }
     var body: some View {
         if m.file["path"].text.isEmpty { OverviewBlock { ReferenceLabel(m.t("file.empty"), size: 12.5, color: RelicStyle.muted, lines: 0) }; Spacer() }
@@ -209,6 +210,7 @@ struct FilePreview: View {
     private var header: some View {
         HStack(spacing: 8) {
             ReferenceIcon(name: "file", size: 16, color: RelicStyle.muted)
+                .environment(\.nativeElementParent, headerIdentity)
             VStack(alignment: .leading, spacing: 0) {
                 ReferenceLabel(FilePresentation.name(m.file["path"].text), size: 13, weight: 650, lineHeight: 17.55)
                 ReferenceLabel(m.file["path"].text, size: 11, color: RelicStyle.muted, lineHeight: 13, monospaced: true).help(m.file["path"].text)
@@ -216,7 +218,12 @@ struct FilePreview: View {
             IconButton(title: m.t("file.copy_path"), icon: "copy", size: 15) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
             IconButton(title: m.t("file.open_default"), icon: "open", size: 15) { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
         }.padding(.leading, 14).padding(.trailing, 8).padding(.top, 10).padding(.bottom, 10)
-            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: headerIdentity))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(headerIdentity).accessibilityLabel("")
+            // A pinned Section header is stored after its contents by SwiftUI.
+            // Keep the visible title first in the actual accessible reading order.
+            .accessibilitySortPriority(1)
     }
     @ViewBuilder private var contents: some View {
         if !m.file["error"].text.isEmpty { OverviewBlock { ReferenceLabel(m.t("file.open_failed", ["error": m.file["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) } }
@@ -244,7 +251,9 @@ struct FilePreview: View {
                     ForEach(Array(lines.prefix(6000).enumerated()), id: \.offset) { index, line in
                         HStack(alignment: .top, spacing: 0) {
                             ReferenceLabel(String(index + 1), size: 12, color: RelicStyle.faint, lineHeight: 19.2, alignment: .right, monospaced: true, accessibleName: "").frame(width: 46, alignment: .trailing).padding(.trailing, 14)
-                            SelectableText(value: AttributedString(line.isEmpty ? " " : line), pointSize: 12, lineHeight: 19.2, monospaced: true).fixedSize(horizontal: true, vertical: true)
+                            if !line.isEmpty {
+                                SelectableText(value: AttributedString(line), pointSize: 12, lineHeight: 19.2, monospaced: true).fixedSize(horizontal: true, vertical: true)
+                            }
                             Spacer(minLength: 16)
                         }.frame(minHeight: 19.2).frame(maxWidth: .infinity, alignment: .leading)
                             .modifier(FileLineHighlight(selected: m.fileLine == index + 1))
