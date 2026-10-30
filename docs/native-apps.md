@@ -1,5 +1,23 @@
 # Native Relic App contract
 
+Changes for the clients (b89f80b runtime): Windows diagnostic `40996427962`
+now produces all 19 original PNGs. All 76 actual text-surface readbacks report
+`surface-pixels-read`, current draw versions and successful submission; journal
+I/O is at most 2.741ms per exported probe. Final PNG attribution is still separate.
+The cases remain failed because UIA reports unknown/zero-area text rectangles;
+neither those errors nor the scene gate were suppressed. The checker regression
+with null runtime type receipts is fixed while preserving unknown raw evidence;
+its menu fixture now explicitly supplies the actual template facts it models.
+
+Changes for the clients (SVG source binding and transparent capture regression):
+Windows's actual 18px logo Image now decodes the packaged SVG byte stream through
+the same SvgImageSource recorded by capture. The receipt preserves source IUnknown
+identity, original bytes, stream length, actual load status and failures. It does
+not manufacture a glyph or prove final screenshot contribution. Shared SVG paint
+decoding is separate. The macOS `9990d4f` transparent-canvas fix is merged; the
+shared gate additionally rejects an entirely transparent PNG even if its AX tree
+looks valid. Old transparent PNGs stay available as failed evidence.
+
 Changes for the clients (reference scrollbar evidence): every actual scrolling
 axis now emits a scrollbar and thumb. The reference stores its actual DOM gutter,
 owner and scroll state, plus lossless pixel runs from the original PNG. Gutter,

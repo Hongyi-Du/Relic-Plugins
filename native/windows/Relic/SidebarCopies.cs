@@ -11,6 +11,7 @@ public sealed partial class MainWindow
 {
     private readonly NativeToolbar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, IsDynamicOverflowEnabled = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 39, MinHeight = 0, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 0, 2, 0), Height = 39, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
+    private Image? toolbarLogo;
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private HashSet<string>? knownCopies;
@@ -29,12 +30,16 @@ public sealed partial class MainWindow
             });
         }
         navigationButtons.Children.Clear();
-        navigationButtons.Children.Add(new Image
+        if (toolbarLogo == null)
         {
-            Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri("ms-appx:///Assets/Relic.svg")),
-            Width = 18, Height = 18, Margin = new Thickness(6, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false
-        });
+            toolbarLogo = new Image
+            {
+                Width = 18, Height = 18, Margin = new Thickness(6, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false
+            };
+            NativeSvgAsset.LoadPackagedInto(toolbarLogo, "Assets/Relic.svg");
+        }
+        navigationButtons.Children.Add(toolbarLogo);
         navigationButtons.Children.Add(ToolbarIconButton("\uE700", T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), ToggleSide));
         var back = ToolbarIconButton("\uE72B", T("appbar.back"), () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
         var forward = ToolbarIconButton("\uE72A", T("appbar.forward"), () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);

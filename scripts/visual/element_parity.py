@@ -742,6 +742,8 @@ def image_info(path: Path, client: str, viewport: dict) -> list[dict]:
             image.load()
             if image.size != (viewport["width"], viewport["height"]):
                 return [{"client": client, "reason": f"Screenshot dimensions {image.size} do not match {viewport}"}]
+            if image.convert("RGBA").getchannel("A").getextrema()[1] == 0:
+                return [{"client": client, "reason": "Screenshot is fully transparent: no visible window pixels were captured; an accessibility tree cannot replace the rendered scene"}]
     except (OSError, ValueError) as exc:
         return [{"client": client, "reason": f"Cannot read screenshot {path.name}: {exc}"}]
     return []

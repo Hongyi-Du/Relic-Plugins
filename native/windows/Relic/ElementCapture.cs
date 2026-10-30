@@ -256,9 +256,13 @@ public sealed partial class MainWindow
                     else if (element is Image renderedImage)
                     {
                         var bitmap = renderedImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage;
+                        var svg = renderedImage.Source as Microsoft.UI.Xaml.Media.Imaging.SvgImageSource;
+                        var svgAsset = NativeSvgAsset.Capture(renderedImage);
                         node["image_source_evidence"] = new JsonObject { ["type"] = renderedImage.Source?.GetType().FullName,
-                            ["uri"] = bitmap?.UriSource?.ToString(), ["pixel_width"] = bitmap?.PixelWidth, ["pixel_height"] = bitmap?.PixelHeight,
-                            ["stretch"] = renderedImage.Stretch.ToString() };
+                            ["uri"] = bitmap?.UriSource?.ToString() ?? svg?.UriSource?.ToString(), ["pixel_width"] = bitmap?.PixelWidth, ["pixel_height"] = bitmap?.PixelHeight,
+                            ["stretch"] = renderedImage.Stretch.ToString(), ["svg_asset"] = svgAsset };
+                        if ((svg != null || svgAsset != null) && hidden == null && svgAsset?["content_binding_complete"]?.GetValue<bool>() != true)
+                            errors.Add(id + ": actual SVG source bytes/decode/binding evidence is incomplete; URI is not image content identity");
                         if (bitmap?.UriSource is { } sourceUri) node["icon"] = new JsonObject { ["source"] = "image", ["glyph"] = sourceUri.ToString() };
                     }
                     else if (element is Microsoft.UI.Xaml.Shapes.Path path) node["icon"] = new JsonObject { ["source"] = "xaml-path", ["glyph"] = path.Data?.ToString() };
