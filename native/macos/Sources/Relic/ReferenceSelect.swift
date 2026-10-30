@@ -30,7 +30,7 @@ struct ReferenceSelect: NSViewRepresentable {
         }
         if let index = options.firstIndex(where: { $0.0 == selection }) { view.selectItem(at: index) }
         view.attributedTitle = NSAttributedString(string: view.title, attributes: [.font: RelicStyle.nativeFont(pointSize, weight: 400), .foregroundColor: NSColor(textColor), .tracking: 0])
-        view.setAccessibilityLabel(title); view.setAccessibilityIdentifier("relic-dropdown/" + title)
+        view.configureAccessibility(title: title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferencePopUpButton, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: pointSize * 1.6)
@@ -51,6 +51,13 @@ struct ReferenceSelect: NSViewRepresentable {
 final class ReferencePopUpButton: NSPopUpButton {
     var arrowColor: NSColor = .labelColor { didSet { needsDisplay = true } }
     private(set) var arrowDraw: [String: Any]?
+    func configureAccessibility(title: String) {
+        let identity = "relic-dropdown/" + title
+        setAccessibilityLabel(title); setAccessibilityIdentifier(identity)
+        // AppKit exposes the actual NSPopUpButtonCell as the AX element; the
+        // backing NSView's metadata does not automatically reach that cell.
+        cell?.setAccessibilityLabel(title); cell?.setAccessibilityIdentifier(identity)
+    }
     override func draw(_ dirtyRect: NSRect) {
         let context = NSGraphicsContext.current?.cgContext
         if let context { NativeTextRasterization.begin(context) }

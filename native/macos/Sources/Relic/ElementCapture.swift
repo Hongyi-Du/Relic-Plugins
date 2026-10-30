@@ -82,7 +82,7 @@ import CoreText
         guard NSFontManager.shared.availableFonts.contains(name) else { return nil }
         return NSFont(name: name, size: CGFloat(size.doubleValue))
     }
-    static func renderedFonts(_ value: NSAttributedString) -> [[String: Any]] {
+    static func reshapedFonts(_ value: NSAttributedString) -> [[String: Any]] {
         let line = CTLineCreateWithAttributedString(value)
         return (CTLineGetGlyphRuns(line) as! [CTRun]).compactMap { run in
             let attributes = CTRunGetAttributes(run) as NSDictionary
@@ -122,6 +122,11 @@ import CoreText
             }
             result["native_cell_control_identity"] = cell.controlView.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()
         }
+        else if let cell = object as? ReferencePopUpCell {
+            font = cell.font
+            if cell.attributedTitle.length > 0 { foreground = cell.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
+            result["native_cell_control_identity"] = cell.controlView.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()
+        }
         else if let popup = object as? NSPopUpButton {
             font = popup.font
             if popup.attributedTitle.length > 0 { foreground = popup.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
@@ -147,7 +152,8 @@ import CoreText
         }
         if let font {
             result["fontSize"] = Double(font.pointSize); result["fontWeight"] = cssWeight(font); result["fontFamily"] = font.familyName ?? font.fontName
-            result["rendered_fonts"] = renderedFonts(NSAttributedString(string: text, attributes: [.font: font]))
+            result["native_reshaped_fonts"] = reshapedFonts(NSAttributedString(string: text, attributes: [.font: font]))
+            result["rendered_fonts"] = NSNull() // Attribute/AX fonts do not prove the actual fallback glyph draw.
         }
         result["color"] = rgba(foreground); result["backgroundColor"] = rgba(background)
         return result
@@ -218,6 +224,9 @@ import CoreText
             let measuredWeights = Set(fonts.map { cssWeight($0) })
             let drawnFonts = (manager as? NativeGlyphLayoutManager)?.fontEvidence(for: range, in: view)
                 ?? ["status": "unmeasured", "reason": "No actual glyph callback observer", "fonts": NSNull()]
+            let breaks = NativeLineBreaks.inspect(view, range: range)
+            var measuredLayout: [String: Any] = ["wrap": wrap, "truncation": truncation, "line_count": lines.count]
+            measuredLayout.merge(breaks.layout, uniquingKeysWith: { _, actual in actual })
             rows.append(["text": text, "range": ["location": range.location, "length": range.length],
                 "local_rect": NSValue(rect: rect), "lines": lines,
                 "text_bounds_quantity": advances.envelope == nil ? "glyph-envelope; advance unmeasured" : "native-line-insertion-advance-range",
@@ -225,10 +234,10 @@ import CoreText
                 "native_line_break_configuration": ["paragraph_mode": paragraph?.lineBreakMode.rawValue as Any? ?? NSNull(),
                     "container_mode": container.lineBreakMode.rawValue, "maximum_lines": container.maximumNumberOfLines],
                 "kind": attributes[.link] == nil ? "text" : "link",
-                "layout": ["wrap": wrap, "truncation": truncation, "line_count": lines.count],
+                "layout": measuredLayout, "line_break_configuration": breaks.evidence,
                 "native_attribute_runs": attributeRuns,
                 "native_font_drawing": drawnFonts,
-                "native_reshaped_fonts": renderedFonts(storage.attributedSubstring(from: range)),
+                "native_reshaped_fonts": reshapedFonts(storage.attributedSubstring(from: range)),
                 "span_source": attributes[.relicLabelSpan] ?? "native-attributed-text-boundary",
                 "style": ["fontSize": measuredSizes.count == 1 ? measuredSizes.first! as Any : NSNull(),
                           "fontWeight": measuredWeights.count == 1 ? measuredWeights.first! as Any : NSNull(),
@@ -279,10 +288,11 @@ import CoreText
             let label = ax["label"].text, title = ax["title"].text, valueText = string(attributes["value"])
             let accessibleName = Self.accessibleName(role: role, label: label, value: valueText)
             let isIcon = role == "AXButton" && ax["identifier"].text.hasPrefix("relic-icon-button/")
-            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
+            let elementKind = isThumb ? "scrollbar-thumb" : ax["identifier"].text.hasPrefix("relic-state-dot/") ? "state-dot" : ax["identifier"].text.hasPrefix("relic-divider/") ? "divider" : ax["identifier"].text.hasPrefix("relic-resize-handle/") ? "resize-handle" : isIcon ? "icon-button" : ax["identifier"].text == "relic-toggle" ? "toggle" : ax["identifier"].text.hasPrefix("relic-avatar/") ? "avatar" : ax["identifier"].text.hasPrefix("relic-chart-node/") ? "chart-node" : ax["identifier"].text.hasPrefix("relic-tab/") ? "tab" : ax["identifier"].text.hasPrefix("relic-menu-item/") ? "menu-item" : ax["identifier"].text.hasPrefix("relic-chip/") ? "chip" : ax["identifier"].text.hasPrefix("relic-badge/") ? "badge" : ax["identifier"].text.hasPrefix("relic-list-row/") || ax["identifier"].text.hasPrefix("relic-org/") ? "list-row" : kind(role)
             let text: String
             if isIcon || ax["identifier"].text.hasPrefix("relic-badged-button/") || ax["identifier"].text.hasPrefix("relic-row/") || ["region", "image", "divider", "chart-node", "avatar", "menu-item", "list-row", "resize-handle"].contains(elementKind) { text = "" }
             else if elementKind == "input" { text = valueText.isEmpty ? ax["placeholder"].text : valueText }
+            else if elementKind == "dropdown" { text = valueText }
             else { text = !valueText.isEmpty && role == "AXStaticText" ? valueText : !title.isEmpty ? title : label }
             let identifier = ax["identifier"].text
             let textRegion = (object as? ReferenceLabelView)?.productionRegion ?? (object as? QuoteTextView)?.productionRegion
@@ -409,6 +419,7 @@ import CoreText
                 if let selected = surface["selected"] as? Bool { elements[index]["recorded_selected"] = selected }
                 if let expanded = surface["expanded"] as? Bool { elements[index]["recorded_expanded"] = expanded }
                 if let current = surface["current"] as? Bool { elements[index]["recorded_current"] = current }
+                if let unread = surface["unread"] as? Bool { elements[index]["recorded_unread"] = unread }
             } else if let kind = surface["kind"] as? String {
                 var paintedStyle: [String: Any] = ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": NSNull()]
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
@@ -515,7 +526,7 @@ import CoreText
             let order = orders[region, default: 0]; orders[region] = order + 1
             let pointer = NSEvent.mouseLocation
             let pointerOutside = !contentScreen.contains(pointer)
-            var state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": ["checkbox", "toggle"].contains(kind) ? sourceState["checked"]! : NSNull(), "indeterminate": ["checkbox", "toggle"].contains(kind) ? sourceState["indeterminate"] ?? NSNull() : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": NSNull(), "current": node["recorded_current"] ?? NSNull()]
+            var state: [String: Any] = ["enabled": isControl ? sourceState["enabled"]! : NSNull(), "selected": node["recorded_selected"] ?? (["tab", "list-row"].contains(kind) ? sourceState["selected"]! : NSNull()), "checked": ["checkbox", "toggle"].contains(kind) ? sourceState["checked"]! : NSNull(), "indeterminate": ["checkbox", "toggle"].contains(kind) ? sourceState["indeterminate"] ?? NSNull() : NSNull(), "expanded": node["recorded_expanded"] ?? (node["role"] as? String == "AXDisclosureTriangle" ? sourceState["expanded"]! : NSNull()), "focused": isControl ? sourceState["focused"]! : NSNull(), "hovered": node["hovered"] ?? (pointerOutside ? false as Any : NSNull()), "unread": node["recorded_unread"] ?? NSNull(), "current": node["recorded_current"] ?? NSNull()]
             if ["scrollbar", "scrollbar-thumb"].contains(kind) {
                 state["orientation"] = sourceState["orientation"] ?? NSNull()
                 state["scroll_position"] = sourceState["scroll_position"] ?? NSNull()
@@ -532,6 +543,9 @@ import CoreText
             evidence["raw_node_id"] = id
             evidence["pointer_screen"] = ["x": pointer.x, "y": pointer.y]
             evidence["outline"] = (node["surface_evidence"] as? [String: Any])?["outline"] ?? NSNull()
+            let labelEvidence = node["projection"] as? [String: Any]
+                ?? (node["owned_text_evidence"] as? [String: Any])?["projection"] as? [String: Any]
+            evidence["line_break_configuration"] = labelEvidence?["line_break_configuration"] ?? NSNull()
             return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]

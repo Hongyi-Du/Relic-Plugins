@@ -167,7 +167,7 @@ struct SidebarChatRow: View {
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
-        }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true, radius: 8)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+        }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true, radius: 8, unread: unread > 0)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }
     private var avatar: some View {
