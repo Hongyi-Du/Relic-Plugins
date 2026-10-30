@@ -11,7 +11,7 @@ import CoreText
         let production = NativeTextStyle.render(value, size: 14)
         let line = CTLineCreateWithAttributedString(production)
         let actual = CTLineGetTypographicBounds(line, nil, nil, nil)
-        let faces = ElementCapture.renderedFonts(production).compactMap { $0["postscript_name"] as? String }
+        let faces = ElementCapture.reshapedFonts(production).compactMap { $0["postscript_name"] as? String }
         print("FONT STRONG actual=\(actual) reference=292.40625 faces=\(faces)")
         XCTAssertEqual(actual, 292.40625, accuracy: 0.5)
         XCTAssertEqual(Set(faces), ["PingFangSC-Semibold"])
