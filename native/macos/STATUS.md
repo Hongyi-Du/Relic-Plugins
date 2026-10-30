@@ -10,7 +10,33 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新完整通过的原生构建为 `efa7553`：
+当前已推送至 `fd93174`，其中包括实际 CGFloat 字体度量读取、只读文字重排时保留阅读位置、
+成员名片“保存模型”按钮填满内容列，以及 CI 操作前的实际滚动布局就绪记录。
+[Native apps 41043480042](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41043480042)
+的 [macOS job 124021988466](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41043480042/job/124021988466)
+已完成 release 编译、打包及 **183 项测试，0 失败**。实际字体度量和只读文字重排测试均通过。
+此前 `63aecc0`、`b63cd2f` 的 macOS 测试在排队中被后续推送取代；本次才取得这批修复的测试证据。
+该工作流整体仍因共享菜单父级 fixture 失败；Windows 已修正并合入当前分支，待新 CI。
+后续新增 @ 候选项子元素／名称和只读文字自身轮廓测量，尚待各自的构建、测试与截图。
+
+最新下载的正式报告来自 `72f5571` 的 **19 场景诊断**，
+[41040938552](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41040938552)，位于
+`S:\Codex\Outputs\Relic-native-visual\parity-72f5571\report\`。
+macOS 捕获 19/19、4776 个原生元素、4263 个有效参考元素、配对 4205；
+Windows 为 4145 个原生元素、4265 个有效参考元素、配对 3916。
+两平台仍为 `scenes_checked: 0`、`scenes_passed: 0`、`matched_elements: 0`，
+完整门禁要求 660，`passed: false`、`exceptions: []`。
+
+| 72f5571 诊断平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 58 | 571 | 0 | 3199 | 8038 | 1200 | 0 | 2 | 603 | 2226 | 0 | 28184 |
+| Windows | 349 | 229 | 577 | 1708 | 13992 | 1201 | 8 | 16 | 625 | 1733 | 0 | 35394 |
+
+该次原生滚动记录直接确认右栏 y=7 来自 NSTextView 在 frame 调整时自动显示休眠选区。
+`ReadOnlyTextView` 只抑制 frame 调整期间的自动滚动，显式滚动和选择行为保留；
+新测试已在上述 183 项中通过，截图仍待 CI，不能提前宣称几何差异消除。
+
+此前完整通过的原生构建为 `efa7553`：
 [41039878013 / macos 124009778780](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41039878013/job/124009778780)
 release 编译、打包及 **180 项测试通过**，包括新增中英文秘书称呼回退测试。
 `72f5571` 后续增加实际字体度量边界检查，尚待新 CI 验证。

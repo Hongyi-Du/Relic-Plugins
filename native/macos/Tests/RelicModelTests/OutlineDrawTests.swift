@@ -4,6 +4,55 @@ import SwiftUI
 @testable import Relic
 
 @MainActor final class OutlineDrawTests: XCTestCase {
+    func testTextOutlineContractRequiresItsActualCurrentNativeDrawAndRejectsAdditionalPaint() throws {
+        _ = NSApplication.shared
+        let view = ReferenceLabel("Measured passage", size: 13).makeLabelView()
+        view.frame = NSRect(x: 0, y: 0, width: 160, height: 30)
+        let manager = try XCTUnwrap(view.layoutManager as? NativeGlyphLayoutManager)
+        manager.recordDraws = true
+        let range = NSRange(location: 0, length: (view.string as NSString).length)
+        func inspect() -> (paint: Any, evidence: [String: Any]) {
+            TextOutlineCapture.inspect(view, range: range)
+        }
+        XCTAssertTrue(inspect().paint is NSNull, "An unmounted, undrawn label supplies no absence proof")
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = view; window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        view.display(); CATransaction.flush()
+        let bitmap = try XCTUnwrap(CaptureRaster.forView(view)); view.cacheDisplay(in: view.bounds, to: bitmap)
+        let current = inspect()
+        // AppKit can omit a presentation layer in the unit-test host. In that
+        // case absence stays unknown; mounted application captures supply it.
+        if view.layer == nil || view.layer?.presentation() != nil {
+            XCTAssertEqual(current.paint as? String, "none", String(describing: current.evidence))
+            XCTAssertEqual(current.evidence["absence_proven"] as? Bool, true)
+        } else { XCTAssertTrue(current.paint is NSNull) }
+        view.focusRingType = .exterior
+        XCTAssertTrue(inspect().paint is NSNull)
+        view.focusRingType = .none; view.isEditable = true
+        XCTAssertTrue(inspect().paint is NSNull)
+        view.isEditable = false
+        let extra = NSView(frame: NSRect(x: 0, y: 0, width: 2, height: 2)); view.addSubview(extra)
+        XCTAssertTrue(inspect().paint is NSNull)
+        extra.removeFromSuperview()
+        view.wantsLayer = true; view.layer?.borderWidth = 2
+        XCTAssertTrue(inspect().paint is NSNull)
+        XCTAssertEqual(inspect().evidence["absence_proven"] as? Bool, false)
+    }
+
+    func testLabelOwnOutlineAbsenceCannotProvideItsButtonOutline() {
+        var nodes: [[String: Any]] = [
+            ["id": "button", "identifier": "relic-text-button/test", "style": ["outline": NSNull()]],
+            ["id": "label", "production_owner": "relic-text-button/test", "text": "Save", "style": ["outline": "none"],
+             "projection": ["native_text_outline": ["absence_proven": true, "scope": "text span only"]]]
+        ]
+        XCTAssertTrue(ElementOwnership.attachLabels(to: &nodes).isEmpty)
+        XCTAssertEqual(nodes.count, 1)
+        XCTAssertTrue((nodes.first?["style"] as? [String: Any])?["outline"] is NSNull)
+        XCTAssertNil(nodes.first?["projection"], "Retained label evidence remains separate from the button's own paint")
+        XCTAssertNotNil(nodes.first?["owned_text_evidence"])
+    }
+
     func testRecordedDashPhaseIsUsedByTheActualNativeRaster() throws {
         let view = SurfacePaintProbe.SurfaceView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         view.recordDraws = true
