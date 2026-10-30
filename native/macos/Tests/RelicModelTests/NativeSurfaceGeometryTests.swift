@@ -7,12 +7,19 @@ import ApplicationServices
 
 @MainActor final class NativeSurfaceGeometryTests: XCTestCase {
     func testPaddedTextButtonExposesItsWholeInteractiveBox() async throws {
-        _ = NSApplication.shared
+        let application = NSApplication.shared
+        // swift test creates AppKit objects without running NSApplication's
+        // launch lifecycle. Complete that lifecycle before asking its AX server
+        // to publish SwiftUI controls (the production app already does this).
+        application.setActivationPolicy(.regular)
+        application.finishLaunching()
         let owner = "relic-tab/padded-button-test"
         let sample = TextButton("Tab", size: 12, weight: 400, height: 24, padding: 9, fillsWidth: true, identifier: owner) {}.buttonStyle(.plain)
         let host = NSHostingView(rootView: sample)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 100, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = host; window.orderFront(nil); defer { window.orderOut(nil) }
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
+        defer { window.orderOut(nil) }
         // Use the same public self-process AX activation as the CI app capture.
         // SwiftUI otherwise may leave its accessibility tree unmaterialized.
         let axResult = await Task.detached {
