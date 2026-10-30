@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (shared icon-button product fix): actual 7df43bd
+private-header icons were 16px/left-aligned instead of 18px/centered, and the
+settings close icon was 6px left of its reference position. The production
+IconButton helper now centers content, uses the reference's ink-2/radius8,
+and defaults ordinary icons to 18px. Explicit 16px panel/chart controls and
+17px microphone/send icons remain so. The quote cancel uses its actual
+reference 14px icon/22px button. Settings theme refresh now retains ink-2
+instead of overriding the close icon with Muted. Fresh captures must verify
+all affected calls; no extractor or tolerance substitutes for these fixes.
+
 Changes for the clients (exact SDK control paint): Windows outline extraction
 now recognizes ten exact core controls whose fixed 1.6.9 renderer paints their
 content through separately captured template children. Existing actual focus,

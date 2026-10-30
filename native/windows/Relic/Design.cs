@@ -56,10 +56,14 @@ public sealed partial class MainWindow
         if (glyph == "\uE70D") { icon.RenderTransformOrigin = new(.5, .5); icon.RenderTransform = new RotateTransform { Angle = 90 }; }
         return icon;
     }
-    private Button IconButton(string glyph, string key, Func<Task> action, string? tooltip = null)
+    private Button IconButton(string glyph, string key, Func<Task> action, string? tooltip = null, double iconSize = 18)
     {
-        var b = Button("", action); b.Content = key == "chat.card" ? ReferenceIcon("card") : key == "card.new_name" ? ReferenceIcon("edit") : Glyph(glyph, glyph is "\uE720" or "\uE74A" ? 17 : 16); b.Width = 30; b.Height = 30;
-        b.Padding = new Thickness(5); b.BorderThickness = new Thickness(0); b.Background = new SolidColorBrush(Colors.Transparent);
+        var b = Button("", action);
+        b.Content = key == "chat.card" ? ReferenceIcon("card", iconSize) : key == "card.new_name" ? ReferenceIcon("edit", iconSize) : Glyph(glyph, glyph is "\uE720" or "\uE74A" ? 17 : iconSize);
+        b.Width = b.Height = 30; b.MinWidth = b.MinHeight = 0;
+        b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(8);
+        b.HorizontalContentAlignment = HorizontalAlignment.Center; b.VerticalContentAlignment = VerticalAlignment.Center;
+        b.Foreground = Paint("5A5853", "B8B5AE"); b.BorderThickness = new Thickness(0); b.Background = new SolidColorBrush(Colors.Transparent);
         AutomationProperties.SetName(b, tooltip ?? T(key)); ToolTipService.SetToolTip(b, tooltip ?? T(key)); return b;
     }
     private Button QuietButton(string label, Func<Task> action)
@@ -155,7 +159,7 @@ public sealed partial class MainWindow
         tabs.SelectionChanged += async (_, _) => { if (tabs.SelectedItem != null && destinations.TryGetValue(tabs.SelectedItem, out var target) && pane != target) await Run(() => SetPane(target)); };
         paneHeader.Children.Add(new ScrollViewer { Content = tabs, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
-        var close = IconButton("\uE711", "panel.hide", TogglePanel, T("panel.hide_title"));
+        var close = IconButton("\uE711", "panel.hide", TogglePanel, T("panel.hide_title"), iconSize: 16);
         AutomationProperties.SetName(close, T("panel.hide"));
         Grid.SetColumn(close, 1); close.VerticalAlignment = VerticalAlignment.Center; paneHeader.Children.Add(close);
     }

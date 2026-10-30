@@ -102,7 +102,9 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(emptyConversation, 2); chat.Children.Add(emptyConversation);
         var compose = new StackPanel { Spacing = 6 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
-        var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }); Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
+        var cancelQuote = IconButton("\uE711", "composer.cancel_quote", () => { ClearQuote(); SaveViewState(); return Task.CompletedTask; }, iconSize: 14);
+        cancelQuote.Width = cancelQuote.Height = 22; cancelQuote.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(cancelQuote, 1); quoteRow.Children.Add(cancelQuote); compose.Children.Add(quoteRow); compose.Children.Add(editor);
         recipientButton = QuietButton("", PickRecipients); var composeActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; composeActions.Children.Add(Microphone(editor));
         sendButton = IconButton("\uE74A", "common.send", Send); sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); sendButton.Width = sendButton.Height = 32; sendButton.CornerRadius = new CornerRadius(16); sendButton.HorizontalContentAlignment = HorizontalAlignment.Center; sendButton.VerticalContentAlignment = VerticalAlignment.Center; sendButton.Padding = new Thickness(0); composeActions.Children.Add(sendButton);
         compose.Children.Add(TwoColumns(recipientButton, composeActions));

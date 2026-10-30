@@ -233,7 +233,7 @@ public sealed partial class MainWindow
         async Task Draw(string key)
         {
             current = key; content.Children.Clear(); installViews.Clear(); installLogSurfaces.Clear(); body.Background = dialog.Background = Paint("FFFFFF", "252523");
-            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink; close.Foreground = Muted;
+            navigationSurface.Background = Paint("F8F7F5", "191918"); navigationSurface.BorderBrush = Line; navTitle.Foreground = Ink; close.Foreground = Paint("5A5853", "B8B5AE");
             if (tabs.TryGetValue(key, out var selectedTab)) navigationBar.SelectedItem = selectedTab.Item;
             foreach (var (id, tab) in tabs)
             {

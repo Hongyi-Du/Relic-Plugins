@@ -120,7 +120,7 @@ public sealed partial class MainWindow
         }
         Button Tool(string glyph, string key, Action action)
         {
-            var button = IconButton(glyph, key, () => { action(); return Task.CompletedTask; });
+            var button = IconButton(glyph, key, () => { action(); return Task.CompletedTask; }, iconSize: 16);
             button.Width = button.Height = 28; button.MinHeight = 0; button.Padding = new Thickness(0); button.CornerRadius = new CornerRadius(8);
             button.Foreground = Paint("5A5853", "B8B5AE");
             return button;
