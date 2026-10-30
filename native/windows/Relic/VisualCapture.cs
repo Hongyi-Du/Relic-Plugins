@@ -198,6 +198,7 @@ public sealed partial class MainWindow
                     CaptureTextareaCheckpoint("before_screenshot");
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
                     CapturePanelResizeCheckpoint("before_screenshot");
+                    BeginTextRangeFrameCapture(shot.Text("id"));
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     CapturePanelResizeCheckpoint("after_screenshot");
                     CaptureTextareaCheckpoint("after_screenshot");
@@ -238,6 +239,9 @@ public sealed partial class MainWindow
                 }
                 finally
                 {
+                    EndTextRangeFrameCapture();
+                    if (capturedTextRangeFrameEvidence != null)
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".text-range-frame-final.json"), capturedTextRangeFrameEvidence.ToJsonString());
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".pointer-input.json"), capturePointerReceipts.ToJsonString());
                     try
                     {
@@ -331,10 +335,12 @@ public sealed partial class MainWindow
             // those real overlays; PrintWindow alone silently omits them.
             var origin = new CapturePoint(); if (!ClientToScreen(handle, ref origin)) throw new InvalidOperationException("ClientToScreen failed");
             if (observeNativeLabel) CheckpointNativeLabelCapture("before_desktop_readback");
+            if (observeNativeLabel) CheckpointTextRangeFrameCapture("before_desktop_readback");
             if (!BitBlt(memory, 0, 0, width, height, dc, origin.x, origin.y, 0x40CC0020)) throw new InvalidOperationException("Desktop window capture failed");
             var info = new BitmapInfo { size = 40, width = width, height = -height, planes = 1, bits = 32, imageSize = (uint)(width * height * 4) };
             var pixels = new byte[width * height * 4];
             if (GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0) == 0) throw new InvalidOperationException("GetDIBits failed");
+            if (observeNativeLabel) CheckpointTextRangeFrameCapture("after_desktop_readback");
             if (observeNativeLabel) CheckpointNativeLabelCapture("after_desktop_readback");
             if (pixels.Where((_, i) => i % 4 != 3).Distinct().Take(12).Count() < 12) throw new InvalidOperationException("Window capture is blank");
             using var output = new InMemoryRandomAccessStream(); var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output);

@@ -7,6 +7,7 @@ No Skia parser, replacement rendering, estimated bounds or local execution.
 import argparse
 import base64
 from collections import Counter
+import copy
 import json
 import os
 from pathlib import Path
@@ -186,6 +187,130 @@ def extract_pictures(trace, output):
             "quantity": "Unparsed serialized paint records; no canonical glyph or scrollbar measurements"}
 
 
+def layer_boundary(events, first_event, name, output, boundaries):
+    """Retain the latest received tree, not a fabricated synchronous tree read.
+
+    LayerTree has no get-current-tree command. The event's own receipt time and
+    source index must remain distinct from this boundary's host clock. In
+    particular, no intervening event is not proof of unchanged compositor paint.
+    """
+    tree_index = next((index for index in range(len(events) - 1, first_event - 1, -1)
+                       if events[index]["method"] == "LayerTree.layerTreeDidChange"), None)
+    previous_count = boundaries[-1]["event_count"] if boundaries else first_event
+    boundary = {"name": name, "received_monotonic": time.monotonic(),
+        "source_events_start_index": first_event, "event_count": len(events),
+        "latest_tree_event_index": tree_index,
+        "latest_tree_event": copy.deepcopy(events[tree_index]) if tree_index is not None else None,
+        "paint_events_since_previous_boundary": [
+            {"event_index": index, "event": copy.deepcopy(events[index])}
+            for index in range(previous_count, len(events))
+            if events[index]["method"] == "LayerTree.layerPainted"],
+        "final_scene_attribution": None,
+        "quantity": "Received protocol tree/paint events; not a synchronous frame or screenshot identity"}
+    boundaries.append(boundary)
+    write_json(output / "layer-boundaries.json", boundaries)
+    return boundary
+
+
+def collect_layer_snapshots(cdp, read, output, events, first_event, boundaries):
+    """Ask only actual post-navigation layer IDs for their diagnostic pictures.
+
+    makeSnapshot flushes document lifecycle in this Chromium implementation and
+    temporarily suppresses paint events. Run it AFTER the original screenshot;
+    command logs cannot certify that earlier screenshot's content or geometry.
+    """
+    snapshots = output / "layer-snapshots"
+    snapshots.mkdir()
+    result = {"status": "failed", "layers": [], "errors": [],
+        "final_scene_attribution": None,
+        "quantity": "Actual LayerTree snapshot command logs; not measured glyph/scrollbar geometry"}
+    boundary = layer_boundary(events, first_event, "before_layer_snapshots", output, boundaries)
+    tree = boundary["latest_tree_event"]
+    layers = tree.get("params", {}).get("layers") if tree is not None else None
+    def persist():
+        write_json(output / "layer-snapshots.json", result)
+    if not isinstance(layers, list) or not layers:
+        result["errors"].append({"source": "LayerTree",
+            "reason": "No actual post-navigation layer tree; no snapshot IDs can be requested"})
+        persist()
+        return result
+    seen = set()
+    for index, layer in enumerate(layers):
+        entry = {"source_layer_event_index": boundary["latest_tree_event_index"],
+            "source_layer_index": index, "source_layer": copy.deepcopy(layer),
+            "status": "failed", "requests": [], "errors": [], "final_scene_attribution": None,
+            "lifecycle_side_effect": "makeSnapshot updates document lifecycle while suppressing paint events"}
+        path = snapshots / f"layer-{index:04d}.json"
+        item = {"file": "layer-snapshots/" + path.name,
+            "source_layer_event_index": boundary["latest_tree_event_index"],
+            "source_layer_index": index, "layer_id": layer.get("layerId"),
+            "status": "failed", "errors": entry["errors"]}
+        result["layers"].append(item)
+        def persist_entry():
+            item["status"] = entry["status"]
+            write_json(path, entry)
+            persist()
+        def invoke(method, parameters):
+            request = {"method": method, "parameters": copy.deepcopy(parameters),
+                "started_monotonic": time.monotonic(), "status": "started", "response": None}
+            entry["requests"].append(request)
+            persist_entry()
+            response = read(cdp, method, parameters)
+            request.update({"completed_monotonic": time.monotonic(), "response": response,
+                            "status": "completed" if response is not None else "failed"})
+            persist_entry()
+            return response
+        layer_id = layer.get("layerId")
+        if not isinstance(layer_id, str) or not layer_id:
+            entry["errors"].append({"source": "LayerTree", "reason": "Actual layer ID missing"})
+        elif layer_id in seen:
+            entry["errors"].append({"source": "LayerTree", "reason": "Duplicate actual layer ID in source tree"})
+        else:
+            seen.add(layer_id)
+        if layer.get("drawsContent") is False and not entry["errors"]:
+            entry["status"] = "not_requested_non_content_layer"
+            persist_entry()
+            continue
+        if layer.get("drawsContent") is not True:
+            entry["errors"].append({"source": "LayerTree", "reason": "Actual drawsContent flag unavailable"})
+            persist_entry()
+            continue
+        paint_count = layer.get("paintCount")
+        if type(paint_count) is not int or paint_count <= 0:
+            entry["errors"].append({"source": "LayerTree.paintCount",
+                "reason": "Actual content-layer paintCount is zero or unavailable; paint attribution remains unproven",
+                "value": paint_count})
+        if not isinstance(layer_id, str) or not layer_id:
+            persist_entry()
+            continue
+        layer_boundary(events, first_event, f"before_snapshot_{index}", output, boundaries)
+        snapshot = invoke("LayerTree.makeSnapshot", {"layerId": layer_id})
+        snapshot_id = snapshot.get("snapshotId") if isinstance(snapshot, dict) else None
+        if not isinstance(snapshot_id, str) or not snapshot_id:
+            entry["errors"].append({"source": "LayerTree.makeSnapshot",
+                "reason": "No actual snapshot ID returned for this layer"})
+        else:
+            try:
+                commands = invoke("LayerTree.snapshotCommandLog", {"snapshotId": snapshot_id})
+                if not isinstance(commands, dict) or not isinstance(commands.get("commandLog"), list) or not commands["commandLog"]:
+                    entry["errors"].append({"source": "LayerTree.snapshotCommandLog",
+                        "reason": "No nonempty actual commandLog returned for this snapshot"})
+            finally:
+                if invoke("LayerTree.releaseSnapshot", {"snapshotId": snapshot_id}) is None:
+                    entry["errors"].append({"source": "LayerTree.releaseSnapshot", "reason": "Snapshot release failed"})
+        layer_boundary(events, first_event, f"after_snapshot_{index}", output, boundaries)
+        entry["status"] = "failed" if entry["errors"] else "raw_records_collected"
+        persist_entry()
+    result["errors"].extend(dict(error, layer_id=row["layer_id"], file=row["file"])
+        for row in result["layers"] for error in row["errors"])
+    if not any(row["status"] == "raw_records_collected" for row in result["layers"]):
+        result["errors"].append({"source": "LayerTree", "reason": "No actual content-layer command log collected"})
+    result["status"] = "failed" if result["errors"] else "raw_records_collected"
+    layer_boundary(events, first_event, "after_layer_snapshots", output, boundaries)
+    persist()
+    return result
+
+
 def collect_scene(browser, context, manifest, case, output, source):
     output.mkdir(parents=True)
     report = {"scene_id": case["id"], "status": "failed", "measurement_status": "unresolved",
@@ -197,7 +322,7 @@ def collect_scene(browser, context, manifest, case, output, source):
     page.on("pageerror", lambda error: report["errors"].append({"source": "page", "reason": str(error)}))
     cdp = context.new_cdp_session(page)
     trace_cdp = browser.new_browser_cdp_session()
-    complete, layer_events, markers, buffer_usage = [], [], [], []
+    complete, layer_events, markers, buffer_usage, boundaries = [], [], [], [], []
     phase = {"name": "initial"}
     progress = []
     def checkpoint(operation, state):
@@ -248,14 +373,33 @@ def collect_scene(browser, context, manifest, case, output, source):
         if case["scene"] == "documents":
             page.locator(".details .left .chat-row").first.click()
             page.locator(".details .doc-body").wait_for(state="visible")
-        page.wait_for_timeout(700)
         page.mouse.move(case["width"] + 20, case["height"] + 20)
         checkpoint("page/navigation-and-real-scene", "completed")
+        marker("post_navigation_layer_enable")
+        # InspectorLayerTreeAgent::Restore deliberately does not re-enable this
+        # domain after navigation. Request the new document first, as DevTools
+        # does; old-document layers cannot supply current DOM ownership.
+        first_scene_layer_event = len(layer_events)
+        document = read(cdp, "DOM.getDocument", {"depth": 0, "pierce": True})
+        write_json(output / "layer-document.json", document)
+        if not isinstance(document, dict) or not isinstance(document.get("root"), dict):
+            report["errors"].append({"source": "DOM.getDocument",
+                "reason": "Actual post-navigation document identity unavailable; layer DOM ownership remains unproven"})
+        read(cdp, "LayerTree.enable")
+        page.wait_for_timeout(700)  # Existing settle interval also pumps actual layer events.
         marker("before_screenshot")
+        layer_boundary(layer_events, first_scene_layer_event, "before_screenshot", output, boundaries)
         checkpoint("page/screenshot", "started")
         page.screenshot(path=output / "scene.png", animations="disabled")
         checkpoint("page/screenshot", "completed")
         marker("after_screenshot")
+        layer_boundary(layer_events, first_scene_layer_event, "after_screenshot", output, boundaries)
+        marker("before_layer_snapshots")
+        layer_snapshots = collect_layer_snapshots(cdp, read, output, layer_events,
+                                                   first_scene_layer_event, boundaries)
+        report["errors"].extend(layer_snapshots["errors"])
+        report["layer_snapshot_status"] = layer_snapshots["status"]
+        marker("after_layer_snapshots")
         write_json(output / "scene-metrics.json", page.evaluate(SCENE_METRICS))
         write_json(output / "layout-metrics.json", read(cdp, "Page.getLayoutMetrics"))
         write_json(output / "target.json", read(cdp, "Target.getTargetInfo"))

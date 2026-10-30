@@ -161,7 +161,15 @@ class PaintTraceTests(unittest.TestCase):
                     "traceEvents": [{"args": {"skp64": base64.b64encode(b"synthetic fixture bytes").decode()}}] if has_picture else []}
                 def page_send(method, parameters=None):
                     if method == "LayerTree.enable" and fixture.get("has_layers", True):
-                        callbacks["LayerTree.layerTreeDidChange"]({"layers": [{"layerId": "fixture-layer"}]})
+                        callbacks["LayerTree.layerTreeDidChange"]({"layers": [{"layerId": "fixture-layer",
+                            "drawsContent": True, "paintCount": 2, "offsetX": 0, "offsetY": 0,
+                            "width": 1440, "height": 900, "backendNodeId": 17}]})
+                    if method == "DOM.getDocument":
+                        return {"root": {"nodeId": 1, "backendNodeId": 2, "nodeType": 9}}
+                    if method == "LayerTree.makeSnapshot":
+                        return {"snapshotId": "fixture-snapshot"}
+                    if method == "LayerTree.snapshotCommandLog":
+                        return {"commandLog": [{"method": "fixture-paint-record"}]}
                     return {}
                 cdp.send.side_effect = page_send
                 def send(method, parameters=None):
@@ -197,6 +205,16 @@ class PaintTraceTests(unittest.TestCase):
                 self.assertIn("Tracing.start", starts)
                 self.assertIn("Tracing.end", starts)
                 self.assertIn("trace-stream", starts)
+                self.assertLess(starts.index("page/navigation-and-real-scene"), starts.index("DOM.getDocument"))
+                self.assertLess(starts.index("DOM.getDocument"),
+                                [index for index, value in enumerate(starts) if value == "LayerTree.enable"][-1])
+                if fixture.get("has_layers", True):
+                    self.assertLess(starts.index("page/screenshot"), starts.index("LayerTree.makeSnapshot"))
+                    self.assertLess(starts.index("LayerTree.makeSnapshot"), starts.index("LayerTree.snapshotCommandLog"))
+                    self.assertLess(starts.index("LayerTree.snapshotCommandLog"), starts.index("LayerTree.releaseSnapshot"))
+                    layer_receipt = json.loads((Path(folder) / "scene" / "layer-snapshots.json").read_text())
+                    self.assertIsNone(layer_receipt["final_scene_attribution"])
+                    self.assertEqual(layer_receipt["status"], "raw_records_collected")
                 if not has_picture:
                     self.assertTrue(any("No actual skp64" in row["reason"] for row in result["errors"]))
                 if data_loss:
@@ -207,6 +225,130 @@ class PaintTraceTests(unittest.TestCase):
                     self.assertTrue(any(row["source"] == "browser_command_line" for row in result["errors"]))
                 if fixture.get("writer_loss"):
                     self.assertTrue(any(row["source"] == "trace_processor_stats" for row in result["errors"]))
+
+
+class LayerSnapshotTests(unittest.TestCase):
+    @staticmethod
+    def event(layer_id="actual-layer", **values):
+        return {"method": "LayerTree.layerTreeDidChange", "phase": "post_navigation_layer_enable",
+            "received_monotonic": 12.5, "params": {"layers": [{"layerId": layer_id,
+                "drawsContent": True, "paintCount": 3, "backendNodeId": 71,
+                "offsetX": 1.25, "offsetY": 2.5, "width": 789, "height": 456,
+                "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 24, 0, 1], **values}]}}
+
+    @staticmethod
+    def reader(session, method, parameters):
+        if method == "LayerTree.makeSnapshot":
+            return {"snapshotId": "actual-snapshot"}
+        if method == "LayerTree.snapshotCommandLog":
+            return {"commandLog": [{"method": "drawRect", "params": {"fixture": True}}]}
+        if method == "LayerTree.releaseSnapshot":
+            return {}
+        raise AssertionError("Unexpected protocol method " + method)
+
+    def collect(self, root, events, read=None, first_event=0):
+        boundaries = []
+        result = paint_trace.collect_layer_snapshots(Mock(), read or Mock(side_effect=self.reader),
+            root, events, first_event, boundaries)
+        return result, boundaries
+
+    def test_boundary_retains_event_identity_clip_and_offsets_without_synchronous_claim(self):
+        events = [self.event(), {"method": "LayerTree.layerPainted", "phase": "before_screenshot",
+            "received_monotonic": 13.0, "params": {"layerId": "actual-layer",
+                "clip": {"x": 4, "y": 5, "width": 6, "height": 7}}}]
+        original = copy.deepcopy(events)
+        with tempfile.TemporaryDirectory() as folder:
+            result = paint_trace.layer_boundary(events, 0, "before_screenshot", Path(folder), [])
+        self.assertEqual(result["latest_tree_event_index"], 0)
+        self.assertEqual(result["latest_tree_event"], original[0])
+        self.assertEqual(result["paint_events_since_previous_boundary"], [{"event_index": 1, "event": original[1]}])
+        self.assertIsNone(result["final_scene_attribution"])
+        events[0]["params"]["layers"][0]["paintCount"] = 99
+        self.assertEqual(result["latest_tree_event"]["params"]["layers"][0]["paintCount"], 3)
+
+    def test_pre_navigation_layers_cannot_be_used_as_current_layers(self):
+        read = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            result, boundaries = self.collect(Path(folder), [self.event("old-document-layer")], read, first_event=1)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["layers"], [])
+        self.assertIn("post-navigation", result["errors"][0]["reason"])
+        self.assertIsNone(boundaries[0]["latest_tree_event"])
+        read.assert_not_called()
+
+    def test_latest_empty_tree_does_not_fall_back_to_previous_content_layers(self):
+        events = [self.event(), {"method": "LayerTree.layerTreeDidChange", "params": {}}]
+        read = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            result, boundaries = self.collect(Path(folder), events, read)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(boundaries[0]["latest_tree_event_index"], 1)
+        read.assert_not_called()
+
+    def test_snapshot_uses_only_actual_layer_and_snapshot_ids_and_keeps_entire_responses(self):
+        events = [self.event()]
+        original = copy.deepcopy(events)
+        read = Mock(side_effect=self.reader)
+        with tempfile.TemporaryDirectory() as folder:
+            result, boundaries = self.collect(Path(folder), events, read)
+            entry = json.loads((Path(folder) / result["layers"][0]["file"]).read_text())
+        self.assertEqual(result["status"], "raw_records_collected")
+        self.assertEqual([call.args[1:] for call in read.call_args_list], [
+            ("LayerTree.makeSnapshot", {"layerId": "actual-layer"}),
+            ("LayerTree.snapshotCommandLog", {"snapshotId": "actual-snapshot"}),
+            ("LayerTree.releaseSnapshot", {"snapshotId": "actual-snapshot"})])
+        self.assertEqual(entry["source_layer"], original[0]["params"]["layers"][0])
+        self.assertEqual(entry["requests"][1]["response"], self.reader(None, "LayerTree.snapshotCommandLog", {}))
+        self.assertTrue(all(request["status"] == "completed" for request in entry["requests"]))
+        self.assertTrue(all(row["final_scene_attribution"] is None for row in boundaries))
+        self.assertIsNone(entry["final_scene_attribution"])
+        self.assertEqual(events, original)
+
+    def test_zero_paint_count_keeps_actual_logs_but_remains_failed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result, _ = self.collect(Path(folder), [self.event(paintCount=0)])
+            entry = json.loads((Path(folder) / result["layers"][0]["file"]).read_text())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(entry["source_layer"]["paintCount"], 0)
+        self.assertEqual(entry["requests"][1]["response"]["commandLog"][0]["method"], "drawRect")
+        self.assertTrue(any(error["source"] == "LayerTree.paintCount" for error in result["errors"]))
+
+    def test_failed_command_log_still_releases_actual_snapshot_and_retains_failure(self):
+        def reader(session, method, parameters):
+            return None if method == "LayerTree.snapshotCommandLog" else self.reader(session, method, parameters)
+        read = Mock(side_effect=reader)
+        with tempfile.TemporaryDirectory() as folder:
+            result, _ = self.collect(Path(folder), [self.event()], read)
+            entry = json.loads((Path(folder) / result["layers"][0]["file"]).read_text())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(read.call_args.args[1:], ("LayerTree.releaseSnapshot", {"snapshotId": "actual-snapshot"}))
+        self.assertEqual(entry["requests"][1]["status"], "failed")
+
+    def test_failed_make_snapshot_does_not_invent_id_or_request_command_log(self):
+        read = Mock(return_value=None)
+        with tempfile.TemporaryDirectory() as folder:
+            result, _ = self.collect(Path(folder), [self.event()], read)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(read.call_args.args[1], "LayerTree.makeSnapshot")
+
+    def test_failed_release_is_retained_even_when_log_was_collected(self):
+        def reader(session, method, parameters):
+            return None if method == "LayerTree.releaseSnapshot" else self.reader(session, method, parameters)
+        with tempfile.TemporaryDirectory() as folder:
+            result, _ = self.collect(Path(folder), [self.event()], Mock(side_effect=reader))
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(any(error["source"] == "LayerTree.releaseSnapshot" for error in result["errors"]))
+
+    def test_actual_non_content_layer_retained_without_inventing_paint(self):
+        read = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            result, _ = self.collect(Path(folder), [self.event(drawsContent=False, paintCount=0)], read)
+            entry = json.loads((Path(folder) / result["layers"][0]["file"]).read_text())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(entry["status"], "not_requested_non_content_layer")
+        self.assertEqual(entry["source_layer"]["paintCount"], 0)
+        read.assert_not_called()
 
 
 if __name__ == "__main__":

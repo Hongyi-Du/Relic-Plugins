@@ -448,6 +448,7 @@ public sealed partial class MainWindow
                 receipt["peer_is_null"] = peer == null;
                 if (peer == null) { receipt["status"] = "no-peer"; continue; }
                 receipt["peer_type"] = peer.GetType().FullName;
+                RegisterTextRangeFrameIdentityPeer(element, peer);
                 var owner = (peer as FrameworkElementAutomationPeer)?.Owner;
                 var sameOwner = ReferenceEquals(owner, element); receipt["same_owner_object"] = sameOwner;
                 receipt["peer_owner_id"] = owner != null && ids.TryGetValue(owner, out var actualOwnerId) ? actualOwnerId : null;

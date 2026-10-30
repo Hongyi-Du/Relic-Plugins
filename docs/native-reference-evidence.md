@@ -229,6 +229,42 @@ tests in `test_paint_trace.py` are covered by the existing CI unittest discovery
 No local browser, server, test or Skia tool is launched or installed for this
 experiment. Only Python compilation and whitespace checks are local checks.
 
+### Post-navigation LayerTree diagnostic correction (2026-10-30)
+
+The `7df43bd` full-Chromium diagnostic retained 730 / 797 actual SKP payloads
+for `group` / `file-code`; headless-shell retained 18 / 18. All four recordings
+still report trace data loss, empty `layer-events.json`, and null picture layer
+IDs. The newest picture precedes `before_screenshot` by 677.624 / 1,341.763 ms
+in full Chromium and 3,368.172 / 3,197.060 ms in headless-shell. More pictures
+do not establish which record produced the final PNG.
+
+The recorded browser revision's
+[`InspectorLayerTreeAgent::Restore`](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/inspector/inspector_layer_tree_agent.cc#L242)
+does not automatically re-enable LayerTree after navigation. The diagnostic
+previously enabled it only before navigation. It now requests the actual new
+document with `DOM.getDocument`, re-enables LayerTree after real scene actions,
+and uses the existing 700 ms settle interval to receive actual events. This is
+a collection correction awaiting CI evidence, not a claim that layers exist.
+
+`layer-document.json`, `layer-boundaries.json`, and `layer-snapshots.json` retain
+actual document identity, event indices and receipt times, raw paint counts,
+clips, offsets, transforms, and per-layer request files. Only IDs from the
+post-navigation tree are passed to `makeSnapshot`; the returned snapshot ID is
+used for `snapshotCommandLog` and released even when command collection fails.
+Missing layers, zero or unavailable content paint counts, failed requests, and
+empty command logs remain diagnostic failures. Pre-navigation trees cannot be
+used as a substitute.
+
+The original `scene.png` is saved **before** snapshot requests. In this browser,
+`makeSnapshot` updates document lifecycle while temporarily suppressing paint
+events; it reads the actual layer picture after that update. Therefore the
+absence of intervening events does not establish an unchanged frame. Every
+boundary and snapshot keeps `final_scene_attribution: null`; command logs are
+raw diagnostic evidence, not canonical glyph, ellipsis, or scrollbar geometry.
+No replacement image is rendered, no repaint is forced by the harness, and the
+original trace categories, trace bytes, loss receipts, and parity gate remain
+unchanged. Pure mock regressions run only in CI.
+
 ## First actual trace and next diagnostic configuration (2026-10-29)
 
 The downloaded artifact is

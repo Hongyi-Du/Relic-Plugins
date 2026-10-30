@@ -25,10 +25,15 @@ internal sealed class TextRangeProviderProbe : IDisposable
     private readonly string outputPath;
     private readonly JsonArray owners = [], errors = [], contractIssues = [];
     private readonly JsonObject receipt;
+    private readonly Func<TextBlock, AutomationPeer?, string, JsonObject?>? frameCheckpoint;
+    private TextBlock? currentOwner;
+    private AutomationPeer? currentPeer;
 
-    private TextRangeProviderProbe(string directory, string caseId, string phase)
+    private TextRangeProviderProbe(string directory, string caseId, string phase,
+        Func<TextBlock, AutomationPeer?, string, JsonObject?>? frameCheckpoint)
     {
         this.phase = phase;
+        this.frameCheckpoint = frameCheckpoint;
         outputPath = Path.Combine(directory, caseId + ".text-range-provider-probe.json");
         progress = new StreamWriter(new FileStream(
             Path.Combine(directory, caseId + ".text-range-provider-probe.progress.jsonl"),
@@ -54,9 +59,10 @@ internal sealed class TextRangeProviderProbe : IDisposable
 
     internal static JsonObject Capture(string directory, string caseId,
         IReadOnlyDictionary<DependencyObject, string> identities,
-        string phase = "after-independent-uia-and-provider-probe")
+        string phase = "after-independent-uia-and-provider-probe",
+        Func<TextBlock, AutomationPeer?, string, JsonObject?>? frameCheckpoint = null)
     {
-        using var probe = new TextRangeProviderProbe(directory, caseId, phase);
+        using var probe = new TextRangeProviderProbe(directory, caseId, phase, frameCheckpoint);
         probe.receipt["supplied_owner_count"] = identities.Count;
         probe.Save(); probe.Trace(null, "capture", "pending");
         foreach (var (value, id) in identities)
@@ -80,6 +86,8 @@ internal sealed class TextRangeProviderProbe : IDisposable
 
     private void CaptureOwner(TextBlock owner, string ownerId)
     {
+        currentOwner = owner;
+        currentPeer = null;
         var observed = new JsonObject
         {
             ["owner_id"] = ownerId, ["owner_type"] = owner.GetType().FullName,
@@ -99,6 +107,7 @@ internal sealed class TextRangeProviderProbe : IDisposable
             peerRead = TryCall(ownerId, observed, "FrameworkElementAutomationPeer.FromElement",
                 () => FrameworkElementAutomationPeer.FromElement(owner), out var existingPeer);
             peer = existingPeer;
+            currentPeer = peer;
             observed["peer_is_null"] = peerRead ? peer == null : null;
             observed["peer_type"] = peer?.GetType().FullName;
             if (!peerRead || peer == null)
@@ -199,6 +208,7 @@ internal sealed class TextRangeProviderProbe : IDisposable
         { Issue(ownerId, rangeId, "Provider returned a null range", result); return result; }
         TryCall(ownerId, result, rangeId + ".GetText(-1)", () => range.GetText(-1), out var text, TextValue);
         result["text"] = TextValue(text);
+        result["frame_before_rectangles"] = ObserveFrame(rangeId + ".before_rectangles");
         if (TryCall(ownerId, result, rangeId + ".GetBoundingRectangles", () =>
             { range.GetBoundingRectangles(out var values); return values; }, out var rectangles, DoubleValues))
         {
@@ -214,6 +224,7 @@ internal sealed class TextRangeProviderProbe : IDisposable
             // Keep zero/negative dimensions and all IEEE754 values verbatim.
             // They remain diagnostic observations, never inferred hidden text.
         }
+        result["frame_after_rectangles"] = ObserveFrame(rangeId + ".after_rectangles");
         if (document != null)
         {
             Compare(ownerId, result, "start_to_document_start", range, TextPatternRangeEndpoint.Start, document, TextPatternRangeEndpoint.Start);
@@ -235,6 +246,17 @@ internal sealed class TextRangeProviderProbe : IDisposable
         result["completed_qpc"] = Stopwatch.GetTimestamp();
         Trace(ownerId, rangeId, "completed", result);
         return result;
+    }
+
+    private JsonObject? ObserveFrame(string stage)
+    {
+        if (currentOwner == null || frameCheckpoint == null) return null;
+        try { return frameCheckpoint(currentOwner, currentPeer, stage); }
+        catch (Exception ex)
+        {
+            errors.Add(new JsonObject { ["source"] = "frame_checkpoint", ["stage"] = stage, ["error"] = ex.ToString() });
+            return new JsonObject { ["stage"] = stage, ["error"] = ex.ToString(), ["continuity_proven"] = false };
+        }
     }
 
     private JsonObject Endpoint(string ownerId, string rangeId,

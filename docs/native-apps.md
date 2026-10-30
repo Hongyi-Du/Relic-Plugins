@@ -1,5 +1,27 @@
 # Native Relic App contract
 
+Changes for the clients (TextBlock frame diagnostics): the Windows capture now
+retains the actual TextBlock owners before PNG readback, their observable source,
+layout, ancestor clip/scroll/transform inputs and dependency-property revisions,
+and the same actual owner/peer at each WinRT rectangle read. Both desktop
+readback boundaries have checkpoints. Missing property observers, unsupported
+values, changed objects, errors and journal overflow are retained. This is a
+diagnostic input-state receipt, not a compositor-frame or visibility proof;
+no canonical rectangles or previous provider errors are replaced. The headless
+build passes; actual timing and retained-object evidence await CI.
+
+Changes for the clients (browser paint diagnostic): actual post-navigation
+`DOM.getDocument` and `LayerTree.enable` now precede the existing settling wait.
+Layer snapshot requests use only actual returned layer IDs and run after the
+original PNG. Raw request/response journals retain missing/zero paint counts,
+empty logs and failures. Lifecycle flushing by makeSnapshot means these later
+records do not prove that PNG's glyph or scrollbar contribution. Nine new pure
+mock tests are scheduled in CI; no canonical measurement or gate is relaxed.
+
+Verified 2e42376 CI: 89 Node and 506 Python element-checker tests pass; Windows
+and macOS release builds pass, including 152 macOS tests. Capture/element parity
+still fails. The four platform-guarded vocabulary keys remain unresolved.
+
 Changes for the clients (measured text-range precision audit): the Windows
 projection retains a supplementary `text_range_precision` receipt from the
 actual WinRT and COM journals, revalidating complete RuntimeIds and UTF-16

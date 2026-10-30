@@ -287,6 +287,7 @@ public sealed partial class MainWindow
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
         }
         var outlineFocusEvidence = CaptureOutlineOwners(renderIds, renderNodes);
+        BindTextRangeFrameOwners(renderIds);
         foreach (var (value, record) in renderNodes)
         {
             if (value is not MessageHeaderRow header) continue;
@@ -551,13 +552,22 @@ public sealed partial class MainWindow
             // the earlier QI failures remain in the separate before/after probe.
             await CaptureAutomationIdentities(directory, caseId, renderIds, renderNodes, identityObserver);
             result["capture_evidence"]!["automation_identity_observer"] = identityObserver.DeepClone();
+            TextRangeProviderProbe.Capture(directory, caseId, renderIds,
+                frameCheckpoint: ObserveTextRangeFrameProvider);
+            CheckpointTextRangeFrameCapture("after_text_range_provider_probe");
+            if (capturedTextRangeFrameEvidence != null)
+            {
+                result["capture_evidence"]!["text_range_frame"] = capturedTextRangeFrameEvidence.DeepClone();
+                var framePath = System.IO.Path.Combine(directory, caseId + ".text-range-frame.json");
+                await System.IO.File.WriteAllTextAsync(framePath + ".tmp", capturedTextRangeFrameEvidence.ToJsonString());
+                System.IO.File.Move(framePath + ".tmp", framePath, overwrite: true);
+            }
             // Python has published the held-observer receipt and waits for the
             // native probes before reading/projecting this file. Close this
             // write before acknowledging that those reads have completed.
             var finalXamlPath = System.IO.Path.Combine(directory, caseId + ".xaml.json");
             await System.IO.File.WriteAllTextAsync(finalXamlPath + ".tmp", result.ToJsonString());
             System.IO.File.Move(finalXamlPath + ".tmp", finalXamlPath, overwrite: true);
-            TextRangeProviderProbe.Capture(directory, caseId, renderIds);
             probeStatus = "observed";
         }
         finally
