@@ -13,6 +13,8 @@ internal sealed record NativeSelectableTextStyle(string Kind, string Family, dou
         new("path", "Cascadia Code", 11.5, 400, 18.4, false, false, uiFamily, 12.5, 20);
     internal static NativeSelectableTextStyle Notice(string uiFamily) =>
         new("notice", uiFamily, 12, 400, 19.2, true, true, null, 0, 0);
+    internal static NativeSelectableTextStyle Banner(string uiFamily) =>
+        new("banner", uiFamily, 12.5, 400, 20, false, true, null, 0, 0);
 }
 
 internal sealed class NativeTextSourceMap

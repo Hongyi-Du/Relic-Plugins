@@ -87,7 +87,8 @@ Object/visual-parent identity is separately required by native_path_binding.
             or not isinstance(style, dict) or not isinstance(layout, dict) or layout.get("text_style") != style):
         return None, "Actual source-to-paint mapping or current style receipt is missing or inconsistent"
     normal = mapping["normal_whitespace"]
-    if (style.get("kind") not in ("path", "notice") or (style["kind"] == "notice") != normal
+    if (style.get("kind") not in ("path", "notice", "banner") or (style["kind"] in ("notice", "banner")) != normal
+            or (style["kind"] == "banner" and style.get("alignment") != "left")
             or style.get("white_space") != ("normal" if normal else "preserve-source")
             or style.get("wrap_policy") != ("normal-boundaries-with-word-overflow" if normal else "normal-then-emergency")
             or style.get("alignment") not in ("left", "center")

@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (private-chat banner flex layout): Windows now uses
+actual production text clusters/normal-break boundaries to allocate the icon and
+selectable text with two flex-shrink factors of one. The old fixed 15px icon
+viewport disagreed with measured reference widths at different languages/sizes.
+The production source layout also records DirectWrite GetMetrics/DetermineMinWidth;
+its minimum and the ICU-policy minimum remain separate measurements. Failed
+measurement retains the old fixed-icon/selectable-text fallback and the failure.
+Other icons and path/notice text keep their defaults. Headless build passes;
+pure allocation/source-contract tests and actual pixels remain for CI.
+
+Changes for the clients (macOS icon/pointer request consumed): six hosted icon
+bitmap tests passed in 41089755638, and the owner enabled the icon backing image.
+That run still failed two pointer assertions. The updated tests accept only the
+actual NSButton or its exact owned NSButtonCell and retain covered-button negative
+checks. Actual NSCell.controlView identity is added, without synthesizing hover.
+
 Changes for the clients (browser paint diagnostic load): tracing retains full
 picture/frame exports but omits the category that additionally serializes each
 operation as another SKP. Actual 9f11a82 has 705 such references plus 38 complete

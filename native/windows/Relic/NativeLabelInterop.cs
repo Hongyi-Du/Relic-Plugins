@@ -109,6 +109,10 @@ internal static class NativeLabelInterop
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetInlineMetrics(IntPtr self, out InlineMetrics metrics);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetLineSpacing(IntPtr self, uint method, float height, float baseline);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetTextMetrics(IntPtr self, out TextMetrics metrics);
+    // dwrite.h IDWriteTextLayout::DetermineMinWidth (slot 63). This is an
+    // HRESULT plus caller-owned FLOAT output, not a float-returning getter.
+    // https://learn.microsoft.com/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-determineminwidth
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int DetermineMinWidth(IntPtr self, out float minimum);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetArray(IntPtr self, IntPtr items, uint capacity, out uint count);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetAxes(IntPtr self, IntPtr items, uint count);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int HitTestRange(IntPtr self, uint start, uint length, float x, float y, IntPtr items, uint capacity, out uint count);

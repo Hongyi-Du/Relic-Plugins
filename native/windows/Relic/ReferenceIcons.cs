@@ -85,6 +85,7 @@ public sealed partial class MainWindow
         public const double ViewBoxSize = 24;
         public const double ReferenceStrokeWidth = 1.7;
         private readonly Brush fallbackForeground;
+        private readonly Viewbox viewport;
 
         internal ReferenceVectorIcon(string name, string data, double size, Brush foreground)
         {
@@ -121,7 +122,7 @@ public sealed partial class MainWindow
                 Clip = new RectangleGeometry { Rect = new Rect(0, 0, ViewBoxSize, ViewBoxSize) }
             };
             VectorCanvas.Children.Add(VectorPath);
-            Content = new Viewbox
+            viewport = new Viewbox
             {
                 Width = size, Height = size, Stretch = Stretch.Uniform,
                 StretchDirection = StretchDirection.Both,
@@ -130,7 +131,18 @@ public sealed partial class MainWindow
                 UseLayoutRounding = false,
                 Child = VectorCanvas
             };
+            Content = viewport;
             Loaded += (_, _) => InheritCurrentColor();
+        }
+
+        // A flexed SVG keeps its specified height while its viewport width can
+        // shrink. The real Viewbox performs xMidYMid/meet equivalent uniform
+        // scaling in that viewport. Other icons never opt in.
+        internal void SetHorizontalViewportWidth(double width)
+        {
+            if (!double.IsFinite(width) || width < 0) throw new ArgumentOutOfRangeException(nameof(width));
+            if (Width != width) Width = width;
+            if (viewport.Width != width) viewport.Width = width;
         }
 
         private void InheritCurrentColor()

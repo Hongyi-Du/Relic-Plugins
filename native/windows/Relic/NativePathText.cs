@@ -40,6 +40,9 @@ public sealed partial class NativePathText : UserControl
     private TextBlock? fallback;
     private string? failure;
     private JsonObject? layoutEvidence;
+    private NativeBannerFlex.Intrinsic? bannerIntrinsic;
+    private string? bannerIntrinsicFailure;
+    private JsonObject? bannerIntrinsicEvidence, bannerAllocationEvidence;
     private long layoutRevision;
     internal string SourceText { get; }
     internal IReadOnlyList<PaintedLine> PaintedLines => lines;
@@ -51,6 +54,62 @@ public sealed partial class NativePathText : UserControl
 
     internal static NativePathText Notice(string text, string locale, string copyLabel, string selectAllLabel) =>
         new(text, locale, copyLabel, selectAllLabel, NativeSelectableTextStyle.Notice(FontFamilies.UI));
+
+    internal static NativePathText Banner(string text, string locale, string copyLabel, string selectAllLabel) =>
+        new(text, locale, copyLabel, selectAllLabel, NativeSelectableTextStyle.Banner(FontFamilies.UI));
+
+    private void EnsureSourceMeasurement()
+    {
+        boundaries ??= NativePathIcu.Read(SourceText, locale);
+        paintBoundaries ??= sourceMap.Paint == SourceText ? boundaries : NativePathIcu.Read(sourceMap.Paint, locale);
+        measured ??= NativePathMeasure.Shape(sourceMap.Paint, textStyle.Family, textStyle.Size, textStyle.Weight, locale,
+            measureIntrinsicWidths: textStyle.Kind == "banner");
+    }
+
+    internal bool TryGetBannerIntrinsic(out NativeBannerFlex.Intrinsic intrinsic)
+    {
+        if (textStyle.Kind != "banner") throw new InvalidOperationException("Only a banner participates in this flex layout");
+        if (bannerIntrinsic is { } cached) { intrinsic = cached; return true; }
+        if (bannerIntrinsicFailure != null) { intrinsic = default; return false; }
+        try
+        {
+            EnsureSourceMeasurement();
+            var actual = measured!.IntrinsicWidths ?? throw new InvalidOperationException("Production source layout has no intrinsic measurements");
+            intrinsic = NativeBannerFlex.NormalText(sourceMap.Paint, measured.Clusters, paintBoundaries!.Lines, paintBoundaries.Characters);
+            bannerIntrinsicEvidence = new JsonObject
+            {
+                ["source"] = "Actual source layout clusters and ICU boundaries used by the production normal-whitespace line selector",
+                ["status"] = "measured", ["paint_text"] = sourceMap.Paint,
+                ["source_measurement"] = measured.Evidence.DeepClone(), ["paint_icu"] = paintBoundaries.Evidence.DeepClone(),
+                ["normal_max_content_width"] = intrinsic.Natural, ["normal_min_content_width"] = intrinsic.Minimum,
+                ["directwrite_minimum_width"] = actual.MinimumWidth,
+                ["normal_minus_directwrite_minimum"] = intrinsic.Minimum - actual.MinimumWidth,
+                ["quantity"] = "Intrinsic widths consumed by production flex; not per-line draw geometry or final presentation"
+            };
+            bannerIntrinsic = intrinsic; return true;
+        }
+        catch (Exception error)
+        {
+            bannerIntrinsicFailure = error.ToString();
+            bannerIntrinsicEvidence = new JsonObject { ["status"] = "failed", ["error"] = bannerIntrinsicFailure,
+                ["hresult"] = error.HResult, ["source_measurement"] = measured?.Evidence.DeepClone(),
+                ["fallback"] = "Original fixed icon and remaining-width selectable TextBlock layout" };
+            intrinsic = default; return false;
+        }
+    }
+
+    internal void ObserveBannerAllocation(double available, double gap, double iconBase,
+        NativeBannerFlex.Allocation allocation, bool measuredFlex)
+    {
+        bannerAllocationEvidence = new JsonObject
+        {
+            ["source"] = "Actual NativeBannerLayout production measure and arrange allocation",
+            ["available_width"] = double.IsFinite(available) ? JsonValue.Create(available) : null,
+            ["unconstrained_width"] = double.IsPositiveInfinity(available), ["gap"] = gap, ["icon_flex_basis"] = iconBase,
+            ["icon_width"] = allocation.Icon, ["text_width"] = allocation.Text,
+            ["mode"] = measuredFlex ? "two-items-flex-0-1-auto" : "original-fixed-icon-fallback"
+        };
+    }
 
     private NativePathText(string text, string locale, string copyLabel, string selectAllLabel, NativeSelectableTextStyle style)
     {
@@ -101,6 +160,7 @@ public sealed partial class NativePathText : UserControl
         ["owner_identity"] = ProductionIdentity(this), ["layout_revision"] = layoutRevision,
         ["status"] = failure == null && layoutEvidence != null ? "laid-out" : "failed-or-not-laid-out",
         ["failure"] = failure, ["layout"] = layoutEvidence?.DeepClone(), ["selection_anchor"] = anchor, ["selection_caret"] = caret,
+        ["banner_intrinsic"] = bannerIntrinsicEvidence?.DeepClone(), ["banner_allocation"] = bannerAllocationEvidence?.DeepClone(),
         ["glyph_face_inferred"] = false, ["final_png_identity_proven"] = false
     };
     internal bool OwnsProductionLine(NativeLabel candidate) => lines.Any(line => ReferenceEquals(line.Label, candidate));
@@ -164,14 +224,13 @@ public sealed partial class NativePathText : UserControl
         body.Children.Clear(); lines.Clear(); selectionPaint.Clear(); fallback = null; failure = null;
         try
         {
-            boundaries ??= NativePathIcu.Read(SourceText, locale);
-            paintBoundaries ??= sourceMap.Paint == SourceText ? boundaries : NativePathIcu.Read(sourceMap.Paint, locale);
-            measured ??= NativePathMeasure.Shape(sourceMap.Paint, textStyle.Family, textStyle.Size, textStyle.Weight, locale);
+            if (bannerIntrinsicFailure != null) throw new InvalidOperationException(bannerIntrinsicFailure);
+            EnsureSourceMeasurement();
             if (textStyle.StrutFamily != null)
                 strut ??= NativePathMeasure.Shape("", textStyle.StrutFamily, textStyle.StrutSize, 400, locale);
             var chosen = textStyle.NormalWhitespace
-                ? NativeSelectableTextLayout.NoticeLines(sourceMap.Paint, measured.Clusters, paintBoundaries.Lines, paintBoundaries.Characters, width)
-                : NativePathLineBreaks.Select(SourceText.Length, measured.Clusters, boundaries.Lines, boundaries.Characters, width)
+                ? NativeSelectableTextLayout.NoticeLines(sourceMap.Paint, measured!.Clusters, paintBoundaries!.Lines, paintBoundaries.Characters, width)
+                : NativePathLineBreaks.Select(SourceText.Length, measured!.Clusters, boundaries!.Lines, boundaries.Characters, width)
                     .Select(line => new NativeSelectableTextLayout.Line(line.Start, line.End, line.Emergency)).ToArray();
             var parentAscent = strut != null ? strut.Baseline + (textStyle.StrutLineHeight - strut.NaturalHeight) / 2 : 0;
             desiredWidth = desiredHeight = 0; var receiptLines = new JsonArray();
@@ -201,8 +260,8 @@ public sealed partial class NativePathText : UserControl
             // indivisible word is arranged at its actual width inside it, so a
             // framework desired-size clip does not silently truncate that word.
             if (textStyle.NormalWhitespace) desiredWidth = Math.Min(desiredWidth, width);
-            layoutEvidence = new JsonObject { ["available_width"] = width, ["icu"] = boundaries.Evidence.DeepClone(),
-                ["paint_icu"] = paintBoundaries.Evidence.DeepClone(), ["source_measurement"] = measured.Evidence.DeepClone(),
+            layoutEvidence = new JsonObject { ["available_width"] = width, ["icu"] = boundaries!.Evidence.DeepClone(),
+                ["paint_icu"] = paintBoundaries!.Evidence.DeepClone(), ["source_measurement"] = measured.Evidence.DeepClone(),
                 ["parent_strut_measurement"] = strut?.Evidence.DeepClone(), ["text_style"] = StyleReceipt(),
                 ["parent_strut_size"] = textStyle.StrutSize, ["parent_strut_line_height"] = textStyle.StrutLineHeight,
                 ["inline_size"] = textStyle.Size, ["inline_line_height"] = textStyle.LineHeight, ["lines"] = receiptLines };
@@ -219,9 +278,11 @@ public sealed partial class NativePathText : UserControl
             fallback = new TextBlock { FontFamily = new FontFamily(textStyle.StrutFamily ?? textStyle.Family),
                 FontSize = textStyle.StrutFamily != null ? textStyle.StrutSize : textStyle.Size,
                 LineHeight = textStyle.StrutFamily != null ? textStyle.StrutLineHeight : textStyle.LineHeight,
-                LineStackingStrategy = LineStackingStrategy.MaxHeight, TextWrapping = TextWrapping.Wrap,
+                LineStackingStrategy = textStyle.Kind == "banner" ? LineStackingStrategy.BlockLineHeight : LineStackingStrategy.MaxHeight,
+                TextWrapping = textStyle.Kind == "banner" ? TextWrapping.WrapWholeWords : TextWrapping.Wrap,
                 TextAlignment = textStyle.Center ? TextAlignment.Center : TextAlignment.Left,
                 IsTextSelectionEnabled = true, Foreground = Foreground };
+            if (textStyle.Kind == "banner") fallback.Language = locale;
             fallback.Inlines.Add(new Run { Text = SourceText, FontFamily = new FontFamily(textStyle.Family), FontSize = textStyle.Size });
             body.Children.Add(fallback); fallback.Measure(new Size(width, double.PositiveInfinity));
             desiredWidth = fallback.DesiredSize.Width; desiredHeight = fallback.DesiredSize.Height;

@@ -306,16 +306,12 @@ public sealed partial class MainWindow
             // stream, with a real information icon and wrapping text inside
             // the card. Keeping this as a small, bare caption removed both
             // visible elements and the banner's contribution to chat layout.
-            var bannerContent = new Grid { ColumnSpacing = 8, UseLayoutRounding = false };
-            bannerContent.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            bannerContent.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             var bannerInk = Paint("5A5853", "B8B5AE");
             var bannerIcon = (ReferenceVectorIcon)ReferenceIcon("info", 15);
             bannerIcon.Foreground = bannerInk; bannerIcon.VerticalAlignment = VerticalAlignment.Top;
-            bannerContent.Children.Add(bannerIcon);
-            var bannerText = OverviewText(banner, 12.5, lineHeight: 20);
-            bannerText.Foreground = bannerInk; bannerText.TextWrapping = TextWrapping.WrapWholeWords;
-            bannerText.UseLayoutRounding = false; Grid.SetColumn(bannerText, 1); bannerContent.Children.Add(bannerText);
+            var bannerText = NativePathText.Banner(banner, words.Language, T("common.copy"), T("appmenu.select_all"));
+            bannerText.Foreground = bannerInk;
+            var bannerContent = new NativeBannerLayout(bannerIcon, bannerText, 8);
             conversationBanner.Padding = new Thickness(20, 10, 20, 0); conversationBanner.MaxWidth = 920;
             conversationBanner.Child = new Border { Child = bannerContent, Padding = new Thickness(12, 8, 12, 8),
                 CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), UseLayoutRounding = false,

@@ -90,6 +90,42 @@ def sync_line_receipts(raw):
 
 
 class NativePathSourceTests(unittest.TestCase):
+    def test_banner_retains_normal_source_mapping_and_independent_missing_measurements(self):
+        raw, elements, providers, pairs = mapped_fixture()
+        receipt = raw["path"]["native_path_evidence"]
+        style = receipt["text_style"]
+        style.update(kind="banner", alignment="left", size=12.5, line_height=20)
+        receipt["layout"]["text_style"] = deepcopy(style)
+        receipt["layout"]["source_measurement"]["configured_size"] = 12.5
+        for binding in receipt["actual_line_bindings"]:
+            binding["text_style"] = deepcopy(style)
+        sync_line_receipts(raw)
+        for item in elements:
+            item["style"]["font_size"] = 12.5
+        contract, error = native_path_source_contract(receipt)
+        self.assertIsNone(error)
+        self.assertTrue(contract["normal_whitespace"])
+        self.assertEqual(contract["paint_text"], receipt["source_to_paint"]["paint_text"])
+        prior = {"id": "line-0", "property": "pixel.presentation", "reason": "Final PNG attribution is still unmeasured"}
+        result, _, _, issues = project_fixture(raw, elements, providers, pairs, [deepcopy(prior)])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["layout"]["emergency_break_strategy"], "none")
+        self.assertEqual(issues[0], {**prior, "projected_owner_id": "path"})
+        self.assertTrue(any(issue["property"] == "native_path.visible_text" for issue in issues))
+
+    def test_banner_cannot_claim_path_whitespace_or_centered_notice_policy(self):
+        for field, value in (("alignment", "center"), ("white_space", "preserve-source"),
+                             ("wrap_policy", "normal-then-emergency")):
+            with self.subTest(field=field):
+                raw, _, _, _ = mapped_fixture()
+                receipt = raw["path"]["native_path_evidence"]
+                receipt["text_style"].update(kind="banner", alignment="left")
+                receipt["text_style"][field] = value
+                receipt["layout"]["text_style"] = deepcopy(receipt["text_style"])
+                contract, error = native_path_source_contract(receipt)
+                self.assertIsNone(contract)
+                self.assertIsNotNone(error)
+
     def test_normal_mapping_preserves_original_and_distinguishes_shaping_and_actual_line_inputs(self):
         raw, elements, providers, pairs = mapped_fixture()
         receipt = raw["path"]["native_path_evidence"]
