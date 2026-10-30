@@ -235,9 +235,17 @@ public sealed partial class MainWindow
         foreach (var item in orgs.Where(o => o.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == o.Text("parent")))) Node(item, 0);
         if (orgs.Count == 0) side.Children.Add(new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("side.no_orgs"), muted: true) });
         sidebarFooter.Padding = new Thickness(8); sidebarFooter.Spacing = 0; sidebarFooter.BorderBrush = Line; sidebarFooter.BorderThickness = new Thickness(0, 1, 0, 0);
-        var profile = QuietButton("", Settings); profile.Padding = new Thickness(8, 6, 8, 6); profile.CornerRadius = new CornerRadius(8); profile.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(profile, T("page.me")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, T("page.me"));
+        var profile = QuietButton("", Settings); profile.Padding = new Thickness(8, 6, 8, 6); profile.CornerRadius = new CornerRadius(8); profile.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(profile, T("page.me"));
         var identity = new Grid { ColumnSpacing = 10 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); var human = SidebarFace("human", preferences.Text("avatar"), "", false); human.VerticalAlignment = VerticalAlignment.Center; identity.Children.Add(human);
         var labels = new StackPanel { UseLayoutRounding = false }; var nameLabel = SidebarText(Display("human"), 13.3, weight: 600); nameLabel.TextWrapping = TextWrapping.NoWrap; nameLabel.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(nameLabel); var profileLabel = SidebarText(T("side.profile"), 11.5, true); profileLabel.TextWrapping = TextWrapping.NoWrap; profileLabel.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(profileLabel); Grid.SetColumn(labels, 1); identity.Children.Add(labels); profile.Content = identity;
+        // The reference's #me title is only a tooltip; its spoken name comes
+        // from these actual children. Image avatars do not contribute alt text.
+        var profileNameParts = new List<string>();
+        foreach (var picture in human.Children.OfType<PersonPicture>())
+            if (picture.Tag is Border { Child: TextBlock initials } && initials.Text.Length > 0)
+                profileNameParts.Add(initials.Text);
+        profileNameParts.Add(nameLabel.Text); profileNameParts.Add(profileLabel.Text);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, string.Join(" ", profileNameParts.Where(part => part.Length > 0)));
         var settings = IconButton("\uE713", "common.settings", Settings); settings.Content = ReferenceIcon("gear", 18); settings.Padding = new Thickness(0); settings.Foreground = Paint("5A5853", "B8B5AE"); settings.HorizontalContentAlignment = HorizontalAlignment.Center; settings.VerticalContentAlignment = VerticalAlignment.Center; settings.VerticalAlignment = VerticalAlignment.Center; var footer = TwoColumns(profile, settings); footer.ColumnSpacing = 4; sidebarFooter.Children.Add(footer);
     }
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
