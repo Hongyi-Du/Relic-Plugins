@@ -1,5 +1,31 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+New reference extraction issue found by looking at the full 1ffe201 matrix:
+`zh-CN-light-1024x700-file-markdown` has three list discs. Reference
+`dom-351::marker` is exported as `source: text-glyph`, glyph `• `, box
+(528,285.453125,7,19), but the PNG is a larger filled disc than the native
+PingFang glyph. The actual captured browser is HeadlessChrome/156.0.8078.4.
+That exact Chromium tag's `core/paint/text_fragment_painter.cc` PaintSymbol
+uses FillEllipse for disc, and `core/layout/list/list_marker.cc`
+RelativeSymbolMarkerRect derives the actual ellipse from primary-font ascent
+then the painter snaps it to pixels. It does not draw the alternative-text
+bullet glyph. Please retain the generated marker's accessibility text, but
+extract/validate the actual symbol paint as a shape independently; do not count
+a guessed text-glyph representation as measured paint or add an icon exception.
+Sources:
+https://github.com/chromium/chromium/blob/156.0.8078.4/third_party/blink/renderer/core/paint/text_fragment_painter.cc
+https://github.com/chromium/chromium/blob/156.0.8078.4/third_party/blink/renderer/core/layout/list/list_marker.cc
+The macOS text-glyph marker visibly needs the corresponding real disc renderer;
+this is still an outstanding visual mismatch, not a claimed match.
+
+The full 1ffe201 zh-CN light shard has all168 captures downloaded under
+`parity-1ffe201/full-macos-zh-CN-light` and its reference sibling. Local static
+JSON pairing is saved as `full-zh-CN-light-direct-pairing.json` and explicitly
+is NOT a CI gate result. Documents has119 extra native elements; many are
+actually behind the opaque dialog in both PNGs. Exact opaque-layer occlusion
+remains a native extraction gap, so they are retained until independently
+measured native drawing order/cover evidence can establish invisibility.
+
 Actual d74684f capture 41061971141 is downloaded under
 `S:\Codex\Outputs\Relic-native-visual\parity-d74684f\report\`.
 The rename element is now a single actual PaddedCell / AXTextField, named
