@@ -48,8 +48,14 @@ static NSDictionary *ChildrenObservation(id object) {
             @"navigation_available": @([ordered isKindOfClass:NSArray.class])}};
 }
 NSArray *RelicAXChildren(id object) {
-    @try { return ChildrenObservation(object)[@"children"]; }
-    @catch (NSException *exception) { return @[]; }
+    return RelicAXChildSnapshot(object)[@"children"];
+}
+NSDictionary<NSString *, id> *RelicAXChildSnapshot(id object) {
+    @try { return ChildrenObservation(object); }
+    @catch (NSException *exception) {
+        return @{@"children": @[], @"ordinary": @[],
+            @"evidence": @{@"source": @"unmeasured", @"error": exception.reason ?: @"Native child getter failed"}};
+    }
 }
 id RelicAXHitTest(id object, NSPoint screenPoint) {
     @try {

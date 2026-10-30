@@ -303,6 +303,8 @@ import CoreText
         func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false, scrollbarOwner: ReferenceScroller? = nil) {
             let object = value as AnyObject
             let attributes = RelicAXRead(object)
+            let childSnapshot = RelicAXChildSnapshot(object)
+            let actualChildren = childSnapshot["children"] as? [Any] ?? []
             let ax = Node(attributes)
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let role = ax["role"].text
@@ -369,7 +371,7 @@ import CoreText
             }
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
-            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
+            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "child_order": childSnapshot["evidence"] ?? NSNull(), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
             node["object_identity"] = String(describing: ObjectIdentifier(object))
             node["name"] = accessibleName
             node["native_ax_label"] = label
@@ -440,7 +442,7 @@ import CoreText
                 }
             }
             let childClip = role == "AXScrollArea" ? activeClip.intersection(rect) : activeClip
-            for (index, child) in RelicAXChildren(object).enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil, scrollbarOwner: scroller) }
+            for (index, child) in actualChildren.enumerated() { visit(child, path: path + "/" + String(index), parent: path, inheritedRegion: assignedRegion, clip: childClip, suppressElements: suppressElements || textView != nil, scrollbarOwner: scroller) }
             // Embedded AppKit controls can be absent from the hosting view's AX
             // children. Inspect their real view ancestry too; identity deduplication
             // prevents emitting a control twice when AX already exposed it.
