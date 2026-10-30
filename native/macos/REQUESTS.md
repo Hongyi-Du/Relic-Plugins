@@ -1,3 +1,14 @@
+## 2026-10-30: fill backing-image identity candidate, not an occlusion claim
+
+NativeSurfaceFill now also has an isolated owned-image candidate, default false.
+It retains the existing CGContext.fillPath and records the exact CGImage submitted
+to its current CALayer, together with the draw/revision, frame, window, scale and
+actual effective color. Three mounted SwiftUI comparisons cover light/dark,
+asymmetric corners, translucent fill and surrounding shadows; original bitmap
+bytes and a nonempty current fill are required. Even if these pass, compositing
+order and final PNG attribution remain separate requirements: occlusion_proven
+stays false and no background element is discarded by this candidate.
+
 ## 2026-10-30: icon backing-image candidate, pending hosted bitmap verification
 
 Actual `7046f32` icon receipts still observe an NSViewBackingLayer containing a

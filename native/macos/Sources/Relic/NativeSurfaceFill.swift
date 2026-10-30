@@ -8,10 +8,12 @@ struct NativeSurfaceFill: NSViewRepresentable {
     let color: Color
     let corners: [CGFloat]
     let owner: String?
+    var ownedLayer = false
     @Environment(\.captureRegion) private var region
     private static let live = NSHashTable<NativeSurfaceFillView>.weakObjects()
     func makeNSView(context: Context) -> NativeSurfaceFillView {
         let view = NativeSurfaceFillView(); Self.live.add(view)
+        if ownedLayer { view.enableOwnedBackingImage() }
         return view
     }
     func updateNSView(_ view: NativeSurfaceFillView, context: Context) {
@@ -29,17 +31,78 @@ struct NativeSurfaceFill: NSViewRepresentable {
     private var revision = 0, sequence = 0
     private(set) var lastDraw: [String: Any]?
     var recordDraws = VisualCapture.enabled
+    private(set) var usesOwnedBackingImage = false
+    private var backingImage: CGImage?, backingDraw: [String: Any]?
+    private var backingBounds = NSRect.zero, backingFrame = NSRect.zero
+    private var backingWindow: ObjectIdentifier?
+    private var backingScale: CGFloat = 1
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func isAccessibilityElement() -> Bool { false }
+    override var wantsUpdateLayer: Bool { usesOwnedBackingImage }
+    override func makeBackingLayer() -> CALayer {
+        usesOwnedBackingImage ? NativeFillBackingLayer(owner: self) : super.makeBackingLayer()
+    }
+    func enableOwnedBackingImage() {
+        usesOwnedBackingImage = true; canDrawSubviewsIntoLayer = false; wantsLayer = true
+        invalidatePaint()
+    }
+    private func invalidatePaint() {
+        needsDisplay = true
+        if usesOwnedBackingImage { layer?.setNeedsDisplay() }
+    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); invalidatePaint() }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); invalidatePaint() }
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize; super.setFrameSize(newSize)
+        if changed { invalidatePaint() }
+    }
     override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance(); revision += 1; needsDisplay = true
+        super.viewDidChangeEffectiveAppearance(); revision += 1; invalidatePaint()
     }
     func configure(color: NSColor, corners: [CGFloat], owner: String?, region: String) {
         precondition(corners.count == 4)
         guard self.color != color || self.corners != corners || self.owner != owner || self.region != region else { return }
         self.color = color; self.corners = corners; self.owner = owner; self.region = region
-        revision += 1; needsDisplay = true
+        revision += 1; invalidatePaint()
+    }
+    override func updateLayer() {
+        guard let layer else { return }
+        let scale = window?.backingScaleFactor ?? 1
+        guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: Int(ceil(bounds.width * scale)), height: Int(ceil(bounds.height * scale)),
+                bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
+            layer.contents = nil; backingImage = nil; backingDraw = nil; return
+        }
+        context.translateBy(x: 0, y: CGFloat(context.height)); context.scaleBy(x: scale, y: -scale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        draw(bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = context.makeImage() else { return }
+        layer.contentsScale = scale; layer.contentsGravity = .topLeft; layer.contents = image
+        backingImage = image; backingDraw = lastDraw; backingBounds = bounds; backingFrame = frame
+        backingWindow = window.map(ObjectIdentifier.init); backingScale = scale
+    }
+    func backingPaintObservation() -> [String: Any] {
+        let contents = layer?.contents as AnyObject?
+        let identical = backingImage.map { contents === $0 } ?? false
+        var currentFill: [Double]?
+        effectiveAppearance.performAsCurrentDrawingAppearance { currentFill = ElementCapture.rgba(color) as? [Double] }
+        let current = identical && backingDraw?["revision"] as? Int == revision
+            && currentFill != nil && backingDraw?["fill"] as? [Double] == currentFill
+            && backingBounds == bounds && backingFrame == frame && backingWindow == window.map(ObjectIdentifier.init)
+            && layer?.contentsScale == backingScale && layer?.contentsGravity == .topLeft
+        return ["source": "actual native surface updateLayer sRGB image", "current": current,
+            "view_identity": String(describing: ObjectIdentifier(self)),
+            "window_identity": window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "image_identity": backingImage.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "layer_contents_is_same_image": identical, "scale": backingScale,
+            "bounds": ElementCapture.box(backingBounds), "native_frame": ElementCapture.box(backingFrame),
+            "fill_draw": backingDraw as Any? ?? NSNull(), "final_png_attribution_proven": false]
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext,
@@ -73,6 +136,7 @@ struct NativeSurfaceFill: NSViewRepresentable {
             "opacity_ancestry": NativeVisibility.opacityAncestry(self),
             "occlusion_proven": false,
             "measurement_limit": "A current actual fill is not proof of final screenshot compositing order or covered-element invisibility"]
+        if usesOwnedBackingImage { result["native_backing_image"] = backingPaintObservation() }
         guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor,
               let content = window.contentView, let draw = lastDraw,
               draw["revision"] as? Int == revision,
@@ -93,4 +157,12 @@ struct NativeSurfaceFill: NSViewRepresentable {
         result["errors"] = []
         return result
     }
+}
+
+private final class NativeFillBackingLayer: CALayer {
+    private weak var owner: NativeSurfaceFillView?
+    init(owner: NativeSurfaceFillView) { self.owner = owner; super.init(); needsDisplayOnBoundsChange = true }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func display() { MainActor.assumeIsolated { owner?.updateLayer() } }
 }
