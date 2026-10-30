@@ -328,6 +328,11 @@ def uia_kind_matches(node, kind):
 
 
 def measured_text_boxes(boxes):
+    # These are eligible measured rectangle candidates, not a replacement for
+    # the source field. Explicit null/provider failures are retained separately
+    # in range diagnostics and continue to fail extraction coverage.
+    if not isinstance(boxes, list):
+        return []
     return [copy.deepcopy(b) for b in boxes if isinstance(b, dict)
             and all(finite(b.get(k)) for k in ("x", "y", "width", "height"))
             and b["width"] >= 0 and b["height"] > 0]
@@ -551,6 +556,45 @@ def markdown_fenced_blocks(raw, by_id, unmeasured):
     return result
 
 
+def state_dot_paint_layers(raw, by_id, unmeasured):
+    """Resolve a production indicator's exact current paint objects, not shapes nearby."""
+    result = {}
+    for node in raw:
+        evidence = node.get("state_dot_evidence")
+        if node.get("hidden_reason") or node.get("type") != "NativeStateDotView" and evidence is None:
+            continue
+        valid = isinstance(evidence, dict)
+        layers = evidence.get("layers") if valid else None
+        current = evidence.get("current_children") if valid else None
+        valid = (valid and node.get("type") == "NativeStateDotView"
+                 and evidence.get("source") == "actual NativeStateDotView owned paint objects and current Children order"
+                 and evidence.get("complete") is True and evidence.get("current_children_same_objects") is True
+                 and isinstance(layers, list) and len(layers) == 2
+                 and isinstance(current, list) and len(current) == 2
+                 and all(isinstance(eid, str) for eid in current) and len(set(current)) == 2)
+        actual = []
+        if valid:
+            for index, (layer, prop) in enumerate(zip(layers, ("Surround", "VacancyRing"))):
+                child = by_id.get(current[index])
+                if (not isinstance(layer, dict) or layer != {"id": current[index], "property": prop, "child_index": index}
+                        or child is None or child.get("type") != "Ellipse" or child.get("parent") != node["id"]
+                        or child.get("state_dot_layer_evidence") != {
+                            "source": "actual NativeStateDotView owned Ellipse object identity",
+                            "owner_id": node["id"], "property": prop, "child_index": index}):
+                    valid = False
+                    break
+                actual.append(child)
+            # Additional current content is neither hidden nor silently absorbed.
+            if {child["id"] for child in raw if child.get("parent") == node["id"]} != set(current):
+                valid = False
+        if valid:
+            result[node["id"]] = actual
+        else:
+            unmeasured.append({"id": node["id"], "property": "ownership.state_dot_paint",
+                               "reason": "The production indicator's exact current children, layer order or reciprocal object identities are unverified"})
+    return result
+
+
 def native_label_surfaces(raw, by_id, unmeasured):
     """Identify only the Image actually owned/bound by the production label."""
     result = {}
@@ -582,7 +626,7 @@ def run_font_witnesses(uia_nodes, owner, glyph_boxes):
     for candidate in uia_nodes:
         if candidate.get("control_type") not in {"ControlType.Text", "ControlType.Document"} or not positive(owner.get("bounds")):
             continue
-        document = (candidate.get("text_pattern") or {}).get("document", {})
+        document = (candidate.get("text_pattern") or {}).get("document") or {}
         if not original_text or not measured_documents.intersection((candidate.get("name"), document.get("text"))):
             continue
         # UIA BoundingRectangle can be the stretched layout slot. Its measured
@@ -611,6 +655,44 @@ def run_font_witnesses(uia_nodes, owner, glyph_boxes):
                                 "font_family_coverage": copy.deepcopy(run.get("font_family_coverage")),
                                 "bounds": run_boxes, "glyph_boxes": relevant, "text": run.get("text")})
     return providers, records
+
+
+def uia_text_range_failures(nodes, unmeasured, nonvisible):
+    """Retain failed managed/COM observations independently; neither repairs the other."""
+    failures = []
+
+    def visit_range(node, value, path):
+        if not isinstance(value, dict):
+            return
+        unknown = [key for key in ("bounds", "managed_bounds")
+                   if key in value and not isinstance(value[key], list)]
+        if unknown or value.get("bounds_status") == "error" or value.get("bounds_error") is not None:
+            issue = {"id": node["id"], "property": "UIA text_range.bounds", "range_path": path,
+                     "reason": "Range rectangle measurement failed or is unknown; no empty measurement or independent COM replacement is inferred",
+                     "unknown_fields": unknown, "range_evidence": copy.deepcopy(value)}
+            failures.append(copy.deepcopy(issue))
+            if node.get("state", {}).get("offscreen") is True:
+                nonvisible.append(dict(issue, source="UIA", applicability="Provider measured this owning node IsOffscreen=true"))
+            else:
+                unmeasured.append(issue)
+        runs = value.get("format_runs")
+        for index, run in enumerate(runs if isinstance(runs, list) else []):
+            visit_range(node, run, path + ".format_runs[" + str(index) + "]")
+
+    def visit_pattern(node, pattern, path):
+        if not isinstance(pattern, dict):
+            return
+        visit_range(node, pattern.get("document"), path + ".document")
+        ranges = pattern.get("visible_ranges")
+        for index, value in enumerate(ranges if isinstance(ranges, list) else []):
+            visit_range(node, value, path + ".visible_ranges[" + str(index) + "]")
+
+    for node in nodes:
+        pattern = node.get("text_pattern")
+        visit_pattern(node, pattern, "text_pattern")
+        if isinstance(pattern, dict):
+            visit_pattern(node, pattern.get("native_com"), "text_pattern.native_com")
+    return failures
 
 
 def visible_uia_errors(uia):
@@ -749,6 +831,7 @@ def project(xaml_path, uia_path, png_path):
     uia_errors, nonvisible_diagnostics = visible_uia_errors(uia)
     errors = list(xaml.get("extraction_errors", [])) + uia_errors
     unmeasured = []
+    range_failures = uia_text_range_failures(uia.get("raw_nodes", []), unmeasured, nonvisible_diagnostics)
     if xaml["viewport"]["scale"] != 1:
         errors.append("XAML rasterization scale differs from the required 1:1 screenshot")
     if uia.get("case_id") != xaml.get("scene_id"):
@@ -763,6 +846,7 @@ def project(xaml_path, uia_path, png_path):
     raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
     by_id = {n["id"]: n for n in raw}
     fenced_blocks = markdown_fenced_blocks(raw, by_id, unmeasured)
+    state_dot_layers = state_dot_paint_layers(raw, by_id, unmeasured)
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
     children = defaultdict(list)
@@ -787,6 +871,10 @@ def project(xaml_path, uia_path, png_path):
 
     def visible(node):
         return not node.get("hidden_reason") and positive(node.get("visible_bounds")) and bool(fragments.get(node["id"]))
+
+    state_dot_layers = {owner: layers for owner, layers in state_dot_layers.items()
+                        if visible(by_id[owner]) and any(visible(layer) for layer in layers)}
+    semantic.update(state_dot_layers)
 
     def user_content(node, control_id):
         current = node
@@ -851,6 +939,9 @@ def project(xaml_path, uia_path, png_path):
     label_surfaces = native_label_surfaces(raw, by_id, unmeasured)
     for surface, owner in label_surfaces.items():
         owned[surface] = (owner, "actual NativeLabel production text paint surface")
+    dot_layer_owners = {layer["id"]: owner for owner, layers in state_dot_layers.items() for layer in layers}
+    for layer, owner in dot_layer_owners.items():
+        owned[layer] = (owner, "actual compound state-dot paint layer")
 
     host_ownership = host_container_ownership(uia, raw)
     projection.extend(host_ownership)
@@ -883,6 +974,9 @@ def project(xaml_path, uia_path, png_path):
             record = {"source": node["id"], "owner": owner, "reason": why}
             if node["id"] in label_surfaces:
                 record["ownership_evidence"] = copy.deepcopy(node["native_label_surface_evidence"])
+            if node["id"] in dot_layer_owners:
+                record["ownership_evidence"] = copy.deepcopy(node["state_dot_layer_evidence"])
+                record["paint_evidence"] = copy.deepcopy(node)
             projection.append(record)
             continue
         typ = node["type"]
@@ -914,6 +1008,8 @@ def project(xaml_path, uia_path, png_path):
                     kind = "region"
         if node["id"] in fenced_blocks:
             kind = "code"
+        if node["id"] in state_dot_layers:
+            kind = "state-dot"
         if not kind:
             projection.append({"source": node["id"], "reason": "layout wrapper with no own text, role, background or border"})
             # Render types not accounted for must not disappear behind a generic
@@ -970,7 +1066,7 @@ def project(xaml_path, uia_path, png_path):
                     state[key] = witness["state"][key]
             if layout.get("line_count") is None:
                 ranges = (witness.get("text_pattern") or {}).get("visible_ranges", [])
-                rectangles = [b for r in ranges for b in r.get("bounds", []) if positive(b)]
+                rectangles = [b for r in ranges for b in measured_text_boxes(r.get("bounds")) if positive(b)]
                 if rectangles:
                     layout["line_count"] = len({round(b["y"], 1) for b in rectangles})
         if interactive is False:
@@ -979,12 +1075,10 @@ def project(xaml_path, uia_path, png_path):
             unmeasured.append({"id": node["id"], "property": "state.interaction_applicability", "reason": interaction_reason})
         if semantic_control_kind(node) and not witness:
             unmeasured.append({"id": node["id"], "property": "UIA correspondence", "reason": "No independent UIA control box at the rendered position"})
-        actual_text_boxes = [copy.deepcopy(b) for b in layout.get("character_boxes", [])
-                             if isinstance(b, dict) and all(finite(b.get(k)) for k in ("x", "y", "width", "height"))
-                             and b["width"] >= 0 and b["height"] > 0] if layout.get("character_boxes_coordinate_space") == "content-window" else []
+        actual_text_boxes = measured_text_boxes(layout.get("character_boxes")) if layout.get("character_boxes_coordinate_space") == "content-window" else []
         if not actual_text_boxes and witness:
             actual_text_boxes = [copy.deepcopy(b) for r in (witness.get("text_pattern") or {}).get("visible_ranges", [])
-                                 for b in r.get("bounds", []) if positive(b)]
+                                 for b in measured_text_boxes(r.get("bounds")) if positive(b)]
         text_source = label or node
         run_source = text_source.get("text_run_source")
         run_name_witness = None
@@ -1051,7 +1145,7 @@ def project(xaml_path, uia_path, png_path):
                                if record.get("attribute_status", {}).get("font_family") == "measured"
                                and isinstance(record.get("attributes", {}).get("font_family"), str)
                                and record["attributes"]["font_family"]
-                               for b in record.get("bounds", [])]
+                               for b in measured_text_boxes(record.get("bounds"))]
             if any(b["width"] > 0 and not any(intersection(b, font_box) for font_box in font_rectangles) for b in actual_text_boxes):
                 unmeasured.append({"id": node["id"], "property": "style.rendered_fonts",
                                    "reason": "Some measured Run glyph positions have no independent UIA font-range correspondence"})
@@ -1061,6 +1155,24 @@ def project(xaml_path, uia_path, png_path):
             style["font_size"] = style["font_weight"] = None
             if kind not in {"icon", "chart-edge"} and node.get("render_type_evidence", {}).get("is_shape") is not True:
                 style["foreground"] = None
+        compound_paint = None
+        if node["id"] in state_dot_layers:
+            compound_paint = {
+                "source": copy.deepcopy(node["state_dot_evidence"]),
+                "owner_style": copy.deepcopy(node.get("style")),
+                "layers": [{"raw": copy.deepcopy(layer), "visible_fragments": copy.deepcopy(fragments.get(layer["id"])),
+                            "occlusion_masks": copy.deepcopy(occlusion_masks.get(layer["id"], []))}
+                           for layer in state_dot_layers[node["id"]]],
+                "css_paint_equivalence": None,
+            }
+            # A Grid's absent border/shadow is not the appearance of its two
+            # Ellipse layers. Keep their real paint, and leave aggregate CSS
+            # quantities unknown rather than inventing an inset shadow.
+            for prop in ("background", "border_color", "border_width", "border_widths", "border_colors",
+                         "border_styles", "corner_radius", "corner_radii", "shadow"):
+                style[prop] = None
+            unmeasured.append({"id": node["id"], "property": "style.compound_paint",
+                               "reason": "Actual indicator layers are retained; their aggregate CSS border/radius/inset-shadow equivalence has not been independently measured"})
         bounds = node["bounds"]
         points = [(bounds["x"] + bounds["width"] * x, bounds["y"] + bounds["height"] * y) for x, y in ((.5,.5), (.1,.1), (.9,.1), (.1,.9), (.9,.9))]
         samples = [{"x": int(x), "y": int(y), "rgba": list(image.getpixel((int(x), int(y))))} for x, y in points if 0 <= x < image.width and 0 <= y < image.height]
@@ -1079,10 +1191,12 @@ def project(xaml_path, uia_path, png_path):
                    "bounds": bounds, "visible_bounds": node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count")}, "icon": node.get("icon"),
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
-                                "label_source": label["id"] if label else None, "paint_sources": [p["id"] for p in paints],
+                                "label_source": label["id"] if label else None,
+                                "paint_sources": [p["id"] for p in paints] + [layer["id"] for layer in state_dot_layers.get(node["id"], [])],
                                 "font_family": node.get("font_family"), "pixel_samples": samples, "value": value,
                                 "placeholder": node.get("layout", {}).get("placeholder"),
-                                "text_bounds": actual_text_boxes, "text_coordinate_space": "content-window",
+                                "text_bounds": actual_text_boxes if actual_text_boxes or not text else None,
+                                "text_coordinate_space": "content-window",
                                 "rich_text_runs": rich_runs, "visible_fragments": fragments.get(node["id"]),
                                 "text_run_source": copy.deepcopy(run_source), "uia_font_ranges": actual_run_font_records,
                                 "font_family_evidence": [copy.deepcopy(record.get("font_family_coverage")) for record in font_records],
@@ -1104,6 +1218,7 @@ def project(xaml_path, uia_path, png_path):
                                 "inline_order_evidence": copy.deepcopy(node.get("inline_order_evidence")),
                                 "markdown_code_evidence": copy.deepcopy(node.get("markdown_code_evidence")),
                                 "markdown_code_text_evidence": copy.deepcopy(node.get("markdown_code_text_evidence")),
+                                "compound_paint": compound_paint,
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),
@@ -1148,10 +1263,13 @@ def project(xaml_path, uia_path, png_path):
         while parent is not None and parent not in emitted_ids:
             parent = by_id.get(parent, {}).get("parent")
         element["parent"] = parent
+    capture_evidence = copy.deepcopy(xaml.get("capture_evidence", {}))
+    if range_failures:
+        capture_evidence["uia_text_range_failures"] = range_failures
     return {"schema_version": 1, "scene_id": xaml["scene_id"], "client": "windows", "viewport": xaml["viewport"],
             "elements": elements, "extraction_errors": errors,
             "coverage": {"raw_nodes": len(source_raw) + len(uia.get("raw_nodes", [])), "recorded_text_leaves": len(raw) - len(source_raw),
                          "emitted_elements": len(elements), "unmeasured": unmeasured},
             "projection": projection, "nonvisible_diagnostics": nonvisible_diagnostics,
-            "capture_evidence": copy.deepcopy(xaml.get("capture_evidence", {})),
+            "capture_evidence": capture_evidence,
             "raw_evidence": {"xaml": Path(xaml_path).name, "uia": Path(uia_path).name}}

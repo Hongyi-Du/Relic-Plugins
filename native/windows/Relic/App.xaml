@@ -139,6 +139,16 @@
           </Setter.Value>
         </Setter>
       </Style>
+      <Style x:Key="RelicSwatchStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template"><Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <!-- CSS backgrounds extend under a transparent border. Keep the
+                 entire 24px color disc, including during hover and press. -->
+            <Border Background="{TemplateBinding Background}" BackgroundSizing="OuterBorderEdge" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" />
+          </ControlTemplate>
+        </Setter.Value></Setter>
+      </Style>
       <Style x:Key="RelicResizeThumbStyle" TargetType="Thumb">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template"><Setter.Value>

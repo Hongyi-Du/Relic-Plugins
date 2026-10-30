@@ -13,7 +13,7 @@ class TextNodeFontCaptureTests(unittest.TestCase):
         return {"strings": ["", "收到。我会按 ", "聊天、概况、工作区、设置", " 的顺序整理验收记录。"],
                 "documents": [{"nodes": {"nodeType": [1, 3, 1, 3, 3],
                     "backendNodeId": [360, 361, 362, 363, 364],
-                    "parentIndex": [-1, 0, 0, 2, 0], "nodeValue": [0, 1, 0, 2, 3]},
+                    "parentIndex": [-1, 0, 0, 2, 0], "nodeValue": [-1, 1, -1, 2, 3]},
                     "layout": {"nodeIndex": [1, 3, 4], "text": [1, 2, 3]}}]}
 
     def font(self, face, count):
@@ -69,6 +69,20 @@ class TextNodeFontCaptureTests(unittest.TestCase):
         self.assertIsNone(result["queries"]["361"]["result"])
         self.assertEqual(result["errors"][0]["backend_node_id"], 361)
         self.assertIn("364", result["by_backend_node"], "One failure must not discard other actual queries")
+
+    def test_snapshot_missing_string_index_is_null_not_python_negative_index(self):
+        snapshot = self.snapshot()
+        result = capture.font_evidence(self.cdp({}), snapshot, {"inputs": {}})
+        for backend in (360, 362):
+            for identity in result["queries"][str(backend)]["identities"]:
+                self.assertEqual(identity["node_value_string_index"], -1)
+                self.assertIsNone(identity["node_value"], "A missing Element value cannot become strings[-1]")
+        identity = result["queries"]["364"]["identities"][0]
+        self.assertEqual(identity["node_value_string_index"], 3)
+        self.assertEqual(identity["node_value"], snapshot["strings"][3], "Actual Text values retain their original source index")
+        snapshot["documents"][0]["nodes"]["nodeValue"][0] = 0
+        result = capture.font_evidence(self.cdp({}), snapshot, {"inputs": {}})
+        self.assertEqual(result["queries"]["360"]["identities"][0]["node_value"], "", "Index zero is valid even when its string is empty")
 
     def test_empty_actual_reply_is_retained_but_remains_unknown(self):
         result = capture.font_evidence(self.cdp({361: {"fonts": []}}), self.snapshot(), {"inputs": {}})

@@ -259,6 +259,7 @@ public sealed partial class MainWindow
                     foreach (var (value, hex) in new[] { ("clay", "C8643F"), ("ink", "3A3936"), ("indigo", "5B61D6"), ("blue", "2F6BD8"), ("rose", "C4456C"), ("amber", "B9821D") })
                     {
                         var swatch = QuietButton("", async () => { await SavePreferences(new JsonObject { ["accent"] = value }); await Draw(key); }); swatch.Width = swatch.Height = 24; swatch.MinHeight = 0; swatch.Padding = new Thickness(0); swatch.CornerRadius = new CornerRadius(12); swatch.Background = Paint(hex); swatch.BorderThickness = new Thickness(2); swatch.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent); ToolTipService.SetToolTip(swatch, value); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(swatch, value);
+                        swatch.Style = (Style)Application.Current.Resources["RelicSwatchStyle"];
                         var ring = new Grid { Width = 24, Height = 24 }; if (preferences.Text("accent") == value) ring.Children.Add(new Border { Margin = new Thickness(-4), CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(2), BorderBrush = Ink, Child = new Border { CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(2), BorderBrush = Paint("FFFFFF", "1F1F1E") } }); ring.Children.Add(swatch); colors.Children.Add(ring);
                     }
                     content.Children.Add(SettingRow(T("settings.accent"), T("settings.accent_hint"), colors));

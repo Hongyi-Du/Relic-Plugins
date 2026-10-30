@@ -1,5 +1,63 @@
 # Native Relic App contract
 
+Changes for the clients (native select-arrow request): the macOS request added
+in `b666de1` now has a shared raw evidence contract. Each actual visible select
+retains its owner box, appearance/direction/zoom/borders, live state, AX record,
+pierced UA subtree and actual PNG identity in raw `ua_select_arrow`. The browser's
+painted arrow is not assumed absent merely because it has no DOM SVG. Unmeasured
+presence/geometry/path/style remain null and explicitly fail coverage. Real
+appearance:none and AX-confirmed listboxes are recorded with their actual scope;
+customizable base-select paint remains unknown. No source-code arrow constants
+are promoted to per-case measurement. The Windows/macOS arrow comparison remains
+unresolved until actual paint is attributed and measured.
+
+Changes for the clients (actual Windows paint): the fenced code text now uses
+the real nested .9em cascade (11.25px in chat, 10.8px in documents), while its
+preformatted container retains its own line spacing. Header/composer chips now
+use the final reference rule's opaque card fill, 14px radius, 11px padding,
+5px content gap and 4px trailing margin. Search placeholder paint is explicitly
+opaque #757575, also confirmed by the older full dark capture. The two-layer
+vacant indicator is one real NativeStateDotView with exact current child identity
+evidence; both painted layers remain raw. Aggregate shadow equivalence is still
+unknown and fails coverage. Headless Windows App and capture builds pass with
+zero warnings/errors; CI runtime and fixtures remain required.
+
+Changes for the clients (UIA provider failures): file-code's managed format range
+GetBoundingRectangles returns E_UNEXPECTED. Capture now retains the actual text,
+endpoints, format movement, API and HRESULT before that read, and continues
+independent COM observations. Failed geometry stays null, never an empty measured
+array or a value copied from another provider. Shared projection accepts that
+nullable failure shape and preserves it as a coverage error. Nine mocked provider
+cases are added to the Windows CI test job; no provider root cause is yet proven.
+
+Changes for the clients (38af737 independent evidence): the diagnostic report is
+downloaded to `S:/Codex/Outputs/Relic-native-visual/parity-38af737/` from run
+`40987219219`. Both platforms still have zero accepted scenes. This 17-case
+diagnostic does not replace the 636-case matrix, and every unresolved extraction
+and comparison error remains in the report. Windows copies now has a complete
+339-node native UIA index without the previous self-cycle. All 17 Windows cases
+have actual Rendering/Rendered, compositor commit and DwmFlush receipts, but
+these do not alone prove the final frame's glyph-to-pixel association. macOS
+retains one group scene geometry-drift failure; its source inspection changed
+four mounted views. The native-macos requests merged through `668b1f8` confirm
+the shared caret-preservation and aggregate-test fixes are consumed; no new
+exceptions or tolerances are requested.
+
+Changes for the clients (reference disclosure projection): real closed HTML
+details expose only their first direct summary subtree, including through nested
+details. Nonpainted contents remain in raw DOM evidence, with actual open state
+and summary ancestry, rather than becoming canonical text from a forced DOMRange.
+DOMSnapshot missing string index -1 is now null with its original index retained.
+Neither failed font queries nor unknown glyph measurements are filled in.
+
+Changes for the clients (Windows measured layout corrections): the actual
+CommandBar template now constrains its ContentRoot and PrimaryItemsControl to
+39px and removes the unused overflow column, correcting the measured 4.5px
+vertical and 6px horizontal offsets without changing extracted coordinates.
+Color swatches paint under their transparent border, retaining the full 24px
+disc on hover/press. Single-line form focus keeps the real reference selector's
+line-2 border; native focus/caret remain active. CI validation is pending.
+
 Changes for the clients (registered Markdown blocks): Windows records the actual
 fenced-code Border, ScrollViewer and TextBlock object identities in production.
 Extraction validates current child/content references and rendered ancestry before

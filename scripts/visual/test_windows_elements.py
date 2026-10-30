@@ -90,6 +90,77 @@ class ProjectionTests(unittest.TestCase):
         return {element["id"]: element for element in result["elements"]}
 
     @staticmethod
+    def state_dot_fixture():
+        frame = xaml_node("avatar-frame", "Grid", bounds=box(41, 440, 28, 28))
+        owner = xaml_node("vacant-dot", "NativeStateDotView", parent="avatar-frame", bounds=box(61, 460, 10, 10),
+                          render_type_evidence={"is_panel": True, "is_shape": False, "is_content_control": False},
+                          state_dot_evidence={
+                              "source": "actual NativeStateDotView owned paint objects and current Children order",
+                              "complete": True, "current_children_same_objects": True,
+                              "current_children": ["surround", "vacancy-ring"],
+                              "layers": [{"id": "surround", "property": "Surround", "child_index": 0},
+                                         {"id": "vacancy-ring", "property": "VacancyRing", "child_index": 1}]})
+        outer = xaml_node("surround", "Ellipse", parent="vacant-dot", bounds=box(61, 460, 10, 10))
+        inner = xaml_node("vacancy-ring", "Ellipse", parent="vacant-dot", bounds=box(63, 462, 6, 6))
+        for index, (layer, prop, stroke, width) in enumerate((
+                (outer, "Surround", [248, 247, 245, 255], 2),
+                (inner, "VacancyRing", [184, 181, 175, 255], 1.5))):
+            layer["state_dot_layer_evidence"] = {
+                "source": "actual NativeStateDotView owned Ellipse object identity", "owner_id": "vacant-dot",
+                "property": prop, "child_index": index}
+            layer["style"].update(foreground=stroke, stroke_width=width)
+            layer["render_type_evidence"] = {"is_shape": True, "is_panel": False, "is_content_control": False}
+        unrelated = xaml_node("other-dot", "Ellipse", parent="avatar-frame", bounds=box(90, 460, 6, 6))
+        unrelated["style"].update(background=[62, 155, 94, 255])
+        nodes = measured([frame, owner, outer, inner, unrelated])
+        for node in nodes[2:]: node["paint_kind"] = "ellipse"
+        return nodes
+
+    def test_state_dot_owns_only_its_two_actual_layers_without_claiming_shadow_equivalence(self):
+        nodes = self.state_dot_fixture()
+        result = self.capture(nodes)
+        elements = self.by_id(result)
+        self.assertEqual(set(elements), {"vacant-dot", "other-dot"})
+        dot = elements["vacant-dot"]
+        self.assertEqual(dot["kind"], "state-dot")
+        self.assertEqual(dot["bounds"], nodes[1]["bounds"])
+        self.assertEqual(dot["evidence"]["paint_sources"], ["surround", "vacancy-ring"])
+        evidence = dot["evidence"]["compound_paint"]
+        self.assertEqual([layer["raw"] for layer in evidence["layers"]], nodes[2:4])
+        self.assertIsNone(evidence["css_paint_equivalence"])
+        self.assertIsNone(dot["style"]["shadow"])
+        self.assertIsNone(dot["style"]["border_width"])
+        self.assertTrue(any(row["id"] == "vacant-dot" and row["property"] == "style.compound_paint"
+                            for row in result["coverage"]["unmeasured"]))
+        for layer in nodes[2:4]:
+            ownership = [row for row in result["projection"] if row.get("source") == layer["id"]]
+            self.assertEqual(len(ownership), 1)
+            self.assertEqual(ownership[0]["owner"], "vacant-dot")
+            self.assertEqual(ownership[0]["paint_evidence"], layer)
+
+    def test_unverified_state_dot_does_not_absorb_any_actual_ellipse(self):
+        for problem in ("missing", "source", "incomplete", "children-identity", "current-order",
+                        "layer-order", "reciprocal", "detached", "extra-child"):
+            with self.subTest(problem=problem):
+                nodes = self.state_dot_fixture()
+                evidence = nodes[1]["state_dot_evidence"]
+                if problem == "missing": nodes[1].pop("state_dot_evidence")
+                elif problem == "source": evidence["source"] = "Tag vacant"
+                elif problem == "incomplete": evidence["complete"] = False
+                elif problem == "children-identity": evidence["current_children_same_objects"] = False
+                elif problem == "current-order": evidence["current_children"].reverse()
+                elif problem == "layer-order": evidence["layers"].reverse()
+                elif problem == "reciprocal": nodes[3]["state_dot_layer_evidence"]["owner_id"] = "avatar-frame"
+                elif problem == "detached": nodes[3]["parent"] = "avatar-frame"
+                elif problem == "extra-child": nodes[4]["parent"] = "vacant-dot"
+                result = self.capture(nodes)
+                elements = self.by_id(result)
+                self.assertNotIn("vacant-dot", elements)
+                self.assertTrue({"surround", "vacancy-ring", "other-dot"} <= set(elements))
+                self.assertTrue(any(row["id"] == "vacant-dot" and row["property"] == "ownership.state_dot_paint"
+                                    for row in result["coverage"]["unmeasured"]))
+
+    @staticmethod
     def fenced_code_fixture():
         root = xaml_node("body", "StackPanel", bounds=box(20, 20, 400, 200))
         block = xaml_node("pre", "Border", parent="body", bounds=box(30, 40, 250, 60),
@@ -1089,6 +1160,90 @@ class ProjectionTests(unittest.TestCase):
         self.assertFalse(any(issue.get("id") == "uia-hidden" for issue in result["coverage"]["unmeasured"]))
         self.assertTrue(any(diagnostic.get("id") == "uia-hidden" and "Infinity" in diagnostic["diagnostic"]
                             for diagnostic in result["nonvisible_diagnostics"]))
+
+    @staticmethod
+    def failed_text_range():
+        # Actual 38af737 file-code HRESULT/type/API (progress seq 9993/10038,
+        # uia-196/197). Text is synthetic: the old capture did not retain the
+        # failed format range's real text/endpoints, so none are invented here.
+        return {"text": "fixture range", "bounds": None, "managed_bounds": None, "bounds_status": "error",
+                "bounds_error": {"api": "Managed TextRange.GetBoundingRectangles",
+                                 "exception_type": "System.Runtime.InteropServices.COMException",
+                                 "hresult": -2147418113, "hresult_hex": "0x8000FFFF", "message": "发生意外。",
+                                 "exception": "System.Runtime.InteropServices.COMException (0x8000FFFF): 发生意外。\n"
+                                              "at MS.Internal.Automation.UiaCoreApi.TextRange_GetBoundingRectangles(SafeTextRangeHandle hobj)"},
+                "attributes": {"font_family": "Fixture font"}, "attribute_status": {"font_family": "measured"}}
+
+    def test_failed_uia_range_bounds_remain_null_with_original_hresult_and_no_projection_crash(self):
+        owner = xaml_node("text", text="fixture range")
+        owner["layout"].update(line_count=None, character_boxes=None, character_boxes_coordinate_space="content-window")
+        provider = uia_node("uia-text", name=owner["text"])
+        failed = self.failed_text_range()
+        visible_range = deepcopy(failed)
+        visible_range["format_runs"] = [deepcopy(failed)]
+        provider["text_pattern"] = {"document": deepcopy(failed), "visible_ranges": [visible_range]}
+        original_error = "uia-text: Managed TextRange.GetBoundingRectangles: 0x8000FFFF COMException: 发生意外。"
+        result = self.capture(measured([owner]), [provider], uia_changes={"extraction_errors": [original_error]})
+        self.assertIn(original_error, result["extraction_errors"])
+        failures = result["capture_evidence"]["uia_text_range_failures"]
+        self.assertEqual({row["range_path"] for row in failures}, {
+            "text_pattern.document", "text_pattern.visible_ranges[0]", "text_pattern.visible_ranges[0].format_runs[0]"})
+        for failure in failures:
+            self.assertIsNone(failure["range_evidence"]["bounds"])
+            self.assertIsNone(failure["range_evidence"]["managed_bounds"])
+            self.assertEqual(failure["range_evidence"]["bounds_error"], failed["bounds_error"])
+            self.assertIn(failure, result["coverage"]["unmeasured"])
+        self.assertIsNone(self.by_id(result)["text"]["layout"]["line_count"])
+        self.assertTrue(any(row["property"] == "evidence.text_bounds" for row in result["coverage"]["unmeasured"]))
+
+    def test_successful_native_com_bounds_do_not_replace_failed_managed_range(self):
+        owner = xaml_node("text", text="fixture range")
+        owner["layout"].update(line_count=None, character_boxes=None, character_boxes_coordinate_space="content-window")
+        provider = uia_node("uia-text", name=owner["text"])
+        failed = self.failed_text_range()
+        native_range = {"text": owner["text"], "bounds": [box(12, 22, 70, 18)], "bounds_status": "measured"}
+        provider["text_pattern"] = {
+            "document": deepcopy(failed), "visible_ranges": [deepcopy(failed)],
+            "native_com": {"status": "incomplete", "document": deepcopy(native_range), "visible_ranges": [deepcopy(native_range)],
+                           "error": "Managed range bounds failed; the independent COM observation is retained but cannot prove the missing managed projection."}}
+        result = self.capture(measured([owner]), [provider])
+        actual = self.by_id(result)["text"]
+        self.assertIsNone(actual["evidence"]["text_bounds"])
+        self.assertIsNone(actual["layout"]["line_count"])
+        failures = result["capture_evidence"]["uia_text_range_failures"]
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(all(row["range_path"].startswith("text_pattern.") and "native_com" not in row["range_path"] for row in failures))
+        self.assertTrue(all(row["range_evidence"]["bounds"] is None for row in failures))
+        self.assertTrue(any(row["property"] == "UIA text_range.bounds" for row in result["coverage"]["unmeasured"]))
+
+    def test_failed_uia_format_run_does_not_erase_independent_xaml_text_bounds_or_its_failure(self):
+        owner, provider = self.rich_fixture()
+        provider["text_pattern"]["document"] = self.failed_text_range()
+        provider["text_pattern"]["document"]["text"] = owner["text"]
+        provider["text_pattern"]["visible_ranges"][0]["format_runs"][0] = self.failed_text_range()
+        result = self.capture(measured([owner]), [provider])
+        actual = self.by_id(result)["rich:run:0"]
+        self.assertEqual(actual["bounds"], box(10, 20, 30, 20))
+        self.assertTrue(any(row["range_path"] == "text_pattern.visible_ranges[0].format_runs[0]"
+                            for row in result["capture_evidence"]["uia_text_range_failures"]))
+        self.assertTrue(any(row["property"] == "UIA text_range.bounds" for row in result["coverage"]["unmeasured"]))
+
+    def test_null_xaml_run_geometry_fails_coverage_without_crashing_text_helpers(self):
+        owner, provider = self.rich_fixture()
+        owner["layout"]["rich_text_runs"][0]["bounds"] = None
+        owner["layout"]["rich_text_runs"][0]["geometry_complete"] = False
+        result = self.capture(measured([owner]), [provider])
+        self.assertTrue(any(row["id"] == "rich:run:0" and row["property"] == "rich_text_runs"
+                            for row in result["coverage"]["unmeasured"]))
+        self.assertNotIn("rich:run:0", self.by_id(result))
+        self.assertIn("rich:run:1", self.by_id(result))
+
+    def test_successful_empty_range_array_is_distinct_from_unknown_null(self):
+        provider = uia_node("uia-text", name="fixture range")
+        provider["text_pattern"] = {"document": {"text": "", "bounds": [], "managed_bounds": []}, "visible_ranges": []}
+        result = self.capture(measured([xaml_node("text", text="fixture range")]), [provider])
+        self.assertNotIn("uia_text_range_failures", result["capture_evidence"])
+        self.assertFalse(any(row["property"] == "UIA text_range.bounds" for row in result["coverage"]["unmeasured"]))
 
     def test_unknown_or_visible_uia_rect_errors_are_not_exempted(self):
         for offscreen in (None, False):

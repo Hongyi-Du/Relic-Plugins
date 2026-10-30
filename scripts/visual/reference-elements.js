@@ -118,6 +118,16 @@
   const snapshotElements = new Map(), snapshotPseudo = new Map(), pseudoByOwner = new WeakMap();
   const snapshotInputBoxes = new WeakMap(), snapshotInputFontOwners = new WeakMap(), snapshotBackend = new WeakMap(), snapshotRenderedText = new WeakMap(), snapshotPaintOrder = new WeakMap();
   const snapshotTextLayouts = new WeakMap();
+  // Reuse the actual pierced DOM receipt already captured for UA input text.
+  // Internal select text/picker nodes are retained even when no independent
+  // node represents the native theme's directly painted dropdown arrow.
+  const piercedByBackend = new Map();
+  const indexPierced = node => {
+    if (!node) return;
+    if (Number.isInteger(node.backendNodeId)) piercedByBackend.set(node.backendNodeId, node);
+    for (const child of [...(node.children || []), ...(node.shadowRoots || []), ...(node.pseudoElements || [])]) indexPierced(child);
+  };
+  indexPierced(meta.pierced_dom?.root);
   const axByBackend = new Map(), raw_ax_nodes = meta.ax_tree?.nodes || [];
   const axById = new Map(raw_ax_nodes.map(node => [node.nodeId, node]));
   for (const ax of raw_ax_nodes) {
@@ -212,7 +222,27 @@
     if (el.closest('.chat')) return 'conversation';
     return 'window';
   };
+  const detailsVisibilityEvidence = (el, ownContent = false) => {
+    // DOMRange/getBoundingClientRect may force layout in the skipped content
+    // of a closed details, producing nonzero boxes for unpainted descendants.
+    // Only its first direct summary Element remains exposed. Nested details
+    // must satisfy every ancestor; an inner open state cannot open its parent.
+    const ancestors = [];
+    for (let p = ownContent ? el : el.parentElement; p; p = p.parentElement) {
+      if (p.localName !== 'details') continue;
+      const summary = Array.from(p.children).find(child => child.localName === 'summary') || null;
+      const insideSummary = summary !== null && summary.contains(el);
+      ancestors.push({ details: nodeIds.get(p) || pathOf(p), open: p.open,
+        open_attribute: p.getAttribute('open'),
+        first_summary: summary ? nodeIds.get(summary) || pathOf(summary) : null,
+        inside_first_summary: insideSummary, own_details_content: p === el,
+        hidden: p.open === false && !insideSummary });
+    }
+    return ancestors.length ? { source: 'live HTMLDetailsElement.open + first direct summary Element ancestry',
+      hidden: ancestors.some(ancestor => ancestor.hidden), ancestors } : null;
+  };
   const visibleRect = (el, inputRect, clipOwnContent = false) => {
+    if (detailsVisibilityEvidence(el, clipOwnContent)?.hidden) return null;
     let clipped = intersect(inputRect, { x: 0, y: 0, width: innerWidth, height: innerHeight });
     for (let p = el; p; p = p.parentElement) {
       const s = styleOf(p);
@@ -830,6 +860,65 @@
     const dy = layout.height === 0 || capped && layout.width === 0 ? strokeWidth * sy / 2 : 0;
     return { x: layout.x - dx, y: layout.y - dy, width: layout.width + 2 * dx, height: layout.height + 2 * dy };
   };
+  const selectArrowEvidence = el => {
+    if (el.localName !== 'select') return null;
+    const s = styleOf(el), ax = accessibilityOf(el), backend = snapshotBackend.get(el);
+    const uaOwner = piercedByBackend.get(backend) || null;
+    const ownerIdentity = uaOwner?.nodeType === 1 && uaOwner?.nodeName === 'SELECT' && uaOwner.backendNodeId === backend;
+    const appearance = s.appearance || s.webkitAppearance || null;
+    // Suppressing native appearance does not prove an author-created icon is
+    // absent. Conversely a listbox is not a collapsed native menu-list. Neither
+    // is required to contain the theme arrow merely because its tag is SELECT.
+    const nativeSuppressed = appearance === 'none';
+    const listbox = (el.multiple || el.size > 1) && ax.measured && ax.role === 'listbox' && appearance !== 'base-select';
+    const mode = nativeSuppressed ? 'native-appearance-suppressed' : listbox ? 'listbox' :
+      appearance === 'base-select' ? 'customizable-picker' : ['auto', 'menulist', 'menulist-button'].includes(appearance) ? 'native-menu-list' : 'unresolved-select-appearance';
+    const axNodes = [], seen = new Set(), pending = [...(ax.node_ids || [])];
+    while (pending.length) {
+      const id = pending.shift();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = axById.get(id);
+      if (node) { axNodes.push(node); pending.push(...(node.childIds || [])); }
+    }
+    let pickerStyle = null, pickerError = null;
+    try {
+      const picker = getComputedStyle(el, '::picker-icon');
+      pickerStyle = { pseudo: '::picker-icon', quantity: 'computed pseudo request, not proof of painted presence or geometry',
+        content: picker.content, display: picker.display, visibility: picker.visibility, opacity: picker.opacity,
+        width: picker.width, height: picker.height, color: picker.color, background: picker.backgroundColor,
+        transform: picker.transform, appearance: picker.appearance };
+    } catch (error) { pickerError = String(error); }
+    return { kind: 'icon', part: 'select-arrow', mode, requires_measurement: !nativeSuppressed && !listbox,
+      source: 'actual visible SELECT owner + computed appearance + CDP DOM/AX receipts',
+      owner_backend_node_id: backend ?? null, owner_selector: pathOf(el), owner_bounds: rect(el.getBoundingClientRect()),
+      owner_state: { multiple: el.multiple, size: el.size, disabled_property: el.disabled, disabled_selector: el.matches(':disabled'),
+        focused: document.activeElement === el, hovered: el.matches(':hover'), selected_index: el.selectedIndex, value: el.value,
+        expanded: (ax.properties || []).find(property => property.name === 'expanded')?.value?.value ?? null },
+      owner_style: { appearance, direction: s.direction, writing_mode: s.writingMode, zoom: s.zoom,
+        transform: s.transform, transform_origin: s.transformOrigin, color: s.color, background: s.backgroundColor,
+        color_scheme: s.colorScheme, font_size: s.fontSize, display: s.display, visibility: s.visibility, opacity: s.opacity,
+        border_widths: ['Top', 'Right', 'Bottom', 'Left'].map(side => s['border' + side + 'Width']),
+        padding: ['Top', 'Right', 'Bottom', 'Left'].map(side => s['padding' + side]) },
+      owner_accessibility: ax, ax_subtree: axNodes, computed_picker_icon: pickerStyle, computed_picker_icon_error: pickerError,
+      pierced_dom: { source: 'CDP.DOM.getDocument(depth=-1,pierce=true)', owner_identity_matches: ownerIdentity,
+        owner: uaOwner, quantity: 'actual captured DOM and UA nodes; lack of an arrow node does not establish absence of theme paint' },
+      snapshot_pseudo_parts: pseudoByOwner.get(el) || [],
+      screenshot: { scene_id: meta.scene_id, file: meta.screenshot_file ?? null,
+        quantity: 'whole-scene PNG captured before these DOM measurements; owner bounds are not an arrow pixel mask',
+        arrow_pixel_mask: null, arrow_pixel_bounds: null, arrow_pixels: null },
+      painted_presence: null, bounds: null, path: null, style: null, state: null,
+      measurement_limit: 'The owner box, CSS request, AX combobox and UA subtree do not expose the native theme drawPath or certify its pixels. No source-code dimensions, fixed right-side region or parent color are substituted for actual arrow geometry/style. Native appearance none/listbox modes make no claim that custom decorations are absent.' };
+  };
+  const recordSelectArrowCoverage = (raw, evidence) => {
+    if (!evidence) return;
+    raw.ua_select_arrow = evidence;
+    if (!evidence.requires_measurement) return;
+    unmeasured.push({ element: raw.id, property: 'select_arrow.rendered_part', evidence,
+      reason: 'This visible select can paint a native or customizable picker arrow. Independent arrow presence, bounds, path, style and state remain unmeasured; its owner and source constants are not substitutes.' });
+    extraction_errors.push({ type: 'ua_select_arrow_measurement_unavailable', node: raw.id, kind: 'icon', part: 'select-arrow',
+      reason: 'The actual select decoration is retained as an unresolved paint obligation, not silently omitted because no DOM SVG exists.' });
+  };
   const resizeHandleEvidence = el => {
     const s = styleOf(el);
     if (el.localName !== 'textarea' || !s.resize || s.resize === 'none') return null;
@@ -928,10 +1017,12 @@
     const raw = { id, parent: nodeIds.get(el.parentElement) || null, selector: pathOf(el), tag: el.localName,
       attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])), bounds: unclipped,
       visible_bounds: bounds, paint_bounds: paintBounds, visible_fragments: fragments, occlusion_masks: occlusionMasks.get(el) || [], display: s.display, visibility: s.visibility, opacity: s.opacity, emitted: [],
-      accessibility: accessibilityOf(el),
-      text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue, owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
+      accessibility: accessibilityOf(el), details_visibility: detailsVisibilityEvidence(el),
+      text_nodes: Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map((n, i) => ({ id: id + ':raw-text-' + i, text: n.nodeValue,
+        details_visibility: detailsVisibilityEvidence(el, true), owned_by: suppressedText.has(n) ? 'ancestor control' : null })) };
     raw_nodes.push(raw);
-    if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
+    if (!bounds || !fragments.length || el.closest('script,style,option')) { raw.projection_reason = raw.details_visibility?.hidden ? 'closed-details-content' : !bounds ? 'hidden-or-fully-clipped' : !fragments.length ? 'fully-occluded' : 'nonrendered-content'; continue; }
+    recordSelectArrowCoverage(raw, selectArrowEvidence(el));
     const resizeHandle = resizeHandleEvidence(el);
     if (resizeHandle) {
       raw.resize_handle = resizeHandle;

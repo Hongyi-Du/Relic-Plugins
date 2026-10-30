@@ -26,6 +26,7 @@ public sealed partial class MainWindow
         var renderNodes = new Dictionary<DependencyObject, JsonObject>();
         var inlineOwners = new List<(FrameworkElement Owner, JsonObject Node, bool Visible)>();
         var fencedCodeOwners = new List<(Border Owner, MarkdownSemantic.FencedCode Content, JsonObject Node, bool Visible)>();
+        var stateDotOwners = new List<(NativeStateDotView Owner, JsonObject Node, bool Visible)>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -140,6 +141,7 @@ public sealed partial class MainWindow
                     if (element is TextBlock or RichTextBlock) inlineOwners.Add((element, node, hidden == null));
                     if (element is Border markdownContainer && MarkdownSemantic.TryGetFencedCode(markdownContainer, out var fencedCode) && fencedCode != null)
                         fencedCodeOwners.Add((markdownContainer, fencedCode, node, hidden == null));
+                    if (element is NativeStateDotView stateDot) stateDotOwners.Add((stateDot, node, hidden == null));
                     if (element is NativeTextarea textarea)
                     {
                         node["textarea_resize_evidence"] = new JsonObject
@@ -257,6 +259,37 @@ public sealed partial class MainWindow
         {
             paintLayer++;
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
+        }
+        foreach (var (owner, ownerNode, visible) in stateDotOwners)
+        {
+            var ownerId = renderIds[owner]; var currentChildren = new JsonArray(); var layers = new JsonArray();
+            var complete = owner.HasCurrentPaintChildren;
+            foreach (var child in owner.Children)
+            {
+                var found = renderIds.TryGetValue(child, out var childId);
+                currentChildren.Add(childId); complete &= found;
+            }
+            foreach (var (role, paint) in owner.OwnedPaintLayers())
+            {
+                var found = renderIds.TryGetValue(paint, out var paintId);
+                var index = owner.Children.IndexOf(paint);
+                complete &= found && index >= 0 && ReferenceEquals(VisualTreeHelper.GetParent(paint), owner);
+                layers.Add(new JsonObject { ["id"] = paintId, ["property"] = role, ["child_index"] = index });
+                if (found)
+                    renderNodes[paint]["state_dot_layer_evidence"] = new JsonObject
+                    {
+                        ["source"] = "actual NativeStateDotView owned Ellipse object identity",
+                        ["owner_id"] = ownerId, ["property"] = role, ["child_index"] = index
+                    };
+            }
+            ownerNode["state_dot_evidence"] = new JsonObject
+            {
+                ["source"] = "actual NativeStateDotView owned paint objects and current Children order",
+                ["complete"] = complete, ["current_children_same_objects"] = owner.HasCurrentPaintChildren,
+                ["current_children"] = currentChildren, ["layers"] = layers,
+                ["quantity"] = "Production compound paint ownership; no CSS shadow or final raster equivalence is asserted"
+            };
+            if (visible && !complete) errors.Add(ownerId + ": state-dot paint objects are detached, replaced or absent from the actual render tree");
         }
         foreach (var (owner, content, ownerNode, visible) in fencedCodeOwners)
         {

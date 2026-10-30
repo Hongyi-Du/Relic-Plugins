@@ -111,9 +111,10 @@ public sealed partial class MainWindow
             var target = recipientNames.Contains("all") ? T("msg.everyone") : words.List(recipientNames.Select(Display));
             if (target.Length > 24) target = target[..23] + "…";
             var label = T("composer.send_to", ("to", target));
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center }; var text = Ellipsis(label, 12.5); text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center }; var text = Ellipsis(label, 12.5); text.Foreground = Paint("5A5853", "B8B5AE"); row.Children.Add(text);
             var arrow = (ReferenceVectorIcon)ReferenceIcon("down", 14); arrow.Foreground = text.Foreground; row.Children.Add(arrow);
-            recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(9); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(10, 0, 10, 0);
+            recipientButton.Content = row; recipientButton.Height = 28; recipientButton.CornerRadius = new CornerRadius(14); recipientButton.BorderBrush = Paint("DEDBD4", "3A3936"); recipientButton.BorderThickness = new Thickness(1); recipientButton.Padding = new Thickness(11, 0, 11, 0);
+            recipientButton.Background = Paint("FFFFFF", "252523"); recipientButton.Margin = new Thickness(0, 0, 4, 0);
             recipientButton.MaxWidth = 230; ToolTipService.SetToolTip(recipientButton, label); recipientButton.Visibility = member.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }

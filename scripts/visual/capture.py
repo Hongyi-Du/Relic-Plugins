@@ -733,7 +733,7 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         for action in actions:
             action.checkpoint("after_source_evidence")
         extractor = (HERE / "reference-elements.js").read_text(encoding="utf-8")
-        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "reference_environment": environment}))
+        elements = source_step("source:element_extraction", lambda: page.evaluate(extractor, {"scene_id": case["id"], "lang": manifest["lang"], "theme": manifest["theme"], "dom_snapshot": snapshot, "ax_tree": ax_tree, "input_text_boxes": input_text["inputs"], "input_text_errors": input_text["errors"], "pierced_dom": input_text.get("raw_document"), "screenshot_file": case["file"], "reference_environment": environment}))
         for action in actions:
             action.checkpoint("after_element_extraction")
         if message is not None:
@@ -840,10 +840,12 @@ def font_evidence(cdp, snapshot, input_text):
         record["identities"].append({"source": source, "node_type": node_type, **identity})
 
     def snapshot_candidate(index, source):
+        value_index = nodes["nodeValue"][index] if nodes.get("nodeValue") else None
         candidate(nodes["backendNodeId"][index], nodes["nodeType"][index], source,
             snapshot_node_index=index, parent_backend_node_id=(
                 nodes["backendNodeId"][nodes["parentIndex"][index]] if nodes["parentIndex"][index] >= 0 else None),
-            node_value=snapshot["strings"][nodes["nodeValue"][index]] if nodes.get("nodeValue") else None)
+            node_value_string_index=value_index,
+            node_value=snapshot["strings"][value_index] if isinstance(value_index, int) and 0 <= value_index < len(snapshot["strings"]) else None)
 
     for offset, node_index in enumerate(layout["nodeIndex"]):
         text_index = layout["text"][offset]

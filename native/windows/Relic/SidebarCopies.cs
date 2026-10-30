@@ -9,7 +9,7 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
-    private readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 39, MinHeight = 0, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
+    private readonly NativeToolbar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, IsOpen = false, IsDynamicOverflowEnabled = false, OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed, Height = 39, MinHeight = 0, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private readonly StackPanel navigationButtons = new() { Orientation = Orientation.Horizontal, Spacing = 2, Padding = new Thickness(6, 0, 2, 0), Height = 39, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false };
     private StackPanel? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
@@ -17,11 +17,6 @@ public sealed partial class MainWindow
     private void DrawToolbar()
     {
         toolbar.PrimaryCommands.Clear();
-        // CommandBar's stock compact presenter is at least 48px tall and keeps
-        // a 6px overflow column even when the overflow button is collapsed.
-        // These resources control its real native template's layout.
-        toolbar.Resources["AppBarThemeCompactHeight"] = 39d;
-        toolbar.Resources["AppBarMoreButtonColumnMinWidth"] = 0d;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
         void AddCommand(UIElement content)
         {
@@ -107,6 +102,7 @@ public sealed partial class MainWindow
         searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); searchSurface.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var searchIcon = (ReferenceVectorIcon)Glyph("\uE721", 15); searchIcon.Foreground = Muted; searchIcon.VerticalAlignment = VerticalAlignment.Center; searchIcon.IsHitTestVisible = false; searchSurface.Children.Add(searchIcon);
         search.Margin = new Thickness(0); search.MinHeight = 0; search.Height = 22.4; search.VerticalAlignment = VerticalAlignment.Center; search.FontSize = 14; search.Padding = new Thickness(0); search.BorderThickness = new Thickness(0); search.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); Grid.SetColumn(search, 1); searchSurface.Children.Add(search);
+        search.PlaceholderForeground = Paint("757575");
         var searchMic = Microphone(search); searchMic.Foreground = Paint("5A5853", "B8B5AE"); searchMic.Width = searchMic.Height = 32; searchMic.MinHeight = 0; searchMic.Padding = new Thickness(0); searchMic.HorizontalContentAlignment = HorizontalAlignment.Center; searchMic.VerticalContentAlignment = VerticalAlignment.Center; searchMic.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(searchMic, 2); searchSurface.Children.Add(searchMic); sideTools.Children.Add(searchSurface);
         var caption = TwoColumns(SidebarText(T("page.tree"), 12, true), SidebarText(orgs.Count > 0 ? orgs.Count.ToString() : "", 12, true)); caption.UseLayoutRounding = false; caption.Margin = new Thickness(10, 14, 10, 6); side.Children.Add(caption);
         var tree = new StackPanel { UseLayoutRounding = false }; side.Children.Add(tree);
@@ -264,8 +260,11 @@ public sealed partial class MainWindow
         if (state is not ("" or "idle"))
         {
             var color = state switch { "working" or "running" => Paint("3E9B5E", "6CC287"), "active" => Paint("75A782", "669572"), "waiting" or "starting" => Paint("B7791F", "E2B15A"), "error" => Paint("C2412D", "EE8A78"), _ => Paint("B8B5AF", "5F5D58") };
-            var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Margin = new Thickness(0, 0, -2, -2), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Stroke = Paint("F8F7F5", "191918"), StrokeThickness = 2, Fill = state == "vacant" ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) : color }; result.Children.Add(dot);
-            if (state == "vacant") result.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Stroke = color, StrokeThickness = 1.5 });
+            FrameworkElement dot = state == "vacant"
+                ? new NativeStateDotView(Paint("F8F7F5", "191918"), color)
+                : new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Stroke = Paint("F8F7F5", "191918"), StrokeThickness = 2, Fill = color };
+            dot.Margin = new Thickness(0, 0, -2, -2); dot.HorizontalAlignment = HorizontalAlignment.Right; dot.VerticalAlignment = VerticalAlignment.Bottom;
+            result.Children.Add(dot);
         }
         return result;
     }

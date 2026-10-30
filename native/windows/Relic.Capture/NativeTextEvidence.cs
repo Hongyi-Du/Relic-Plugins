@@ -47,7 +47,8 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             var document = progress.Measure("uia-capture/native/document-range", nativePattern.GetDocumentRange, activeContext);
             var documentText = progress.Measure("uia-capture/native/document-text-before", () => document.GetText(-1), activeContext);
             evidence["document_text_before"] = documentText;
-            var nativeDocument = ReadRange(document, document, false, errors);
+            var documentContext = activeContext.DeepClone().AsObject(); documentContext["range_kind"] = "document";
+            var nativeDocument = ReadRange(document, document, false, errors, documentContext);
             evidence["document"] = nativeDocument;
             var visible = new JsonArray(); evidence["visible_ranges"] = visible;
             var nativeRanges = progress.Measure("uia-capture/native/visible-ranges", nativePattern.GetVisibleRanges, activeContext);
@@ -56,7 +57,9 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             for (var index = 0; index < rangeCount; index++)
             {
                 progress.Record("uia-capture/native/visible-range", "started", new JsonObject { ["runtime_id"] = Ints(runtimeId), ["index"] = index });
-                visible.Add(ReadRange(nativeRanges.GetElement(index), document, true, errors));
+                var rangeContext = activeContext.DeepClone().AsObject();
+                rangeContext["visible_range_index"] = index; rangeContext["range_kind"] = "visible";
+                visible.Add(ReadRange(nativeRanges.GetElement(index), document, true, errors, rangeContext));
             }
 
             var nativeAfter = progress.Measure("uia-capture/native/document-text-after", () => document.GetText(-1), activeContext);
@@ -284,24 +287,29 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
         };
     }
 
-    private JsonObject ReadRange(INativeTextRange range, INativeTextRange document, bool includeRuns, JsonArray errors)
+    private JsonObject ReadRange(INativeTextRange range, INativeTextRange document, bool includeRuns, JsonArray errors, JsonObject context)
     {
         var result = new JsonObject
         {
-            ["text"] = progress.Measure("uia-capture/native/range/text", () => range.GetText(-1), activeContext),
-            ["range_identity"] = progress.Measure("uia-capture/native/range/identity", () => NativeIdentity(range, document), activeContext)
+            ["text"] = progress.Measure("uia-capture/native/range/text", () => range.GetText(-1), context),
+            ["range_identity"] = progress.Measure("uia-capture/native/range/identity", () => NativeIdentity(range, document), context)
         };
-        var values = progress.Measure("uia-capture/native/range/bounding-rectangles", range.GetBoundingRectangles, activeContext);
+        var rangeContext = context.DeepClone().AsObject(); rangeContext["range"] = result.DeepClone();
+        progress.Record("uia-capture/native/range/identity-evidence", "measured", rangeContext);
+        var boundsRead = TextRangeEvidence.TryReadBounds(
+            () => progress.Measure("uia-capture/native/range/bounding-rectangles", range.GetBoundingRectangles, rangeContext),
+            result, "COM IUIAutomationTextRange.GetBoundingRectangles", errors, out var values);
         result["bounds_raw"] = values == null ? null : new JsonArray(values.Select(Number).ToArray());
         result["bounds_raw_ieee754_bits"] = values == null ? null : new JsonArray(values.Select(value =>
             (JsonNode?)JsonValue.Create(BitConverter.DoubleToInt64Bits(value).ToString("X16", CultureInfo.InvariantCulture))).ToArray());
         result["raw_coordinate_space"] = "UI Automation screen coordinates before window-origin subtraction";
-        progress.Record("uia-capture/native/range/raw-bounds", "measured", new JsonObject { ["runtime"] = activeContext?.DeepClone(), ["range"] = result.DeepClone() });
-        var rectangles = new JsonArray(); result["bounds"] = rectangles;
-        var statuses = new JsonArray(); result["rectangle_statuses"] = statuses;
+        progress.Record("uia-capture/native/range/raw-bounds", boundsRead ? "measured" : "failed", new JsonObject { ["context"] = context.DeepClone(), ["range"] = result.DeepClone() });
+        var rectangles = new JsonArray(); result["bounds"] = boundsRead ? rectangles : null;
+        var statuses = new JsonArray(); result["rectangle_statuses"] = boundsRead ? statuses : null;
         var degenerate = result["range_identity"]!["degenerate"]!.GetValue<bool>();
-        var status = "measured";
-        if (values == null || values.Length % 4 != 0)
+        var status = boundsRead ? "measured" : "error";
+        if (!boundsRead) { /* Original provider exception remains in bounds_error and the gate. */ }
+        else if (values == null || values.Length % 4 != 0)
         {
             status = "invalid-native-array";
             errors.Add("COM text range returned null or a SAFEARRAY length not divisible by four.");
@@ -342,9 +350,23 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
             while (cursor.CompareEndpoints(0, range, 1) < 0)
             {
                 if (++count > 10000) throw new InvalidOperationException("COM format range enumeration exceeded 10000 runs.");
-                if (cursor.MoveEndpointByUnit(1, (int)TextUnit.Format, 1) == 0) throw new InvalidOperationException("COM format endpoint did not advance.");
-                if (cursor.CompareEndpoints(1, range, 1) > 0) cursor.MoveEndpointByRange(1, range, 1);
-                runs.Add(ReadRange(cursor, document, false, errors));
+                var previous = cursor.Clone();
+                var moved = cursor.MoveEndpointByUnit(1, (int)TextUnit.Format, 1);
+                var endBeyondVisible = cursor.CompareEndpoints(1, range, 1);
+                if (endBeyondVisible > 0) cursor.MoveEndpointByRange(1, range, 1);
+                var runContext = context.DeepClone().AsObject(); runContext["format_run_index"] = count - 1;
+                var step = new JsonObject
+                {
+                    ["units_moved"] = moved, ["end_vs_visible_end_before_clamp"] = endBeyondVisible,
+                    ["start_vs_previous_start"] = cursor.CompareEndpoints(0, previous, 0),
+                    ["end_vs_previous_end"] = cursor.CompareEndpoints(1, previous, 1),
+                    ["start_vs_end"] = cursor.CompareEndpoints(0, cursor, 1)
+                };
+                runContext["format_step"] = step;
+                progress.Record("uia-capture/native/range/format-step", "measured", runContext);
+                TextRangeEvidence.ValidateFormatStep(moved, step["start_vs_previous_start"]!.GetValue<int>(),
+                    step["end_vs_previous_end"]!.GetValue<int>(), step["start_vs_end"]!.GetValue<int>());
+                runs.Add(ReadRange(cursor, document, false, errors, runContext));
                 cursor.MoveEndpointByRange(0, cursor, 1);
             }
         }
@@ -388,7 +410,8 @@ internal sealed class NativeTextEvidence(int processId, double originX, double o
 
     private void VerifyProjection(JsonObject managed, JsonObject native)
     {
-        var observed = managed["managed_bounds"]!.AsArray();
+        if (managed["managed_bounds"] is not JsonArray observed)
+            throw new InvalidOperationException("Managed range bounds failed; the independent COM observation is retained but cannot prove the missing managed projection.");
         var values = native["bounds_raw"] as JsonArray;
         if (values == null || values.Count % 4 != 0 || observed.Count != values.Count / 4)
             throw new InvalidOperationException("COM and managed rectangle array shapes differ.");

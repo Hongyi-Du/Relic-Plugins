@@ -27,6 +27,10 @@ public sealed partial class MainWindow
     {
         var input = SettingsInput(value, placeholder, multiline: multiline, mono: mono, fontSize: mono ? 11.5 : 12.5);
         input.Foreground = Paint("5A5853", "B8B5AE");
+        // The reference's .form input:not(...):not(...) border declaration
+        // outranks .form input:focus. Single-line form fields keep line-2 even
+        // while genuinely focused; the caret and focus state remain native.
+        if (!multiline) input.Resources["TextControlBorderBrushFocused"] = input.BorderBrush;
         if (multiline) input.Height = mono ? 71.2 : 76;
         if (automationId.Length > 0) AutomationProperties.SetAutomationId(input, automationId);
         return input;
