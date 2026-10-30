@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (measured text-range precision audit): the Windows
+projection retains a supplementary `text_range_precision` receipt from the
+actual WinRT and COM journals, revalidating complete RuntimeIds and UTF-16
+document-prefix spans. It distinguishes positive subpixel heights transported
+as zero from native ranges that already have zero area. Original errors and
+all canonical geometry are unchanged; format spans are only source links,
+not separately measured WinRT format rectangles. Twelve pure helper and two
+projection-preservation tests run in CI. PNG/ancestor-state continuity remains
+unproven for 778c96b and is not filled by identity equality.
+
+731f1ef CI passes 89 Node/492 Python checks and Windows 28 core/64 capture
+tests. Its macOS build fails at NativeSurfaceGeometry's main-actor call;
+native-macos 666b2bf supplies the owner-side correction for the next merge.
+
 Changes for the clients (778c96b actual complete identities): group now has
 303 exact XAML-owner/independent-UIA full RuntimeId pairs, file-code 186 and
 live-tool-output 306. The target text owners xaml-517/uia-117 and
