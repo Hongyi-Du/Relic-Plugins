@@ -89,6 +89,85 @@ class ProjectionTests(unittest.TestCase):
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
 
+    @staticmethod
+    def fenced_code_fixture():
+        root = xaml_node("body", "StackPanel", bounds=box(20, 20, 400, 200))
+        block = xaml_node("pre", "Border", parent="body", bounds=box(30, 40, 250, 60),
+                          markdown_code_evidence={
+                              "source": "actual MarkdownSemantic.RegisterFencedCode object identities",
+                              "kind": "fenced-code", "complete": True, "scroller_id": "scroll", "text_id": "code-text",
+                              "border_child_is_registered_scroller": True, "scroller_content_is_registered_text": True})
+        block["style"].update(background=[246, 245, 242, 255], border_color=[220, 218, 212, 255],
+                              border_width=1, corner_radius=8)
+        scroll = xaml_node("scroll", "ScrollViewer", parent="pre", bounds=box(42, 50, 226, 40),
+                           markdown_code_scroller_evidence={
+                               "source": "actual MarkdownSemantic.RegisterFencedCode scroller object identity",
+                               "owner_id": "pre", "text_id": "code-text"})
+        presenter = xaml_node("presenter", "ScrollContentPresenter", parent="scroll", bounds=scroll["bounds"])
+        code = xaml_node("code-text", "TextBlock", "review('Windows')\nreview('macOS')", parent="presenter", bounds=scroll["bounds"],
+                         declared_content_owner="scroll", declared_content_source="ContentControl.Content",
+                         markdown_code_text_evidence={
+                             "source": "actual MarkdownSemantic.RegisterFencedCode text object identity",
+                             "owner_id": "pre", "scroller_id": "scroll"})
+        code["layout"].update(line_count=2, character_boxes_coordinate_space="content-window", rich_text_runs=[{
+            "type": "Run", "text": code["text"], "bounds": [box(42, 50, 140, 18), box(42, 68, 128, 18)],
+            "coordinate_space": "content-window", "geometry_complete": True,
+            "font_size": 12.5, "font_weight": 400, "foreground": [27, 27, 26, 255],
+            "font_family": "Cascadia Code", "start_offset": 0, "end_offset": len(code["text"])}])
+        ordinary = xaml_node("ordinary", "Border", "", parent="body", bounds=box(30, 120, 250, 60))
+        ordinary["style"] = deepcopy(block["style"])
+        ordinary["tag"] = "fenced-code"
+        return measured([root, block, scroll, presenter, code, ordinary])
+
+    def test_registered_fenced_container_is_code_and_keeps_actual_code_run_once(self):
+        nodes = self.fenced_code_fixture()
+        result = self.capture(nodes)
+        elements = self.by_id(result)
+        self.assertEqual(elements["pre"]["kind"], "code")
+        self.assertEqual(elements["pre"]["text"], "")
+        self.assertEqual(elements["pre"]["bounds"], nodes[1]["bounds"])
+        self.assertEqual(elements["pre"]["style"]["background"], nodes[1]["style"]["background"])
+        self.assertEqual(elements["pre"]["evidence"]["markdown_code_evidence"], nodes[1]["markdown_code_evidence"])
+        code = elements["code-text:run:0"]
+        self.assertEqual(code["kind"], "text")
+        self.assertEqual(code["text"], "review('Windows')\nreview('macOS')")
+        self.assertEqual(code["evidence"]["text_run_source"]["owner"], "code-text")
+        self.assertEqual(sum(element["text"] == code["text"] for element in result["elements"]), 1)
+        self.assertEqual(elements["ordinary"]["kind"], "card")
+        self.assertFalse(any(row["property"] == "semantic.markdown_fenced_code" for row in result["coverage"]["unmeasured"]))
+
+    def test_unregistered_border_does_not_gain_code_semantics_from_paint_tag_or_text(self):
+        nodes = self.fenced_code_fixture()
+        nodes[1].pop("markdown_code_evidence")
+        nodes[1]["tag"] = "fenced-code"
+        elements = self.by_id(self.capture(nodes))
+        self.assertEqual(elements["pre"]["kind"], "card")
+        self.assertEqual(elements["ordinary"]["kind"], "card")
+        self.assertEqual(elements["code-text:run:0"]["text"], "review('Windows')\nreview('macOS')")
+
+    def test_incomplete_or_detached_fenced_code_identity_keeps_paint_and_fails_coverage(self):
+        for problem in ("source", "complete", "child", "content", "missing-text", "wrong-type",
+                        "reciprocal-text", "reciprocal-scroll", "declared-content", "ancestry"):
+            with self.subTest(problem=problem):
+                nodes = self.fenced_code_fixture()
+                evidence = nodes[1]["markdown_code_evidence"]
+                if problem == "source": evidence["source"] = "Tag fenced-code"
+                elif problem == "complete": evidence["complete"] = False
+                elif problem == "child": evidence["border_child_is_registered_scroller"] = False
+                elif problem == "content": evidence["scroller_content_is_registered_text"] = False
+                elif problem == "missing-text": evidence["text_id"] = "absent"
+                elif problem == "wrong-type": nodes[1]["type"] = "Grid"
+                elif problem == "reciprocal-text": nodes[4]["markdown_code_text_evidence"]["owner_id"] = "ordinary"
+                elif problem == "reciprocal-scroll": nodes[2].pop("markdown_code_scroller_evidence")
+                elif problem == "declared-content": nodes[4]["declared_content_owner"] = "ordinary"
+                elif problem == "ancestry": nodes[4]["parent"] = "body"
+                result = self.capture(nodes)
+                elements = self.by_id(result)
+                self.assertEqual(elements["pre"]["kind"], "card")
+                self.assertIn("code-text:run:0", elements)
+                self.assertTrue(any(row["id"] == "pre" and row["property"] == "semantic.markdown_fenced_code"
+                                    for row in result["coverage"]["unmeasured"]))
+
     def test_editable_document_is_one_input_and_keeps_actual_ranges_without_inventing_fonts(self):
         bounds = box(30, 600, 300, 50)
         node = xaml_node("composer", "ComposerInput", "First\nSecond", bounds=bounds,

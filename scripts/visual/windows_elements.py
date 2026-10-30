@@ -503,6 +503,54 @@ def project_inline_reading_order(raw, unmeasured):
     return result
 
 
+def markdown_fenced_blocks(raw, by_id, unmeasured):
+    """Recognize only production-registered fenced-code objects in this tree.
+
+    This changes the containing block's semantic kind, never its measured
+    geometry/paint or the independently emitted code text. A generic painted
+    Border, monospaced font, Tag or matching source string is not a code block.
+    """
+    result = set()
+    for node in raw:
+        evidence = node.get("markdown_code_evidence")
+        if evidence is None or node.get("hidden_reason"):
+            continue
+        valid = isinstance(evidence, dict)
+        scroller_id = evidence.get("scroller_id") if valid else None
+        text_id = evidence.get("text_id") if valid else None
+        scroller = by_id.get(scroller_id) if isinstance(scroller_id, str) else None
+        text = by_id.get(text_id) if isinstance(text_id, str) else None
+        valid = (valid and node.get("type") == "Border"
+                 and evidence.get("source") == "actual MarkdownSemantic.RegisterFencedCode object identities"
+                 and evidence.get("kind") == "fenced-code" and evidence.get("complete") is True
+                 and evidence.get("border_child_is_registered_scroller") is True
+                 and evidence.get("scroller_content_is_registered_text") is True
+                 and scroller is not None and scroller.get("type") == "ScrollViewer"
+                 and scroller.get("parent") == node["id"]
+                 and text is not None and text.get("type") == "TextBlock"
+                 and text.get("declared_content_owner") == scroller_id
+                 and text.get("declared_content_source") == "ContentControl.Content"
+                 and scroller.get("markdown_code_scroller_evidence") == {
+                     "source": "actual MarkdownSemantic.RegisterFencedCode scroller object identity",
+                     "owner_id": node["id"], "text_id": text_id}
+                 and text.get("markdown_code_text_evidence") == {
+                     "source": "actual MarkdownSemantic.RegisterFencedCode text object identity",
+                     "owner_id": node["id"], "scroller_id": scroller_id})
+        if valid:
+            current = text
+            visited = set()
+            while current and current["id"] != scroller_id and current["id"] not in visited:
+                visited.add(current["id"])
+                current = by_id.get(current.get("parent"))
+            valid = current is not None and current["id"] == scroller_id
+        if valid:
+            result.add(node["id"])
+        else:
+            unmeasured.append({"id": node["id"], "property": "semantic.markdown_fenced_code",
+                               "reason": "Production fenced-code registration lacks reciprocal actual content identities or its current rendered ancestry"})
+    return result
+
+
 def native_label_surfaces(raw, by_id, unmeasured):
     """Identify only the Image actually owned/bound by the production label."""
     result = {}
@@ -714,6 +762,7 @@ def project(xaml_path, uia_path, png_path):
         errors.append("Independent UIA and XAML source trees must both be nonempty")
     raw = project_inline_reading_order(project_text_leaves(source_raw, unmeasured, xaml.get("pointer")), unmeasured)
     by_id = {n["id"]: n for n in raw}
+    fenced_blocks = markdown_fenced_blocks(raw, by_id, unmeasured)
     fragments, occlusion_masks, occlusion_gaps = measured_occlusion(raw, by_id)
     unmeasured.extend(occlusion_gaps)
     children = defaultdict(list)
@@ -742,6 +791,8 @@ def project(xaml_path, uia_path, png_path):
     def user_content(node, control_id):
         current = node
         while current and current["id"] != control_id:
+            if current["id"] in fenced_blocks:
+                return True  # Actual registered Markdown content, not a control template.
             if current.get("declared_content_owner") == control_id:
                 return True
             current = by_id.get(current.get("parent"))
@@ -861,6 +912,8 @@ def project(xaml_path, uia_path, png_path):
                 kind = "divider" if min(node["bounds"]["width"], node["bounds"]["height"]) <= 2 else "card"
                 if node.get("parent") is None or typ == "Border" and node["region"] != by_id.get(node.get("parent"), {}).get("region"):
                     kind = "region"
+        if node["id"] in fenced_blocks:
+            kind = "code"
         if not kind:
             projection.append({"source": node["id"], "reason": "layout wrapper with no own text, role, background or border"})
             # Render types not accounted for must not disappear behind a generic
@@ -1049,6 +1102,8 @@ def project(xaml_path, uia_path, png_path):
                                 "actual_trimming": copy.deepcopy(layout.get("actual_trimming")),
                                 "inline_sequence_evidence": copy.deepcopy(node.get("inline_sequence_evidence")),
                                 "inline_order_evidence": copy.deepcopy(node.get("inline_order_evidence")),
+                                "markdown_code_evidence": copy.deepcopy(node.get("markdown_code_evidence")),
+                                "markdown_code_text_evidence": copy.deepcopy(node.get("markdown_code_text_evidence")),
                                 "state_evidence": copy.deepcopy(node.get("state_evidence")),
                                 "render_type_evidence": copy.deepcopy(node.get("render_type_evidence")),
                                 "declared_content_source": node.get("declared_content_source"),

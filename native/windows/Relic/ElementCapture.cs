@@ -25,6 +25,7 @@ public sealed partial class MainWindow
         var renderIds = new Dictionary<DependencyObject, string>();
         var renderNodes = new Dictionary<DependencyObject, JsonObject>();
         var inlineOwners = new List<(FrameworkElement Owner, JsonObject Node, bool Visible)>();
+        var fencedCodeOwners = new List<(Border Owner, MarkdownSemantic.FencedCode Content, JsonObject Node, bool Visible)>();
         var paintLayer = 0;
         var viewport = new Rect(0, 0, width, height);
         var cursor = new CapturePoint(); GetCursorPos(ref cursor); var clientOrigin = new CapturePoint(); ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref clientOrigin);
@@ -137,6 +138,8 @@ public sealed partial class MainWindow
                             errors.Add(id + ": NativeLabel production image has no verified binding to its actual drawn surface");
                     }
                     if (element is TextBlock or RichTextBlock) inlineOwners.Add((element, node, hidden == null));
+                    if (element is Border markdownContainer && MarkdownSemantic.TryGetFencedCode(markdownContainer, out var fencedCode) && fencedCode != null)
+                        fencedCodeOwners.Add((markdownContainer, fencedCode, node, hidden == null));
                     if (element is NativeTextarea textarea)
                     {
                         node["textarea_resize_evidence"] = new JsonObject
@@ -254,6 +257,35 @@ public sealed partial class MainWindow
         {
             paintLayer++;
             Walk(popup.Child, null, popup.Child is MenuFlyoutPresenter or NativeToastNotice ? "menu" : "dialog", viewport, 1, null);
+        }
+        foreach (var (owner, content, ownerNode, visible) in fencedCodeOwners)
+        {
+            var ownerId = renderIds[owner];
+            var actualScroller = ReferenceEquals(owner.Child, content.Scroller);
+            var actualText = ReferenceEquals(content.Scroller.Content, content.Text);
+            var foundScroller = renderIds.TryGetValue(content.Scroller, out var scrollerId);
+            var foundText = renderIds.TryGetValue(content.Text, out var textId);
+            var complete = actualScroller && actualText && foundScroller && foundText;
+            ownerNode["markdown_code_evidence"] = new JsonObject
+            {
+                ["source"] = "actual MarkdownSemantic.RegisterFencedCode object identities", ["kind"] = "fenced-code",
+                ["complete"] = complete, ["scroller_id"] = scrollerId, ["text_id"] = textId,
+                ["border_child_is_registered_scroller"] = actualScroller, ["scroller_content_is_registered_text"] = actualText
+            };
+            if (foundScroller)
+                renderNodes[content.Scroller]["markdown_code_scroller_evidence"] = new JsonObject
+                {
+                    ["source"] = "actual MarkdownSemantic.RegisterFencedCode scroller object identity",
+                    ["owner_id"] = ownerId, ["text_id"] = textId
+                };
+            if (foundText)
+                renderNodes[content.Text]["markdown_code_text_evidence"] = new JsonObject
+                {
+                    ["source"] = "actual MarkdownSemantic.RegisterFencedCode text object identity",
+                    ["owner_id"] = ownerId, ["scroller_id"] = scrollerId
+                };
+            if (visible && !complete)
+                errors.Add(ownerId + ": registered fenced-code content is detached, replaced or absent from the actual render tree; code semantics are incomplete");
         }
         // Resolve actual InlineUIContainer.Child object references only after
         // the visual walk has assigned IDs. No text/box matching supplies order.
