@@ -19,6 +19,12 @@ def box(x=10, y=20, width=100, height=30):
 
 
 def xaml_node(eid, typ="TextBlock", text="", parent=None, bounds=None, **changes):
+    # Synthetic runtime receipts. Tests of absent/false proof explicitly replace
+    # these fields; the production projector never infers them from class names.
+    control = typ in {"Button", "AppBarButton", "RepeatButton", "TextBox", "ComposerInput", "NativeTextarea",
+                      "SelectorBarItem", "ToggleButton", "ToggleSwitch", "ComboBox", "CheckBox", "RadioButton",
+                      "PersonPicture", "ScrollBar", "Thumb", "ScrollViewer", "ContentDialog", "Expander",
+                      "OverviewChipView", "OverviewBadgeView"}
     node = {
         "id": eid, "parent": parent, "type": typ, "region": "conversation",
         "text": text, "accessible_name": "", "bounds": bounds or box(),
@@ -31,6 +37,7 @@ def xaml_node(eid, typ="TextBlock", text="", parent=None, bounds=None, **changes
         "interaction_evidence": {"is_control": typ in {"Button", "TextBox", "SelectorBarItem", "ToggleButton"},
                                  "is_tab_stop": typ in {"Button", "TextBox", "SelectorBarItem", "ToggleButton"},
                                  "is_hit_test_visible": True},
+        "render_type_evidence": {"is_control": control, "control_template_present": True if control else None},
         "layout": {"wrap": "none", "truncation": "none", "line_count": 1},
         "icon": None, "font_family": "Fixture Sans",
     }
@@ -88,6 +95,51 @@ class ProjectionTests(unittest.TestCase):
     @staticmethod
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
+
+    def test_actual_region_grid_preserves_each_independent_child_paint(self):
+        region = xaml_node("region", "NativeRegionGrid", bounds=box(0, 0, 400, 200),
+                           render_type_evidence={"is_panel": True, "is_control": False, "control_template_present": None})
+        card = xaml_node("card", "Border", parent="region", bounds=box(10, 10, 140, 80))
+        grid = xaml_node("grid", "Grid", parent="region", bounds=box(170, 10, 140, 80))
+        for painted_node in (card, grid): painted_node["style"]["background"] = [240, 238, 235, 255]
+        result = self.capture(measured([region, card, grid]), [uia_node("uia-region", "Group", bounds=region["bounds"])])
+        self.assertEqual(set(self.by_id(result)), {"region", "card", "grid"})
+        self.assertEqual(self.by_id(result)["region"]["kind"], "region")
+        self.assertFalse(any(row.get("reason") == "semantic control template paint" for row in result["projection"]))
+
+    def test_missing_or_absent_real_control_template_never_owns_child_paint(self):
+        for proof in (None, {}, {"is_control": True}, {"is_control": True, "control_template_present": False}):
+            with self.subTest(proof=proof):
+                owner = xaml_node("button", "Button", render_type_evidence=proof)
+                paint = xaml_node("paint", "Border", parent="button")
+                paint["style"]["background"] = [240, 238, 235, 255]
+                result = self.capture(measured([owner, paint]), [uia_node("uia-button", "Button")])
+                self.assertIn("paint", self.by_id(result))
+                if not isinstance(proof, dict) or proof.get("control_template_present") is not False:
+                    self.assertTrue(any(row.get("id") == "button" and row["property"] == "template.paint_ownership"
+                                        for row in result["coverage"]["unmeasured"]))
+
+    def test_real_scrollviewer_template_owns_template_paint_but_keeps_declared_content_paint(self):
+        owner = xaml_node("viewer", "ScrollViewer", bounds=box(0, 0, 300, 200),
+                          region_container_evidence={"source": "actual MainWindow.chatScroll object identity"})
+        template = xaml_node("template", "Border", parent="viewer", bounds=owner["bounds"])
+        content = xaml_node("content", "Border", parent="template", bounds=box(10, 10, 100, 100),
+                            declared_content_owner="viewer", declared_content_source="ContentControl.Content")
+        template["style"]["background"] = [248, 247, 245, 255]
+        content["style"]["background"] = [230, 225, 220, 255]
+        result = self.capture(measured([owner, template, content]), [uia_node("uia-viewer", "Pane", bounds=owner["bounds"])])
+        self.assertNotIn("template", self.by_id(result))
+        self.assertIn("content", self.by_id(result))
+        self.assertTrue(any(row.get("source") == "template" and row.get("owner") == "viewer" for row in result["projection"]))
+
+    def test_person_picture_measured_background_ownership_is_independent_of_template_proof(self):
+        avatar = xaml_node("avatar", "PersonPicture", render_type_evidence=None)
+        background = xaml_node("avatar-background", "Border", parent="avatar")
+        background["style"]["background"] = [230, 225, 220, 255]
+        result = self.capture(measured([avatar, background]), [uia_node("uia-avatar", "Image")])
+        self.assertNotIn("avatar-background", self.by_id(result))
+        self.assertEqual(self.by_id(result)["avatar"]["evidence"]["paint_sources"], ["avatar-background"])
+        self.assertFalse(any(row["property"] == "template.paint_ownership" for row in result["coverage"]["unmeasured"]))
 
     def test_native_region_runtime_types_keep_region_with_painted_panel_and_real_provider(self):
         for typ, provider_type in (("NativeRegionGrid", "Group"), ("ScrollViewer", "Pane")):

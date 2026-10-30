@@ -1,5 +1,30 @@
 # Native Relic App contract
 
+Changes for the clients (verified Copy fix and Windows ABI correction): diagnostic
+`40994609011` / `8b5bfce` reference Windows completes all 19 cases. The actual Copy
+receipt has all six state checkpoints, successful final clipboard read and no
+action errors; both panel gestures also complete. Windows native has no screenshots:
+`067eec6` and the following build crash at the COM `GetPixelSize` getter. Its struct
+return and `GetPixelFormat` now use the actual COM output-buffer ABI. Three mock
+regressions lock that signature and exercise controlled vtable slots; real D2D
+readback still awaits CI. A per-case journal flushes actual API stage boundaries
+to the OS before native calls, retaining the last successful and pending method
+if the process crashes. No final-window pixel identity is inferred.
+
+Changes for the clients (ca134e4 validation): both native build/test jobs pass,
+including 128 macOS tests and Windows 28 core plus 9 UIA mock tests. The source
+gate still reports the same four Windows vocabulary omissions. The diagnostic
+element report remains failed with zero accepted scenes; its native macOS raw
+elements are structurally valid now, which does not establish element parity.
+
+Changes for the clients (actual header paint and template ownership): Windows
+menus, navigation and CommandBar now have transparent child backgrounds under
+the single actual titlebar surface, matching the reference container structure.
+Individual button hover/selected paint remains. A native region Grid is not a
+templated Control: only captured actual `is_control` and nonnull
+`control_template_present` permit template paint ownership. Ordinary child paint
+remains independent; absent evidence fails instead of silently absorbing it.
+
 Changes for the clients (bounded reference capture): the original Copy PNG is
 now requested while the real toast timer and renderer are running. Immediately
 after its reply, the isolated page's actual clock is paused for source collection;

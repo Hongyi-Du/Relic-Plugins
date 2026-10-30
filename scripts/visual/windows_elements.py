@@ -1172,6 +1172,10 @@ def project(xaml_path, uia_path, png_path):
             continue
         labels = []
         avatar_backgrounds = []
+        runtime = node.get("render_type_evidence")
+        is_control = runtime.get("is_control") if isinstance(runtime, dict) else None
+        has_template = runtime.get("control_template_present") if isinstance(runtime, dict) else None
+        template_ownership_unknown = False
         for child in descendants(node):
             nearest = ancestor(child, semantic)
             if not nearest or nearest["id"] != node["id"] or not visible(child):
@@ -1187,8 +1191,18 @@ def project(xaml_path, uia_path, png_path):
                     continue
                 if user_content(child, node["id"]):
                     continue
+                if is_control is not True or has_template is not True:
+                    # A semantic region can be a real Grid, not a templated
+                    # Control. Its authored children are independent paint.
+                    # Unknown runtime type/template evidence cannot own them.
+                    if is_control is not False and not (is_control is True and has_template is False):
+                        template_ownership_unknown = True
+                    continue
                 control_paint[node["id"]].append(child)
                 owned[child["id"]] = (node["id"], "semantic control template paint")
+        if template_ownership_unknown:
+            unmeasured.append({"id": node["id"], "property": "template.paint_ownership",
+                               "reason": "Actual Control type and nonnull Control.Template were not both measured; child paint remains independent"})
         if len(avatar_backgrounds) == 1:
             child = avatar_backgrounds[0]
             control_paint[node["id"]].append(child)

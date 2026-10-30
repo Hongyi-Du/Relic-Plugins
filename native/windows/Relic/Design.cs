@@ -112,7 +112,12 @@ public sealed partial class MainWindow
         inspectorSurface.Background = Paint("F8F7F5", "191918"); inspectorSurface.BorderBrush = Line;
         composerSurface.Background = Paint("FFFFFF", "252523"); composerSurface.BorderBrush = Paint("DEDBD4", "3A3936");
         chatHead.BorderBrush = Line;
-        menu.Background = Paint("F8F7F5", "191918"); toolbar.Background = Paint("F8F7F5", "191918"); navigationButtons.Background = Paint("F8F7F5", "191918");
+        // app.css paints the appbar once; its navigation/menu/action groups are
+        // transparent layout containers. CommandBar's ContentRoot binds this
+        // Background, while individual buttons retain their own state paint.
+        menu.Background = new SolidColorBrush(Colors.Transparent);
+        toolbar.Background = new SolidColorBrush(Colors.Transparent);
+        navigationButtons.Background = new SolidColorBrush(Colors.Transparent);
         editor.Foreground = Ink; editor.Background = new SolidColorBrush(Colors.Transparent);
         root.Resources["AccentTextFillColorPrimaryBrush"] = Accent; root.Resources["AccentFillColorDefaultBrush"] = Accent;
         if (sendButton != null) { sendButton.Background = Ink; sendButton.Foreground = Paint("FFFFFF", "1F1F1E"); if (sendButton.Content is ReferenceVectorIcon glyph) glyph.Foreground = sendButton.Foreground; }

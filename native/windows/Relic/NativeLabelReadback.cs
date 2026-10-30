@@ -23,6 +23,12 @@ internal sealed class NativeLabelReadback
     private readonly JsonObject evidence;
     private readonly JsonArray stages = new();
     private byte[]? pixels;
+    private static long nextProbeId;
+    private readonly long probeId = Interlocked.Increment(ref nextProbeId);
+    private FileStream? journal;
+    private string? lastSuccessfulApi;
+    private long journalTicks;
+    private int journalWrites;
 
     private NativeLabelReadback(long layoutRevision, long surfaceRevision, long drawOrdinal)
     {
@@ -32,6 +38,7 @@ internal sealed class NativeLabelReadback
             ["source"] = "Actual SurfaceImageSource BeginDraw target copied after production glyph drawing and before SurfaceImageSource.EndDraw",
             ["status"] = "incomplete", ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision,
             ["draw_ordinal"] = drawOrdinal, ["qpc_frequency"] = Stopwatch.Frequency,
+            ["probe_id"] = probeId,
             ["started_qpc"] = Stopwatch.GetTimestamp(), ["completed_qpc"] = null, ["stages"] = stages,
             ["raw_sidecar"] = null, ["metadata_sidecar"] = null, ["surface_end_draw_hresult"] = null,
             ["presentation_identity_proven"] = false,
@@ -55,6 +62,14 @@ internal sealed class NativeLabelReadback
         evidence["surface_end_draw_hresult"] = hr;
         evidence["surface_end_draw_hresult_hex"] = Hex(hr);
         evidence["surface_submission_succeeded"] = hr >= 0;
+        try
+        {
+            OpenJournal();
+            Journal("surface-submission", new JsonObject { ["api"] = "ISurfaceImageSourceNativeWithD2D/EndDraw",
+                ["hresult"] = hr, ["hresult_hex"] = Hex(hr), ["status"] = hr >= 0 ? "completed" : "error" });
+        }
+        catch (Exception ex) { Failure(ex); }
+        finally { CloseJournal(); }
         // Readback remains a measurement of the pre-submit surface even when
         // submission fails; it must not become presented-pixel evidence.
     }
@@ -66,13 +81,17 @@ internal sealed class NativeLabelReadback
         evidence["copy_extent_pixels"] = new JsonObject { ["x"] = offset.X, ["y"] = offset.Y, ["width"] = width, ["height"] = height };
         try
         {
+            OpenJournal();
+            Journal("read-start", evidence["copy_extent_pixels"]!.AsObject());
             Call("ID2D1DeviceContext/GetTarget", () => Method<GetTargetImage>(context, 75)(context, out target));
             if (target == IntPtr.Zero) throw new InvalidOperationException("The actual production device context has no target image");
             evidence["target_process_identity"] = Identity(target);
             var bitmapId = Bitmap1;
             HResult("IUnknown/QueryInterface/ID2D1Bitmap1", () => Marshal.QueryInterface(target, ref bitmapId, out bitmap));
-            var size = Call("ID2D1Bitmap/GetPixelSize", () => Method<GetBitmapPixelSize>(bitmap, 5)(bitmap));
-            var format = Call("ID2D1Bitmap/GetPixelFormat", () => Method<GetBitmapPixelFormat>(bitmap, 6)(bitmap));
+            SizeU size = default;
+            Call("ID2D1Bitmap/GetPixelSize", () => Method<GetBitmapPixelSize>(bitmap, 5)(bitmap, out size));
+            PixelFormat format = default;
+            Call("ID2D1Bitmap/GetPixelFormat", () => Method<GetBitmapPixelFormat>(bitmap, 6)(bitmap, out format));
             float dpiX = 0, dpiY = 0;
             Call("ID2D1Bitmap/GetDpi", () => Method<GetBitmapDpi>(bitmap, 7)(bitmap, out dpiX, out dpiY));
             var options = Call("ID2D1Bitmap1/GetOptions", () => Method<GetUInt>(bitmap, 12)(bitmap));
@@ -84,6 +103,7 @@ internal sealed class NativeLabelReadback
                 ["dpi_x"] = dpiX, ["dpi_y"] = dpiY, ["bitmap_options"] = options,
                 ["color_context_process_identity"] = colorContext == IntPtr.Zero ? null : Identity(colorContext)
             };
+            Journal("target-properties", evidence["target"]!.AsObject());
             // The source format is observed, not inferred from the D3D device.
             // This first reader decodes only actual 8-bit premultiplied BGRA.
             if (format.Format is not (87 or 91) || format.AlphaMode != 1)
@@ -135,8 +155,16 @@ internal sealed class NativeLabelReadback
                 try { HResult("ID2D1Bitmap1/Unmap", () => Method<UnmapBitmapPixels>(staging, 15)(staging)); }
                 catch (Exception ex) { Failure(ex); }
             }
-            Release(ref staging); Release(ref colorContext); Release(ref bitmap); Release(ref target);
-            evidence["completed_qpc"] = Stopwatch.GetTimestamp();
+            try
+            {
+                ReleaseObserved("staging-bitmap", ref staging); ReleaseObserved("color-context", ref colorContext);
+                ReleaseObserved("target-bitmap", ref bitmap); ReleaseObserved("target-image", ref target);
+                evidence["completed_qpc"] = Stopwatch.GetTimestamp();
+                Journal("read-finished", new JsonObject { ["status"] = evidence["status"]?.DeepClone(),
+                    ["failures"] = evidence["failures"]?.DeepClone(), ["pixel_byte_count"] = pixels?.Length });
+            }
+            catch (Exception ex) { Failure(ex); }
+            finally { CloseJournal(); }
         }
     }
 
@@ -168,7 +196,56 @@ internal sealed class NativeLabelReadback
             HResult("IUnknown/QueryInterface/IUnknown", () => Marshal.QueryInterface(value, ref unknown, out identity));
             return identity.ToInt64().ToString("X", CultureInfo.InvariantCulture);
         }
-        finally { Release(ref identity); }
+        finally { ReleaseObserved("identity", ref identity); }
+    }
+
+    private void ReleaseObserved(string name, ref IntPtr value)
+    {
+        if (value == IntPtr.Zero) return;
+        var owned = value; value = IntPtr.Zero;
+        Call("IUnknown/Release/" + name, () => Marshal.Release(owned));
+    }
+
+    private void OpenJournal()
+    {
+        if (!Enabled) throw new InvalidOperationException("NativeLabel readback journal is CI-only");
+        var manifest = Path.GetFullPath(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST")!);
+        var path = Path.Combine(Path.GetDirectoryName(manifest)!, "native-label-readback.progress.jsonl");
+        // One compact append-only file per actual case/process. Do not repeatedly
+        // serialize every label's accumulated evidence, nor create per-stage files.
+        journal = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read,
+            bufferSize: 4096, options: FileOptions.None);
+        evidence["journal_file"] = Path.GetFileName(path);
+    }
+
+    private void Journal(string phase, JsonObject details)
+    {
+        if (journal == null) throw new InvalidOperationException("NativeLabel readback journal is not open");
+        var started = Stopwatch.GetTimestamp();
+        var entry = new JsonObject
+        {
+            ["process_id"] = Environment.ProcessId, ["probe_id"] = probeId,
+            ["layout_revision"] = LayoutRevision, ["surface_revision"] = SurfaceRevision, ["draw_ordinal"] = DrawOrdinal,
+            ["qpc"] = started, ["qpc_frequency"] = Stopwatch.Frequency, ["phase"] = phase,
+            ["last_successful_api"] = lastSuccessfulApi,
+            ["pending_api"] = phase == "api-start" ? details["api"]?.DeepClone() : null,
+            ["details"] = details.DeepClone(), ["presentation_identity_proven"] = false
+        };
+        var bytes = Encoding.UTF8.GetBytes(entry.ToJsonString() + "\n");
+        journal.Write(bytes);
+        // Hand the complete prefix to the OS BEFORE entering native code. A fatal
+        // process AccessViolation skips managed finally; it does not discard the
+        // OS file cache. No device-level flush is needed for that failure mode.
+        // Never turn a journal write failure into a pass.
+        journal.Flush();
+        journalTicks += Stopwatch.GetTimestamp() - started; journalWrites++;
+    }
+
+    private void CloseJournal()
+    {
+        journal?.Dispose(); journal = null;
+        evidence["journal_write_count"] = journalWrites;
+        evidence["journal_io_ms"] = journalTicks * 1000.0 / Stopwatch.Frequency;
     }
 
     private static string Hex(int value) => "0x" + unchecked((uint)value).ToString("X8", CultureInfo.InvariantCulture);
@@ -184,13 +261,14 @@ internal sealed class NativeLabelReadback
     {
         var stage = new JsonObject { ["api"] = api, ["started_qpc"] = Stopwatch.GetTimestamp(), ["status"] = "started" };
         stages.Add(stage);
+        Journal("api-start", stage);
         try
         {
             var hr = call(); stage["hresult"] = hr; stage["hresult_hex"] = Hex(hr); Check(hr);
-            stage["status"] = "completed";
+            stage["status"] = "completed"; lastSuccessfulApi = api;
         }
         catch (Exception ex) { stage["status"] = "error"; stage["exception"] = ex.ToString(); throw; }
-        finally { stage["completed_qpc"] = Stopwatch.GetTimestamp(); }
+        finally { stage["completed_qpc"] = Stopwatch.GetTimestamp(); Journal("api-finished", stage); }
     }
 
     private T Call<T>(string api, Func<T> call)
@@ -198,9 +276,10 @@ internal sealed class NativeLabelReadback
         var stage = new JsonObject { ["api"] = api, ["started_qpc"] = Stopwatch.GetTimestamp(),
             ["status"] = "started", ["hresult"] = null, ["return_kind"] = "Native getter returns a value or void, not HRESULT" };
         stages.Add(stage);
-        try { var value = call(); stage["status"] = "completed"; return value; }
+        Journal("api-start", stage);
+        try { var value = call(); stage["status"] = "completed"; lastSuccessfulApi = api; return value; }
         catch (Exception ex) { stage["status"] = "error"; stage["exception"] = ex.ToString(); throw; }
-        finally { stage["completed_qpc"] = Stopwatch.GetTimestamp(); }
+        finally { stage["completed_qpc"] = Stopwatch.GetTimestamp(); Journal("api-finished", stage); }
     }
     private void Call(string api, Action call) => Call(api, () => { call(); return true; });
 }

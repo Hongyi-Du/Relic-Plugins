@@ -209,6 +209,8 @@ public sealed partial class MainWindow
                     };
                     node["render_type_evidence"] = new JsonObject { ["is_panel"] = element is Panel,
                         ["is_shape"] = element is Shape, ["is_content_control"] = element is ContentControl,
+                        ["is_control"] = element is Control,
+                        ["control_template_present"] = element is Control templatedControl ? templatedControl.Template != null : null,
                         ["source"] = "Actual runtime XAML base types" };
                     if (element is Border borderElement) node["background_sizing"] = borderElement.BackgroundSizing.ToString();
                     if (element is ContentPresenter presenterElement) node["background_sizing"] = presenterElement.BackgroundSizing.ToString();
