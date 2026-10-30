@@ -46,7 +46,7 @@ private struct LiveActions: View {
                     ReferenceIcon(name: "chev", size: 13, color: RelicStyle.muted, owner: identity).rotationEffect(.degrees(expanded ? 90 : 0))
                     ReferenceLabel(m.t("live.turn_actions"), size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 20, owner: identity)
                     Spacer(minLength: 0)
-                }.padding(.horizontal, 10).padding(.vertical, 6)
+                }.padding(.horizontal, 10).padding(.vertical, 6).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: .clear, owner: identity, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity)
             if expanded {
@@ -54,7 +54,7 @@ private struct LiveActions: View {
                     .padding(.vertical, 4).padding(.top, 1)
                     .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card"))
             }
-        }.frame(maxWidth: 720, alignment: .leading).padding(1)
+        }.padding(1).frame(maxWidth: 720, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "card"))
     }
 }
@@ -90,7 +90,7 @@ private struct LiveToolRow: View {
                     ReferenceLabel(ReferenceText.clip(item["title"].text, to: 60), size: 12.5, weight: 600, lineHeight: 20, owner: identity).fixedSize()
                     Spacer(minLength: 0)
                     ReferenceLabel(LivePresentation.toolState(item["status"].text, words: m.words), size: 11, color: RelicStyle.muted, lineHeight: 17.6, owner: identity).fixedSize()
-                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3)
+                }.padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: hovering ? RelicStyle.sidebar : .clear, owner: identity, hovered: hovering, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity).onHover { hovering = $0 }
             if expanded && !item["text"].text.isEmpty {

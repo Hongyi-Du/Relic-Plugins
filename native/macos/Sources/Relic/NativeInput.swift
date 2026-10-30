@@ -12,6 +12,7 @@ struct MentionEditor: NSViewRepresentable {
     var focusChanged: (Bool) -> Void = { _ in }
     var pointSize: CGFloat? = nil
     var sendsOnReturn = true
+    var viewportHeight: CGFloat? = nil
     let members: [Node]
     let onMention: (String) -> Void
     let send: () -> Void
@@ -29,6 +30,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
+        if let viewportHeight { editor.minSize.height = viewportHeight; editor.setFrameSize(NSSize(width: editor.frame.width, height: max(viewportHeight, editor.frame.height))) }
         scroll.documentView = editor; return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -39,6 +41,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.presentationModel = m; editor.composerID = contextID
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
+        if let viewportHeight { editor.minSize.height = viewportHeight; editor.setFrameSize(NSSize(width: editor.frame.width, height: max(viewportHeight, editor.frame.height))) }
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
         editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
@@ -52,7 +55,7 @@ struct MentionEditor: NSViewRepresentable {
         let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0])
         let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
-        return CGSize(width: width, height: min(260, max(26, layout.usedRect(for: container).height + 4)))
+        return CGSize(width: width, height: viewportHeight ?? min(260, max(26, layout.usedRect(for: container).height + 4)))
     }
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {

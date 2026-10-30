@@ -261,6 +261,14 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(rows[1].title, "Relic org_status"); XCTAssertEqual(rows[1].argument, "pwd"); XCTAssertEqual(rows[1].result?["text"].text, "first"); XCTAssertTrue(rows[1].failed)
         XCTAssertEqual(rows[2].title, "Read"); XCTAssertEqual(rows[2].argument, "/tmp/a"); XCTAssertEqual(rows[2].result?["text"].text, "second")
     }
+    func testActivitySummaryCountsRepeatedToolsAndKeepsStableTies() {
+        let names = ["Read", "Bash", "Read", "Search", "Bash", "Write", "Glob"]
+        let steps = [Node(["role": "tool_result", "text": "orphan"])] + names.map { Node(["role": "tool_call", "tool": $0, "text": "  " + String(repeating: "x", count: 130) + "  "]) }
+        let rows = ToolActivity.pair(steps)
+        XCTAssertEqual(ToolActivity.summary(rows), "Read ×2 · Bash ×2 · Search · Write")
+        XCTAssertEqual(rows[1].argument, String(repeating: "x", count: 119) + "…")
+        XCTAssertEqual(ToolActivity.summary(ToolActivity.pair([steps[0]])), "")
+    }
     func testChartParentCentersChildrenAndOrdersCabinetBeforeSubgroups() {
         let graph = OrganizationLayout([Node(["id": "root", "status": "active"]), Node(["id": "sub", "parent": "root", "kind": "subgroup", "status": "active"]), Node(["id": "cab", "parent": "root", "cabinet": true, "status": "active"]), Node(["id": "formal", "parent": "root", "status": "active"])])
         XCTAssertEqual(graph.nodes.map { $0["id"].text }, ["root", "cab", "formal", "sub"])

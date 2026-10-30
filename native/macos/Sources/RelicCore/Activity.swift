@@ -11,7 +11,7 @@ public struct ToolActivity {
             let args = Node(raw)
             if let key = ["command", "cmd", "file_path", "pattern", "url", "query", "description", "prompt", "path", "body"].first(where: { !args[$0].text.isEmpty }) { text = args[key].text }
         }
-        return String(text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).prefix(120))
+        return ReferenceText.clip(text, to: 120)
     }
     public static func toolName(_ name: String) -> String {
         for prefix in ["mcp__plugin_relic_org__", "mcp__relic_org__"] { if name.hasPrefix(prefix) { return "Relic " + name.dropFirst(prefix.count) } }
@@ -25,5 +25,19 @@ public struct ToolActivity {
             else { rows.append(ToolActivity(call: nil, result: step)) }
         }
         return rows
+    }
+    public static func summary(_ rows: [ToolActivity]) -> String {
+        var names: [String] = [], counts: [String: Int] = [:]
+        for row in rows where row.call != nil {
+            if counts[row.title] == nil { names.append(row.title) }
+            counts[row.title, default: 0] += 1
+        }
+        return names.enumerated().sorted {
+            let left = counts[$0.element, default: 0], right = counts[$1.element, default: 0]
+            return left == right ? $0.offset < $1.offset : left > right
+        }.prefix(4).map { _, name in
+            let count = counts[name, default: 0]
+            return name + (count > 1 ? " ×" + String(count) : "")
+        }.joined(separator: " · ")
     }
 }

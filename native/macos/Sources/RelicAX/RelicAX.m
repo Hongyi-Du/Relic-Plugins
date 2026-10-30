@@ -39,6 +39,39 @@ NSAttributedString *RelicAXText(id object, NSRange range) {
 NSDictionary<NSString *, id> *RelicAXRead(id object) {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     NSMutableArray *errors = [NSMutableArray array];
+    // Read capabilities without invoking them. Current focused=false and a
+    // generic AXGroup role cannot prove that a node is noninteractive.
+    NSMutableDictionary *interaction = [NSMutableDictionary dictionary];
+    @try {
+        id actions = Attribute(object, @"accessibilityActionNames", nil);
+        interaction[@"legacy_action_names"] = [actions isKindOfClass:NSArray.class] ? actions : NSNull.null;
+        id custom = Attribute(object, @"accessibilityCustomActions", nil);
+        NSMutableArray *names = [NSMutableArray array];
+        if ([custom isKindOfClass:NSArray.class]) {
+            for (id action in custom) [names addObject:Attribute(action, @"name", nil) ?: NSNull.null];
+            interaction[@"custom_action_names"] = names;
+        } else interaction[@"custom_action_names"] = NSNull.null;
+        interaction[@"accepts_first_responder"] = Flag(object, @"acceptsFirstResponder", nil) ?: NSNull.null;
+        SEL settable = NSSelectorFromString(@"accessibilityIsAttributeSettable:");
+        interaction[@"legacy_focus_settable"] = [object respondsToSelector:settable]
+            ? @(((BOOL (*)(id, SEL, NSString *))objc_msgSend)(object, settable, NSAccessibilityFocusedAttribute)) : NSNull.null;
+    } @catch (NSException *exception) { [errors addObject:[@"interaction: " stringByAppendingString:exception.reason]]; }
+    NSMutableDictionary *selectors = [NSMutableDictionary dictionary];
+    SEL permission = @selector(isAccessibilitySelectorAllowed:);
+    for (NSString *name in @[@"accessibilityPerformPress", @"accessibilityPerformShowMenu", @"accessibilityPerformPick",
+                            @"accessibilityPerformIncrement", @"accessibilityPerformDecrement", @"accessibilityPerformConfirm",
+                            @"accessibilityPerformCancel", @"accessibilityPerformDelete", @"accessibilityPerformRaise",
+                            @"setAccessibilityFocused:", @"setAccessibilityValue:", @"setAccessibilityExpanded:"]) {
+        @try {
+            SEL selector = NSSelectorFromString(name);
+            selectors[name] = @{@"responds": @([object respondsToSelector:selector]),
+                                @"allowed": [object respondsToSelector:permission]
+                                    ? @(((BOOL (*)(id, SEL, SEL))objc_msgSend)(object, permission, selector)) : NSNull.null};
+        } @catch (NSException *exception) { [errors addObject:[NSString stringWithFormat:@"interaction.%@: %@", name, exception.reason]]; }
+    }
+    interaction[@"selectors"] = selectors;
+    interaction[@"source"] = @"Live NSAccessibility action names, selector permissions and responder capability; no actions performed";
+    result[@"interaction"] = interaction;
     NSDictionary *attributes = @{
         @"role": @[@"accessibilityRole", NSAccessibilityRoleAttribute],
         @"subrole": @[@"accessibilitySubrole", NSAccessibilitySubroleAttribute],

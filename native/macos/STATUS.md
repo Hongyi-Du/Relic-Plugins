@@ -12,6 +12,18 @@
 
 ### 102c1dc 之后：真实事件队列与当前截图修正，等待 CI
 
+`838f96c` 的 [Native apps 40978875575](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40978875575)
+已通过 Windows/macOS 构建和静态覆盖；macOS 110 个测试零失败。新用途分行测试得到
+`38 / 23 / 2` 个 UTF-16 字符，匹配独立参考；三行宽度分别为 294.442630、293.25、25.5 px。
+该结果只证明这些回归检查，不代表完整元素门禁通过。
+
+[a644753 快速诊断 40978583080](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40978583080)
+已保存所有 11 个 case，其中实时工具展开失败，错误状态 PNG 和元素文件保留，后续输入动画场景
+仍被执行。输出位于 `S:\Codex\Outputs\Relic-native-visual\smoke-a644753\`。
+工具行有悬停背景，但中心点击后真实展开状态仍为 false：其 plain Button 的空白 Spacer 未声明
+命中区域。现对实际工具行/动作组标题增加整个矩形命中区域，保持同一点击断言等待新 CI。
+历史动作组另补齐原先缺少的边框、时间、头像列缩进、工具计数摘要和每行输入/输出块。
+
 `f7b6bf0` 完整运行仍在第一个候选输入框处停止，因此不能把移除 NSPopover 描述为已修复。
 捕获的同步 mouseDown 分发可能进入 AppKit 跟踪循环、阻塞其后的 mouseUp；现将完整鼠标/
 键盘手势排入 NSApplication 事件队列，保留真实指针移动。每个 case 出错后保存实际失败窗口、

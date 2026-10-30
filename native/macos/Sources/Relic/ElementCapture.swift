@@ -229,7 +229,13 @@ import CoreText
             node["style"] = style(object, text: text)
             node["pixelSamples"] = visible ? samples(visibleRect, bitmap: bitmap) : []
             node["native_visible_bounds"] = nativeClip.map { $0.isNull ? NSNull() as Any : box(topLeft($0, in: contentScreen)) } ?? NSNull()
-            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull()]
+            node["selectorEvidence"] = ["child_count": ax["child_count"].integer, "navigation_child_count": attributes["navigation_child_count"] ?? NSNull(), "child_classes": ax["child_classes"].rows.map(\.text), "errors": ax["errors"].rows.map(\.text), "element": attributes["element"] ?? NSNull(), "interaction": attributes["interaction"] ?? NSNull()]
+            node["object_identity"] = String(describing: ObjectIdentifier(object))
+            if let view = object as? NSView {
+                node["native_view_geometry"] = ["frame": box(view.frame), "bounds": box(view.bounds), "flipped": view.isFlipped,
+                    "screen_bounds": view.window.map { box($0.convertToScreen(view.convert(view.bounds, to: nil))) } as Any? ?? NSNull(),
+                    "superview_identity": view.superview.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()]
+            }
             let textView = (object as? NSTextView).flatMap { $0.isEditable ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
             if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }

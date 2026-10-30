@@ -6,6 +6,20 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testEmptyNamedGroupRetainsActionCapabilityWithoutPerformingIt() throws {
+        let target = InteractionAccessibilityNode()
+        target.setAccessibilityRole(.group); target.setAccessibilityLabel("")
+        target.setAccessibilityFocused(false)
+        let raw = RelicAXRead(target)
+        let interaction = try XCTUnwrap(raw["interaction"] as? [String: Any])
+        let selectors = try XCTUnwrap(interaction["selectors"] as? [String: [String: Any]])
+        XCTAssertEqual(selectors["accessibilityPerformPress"]?["responds"] as? Bool, true)
+        XCTAssertEqual(selectors["accessibilityPerformPress"]?["allowed"] as? Bool, true)
+        XCTAssertEqual(selectors["setAccessibilityFocused:"]?["allowed"] as? Bool, true)
+        XCTAssertEqual(selectors["accessibilityPerformDelete"]?["allowed"] as? Bool, false)
+        XCTAssertEqual(raw["focused"] as? Bool, false)
+        XCTAssertEqual(target.invocations, 0, "Capability inspection must never invoke a user action")
+    }
     func testNativeProbeClippingUsesActualScrollViewportAndAncestry() {
         let viewport = NSClipView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
@@ -109,4 +123,12 @@ private final class InformalAccessibilityNode: NSObject {
     @objc func accessibilityChildren() -> [Any] { children }
     @objc func accessibilityFrame() -> NSRect { NSRect(x: 12, y: 34, width: 80, height: 20) }
     @objc func isAccessibilityElement() -> Bool { true }
+}
+
+private final class InteractionAccessibilityNode: NSAccessibilityElement {
+    var invocations = 0
+    override func accessibilityPerformPress() -> Bool { invocations += 1; return true }
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        ["accessibilityPerformPress", "setAccessibilityFocused:"].contains(NSStringFromSelector(selector))
+    }
 }
