@@ -151,6 +151,7 @@ public sealed partial class MainWindow
     private Task FocusSearch() { sideOpen = true; LayoutColumns(); search.Focus(FocusState.Keyboard); search.SelectAll(); return Task.CompletedTask; }
     private void NavigationShortcuts()
     {
+        WireNativeMenus();
         AddShortcut(VirtualKey.K, VirtualKeyModifiers.Control, FocusSearch);
         AddShortcut(VirtualKey.B, VirtualKeyModifiers.Control, ToggleSide);
         AddShortcut(VirtualKey.B, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, TogglePanel);
@@ -159,17 +160,17 @@ public sealed partial class MainWindow
         AddShortcut(VirtualKey.R, VirtualKeyModifiers.Control, Refresh);
         foreach (var (key, value) in new[] { (VirtualKey.Number1, "overview"), (VirtualKey.Number2, "workspace"), (VirtualKey.Number3, "files") })
             AddShortcut(key, VirtualKeyModifiers.Menu, () => pane == value && panelOpen ? TogglePanel() : SetPane(value));
-        AddShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async () => { visibleDialog?.Hide(); transientFlyout?.Hide(); await StopVoice(); });
+        AddShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async () => { CloseNativeMenu(true); visibleDialog?.Hide(); transientFlyout?.Hide(); await StopVoice(); });
     }
     private TextBox? editing;
     private ComposerInput? editingComposer;
     private void BuildMenus()
     {
-        menu.Items.Clear();
+        CloseNativeMenu(); nativeMenus.Clear(); menu.Children.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));
         StyleNativeMenuBar();
-        MenuBarItem Group(string title) { var group = NativeMenuGroup(T(title)); menu.Items.Add(group); return group; }
-        void Item(MenuBarItem group, string text, Func<Task> action, bool enabled = true, string shortcut = "", bool check = false)
+        MenuFlyout Group(string title) => NativeMenuGroup(T(title));
+        void Item(MenuFlyout group, string text, Func<Task> action, bool enabled = true, string shortcut = "", bool check = false)
         {
             var item = new MenuFlyoutItem { Text = text, IsEnabled = enabled, KeyboardAcceleratorTextOverride = shortcut, Style = NativeMenuItemStyle(shortcut.Length > 0) };
             // The reference menu item's accessible name includes the visible

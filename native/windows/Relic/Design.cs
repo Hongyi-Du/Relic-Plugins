@@ -73,7 +73,7 @@ public sealed partial class MainWindow
         row.Children.Add(ReferenceIcon(icon, 15)); var text = Text(label, 12.5); text.TextWrapping = TextWrapping.NoWrap; row.Children.Add(text);
         var button = QuietButton("", action); button.Content = row; button.Height = 28; button.Padding = new Thickness(10, 0, 10, 0); button.CornerRadius = new CornerRadius(9);
         button.BorderBrush = Paint("DEDBD4", "3A3936"); button.BorderThickness = new Thickness(1); button.Foreground = Paint("5A5853", "B8B5AE"); text.Foreground = button.Foreground;
-        ToolTipService.SetToolTip(button, tooltip); return button;
+        AutomationProperties.SetName(button, label); ToolTipService.SetToolTip(button, tooltip); return button;
     }
     private Border ChatAvatar(bool secretary)
     {

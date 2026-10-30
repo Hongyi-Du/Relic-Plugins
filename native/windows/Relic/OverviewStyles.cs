@@ -16,7 +16,7 @@ public sealed partial class MainWindow
     // The organization inspector uses the same blocks, inline rows and type
     // scale as renderOrgPane. These are native controls and real live data.
     private TextBlock OverviewText(string text, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
-        => new() { Text = text, FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = size,
+        => new() { Text = text, FontFamily = new FontFamily(FontFamilies.UI), FontSize = size,
             FontWeight = new Windows.UI.Text.FontWeight { Weight = weight }, Foreground = muted ? Muted : Ink,
             TextWrapping = TextWrapping.Wrap, LineHeight = lineHeight > 0 ? lineHeight : size * 1.6,
             LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
@@ -171,7 +171,7 @@ public abstract class OverviewTokenView : ContentControl
 {
     protected OverviewTokenView()
     {
-        IsTabStop = false; MinWidth = MinHeight = 0; FontFamily = new FontFamily("Segoe UI Variable Text");
+        IsTabStop = false; MinWidth = MinHeight = 0; FontFamily = new FontFamily(FontFamilies.UI);
         Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}' Foreground='{TemplateBinding Foreground}' FontFamily='{TemplateBinding FontFamily}' FontSize='{TemplateBinding FontSize}' FontWeight='{TemplateBinding FontWeight}'/></ControlTemplate>");
     }
 }

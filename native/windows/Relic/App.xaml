@@ -28,13 +28,14 @@
       </ResourceDictionary.ThemeDictionaries>
       <!-- Use the reference's text face explicitly. XamlAutoFontFamily can
            select a different Segoe optical family even at the same size. -->
-      <Style TargetType="TextBlock"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
-      <Style TargetType="RichTextBlock"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
-      <Style TargetType="TextBox"><Setter Property="FontFamily" Value="Segoe UI Variable Text" /></Style>
+      <FontFamily x:Key="RelicUIFont">Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC</FontFamily>
+      <Style TargetType="TextBlock"><Setter Property="FontFamily" Value="{StaticResource RelicUIFont}" /></Style>
+      <Style TargetType="RichTextBlock"><Setter Property="FontFamily" Value="{StaticResource RelicUIFont}" /></Style>
+      <Style TargetType="TextBox"><Setter Property="FontFamily" Value="{StaticResource RelicUIFont}" /></Style>
       <!-- Native template: retain Button/UIA/keyboard semantics while matching
            the reference's flat paint instead of the default Fluent bevel. -->
       <Style TargetType="Button">
-        <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
+        <Setter Property="FontFamily" Value="{StaticResource RelicUIFont}" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="Foreground" Value="{ThemeResource RelicControlInk}" />
         <Setter Property="Background" Value="{ThemeResource RelicControlCard}" />

@@ -61,7 +61,7 @@ public sealed partial class MainWindow
         if (DialogPart<ContentControl>(dialog, "Title") is { } title)
         {
             title.FontSize = 17; title.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
-            title.FontFamily = new FontFamily("Segoe UI Variable Text");
+            title.FontFamily = new FontFamily(FontFamilies.UI);
         }
         if (DialogPart<Grid>(dialog, "CommandSpace") is { } commands)
         {
@@ -163,6 +163,7 @@ public sealed partial class MainWindow
     }
     private void ApplyAppearance()
     {
+        root.Language = words.Language;
         root.RequestedTheme = preferences.Text("theme") switch { "dark" => ElementTheme.Dark, "light" => ElementTheme.Light, _ => ElementTheme.Default };
         var colors = new Dictionary<string, Windows.UI.Color>
         {
@@ -237,7 +238,7 @@ public sealed partial class MainWindow
                     content.Children.Add(SettingRow(T("settings.density"), "", SettingsSegments("density", () => Draw(key), ("comfortable", T("settings.density_comfortable")), ("compact", T("settings.density_compact"))))); break;
                 case "language":
                     content.Children.Add(SettingsHeading(T("settings.language.title")));
-                    var language = new ComboBox { Width = 200, Height = 37, MinHeight = 0, FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = 14, Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(9) };
+                    var language = new ComboBox { Width = 200, Height = 37, MinHeight = 0, FontFamily = new FontFamily(FontFamilies.UI), FontSize = 14, Padding = new Thickness(10, 7, 10, 7), BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"), CornerRadius = new CornerRadius(9) };
                     language.Items.Add(new ComboBoxItem { Content = T("settings.language.system", ("lang", System.Globalization.CultureInfo.CurrentUICulture.Name)), Tag = "" });
                     foreach (var item in words.Languages) language.Items.Add(new ComboBoxItem { Content = item.Text("name"), Tag = item.Text("code") });
                     var selectedLanguage = preferences.Text("lang"); if (selectedLanguage.Length > 0 && !words.Languages.Any(item => item.Text("code") == selectedLanguage)) language.Items.Add(new ComboBoxItem { Content = selectedLanguage, Tag = selectedLanguage }); SetChoice(language, selectedLanguage);
@@ -343,7 +344,7 @@ public sealed partial class MainWindow
         var later = new StackPanel { Spacing = 6 };
         foreach (var harness in list.Where(h => h.Flag("later")))
         {
-            var title = new TextBlock { FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = 12.5, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, Foreground = Ink, TextWrapping = TextWrapping.Wrap };
+            var title = new TextBlock { FontFamily = new FontFamily(FontFamilies.UI), FontSize = 12.5, LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, Foreground = Ink, TextWrapping = TextWrapping.Wrap };
             title.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = harness.Text("title"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
             title.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + harness.Text("vendor"), Foreground = Muted });
             var launch = OverviewText(harness.Text("launch"), 11.5, true); launch.FontFamily = new FontFamily("Cascadia Code"); launch.HorizontalAlignment = HorizontalAlignment.Right;

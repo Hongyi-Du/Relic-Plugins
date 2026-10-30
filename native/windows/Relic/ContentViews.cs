@@ -125,7 +125,7 @@ public sealed partial class MainWindow
     private RichTextBlock InlineText(string value, double size = 14, double lineRatio = 1.65, bool useFontPreference = true)
     {
         var fontSize = size * (useFontPreference ? preferences.Text("font") == "large" ? 15.5 / 14 : preferences.Text("font") == "small" ? 13d / 14 : 1 : 1);
-        var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontFamily = new FontFamily("Segoe UI Variable Text"), FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
+        var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontFamily = new FontFamily(FontFamilies.UI), FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
             LineHeight = fontSize * lineRatio, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
         var paragraph = new Paragraph();
         Hyperlink Link(string targetText, bool path, bool code = false)

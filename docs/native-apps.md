@@ -1,5 +1,22 @@
 # Native Relic App contract
 
+Changes for the clients (Windows typography): the non-document XAML controls
+now request the reference's explicit UI fallback list, including Microsoft
+YaHei UI after Segoe, and inherit the selected interface language. The previous
+single-family request delegated CJK fallback to Windows and produced different
+line breaks in the actual `36fca26` captures. This request change still needs
+new capture validation and does not prove actual rendered glyph identities.
+TOM document controls keep their separate single-face formatting contract.
+
+Changes for the clients (layout projection): `native-layout-projection.md`
+defines the common raw/visible-element/owner evidence contract requested by
+macOS. Unknown paint or interaction is not proof of a layout-only wrapper.
+The reference now retains two independently evidenced omissions: named AX
+navigation with matching DOM semantics, and tabindex-0, AX-focusable scrolling
+regions with actual overflow. All prior reference elements and unresolved
+scrollbar failures remain; native clients still need independent ownership
+proof before any corresponding wrapper projection change.
+
 Changes for the clients (macOS request integration): the member-card editing,
 conversation-banner and suggestion-control changes through `edf599a` are merged.
 The three requested member-card interaction states are now added to both the
