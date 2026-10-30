@@ -40,6 +40,8 @@ import RelicAX
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         XCTAssertTrue(editor is ObservedFieldEditor)
         XCTAssertTrue(editor.isFieldEditor)
+        XCTAssertEqual(ElementCapture.rgba(editor.insertionPointColor) as? [Double], ElementCapture.rgba(NSColor(RelicStyle.ink)) as? [Double])
+        XCTAssertEqual((editor.selectedTextAttributes[.backgroundColor] as? NSColor)?.alphaComponent, 0.26)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
         XCTAssertTrue(focused)
         let receipts = FieldEditorCapture.receipts(in: window)
