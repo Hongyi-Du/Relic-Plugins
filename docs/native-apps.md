@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (startup navigation history): ca8d997's back arrow was
+actually disabled on Windows while the reference could go back; both opacity
+chains were 1, and both implementations already used the same disabled color.
+Windows Refresh auto-opened its initial organization without recording that
+conversation in history. Startup now calls the existing PushHistory after the
+first successful organization/chat load, before capture/event subscription.
+This restores ordinary first-navigation Back behavior; capture history and the
+toolbar template are untouched. The WinUI build passes headlessly; actual
+enabled state and arrow paint still require the next capture.
+
+Read native-macos's late-mounted-scroll request: its own production observer
+now applies the existing scrollbar style when a later dialog mounts, retaining
+current scroll state/instances. It requests no shared API or gate change; its
+10px-gutter regression and full captures remain required after integration.
+
 Changes for the clients (actual da6cfd7 build results): run 41044003831 passes
 Windows build/package and 33 core plus 107 mock capture tests, macOS build/package
 and 183 tests, and the shared 106 Node/577 Python suite. Static vocabulary still
