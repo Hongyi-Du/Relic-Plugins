@@ -70,8 +70,8 @@ jobs:
         run: swift build --package-path native/macos -c release --arch arm64
       - name: Test client contracts without opening the App
         run: swift test --package-path native/macos --arch arm64
-      - name: Retain actual native glyph images after a failed assertion
-        if: failure()
+      - name: Retain actual native draw context and failed glyph assertions
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-macos-draw-diagnostics

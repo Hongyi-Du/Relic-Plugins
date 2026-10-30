@@ -1,5 +1,37 @@
 # Native Relic App contract
 
+Changes for the clients (macOS successful-test diagnostics request): the existing
+native-macos-draw-diagnostics artifact now uploads on success as well as failure,
+so the small actual surface context records are retained. Failed bitmap outputs
+still originate only from failed comparisons. The owner added call-boundary
+receipts for the 1280x800 rename stall; the shared watchdog stays at its original
+deadline and no case is excluded. No cause or resolution is inferred from an
+idle main-thread sample alone.
+
+Changes for the clients (current label/font sources): the Windows selector reader
+now compares CLR nested FullName (`Outer+Inner`) to the real Type.Name correctly;
+215a313's ReferenceVectorIcon caused otherwise valid current tab label bindings
+to fail. Independent icons, nested actions and all old identity checks remain.
+Trimmed NativeLabel fonts can now come from all actually submitted glyph runs,
+including a separately bound real ellipsis inline object. Complete original
+source coverage remains false, the omitted suffix is retained, and font weight,
+geometry and final PNG coverage keep their independent failures. A reduced real
+67ed20d fixture preserves each label's own original frame/object evidence.
+
+Changes for the clients (form accessibility): each native form input now points
+through LabeledBy to its actual visible caption; callers pass the exact TextBox
+or ComboBox rather than the voice-field wrapper. Caption text and the microphone
+peer are unchanged. The reference's voice-enabled composite label names still
+include that microphone name and are not yet identical; no name is synthesized
+in extraction to conceal this remaining difference.
+
+Changes for the clients (latest macOS requests consumed): the owner reports
+239 passing tests at dea54e8 and retains the full bitmap assertion. Its subsequent
+message-avatar priority uses the actual source row, and surface context metadata
+records the live draw format. System titlebar filter names are diagnostic only;
+no undocumented filter is treated as harmless. The owner's 1280x800 rename
+timeout and partial language captures remain open measurement failures.
+
 Changes for the clients (native sidebar own paint): the extractor now observes
 the exact sealed NativeSidebarRow class, its real current template and unique
 ContentPresenter/Content object binding. This closes the local derived-class

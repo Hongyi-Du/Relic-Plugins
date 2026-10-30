@@ -32,6 +32,13 @@ def _chain(node_id, by_id):
     return result
 
 
+def _runtime_type_name(full_name):
+    # Type.FullName separates a nested CLR type with '+', while the independent
+    # raw node records Type.Name. Keep the original FullName in the receipt;
+    # this comparison changes neither the observed class nor its ownership.
+    return full_name.rsplit(".", 1)[-1].rsplit("+", 1)[-1]
+
+
 def selector_content_labels(raw):
     """Validate current object bindings against the unprojected XAML tree."""
     by_id = {node.get("id"): node for node in raw}
@@ -77,7 +84,7 @@ def selector_content_labels(raw):
                                 or entry.get("captured_parent_matches") is not True
                                 or type(entry.get("child_index")) is not int or entry["child_index"] < 0
                                 or not isinstance(entry.get("runtime_type"), str)
-                                or entry["runtime_type"].rsplit(".", 1)[-1] != node.get("type")):
+                                or _runtime_type_name(entry["runtime_type"]) != node.get("type")):
                             reason = "Current visual parent/type observations conflict with the raw XAML tree"
                             break
         tag_id = evidence.get("tag_content_id") if isinstance(evidence, dict) else None
@@ -105,7 +112,7 @@ def selector_content_labels(raw):
                     node = by_id[source["id"]]
                     if (source.get("captured_text_matches") is not True or source.get("text") != node.get("text")
                             or not isinstance(source.get("runtime_type"), str)
-                            or source["runtime_type"].rsplit(".", 1)[-1] != node.get("type")):
+                            or _runtime_type_name(source["runtime_type"]) != node.get("type")):
                         reason = "Current text getter does not match its independent raw text source"
                         break
         if reason is None:

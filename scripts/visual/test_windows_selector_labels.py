@@ -28,6 +28,10 @@ def fixture(extra=None):
         nodes.extend(extra)
     nodes = f.measured(nodes)
     def runtime(node):
+        if node["type"] == "ReferenceVectorIcon":
+            # Actual 215a313 group receipt: xaml-803 Type.FullName versus
+            # its independent raw Type.Name == ReferenceVectorIcon.
+            return "Relic.MainWindow+ReferenceVectorIcon"
         return ("Relic." if node["type"] in {"NativeShadowPanel", "NativeLabel"}
                 else "Microsoft.UI.Xaml.Controls.") + node["type"]
     nodes[0]["selector_content_evidence"] = {
@@ -138,6 +142,58 @@ class SelectorLabelsTests(unittest.TestCase):
         self.assertEqual(elements["tab"]["text"], "")
         self.assertIn("label", elements)
         self.assertIn("child-action", elements)
+
+    def test_actual_clr_nested_icon_name_keeps_icon_and_owns_only_the_label(self):
+        f = projection_fixtures
+        nodes = fixture([f.xaml_node("icon", "ReferenceVectorIcon", parent="content",
+                                    bounds=f.box(10, 22, 15, 15))])
+        before = deepcopy(nodes)
+        audit = selector_content_labels(nodes)
+        self.assertEqual(audit["unmeasured"], [])
+        self.assertEqual(audit["owners"]["tab"]["source_id"], "label")
+        self.assertEqual(next(entry for entry in audit["audits"]["tab"]["evidence"]["actual_subtree"]
+                              if entry["id"] == "icon")["runtime_type"],
+                         "Relic.MainWindow+ReferenceVectorIcon")
+        result = self.capture(nodes, xaml_changes={"extraction_errors": ["independent icon paint remains unmeasured"]})
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertEqual(elements["tab"]["text"], "Light")
+        self.assertEqual(elements["tab"]["evidence"]["label_source"], "label")
+        self.assertNotIn("label", elements)
+        self.assertEqual(elements["icon"]["kind"], "icon")
+        self.assertIn("surface", elements)
+        self.assertIn("independent icon paint remains unmeasured", result["extraction_errors"])
+        self.assertEqual(nodes, before)
+
+    def test_nested_clr_icon_name_does_not_hide_an_independent_action(self):
+        f = projection_fixtures
+        nodes = fixture([f.xaml_node("icon", "ReferenceVectorIcon", parent="content",
+                                    bounds=f.box(10, 22, 15, 15)),
+                         f.xaml_node("child-action", "Button", parent="content",
+                                    bounds=f.box(63, 22, 20, 20))])
+        self.assertIn("tab", selector_content_labels(nodes)["owners"])
+        result = self.capture(nodes)
+        elements = {item["id"]: item for item in result["elements"]}
+        self.assertEqual(elements["tab"]["text"], "")
+        for retained in ("label", "icon", "child-action"):
+            self.assertIn(retained, elements)
+
+    def test_different_nested_clr_type_or_missing_identity_still_rejects_label(self):
+        f = projection_fixtures
+        for wrong in ("Relic.MainWindow+OtherIcon", "Relic.MainWindow+", None):
+            with self.subTest(runtime_type=wrong):
+                nodes = fixture([f.xaml_node("icon", "ReferenceVectorIcon", parent="content",
+                                            bounds=f.box(10, 22, 15, 15))])
+                entry = next(entry for entry in nodes[0]["selector_content_evidence"]["actual_subtree"]
+                             if entry["id"] == "icon")
+                entry["runtime_type"] = wrong
+                audit = selector_content_labels(nodes)
+                self.assertEqual(audit["owners"], {})
+                self.assertTrue(audit["unmeasured"])
+                result = self.capture(nodes)
+                elements = {item["id"]: item for item in result["elements"]}
+                self.assertEqual(elements["tab"]["text"], "")
+                self.assertIn("label", elements)
+                self.assertIn("icon", elements)
 
     def test_only_same_source_full_run_can_be_the_bound_label(self):
         nodes = fixture()

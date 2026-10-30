@@ -357,10 +357,10 @@ public sealed partial class MainWindow : Window
         body.Children.Add(OverviewText(T("common.new_org"), 17, weight: 650));
         var form = new StackPanel { Spacing = 12 };
         var name = FormInput("", T("neworg.name_placeholder")); var purpose = FormInput("", T("neworg.purpose_placeholder"), "new-org-purpose", multiline: true);
-        form.Children.Add(FormLabel("common.name", SettingsVoiceField(name, double.NaN)));
-        form.Children.Add(FormLabel("neworg.purpose", SettingsVoiceField(purpose, double.NaN)));
+        form.Children.Add(FormLabel("common.name", SettingsVoiceField(name, double.NaN), name));
+        form.Children.Add(FormLabel("neworg.purpose", SettingsVoiceField(purpose, double.NaN), purpose));
         var governance = FormSelect([("leader", T("neworg.gov_leader")), ("peer", T("neworg.gov_peer"))], "leader");
-        form.Children.Add(FormLabel("neworg.governance", governance)); body.Children.Add(form);
+        form.Children.Add(FormLabel("neworg.governance", governance, governance)); body.Children.Add(form);
         var message = OverviewText("", 12.5); message.Foreground = Paint("C2412D", "EE8A78");
         var errorBox = new Border { Child = message, Height = 0 }; body.Children.Add(errorBox);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };

@@ -265,7 +265,7 @@ public sealed partial class MainWindow
         var form = new StackPanel { Spacing = 12 };
         var to = FormInput(string.Join(",", (first?.Rows("to") ?? info.Rows("members")).Select(x => x.Text())), T("forward.to_placeholder"));
         var body = FormInput("", T("forward.body_placeholder"), multiline: true); body.Height = 216;
-        form.Children.Add(FormLabel("forward.to", SettingsVoiceField(to, double.NaN))); form.Children.Add(FormLabel("common.reply", body)); panel.Children.Add(form);
+        form.Children.Add(FormLabel("forward.to", SettingsVoiceField(to, double.NaN), to)); form.Children.Add(FormLabel("common.reply", body, body)); panel.Children.Add(form);
         var message = OverviewText("", 12.5); message.Foreground = Paint("C2412D", "EE8A78"); var errorBox = new Border { Child = message, Height = 0 }; panel.Children.Add(errorBox);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; }));
@@ -315,7 +315,7 @@ public sealed partial class MainWindow
         var run = edit != null ? "host" : secretary ? "app" : mode;
         var name = FormInput(edit ?? (secretary ? "secretary" : ""), T("member.name_placeholder")); name.IsEnabled = edit == null;
         var role = FormInput(card.Text("role"), T(secretary ? "member.role_placeholder_secretary" : "member.role_placeholder"));
-        var nameField = FormLabel("member.name_label", SettingsVoiceField(name, double.NaN)); var roleField = FormLabel("common.role", SettingsVoiceField(role, double.NaN));
+        var nameField = FormLabel("member.name_label", SettingsVoiceField(name, double.NaN), name); var roleField = FormLabel("common.role", SettingsVoiceField(role, double.NaN), role);
         var appFields = new StackPanel { Spacing = 12 };
         var picked = harnesses.Rows().FirstOrDefault(h => h.Flag("available") && !h.Flag("later")).Text("id");
         var harnessChoice = new StackPanel { Spacing = 6 }; var harnessTitle = OverviewText(T("member.harness_label"), 12.5, true); harnessChoice.Children.Add(harnessTitle);
@@ -337,7 +337,7 @@ public sealed partial class MainWindow
         }
         appFields.Children.Add(harnessChoice);
         var appModel = FormInput("", T("member.model_placeholder")); var appFolder = FormInput("", T("member.folder_placeholder"));
-        appFields.Children.Add(FormLabel("common.model", SettingsVoiceField(appModel, double.NaN))); appFields.Children.Add(FormLabel("common.work_folder", SettingsVoiceField(appFolder, double.NaN)));
+        appFields.Children.Add(FormLabel("common.model", SettingsVoiceField(appModel, double.NaN), appModel)); appFields.Children.Add(FormLabel("common.work_folder", SettingsVoiceField(appFolder, double.NaN), appFolder));
         var makeSecretary = secretary; appFields.Children.Add(FormSwitch("member.make_secretary", makeSecretary, value => makeSecretary = value));
         var hostFields = new StackPanel { Spacing = 12 }; var hostKind = (config.Text("harness").Length > 0 ? config.Text("harness") : "claude-code") + "/" + (config.Text("surface") == "gui" ? "gui" : "cli");
         var hostModel = FormInput(config.Text("model"), T("member.model_placeholder"), "member-model");
@@ -363,17 +363,17 @@ public sealed partial class MainWindow
         }
         var kindFields = new StackPanel { Spacing = 6 }; kindFields.Children.Add(OverviewText(T("member.where_run"), 12.5, true)); kindFields.Children.Add(kinds);
         if (!Delivery(config.Text("harness"), config.Text("surface"))) kindFields.Children.Add(OverviewText(T("member.choose_supported_host"), 14, true)); hostFields.Children.Add(kindFields);
-        hostFields.Children.Add(FormLabel("common.model", SettingsVoiceField(hostModel, double.NaN))); hostFields.Children.Add(FormLabel("member.effort", effort)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
-        hostFields.Children.Add(FormLabel("member.work_folder", SettingsVoiceField(folder, double.NaN)));
-        hostFields.Children.Add(FormLabel("member.environment", environment)); hostFields.Children.Add(FormLabel("member.permission", permission)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
+        hostFields.Children.Add(FormLabel("common.model", SettingsVoiceField(hostModel, double.NaN), hostModel)); hostFields.Children.Add(FormLabel("member.effort", effort, effort)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
+        hostFields.Children.Add(FormLabel("member.work_folder", SettingsVoiceField(folder, double.NaN), folder));
+        hostFields.Children.Add(FormLabel("member.environment", environment, environment)); hostFields.Children.Add(FormLabel("member.permission", permission, permission)); PairFields(hostFields, (FrameworkElement)hostFields.Children[^2], (FrameworkElement)hostFields.Children[^1]);
         var env = FormInput(config?["env"] is JsonObject variables ? string.Join("\n", variables.Select(value => value.Key + "=" + value.Value.Text())) : "", T("member.env_placeholder"), multiline: true, mono: true);
-        hostFields.Children.Add(FormLabel("member.env_vars", env));
+        hostFields.Children.Add(FormLabel("member.env_vars", env, env));
         var startNow = true; Button? submit = null;
         string SubmitLabel() => edit != null ? T("common.save") : run == "existing" ? T("member.bind") : run == "app" ? T(secretary ? "member.create_secretary" : "member.create_member") : T(startNow ? "member.create_start" : "member.create_seat_only");
         if (edit == null) hostFields.Children.Add(FormSwitch("member.start_now", startNow, value => { startNow = value; if (submit?.Content is TextBlock label) label.Text = SubmitLabel(); }));
         var find = FormInput("", T("member.session_search")); var seatName = FormInput("", T("member.seat_placeholder"), "member-seat-name");
         FormSuggestions(seatName, () => snap.Rows("members").Select(m => (m.Text("name"), m.Text("display").Length > 0 ? m.Text("display") : m.Text("name"))));
-        var searchField = FormLabel("common.session", SettingsVoiceField(find, double.NaN)); var seatField = FormLabel("member.which_seat", SettingsVoiceField(seatName, double.NaN));
+        var searchField = FormLabel("common.session", SettingsVoiceField(find, double.NaN), find); var seatField = FormLabel("member.which_seat", SettingsVoiceField(seatName, double.NaN), seatName);
         JsonNode? sessions = null, chosen = null; var sessionRows = new StackPanel { Spacing = 4 };
         var sessionList = new Border { Child = Scroll(sessionRows), Padding = new Thickness(6), BorderBrush = Paint("DEDBD4", "3A3936"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), MaxHeight = 260 };
         void DrawSessions()

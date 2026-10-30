@@ -1,10 +1,12 @@
 """Synthetic replicas of actual receipt shapes; no renderer, server or UI runs."""
 from copy import deepcopy
+import json
+from pathlib import Path
 import unittest
 
 from native_label_fonts import (BINDING_SOURCE, CHECKPOINTS, FACE_SOURCE, FRAME_SOURCE,
                                 IMAGE_SOURCE, LABEL_SOURCE, READBACK_SOURCE, RUN_SOURCE,
-                                STATE_SOURCE, native_label_fonts)
+                                STATE_SOURCE, INLINE_SOURCE, TRIMMING_SOURCE, native_label_fonts)
 
 
 def utf16_length(text):
@@ -75,6 +77,28 @@ def update_production(node, frame):
     frame["production_draws"][0]["production_receipt"] = deepcopy(node["native_label_evidence"])
 
 
+def trimmed_fixture():
+    """Synthetic actual-callback shape; not an observation from a CI frame."""
+    node, image, frame = fixture("ABCDEFG", ["ABC"])
+    draw = node["native_label_evidence"]["draw"]
+    draw["line_metrics"][0]["is_trimmed"] = True
+    draw["trimming"] = {"source": TRIMMING_SOURCE, "requested_character_ellipsis": True,
+                        "granularity": 1, "delimiter": 0, "delimiter_count": 0,
+                        "configured_sign_com_identity": "synthetic-ellipsis", "layout_sign_com_identity": "synthetic-ellipsis",
+                        "same_sign_com_identity": True}
+    draw["inline_object_draws"] = [{"source": INLINE_SOURCE, "ordinal": 0, "parent_inline_draw_ordinal": None,
+                                   "inline_com_identity": "synthetic-ellipsis", "is_configured_trimming_sign": True,
+                                   "sideways": False, "right_to_left": False, "draw_succeeded": True, "draw_hresult": 0,
+                                   "first_glyph_run_ordinal": 1, "glyph_run_count": 1}]
+    sign = deepcopy(fixture("\u2026")[0]["native_label_evidence"]["draw"]["glyph_runs"][0])
+    sign.update(ordinal=1, from_inline_object=True, inline_draw_ordinal=0, face=face("Actual Sign Face", "ActualSignFace"))
+    draw["glyph_runs"].append(sign)
+    for run in draw["glyph_runs"]:
+        run["bidi_level"] = 0
+    update_production(node, frame)
+    return node, image, frame
+
+
 class NativeLabelFontTests(unittest.TestCase):
     def assert_unknown(self, node, image, frame, reason=None):
         result, issues = native_label_fonts(node, image, frame)
@@ -96,13 +120,15 @@ class NativeLabelFontTests(unittest.TestCase):
         self.assertEqual([row["family_name"] for row in result["fonts"]], ["Measured Face 0", "Measured Face 1"])
         self.assertEqual([row["glyph_count"] for row in result["fonts"]], [2, 2])
         self.assertTrue(result["source_span_complete"])
+        self.assertTrue(result["original_source_span_complete"])
+        self.assertTrue(result["submitted_glyph_runs_complete"])
         self.assertFalse(result["final_png_attribution_proven"])
         self.assertNotIn("coverage_complete", result)
         self.assertEqual((node, image, frame), before)
         self.assertIsNone(node["bounds"])  # font identity does not substitute geometry.
         self.assertFalse(node["native_label_evidence"]["coverage_complete"])
 
-    def test_four_menu_and_four_untrimmed_preview_shapes_qualify_but_two_trimmed_do_not(self):
+    def test_four_menu_and_four_untrimmed_preview_shapes_qualify_but_trimmed_without_sign_binding_does_not(self):
         examples = ["文件", "编辑", "视图", "帮助", "在做：Read layout.png", "在做：Read README.md", "验收与回归检查", "产品建议",
                     "设计师：三个窗口尺寸都会检查，长标题会换行或显示省略提示。", "秘书处负责人：目前有两项：确认权限设置，以及本轮集成负责人。任务和相关协议都在右侧概况中。"]
         accepted = 0
@@ -206,6 +232,101 @@ class NativeLabelFontTests(unittest.TestCase):
             else: draw["glyph_runs"][0].update(from_inline_object=True, inline_draw_ordinal=0)
             update_production(node, frame)
             with self.subTest(mutation=mutation): self.assert_unknown(node, image, frame)
+
+    def test_bound_trimmed_fonts_include_real_sign_face_without_filling_hidden_source(self):
+        node, image, frame = trimmed_fixture()
+        before = deepcopy((node, image, frame))
+        result, issues = native_label_fonts(node, image, frame)
+        self.assertEqual(issues, [])
+        self.assertEqual(result["status"], "measured-current-submission")
+        self.assertEqual([font["postscript_name"] for font in result["fonts"]], ["MeasuredFace0", "ActualSignFace"])
+        self.assertTrue(result["submitted_glyph_runs_complete"])
+        self.assertIs(result["source_span_complete"], False)
+        self.assertIs(result["original_source_span_complete"], False)
+        self.assertEqual(result["submitted_original_source_range_utf16"], {"start": 0, "length": 3})
+        self.assertEqual(result["unsubmitted_original_source_range_utf16"], {"start": 3, "length": 4})
+        self.assertIsNone(result["fonts"][-1]["source_range_utf16"])
+        self.assertEqual(result["fonts"][-1]["inline_source_range_utf16"], {"start": 0, "length": 1})
+        self.assertEqual(result["fonts"][-1]["inline_source_text"], "\u2026")
+        self.assertFalse(result["final_png_attribution_proven"])
+        self.assertNotIn("text_bounds", result)
+        self.assertEqual((node, image, frame), before)
+
+    def test_trimmed_font_reading_requires_every_sign_identity_and_nested_interval_observation(self):
+        for section in ("trimming", "inline_object_draws"):
+            node, _, _ = trimmed_fixture()
+            row = node["native_label_evidence"]["draw"][section]
+            row = row[0] if isinstance(row, list) else row
+            for key in tuple(row):
+                with self.subTest(section=section, missing=key):
+                    node, image, frame = trimmed_fixture()
+                    changed = node["native_label_evidence"]["draw"][section]
+                    changed = changed[0] if isinstance(changed, list) else changed
+                    changed.pop(key)
+                    update_production(node, frame)
+                    self.assert_unknown(node, image, frame)
+
+    def test_changed_or_unobserved_inline_draws_never_hide_missing_font_callbacks(self):
+        for mutation in ("foreign-sign", "nested-parent", "extra-inline", "missing-sign-run", "extra-run",
+                         "wrong-count", "wrong-start", "failed-draw", "metadata-failure", "wrong-sign-text",
+                         "missing-sign-face", "false-inline-owner", "rtl", "unknown-trimming"):
+            with self.subTest(mutation=mutation):
+                node, image, frame = trimmed_fixture()
+                draw = node["native_label_evidence"]["draw"]
+                inline, sign = draw["inline_object_draws"][0], draw["glyph_runs"][-1]
+                if mutation == "foreign-sign": inline["inline_com_identity"] = "different-object"
+                elif mutation == "nested-parent": inline["parent_inline_draw_ordinal"] = 0
+                elif mutation == "extra-inline": draw["inline_object_draws"].append(deepcopy(inline))
+                elif mutation == "missing-sign-run": draw["glyph_runs"].pop()
+                elif mutation == "extra-run": draw["glyph_runs"].append(deepcopy(sign))
+                elif mutation == "wrong-count": inline["glyph_run_count"] = 2
+                elif mutation == "wrong-start": inline["first_glyph_run_ordinal"] = True
+                elif mutation == "failed-draw": inline["draw_hresult"] = -1
+                elif mutation == "metadata-failure": inline["metadata_failure"] = "actual COM query failed"
+                elif mutation == "wrong-sign-text": sign["description"]["text"] = "A"
+                elif mutation == "missing-sign-face": sign["face"] = None
+                elif mutation == "false-inline-owner": sign["inline_draw_ordinal"] = True
+                elif mutation == "rtl": draw["glyph_runs"][0]["bidi_level"] = 1
+                else: draw["line_metrics"][0]["is_trimmed"] = None
+                update_production(node, frame)
+                self.assert_unknown(node, image, frame)
+
+    def test_trimmed_source_must_be_one_actual_prefix_with_an_omitted_suffix(self):
+        for mutation in ("wrong-text", "gap", "whole-source", "wrong-ordinal", "unknown-clusters"):
+            with self.subTest(mutation=mutation):
+                node, image, frame = trimmed_fixture()
+                draw = node["native_label_evidence"]["draw"]
+                first = draw["glyph_runs"][0]
+                if mutation == "wrong-text": first["description"]["text"] = "XYZ"
+                elif mutation == "gap": first["description"].update(text="BCD", text_position_utf16=1)
+                elif mutation == "whole-source":
+                    first["description"].update(text="ABCDEFG", text_length_utf16=7, cluster_map=list(range(7)))
+                    first["glyph_indices"] = list(range(10, 17))
+                elif mutation == "wrong-ordinal": first["ordinal"] = 1
+                else: first["description"]["cluster_map"] = None
+                update_production(node, frame)
+                self.assert_unknown(node, image, frame)
+
+    def test_recorded_trimmed_67ed20d_draws_measure_fonts_but_keep_original_span_and_png_unknown(self):
+        recorded = json.loads((Path(__file__).parent / "fixtures" / "native-label-trimmed-67ed20d.json").read_text(encoding="utf-8"))
+        self.assertEqual(recorded["provenance"]["commit"], "67ed20d")
+        self.assertEqual([case["node"]["id"] for case in recorded["cases"]], ["xaml-277", "xaml-300"])
+        for case in recorded["cases"]:
+            with self.subTest(node=case["node"]["id"]):
+                before = deepcopy(case)
+                result, issues = native_label_fonts(case["node"], case["image"], case["frame"])
+                self.assertEqual(issues, [])
+                self.assertEqual([font["postscript_name"] for font in result["fonts"]],
+                                 ["MicrosoftYaHeiUI"] * 3 + ["Segoe-UI-Variable-Text"])
+                self.assertTrue(result["submitted_glyph_runs_complete"])
+                self.assertIs(result["source_span_complete"], False)
+                self.assertIs(result["original_source_span_complete"], False)
+                self.assertEqual(result["submitted_original_source_range_utf16"], {"start": 0, "length": 11})
+                self.assertGreater(result["unsubmitted_original_source_range_utf16"]["length"], 0)
+                self.assertIsNone(result["fonts"][3]["source_range_utf16"])
+                self.assertEqual(result["fonts"][3]["inline_source_text"], "\u2026")
+                self.assertFalse(result["final_png_attribution_proven"])
+                self.assertEqual(case, before)
 
     def test_postscript_uses_only_unique_recorded_en_us_and_preserves_all_names(self):
         node, image, frame = fixture()

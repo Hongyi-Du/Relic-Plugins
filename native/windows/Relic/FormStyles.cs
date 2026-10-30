@@ -19,9 +19,12 @@ public sealed partial class MainWindow
     {
         var label = OverviewText(value, 12.5, lineHeight: 20); label.Foreground = Paint("5A5853", "B8B5AE"); return label;
     }
-    private StackPanel FormLabel(string key, UIElement input)
+    private StackPanel FormLabel(string key, UIElement presentation, Control field)
     {
-        var label = new StackPanel { Spacing = 5 }; label.Children.Add(FormLabelText(T(key))); label.Children.Add(input); return label;
+        var caption = FormLabelText(T(key));
+        var label = new StackPanel { Spacing = 5 }; label.Children.Add(caption); label.Children.Add(presentation);
+        AutomationProperties.SetLabeledBy(field, caption);
+        return label;
     }
     private TextBox FormInput(string value, string placeholder, string automationId = "", bool multiline = false, bool mono = false)
     {
