@@ -538,6 +538,7 @@ public sealed partial class MainWindow
         var completed = JsonNode.Parse(await System.IO.File.ReadAllTextAsync(receipt))!;
         if (completed["case_id"]?.GetValue<string>() != caseId) throw new InvalidOperationException("Stale element capture acknowledgement");
         providerProbe.CaptureAfter();
+        TextRangeProviderProbe.Capture(directory, caseId, renderIds);
     }
 
     private static Rect IntersectCapture(Rect a, Rect b)

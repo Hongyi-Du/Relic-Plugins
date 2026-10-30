@@ -1,5 +1,16 @@
 # Native Relic App contract
 
+Changes for the clients (actual WinRT text-range diagnostic): Windows now emits
+`*.text-range-provider-probe.json` after the unchanged UIA hand-off and peer
+probe. It reads DocumentRange and every GetVisibleRanges result from each real
+TextBlock's existing peer, preserving raw double values, UTF-16 source, endpoint
+comparisons, actual failures and query times. It supplies no canonical rectangle
+or identity and never infers that zero-area text is hidden. Fixed SDK source
+shows GetVisibleRanges is computed before ancestor clipping, and this provider's
+IsHidden attribute is always false; those two values therefore cannot establish
+pixel visibility. The probe distinguishes provider geometry from later COM
+transport. Headless build passes; actual diagnostic results remain pending.
+
 Changes for the clients (macOS silent-startup request consumed): `native_process`
 now writes the host startup progress marker for macOS as well as Windows,
 before Popen. A process that never enters the native lifecycle therefore hits
