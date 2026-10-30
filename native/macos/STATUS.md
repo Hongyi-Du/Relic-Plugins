@@ -10,7 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
-最新完整通过的原生构建为 `5d97933`：
+最新完整通过的原生构建为 `efa7553`：
+[41039878013 / macos 124009778780](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41039878013/job/124009778780)
+release 编译、打包及 **180 项测试通过**，包括新增中英文秘书称呼回退测试。
+`72f5571` 后续增加实际字体度量边界检查，尚待新 CI 验证。
+
+前一版 `5d97933`：
 [41038867598 / macos 124006493039](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41038867598/job/124006493039)
 release 编译、打包及 **179 项测试通过**。包含原生滑块重复 AX 枚举与索引检查、
 实际字体表／基线／popup 标题、Markdown 标记源文本等回归；滚动条注册递归已在 CI 验证修复。
@@ -39,6 +44,18 @@ release 编译及 **165 项测试通过**，含实际箭头 fallback 字体、�
 `S:\Codex\Outputs\Relic-native-visual\parity-9aaf342\macos\`。不把这一张 PNG 计为成功捕获。
 后续源码还补齐决策按钮实际文字绘制及边框宽度、popup 原生菜单标题的实际文字绘制、
 快捷键说明的次级文字色，并加入只观察真实滚动通知的几何历史；这些须继续由新 CI 验证。
+
+最新 **19 场景诊断**正式报告已下载到
+`S:\Codex\Outputs\Relic-native-visual\parity-5d97933\report\`，
+[41038866965](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41038866965)。
+macOS 实际捕获 19/19、4779 个原生元素、4263 个有效参考元素、配对 4208。
+正式门禁仍要求 660，`scenes_checked/scenes_passed/matched_elements` 均为 0，
+`passed: false`、`exceptions: []`。表中的提取错误包括缺少完整矩阵及未证明的样式测量。
+
+| 5d97933 诊断平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 55 | 571 | 0 | 3159 | 8070 | 1209 | 11 | 2 | 611 | 2226 | 0 | 28257 |
+| Windows | 578 | 217 | 543 | 1613 | 13234 | 1130 | 8 | 15 | 588 | 1630 | 0 | 34272 |
 
 最新已下载的完整矩阵失败报告是
 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\full-report\`，

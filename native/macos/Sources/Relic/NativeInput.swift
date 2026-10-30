@@ -75,6 +75,9 @@ struct MentionEditor: NSViewRepresentable {
 }
 
 final class ComposerScrollView: NSScrollView {
+    // This is the text area's unpainted clipping implementation, not a second
+    // named input/region. Keep the actual editor and overflow scroller in AX.
+    override func isAccessibilityElement() -> Bool { false }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         needsLayout = true
