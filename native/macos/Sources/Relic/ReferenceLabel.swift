@@ -113,6 +113,22 @@ final class ReferenceLabelView: ReadOnlyTextView {
     var textGlyphIcon = false
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func draw(_ dirtyRect: NSRect) {
+        // These labels are never editable or selectable. Draw their actual
+        // TextKit layout directly, so AppKit's editable-text content layers do
+        // not contribute another unowned drawing path behind native controls.
+        // The same manager supplies shaping, truncation, decoration and the
+        // observed showCGGlyphs callbacks; no second text shaping is involved.
+        guard let manager = layoutManager, let container = textContainer,
+              NSGraphicsContext.current != nil else { return }
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(for: container)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: bounds.intersection(dirtyRect)).addClip()
+        manager.drawBackground(forGlyphRange: glyphs, at: textContainerOrigin)
+        manager.drawGlyphs(forGlyphRange: glyphs, at: textContainerOrigin)
+        NSGraphicsContext.restoreGraphicsState()
+    }
 }
 
 /// AppKit treats a slash in a path as a convenient word boundary. The reference

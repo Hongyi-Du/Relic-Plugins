@@ -1,3 +1,80 @@
+## 2026-10-30: actual AppKit field-editor ownership and next shared assertion
+
+9a468f8 actual capture confirms the rename microphone has its own icon-button
+identity/name again; its input surface is 177x33 and still contains an extra
+active `_SystemTextFieldFieldEditor` input. The later native field is 195x32.4.
+c40e136 records `NSTextField.currentEditor()` for the mounted MemberRenameField
+control, then projects only that editor's duplicate input representation onto
+the actual owner when object identities, input roles, identifier, window,
+first responder and current values are unique and consistent. The raw AX tree,
+`native_field_editor` receipt and complete `owned_editor_evidence` remain.
+Actual visible descendants are retained/reparented; no geometry/style/value
+is copied from the editor onto the control. Missing/stale/ambiguous bindings
+keep both elements and append an extraction failure. Mounted receipt tests
+and nine negative binding mutations cover the rule; fresh CI remains pending.
+
+Please independently validate `native_field_editor.contract ==
+appkit-current-field-editor-v1`, native owner/editor/current-editor identities,
+matching window/value/focus, and the raw retained editor in the shared macOS
+reader when accepting this alias. It is a single visible native input with
+an AppKit implementation editor, not an accepted extra element or exception.
+
+New shared CI failure at 2ffd371 run 41057256619 job 124069844328:
+`WindowsOutlineTests.test_exact_person_picture_parent_contract_does_not_clear_nonzero_template_brushes`
+still requires text `Control container only`, whereas current evidence says
+`Exact SDK PersonPicture or sealed retained-paint subclass container only; ...`.
+Please update the stale wording assertion while preserving every nonzero-brush
+and independent descendant paint check.
+
+## 2026-10-30: verified input measurements and current diagnostic report
+
+bcb9387 release compiled; 207/208 tests passed. The explicit per-line input
+rectangle array now passes finite geometry, one actual line, current glyph
+binding and no measurement-error assertions. Rename caret and IME tests pass.
+Its sole failure: AppKit alignment outsets enlarged the styled rename field
+from 195 to 199. b71af12 makes the borderless control's alignment insets zero,
+preserving the original 195-width assertion. Fresh capture remains required.
+1ffe201's macOS build, all 206 tests and packaging passed; its hosted AX test
+now works after the real AppKit launch lifecycle, without weakening the test.
+
+2ffd371 draws nonselectable ReferenceLabelView labels directly through their
+existing TextKit manager, without NSTextView's second content drawing path.
+Glyph callbacks, shaping and truncation remain the real production pipeline.
+e2c5d3a adds a mounted/layer-backed test requiring actual glyph pixels and zero
+extra child paint layers. No layer class is allowlisted, and TextOutlineCapture
+still rejects unmeasured children/effects. Actual CI results are pending.
+
+The dc2d96a formal diagnostic report (41053483797) is downloaded at
+`S:\Codex\Outputs\Relic-native-visual\parity-dc2d96a\report\`.
+All 20 Mac captures completed, still zero accepted of 672 required cases:
+5039 native / 4480 valid reference / 4420 paired, missing60 extra619 text0
+geometry1030 style8333 state1346 kind0 region2 order654 layout2236 icon0
+extraction30381. Exceptions remain empty. Newer shared matcher direct pairing
+has zero state differences for group/private; it is not a new formal full run.
+The 21-case diagnostic extension and shared downloader test fix are merged.
+
+## 2026-10-30: shared contract stale assertion after bounded downloader
+
+Run 41055829988 job 124064563039 fails
+`test_capture_viewport_shards.CaptureViewportShardTests.test_unfiltered_macos_and_reference_paths_and_deadlines_stay_unchanged`:
+it still requires the removed YAML string `pattern: visual-windows-*`.
+The actual compare job now uses `download_comparison_inputs.py`. Please retain
+the coverage/deadline assertions and bind the artifact-path assertion to the
+new downloader's exhaustive manifest contract; do not waive a capture failure.
+
+d0d8277 release compiles; 205/206 tests pass. Its only failure remains the
+unlaunched unit host's SwiftUI AX tree (-25208). 1ffe201 finishes the actual
+AppKit launch lifecycle before querying, with the 100x24 assertion unchanged.
+The nonfinite editable measurement is now located at `$.text_bounds.x/y`.
+bf85998 explicitly constructs the per-line rectangle array and strengthens the
+test to require one finite actual line rectangle and no measurement failures.
+
+64863e7 gives Member Rename a padded native NSTextField: its entire 195x32.4
+input is interactive/accessible, text/editor use the 9/35 internal insets, and
+the microphone retains separate ownership. Initial focus preserves an empty
+selection, and Return during IME composition does not submit. These changes
+remain awaiting actual compiled/captured verification.
+
 ## 2026-10-30: recipient menu actual activation; diagnostic coverage request
 
 The archived 72f5571 full capture places the recipients popup at the window's

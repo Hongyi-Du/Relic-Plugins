@@ -37,6 +37,9 @@ struct MemberRenameField: NSViewRepresentable {
     }
     final class Control: NSTextField {
         private var initiallyFocused = false
+        // AppKit's standard text-field bezel has alignment outsets. This
+        // borderless control paints no bezel; its frame is the input box.
+        override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
         override func isAccessibilityElement() -> Bool { true }
         override func accessibilityFrame() -> NSRect {
             window.map { $0.convertToScreen(convert(bounds, to: nil)) } ?? .zero
@@ -48,6 +51,9 @@ struct MemberRenameField: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let window = self.window, self.isEnabled else { return }
                 window.makeFirstResponder(self)
+                // The reference focuses a populated input without selecting
+                // its contents; opening Rename must not highlight the name.
+                (self.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 0, length: 0))
             }
         }
     }
@@ -78,7 +84,10 @@ struct MemberRenameField: NSViewRepresentable {
             parent.text = value
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) { parent.save(); return true }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                guard !textView.hasMarkedText() else { return false }
+                parent.save(); return true
+            }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) { parent.cancel(); return true }
             return false
         }

@@ -18,6 +18,8 @@ import SwiftUI
         }
         let field = try XCTUnwrap(find(host))
         XCTAssertEqual(field.frame.width, 195)
+        XCTAssertEqual(field.alignmentRectInsets.left, 0)
+        XCTAssertEqual(field.alignmentRectInsets.right, 0)
         XCTAssertEqual(field.accessibilityIdentifier(), "relic-input/member-rename")
         XCTAssertEqual(field.accessibilityFrame(), window.convertToScreen(field.convert(field.bounds, to: nil)))
         let cell = try XCTUnwrap(field.cell as? MemberRenameField.PaddedCell)
@@ -28,6 +30,15 @@ import SwiftUI
         XCTAssertTrue(field.isAccessibilityElement())
         XCTAssertTrue(field.isEditable)
         XCTAssertEqual(field.stringValue, "Current name")
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
+        let receipts = FieldEditorCapture.receipts(in: window)
+        XCTAssertEqual(receipts.count, 1)
+        let receipt = try XCTUnwrap(receipts.first)
+        XCTAssertEqual(receipt["owner_identity"] as? String, String(describing: ObjectIdentifier(field)))
+        XCTAssertEqual(receipt["editor_identity"] as? String, String(describing: ObjectIdentifier(editor)))
+        XCTAssertEqual(receipt["first_responder_is_editor"] as? Bool, true)
+        XCTAssertEqual(receipt["owner_value"] as? String, receipt["editor_value"] as? String)
     }
 
     func testCommitCancelAndLengthLimitUseNativeTextFieldDelegate() {
@@ -46,5 +57,9 @@ import SwiftUI
         XCTAssertTrue(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
         XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveLeft(_:))))
         XCTAssertEqual(saves, 1); XCTAssertEqual(cancels, 1)
+        editor.setMarkedText("拼", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertEqual(saves, 1, "IME confirmation must not submit the rename")
     }
 }
