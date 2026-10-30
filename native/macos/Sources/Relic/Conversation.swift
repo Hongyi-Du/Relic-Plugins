@@ -218,6 +218,7 @@ struct ChatView: View {
 private struct StreamMetrics: Equatable {
     var bottom: CGFloat = 0
     var height: CGFloat = 0
+    var width: CGFloat = 0
 }
 private struct StreamBottom: PreferenceKey {
     static var defaultValue = StreamMetrics()
@@ -225,15 +226,14 @@ private struct StreamBottom: PreferenceKey {
         let next = nextValue()
         if next.bottom != 0 { value.bottom = next.bottom }
         if next.height != 0 { value.height = next.height }
+        if next.width != 0 { value.width = next.width }
     }
 }
 
 struct ConversationStream: View {
     @EnvironmentObject var m: Model
-    @State private var followsBottom = true
+    @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
-    @State private var lastHeight: CGFloat = 0
-    @State private var lastViewport: CGSize = .zero
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -244,7 +244,7 @@ struct ConversationStream: View {
                         // offscreen row heights and revises the document when
                         // accessibility subsequently materializes those rows.
                         VStack(alignment: .leading, spacing: 0) {
-                            if m.moreChat { Button(m.t("trace.load_older")) { followsBottom = false; m.run { try await m.loadOlder() } } }
+                            if m.moreChat { Button(m.t("trace.load_older")) { following.followsBottom = false; m.run { try await m.loadOlder() } } }
                             if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
                             ForEach(m.conversationRows(m.displayMessages)) { row in
                                 if let separator = row.separator { ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18).padding(.bottom, 8) }
@@ -257,22 +257,19 @@ struct ConversationStream: View {
                             // scrolled offscreen by scrollTo(anchor: .bottom).
                             Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
-                            .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height)) })
+                            .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
                     }.modifier(RecordedSurface(background: .clear, kind: "region"))
-                        .defaultScrollAnchor(.bottom).coordinateSpace(name: "conversation")
+                        .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
-                            // A digest, inspector resize, or late text measurement
-                            // changes geometry without the person scrolling away.
-                            let resized = abs(metrics.height - lastHeight) > 1 || viewport.size != lastViewport
-                            if resized && followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
-                            else if !resized { followsBottom = metrics.bottom <= viewport.size.height + 90 }
-                            lastHeight = metrics.height; lastViewport = viewport.size
+                            if following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size) {
+                                DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                            }
                         }
                 }
-                ComposerView { followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
-            }.onChange(of: m.selection) { initialLoad = true; followsBottom = true }
+                ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+            }.onChange(of: m.selection) { initialLoad = true; following.followsBottom = true }
                 .onChange(of: m.revision) {
-                    if initialLoad || followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
+                    if initialLoad || following.followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
                 }
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
         }
@@ -306,7 +303,7 @@ struct MessageView: View {
         else if item["type"].text == "acts" {
             ActivityGroup(item: item).padding(.leading, inThread ? 40 : 46).padding(.top, 4)
         } else {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: 0) {
                 if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
                 else { Spacer(minLength: 0) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
@@ -351,6 +348,7 @@ struct MessageView: View {
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity)
                     }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
+                    .padding(mine ? .trailing : .leading, 10)
                 if mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Avatar(member: "human", size: inThread ? 30 : 36) } }
                 else { Spacer(minLength: 0) }
             }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {

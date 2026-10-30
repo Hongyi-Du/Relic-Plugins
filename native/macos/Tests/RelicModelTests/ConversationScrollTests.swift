@@ -1,0 +1,31 @@
+import XCTest
+@testable import Relic
+
+final class ConversationScrollTests: XCTestCase {
+    func testInspectorReflowPreservesPositionButNewLiveContentCanFollow() {
+        var state = ConversationScrollFollowing()
+        let wide = CGSize(width: 824, height: 698), narrow = CGSize(width: 644, height: 698)
+        XCTAssertTrue(state.observe(content: CGSize(width: 784, height: 900), bottom: 900, viewport: wide))
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 900), bottom: 698, viewport: wide))
+        // The viewport can publish its width before the content's new height.
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 900), bottom: 698, viewport: narrow))
+        XCTAssertFalse(state.observe(content: CGSize(width: 604, height: 970), bottom: 768, viewport: narrow))
+        XCTAssertTrue(state.followsBottom, "70px from the bottom remains inside the reference's 120px follow threshold")
+        XCTAssertFalse(state.observe(content: CGSize(width: 604, height: 970), bottom: 768, viewport: narrow))
+        XCTAssertTrue(state.observe(content: CGSize(width: 604, height: 1010), bottom: 808, viewport: narrow),
+            "A new live result at the unchanged viewport can follow")
+    }
+
+    func testReadingOlderMessagesAndComposerResizeDoNotJumpToBottom() {
+        var state = ConversationScrollFollowing()
+        let viewport = CGSize(width: 824, height: 698)
+        _ = state.observe(content: CGSize(width: 784, height: 900), bottom: 900, viewport: viewport)
+        _ = state.observe(content: CGSize(width: 784, height: 900), bottom: 818, viewport: viewport)
+        XCTAssertFalse(state.followsBottom, "The reference uses a strict distance less than 120px")
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 1000), bottom: 918, viewport: viewport))
+        _ = state.observe(content: CGSize(width: 784, height: 1000), bottom: 698, viewport: viewport)
+        XCTAssertTrue(state.followsBottom)
+        XCTAssertFalse(state.observe(content: CGSize(width: 784, height: 1000), bottom: 698,
+            viewport: CGSize(width: 824, height: 620)), "Growing the composer preserves the current message position")
+    }
+}
