@@ -27,7 +27,12 @@ import AppKit
             let expected = enabled ? 27.0 / 255 : 1 - 0.35 + (27.0 / 255) * 0.35
             XCTAssertEqual(pixel[0] / 255, expected, accuracy: 2.0 / 255)
             XCTAssertEqual(pixel[1] / 255, expected, accuracy: 2.0 / 255)
-            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let composite = try XCTUnwrap(CaptureRaster.composite(width: 32, height: 32) { canvas in
+                NSColor.white.setFill(); canvas.fill(); bitmap.draw(in: canvas)
+            })
+            XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(composite, x: 7, y: 16)), pixel,
+                "Final native window composition must preserve the actual opaque source pixels")
+            let png = try XCTUnwrap(composite.representation(using: .png, properties: [:]))
             let decoded = try XCTUnwrap(NSBitmapImageRep(data: png))
             let encodedPixel = try XCTUnwrap(CaptureRaster.sRGBPixel(decoded, x: 7, y: 16))
             XCTAssertEqual(encodedPixel, pixel, "The actual PNG must preserve the measured sRGB bytes")

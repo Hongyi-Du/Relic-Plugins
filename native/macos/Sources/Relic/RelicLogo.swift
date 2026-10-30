@@ -21,13 +21,13 @@ final class NativeLogoView: NSView {
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .image }
     override func accessibilityLabel() -> String? { "" }
-    override func accessibilityIdentifier() -> String? { "relic-brand-image" }
+    override func accessibilityIdentifier() -> String { "relic-brand-image" }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext,
               let letter = try? VectorPath.parse(Self.letterPath) else { return }
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let gradient = CGGradient(colorSpace: space,
-            colorComponents: [46/255,44/255,41/255,1, 27/255,26/255,24/255,1], locations: [0,1], count: 2) else { return }
+            colorComponents: [CGFloat(46)/255,CGFloat(44)/255,CGFloat(41)/255,1, CGFloat(27)/255,CGFloat(26)/255,CGFloat(24)/255,1], locations: [0,1], count: 2) else { return }
         context.saveGState()
         context.addPath(CGPath(roundedRect: bounds, cornerWidth: 5, cornerHeight: 5, transform: nil)); context.clip()
         context.scaleBy(x: bounds.width / 64, y: bounds.height / 64)
@@ -37,7 +37,7 @@ final class NativeLogoView: NSView {
         context.restoreGState()
         context.setFillColor(CGColor(colorSpace: space, components: [1,1,1,1])!)
         context.addPath(letter); context.fillPath()
-        context.setFillColor(CGColor(colorSpace: space, components: [217/255,119/255,87/255,1])!)
+        context.setFillColor(CGColor(colorSpace: space, components: [CGFloat(217)/255,CGFloat(119)/255,CGFloat(87)/255,1])!)
         context.fillEllipse(in: CGRect(x: 43.3, y: 42.3, width: 8.4, height: 8.4))
         context.restoreGState()
         if VisualCapture.enabled {

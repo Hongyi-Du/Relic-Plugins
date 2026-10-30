@@ -10,11 +10,20 @@ import AppKit
         guard let allocation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         return prepare(allocation)
     }
-    static func canvas(width: Int, height: Int) -> NSBitmapImageRep? {
-        guard let allocation = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32) else { return nil }
-        return prepare(allocation)
+    static func composite(width: Int, height: Int, draw: (NSRect) -> Void) -> NSBitmapImageRep? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let destination = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
+        // A retagged NSBitmapImageRep can retain an immutable CGImage snapshot.
+        // Draw into an actual owned sRGB context, then snapshot only AFTER the
+        // native views have been composited. Never encode a pre-draw snapshot.
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: destination, flipped: false)
+        draw(NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        destination.flush()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = destination.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: image)
     }
     private static func prepare(_ allocation: NSBitmapImageRep) -> NSBitmapImageRep? {
         guard let bitmap = allocation.retagging(with: .sRGB), let bytes = bitmap.bitmapData else { return nil }
