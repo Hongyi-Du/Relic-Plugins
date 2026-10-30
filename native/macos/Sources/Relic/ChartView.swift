@@ -22,15 +22,18 @@ struct ChartView: View {
             HStack(spacing: 12) {
                 ReferenceLabel(m.t("chart.title"), size: 15.5, weight: 650).frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 2) {
-                    IconButton(title: m.t("chart.zoom_out"), icon: "minus", size: 16, height: 28) { zoomAt(zoom / 1.25) }.keyboardShortcut("-", modifiers: [])
+                    IconButton(title: m.t("chart.zoom_out"), icon: "minus", size: 16, height: 28, width: 28, radius: 8) { zoomAt(zoom / 1.25) }.keyboardShortcut("-", modifiers: [])
                     TextButton(String(Int((zoom * 100).rounded())) + "%", size: 12, weight: 400, color: RelicStyle.secondary, height: 28) { zoomAt(1) }.frame(width: 50).buttonStyle(QuietButtonStyle()).help(m.t("chart.zoom_actual"))
-                    IconButton(title: m.t("chart.zoom_in"), icon: "plus", size: 16, height: 28) { zoomAt(zoom * 1.25) }.keyboardShortcut("=", modifiers: [])
-                    IconButton(title: m.t("chart.fit"), icon: "fit", size: 16, height: 28) { autoFit = true; fitFocus = ""; fit() }.keyboardShortcut("0", modifiers: [])
+                    IconButton(title: m.t("chart.zoom_in"), icon: "plus", size: 16, height: 28, width: 28, radius: 8) { zoomAt(zoom * 1.25) }.keyboardShortcut("=", modifiers: [])
+                    IconButton(title: m.t("chart.fit"), icon: "fit", size: 16, height: 28, width: 28, radius: 8) { autoFit = true; fitFocus = ""; fit() }.keyboardShortcut("0", modifiers: [])
                 }
                 chartToggle("chart.show_closed", value: $showEnded)
                 chartToggle("chart.show_links", value: $showShared)
             }.padding(.leading, 16).padding(.trailing, 54).padding(.vertical, 12).padding(.bottom, 1)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
+                .overlay(alignment: .topTrailing) {
+                    IconButton(title: m.t("common.close"), icon: "x", radius: 8) { m.sheet = nil }.padding(.top, 9).padding(.trailing, 12)
+                }
             ChartLegend()
             let graph = layout
             ZStack(alignment: .topLeading) {
