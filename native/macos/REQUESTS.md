@@ -1,5 +1,16 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+The macOS runner evidence reports a 768px screen while the native content is
+1440x900; the real pointer cannot address every control when the window exceeds
+that display. macOS CI now records all actual CGDisplay modes, selects an
+advertised desktop mode large enough for the largest case plus native window
+frame/pointer margin, and restores the original mode at capture completion.
+`native-display.json` retains before/request/result/after/restore receipts. There
+is no image/window scaling or matrix-size change. If no adequate mode is exposed,
+the record says so and existing interaction/state failures remain; please provide
+an adequately sized CI display through the shared runner setup if required.
+No display API or application is run on the person's local Windows machine.
+
 The 52-state / 624-case matrix and 16-case diagnostic from `native-message-capture.md`
 are consumed. macOS toast expiry now has a production ContinuousClock deadline;
 capture pauses that same task with measured remaining duration and resumes it in

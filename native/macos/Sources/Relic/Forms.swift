@@ -7,6 +7,7 @@ struct SaveButton: View {
     @State private var error = ""
     var labelKey = "common.save"
     var reserveErrorSpace = false
+    var available = true
     let action: () async throws -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -16,7 +17,7 @@ struct SaveButton: View {
                 saving = true
                 let sheet = m.sheet
                 Task { defer { saving = false }; do { try await action(); if m.sheet == sheet { m.sheet = nil } } catch { self.error = error.localizedDescription } }
-            }.buttonStyle(ReferenceButtonStyle(primary: true)).disabled(saving).keyboardShortcut(.defaultAction) }
+            }.buttonStyle(ReferenceButtonStyle(primary: true)).disabled(saving || !available).keyboardShortcut(.defaultAction) }
         }
     }
 }
