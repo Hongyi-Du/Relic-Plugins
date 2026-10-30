@@ -1,4 +1,39 @@
+## 2026-10-30: native right-pane scroll origin has an actual AppKit caller
+
+The successful macOS capture in `41040938552` (72f5571, 19/19) retains
+`zh-CN-light-1440x900-group.native-scroll.json`. Its right pane changes from
+clip origin y=0 to y=7 during actual NSTextView frame assignment:
+`setFrameSize:` -> `_setFrameSize:forceScroll:` ->
+`_centeredScrollRectToVisible:forceCenter:` -> `scrollRectToVisible:` ->
+`NSClipView scrollToPoint:`. The first responder is CanvasFocusView, not the
+read-only passage. Insets are zero. This is an unwanted dormant-selection
+reveal during layout, not a seven-pixel padding requirement.
+
+Both production read-only text subclasses now suppress automatic reveal only
+while assigning their frame. Explicit scrolling and selection outside frame
+assignment keep the normal NSTextView behavior. A native regression resizes
+both selectable passages and static labels at several existing scroll offsets,
+preserves selection, and verifies explicit scrolling still works. New CI must
+verify the implementation and capture the right pane again; no measured offset
+is overwritten and no tolerance is changed.
+
 ## 2026-10-30: text vertical extent now comes from actual font draw metrics
+
+Follow-up `63aecc0`: `72f5571` release compiled, but its new test failed in the
+metric projection. `XCTUnwrap(manager.lastDraw)` had succeeded; the failure is
+not proof that the actual draw receipt was missing. Live callbacks retain
+CGFloat font metrics/positions whereas decoded JSON contains Double values.
+The projection now reads both through NSNumber, and its test unwraps before
+indexing so a missing measurement reports its actual reason without a trap.
+The actual CI result remains pending. Do not describe this as accepted geometry.
+
+Full run `41029422171` compare job `124010396293` is marked failure, but its
+step list ends inside the gate with uploads still pending. GitHub job logs
+return BlobNotFound and the artifact list has no `Relic-native-element-parity`.
+Its 660 native captures are retained in the four shard artifacts; en-US/light
+capture/upload succeeded before the later browser-paint diagnostic was cancelled.
+Please retain the next full report with the already-merged storage fix; there is
+no newly downloadable complete report from this run to present as acceptance.
 
 The complete `5d97933` 19-case diagnostic capture has zero direct text pairing
 mismatches, but is not full-matrix acceptance. Its group code span exposes a
