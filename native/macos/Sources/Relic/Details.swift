@@ -16,7 +16,8 @@ struct DetailsView: View {
                             .buttonStyle(QuietButtonStyle(selected: m.detailTab == key, selectionApplicable: true, selectionColor: RelicStyle.card, selectionShadows: SurfaceShadow.small)).accessibilityAddTraits(m.detailTab == key ? .isSelected : [])
                     }
                 }.fixedSize(horizontal: true, vertical: false).padding(2).modifier(RecordedSurface(background: RelicStyle.hover, radius: 9, kind: "card"))
-            }.padding(.leading, 16).padding(.trailing, 58).frame(height: 57)
+                IconButton(title: m.t("common.close"), icon: "x", radius: 8) { m.sheet = nil }
+            }.padding(.horizontal, 16).frame(height: 57)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
             switch m.detailTab {
             case "tasks":

@@ -41,7 +41,7 @@ struct DialogLayer: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .modifier(RecordedSurface(background: RelicStyle.card, border: sheet == .card ? RelicStyle.line : .clear, borderWidth: sheet == .card ? 1 : 0, radius: 16, kind: sheet == .card ? "card" : "region", shadows: SurfaceShadow.dialog))
         .overlay(alignment: .topTrailing) {
-            if [.settings, .details, .chart].contains(sheet) {
+            if sheet == .settings {
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }.padding(14)
             }
         }.measuredRegion("dialog", createsAccessibilityContainer: false).accessibilityElement(children: .contain)

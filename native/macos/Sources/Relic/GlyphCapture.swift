@@ -145,6 +145,7 @@ class NativeGlyphLayoutManager: NSLayoutManager {
                 "font_glyph_bounds": glyphBounds.map(box), "text_matrix": transform(textMatrix), "context_ctm": transform(context.ctm),
                 "clip_user_space": box(context.boundingBoxOfClipPath),
                 "actual_font": ["postscript_name": font.fontName, "family_name": font.familyName as Any? ?? NSNull(), "size": font.pointSize,
+                    "weight_measurement": NativeFontWeight.capture(font as CTFont),
                     "variations": variations as Any? ?? NSNull(), "actual_variations": variations as Any? ?? NSNull(),
                     "optical_size_attribute": CTFontCopyAttribute(font as CTFont, kCTFontOpticalSizeAttribute).map { String(describing: $0) } as Any? ?? NSNull(),
                     "ascent": CTFontGetAscent(font as CTFont), "descent": CTFontGetDescent(font as CTFont), "leading": CTFontGetLeading(font as CTFont)],
