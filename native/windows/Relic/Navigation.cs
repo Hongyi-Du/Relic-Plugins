@@ -236,7 +236,11 @@ public sealed partial class MainWindow
         // CDP's actual labelwrapped name is the microphone name while voice is enabled.
         AutomationProperties.SetName(search, T(preferences.Text("voice") != "off" ? "common.voice_input" : "page.search"));
         AutomationProperties.SetName(titlebarRegion, T("page.titlebar")); AutomationProperties.SetName(treeRegion, T("page.tree"));
-        AutomationProperties.SetName(chatRegion, T("page.chat")); AutomationProperties.SetName(detail, T("page.panel"));
+        AutomationProperties.SetName(chatRegion, T("page.chat"));
+        // The side-panel region includes its tabs, close action and scrollable
+        // content. Naming only the inner StackPanel described a different region
+        // whose extent continued below the viewport and excluded the tabs.
+        AutomationProperties.SetName(inspectorSurface, T("page.panel"));
     }
     private async Task Edit(string action)
     {

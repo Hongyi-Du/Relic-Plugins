@@ -12,7 +12,8 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
-    private readonly Border sidebarSurface = new(), inspectorSurface = new(), composerSurface = new();
+    private readonly Border sidebarSurface = new(), composerSurface = new();
+    private readonly NativeRegionGrid inspectorSurface = new();
     private readonly Grid inspector = new(), paneHeader = new(), quoteRow = new();
     private Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase? transientFlyout;
     private void ShowPopover(FrameworkElement content, FrameworkElement anchor, Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode placement)

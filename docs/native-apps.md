@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (actual side-panel region): Windows had attached the
+localized Side panel name to its inner scrolling StackPanel, excluding the tabs
+and extending below the viewport. The reference names the full aside. The actual
+outer pane now uses the existing NativeRegionGrid peer and owns that localized
+name; its inner content has no duplicate region name. Border, width and tab/content
+layout are retained. This fixes production accessibility ownership rather than
+teaching the matcher to pair the wrong region by its expected rectangle.
+
 Changes for the clients (macOS actual hosted-render regression): native-macos
 reports that 0d3d681's actual smoke PNGs have blank ReferenceLabel text and null
 glyph receipts. It restores the prior production draw path in f538c9d and keeps

@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
         composerRegion.Children.Add(composerShadow); Grid.SetRow(composerRegion, 3); chat.Children.Add(composerRegion);
         Grid.SetColumn(chat, 1); columns.Children.Add(chat);
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
-        var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Child = inspector; inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
+        var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Children.Add(inspector); inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
         root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; emptyConversation.Height = root.ActualHeight * .7; LayoutColumns(); };
         root.GotFocus += (_, e) =>
