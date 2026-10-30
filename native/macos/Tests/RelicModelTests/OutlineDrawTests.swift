@@ -35,6 +35,11 @@ import SwiftUI
     func testOwnedLayerCandidateSurvivesTheActualSwiftUIHostingAndCapturePath() throws {
         _ = NSApplication.shared
         var images: [Data] = []
+        var observations: [[String: Any]] = []
+        func label(in view: NSView) -> ReferenceLabelView? {
+            if let label = view as? ReferenceLabelView { return label }
+            return view.subviews.lazy.compactMap { label(in: $0) }.first
+        }
         for owned in [false, true] {
             let root = ReferenceLabel("Relic → 组织", size: 14, ownedLayer: owned)
                 .frame(width: 180, height: 32)
@@ -42,10 +47,18 @@ import SwiftUI
             host.frame = NSRect(x: 0, y: 0, width: 180, height: 32)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentView = host; window.orderFront(nil)
+            host.layoutSubtreeIfNeeded()
+            let native = try XCTUnwrap(label(in: host))
+            let manager = try XCTUnwrap(native.layoutManager as? NativeGlyphLayoutManager)
+            manager.recordDraws = true; native.needsDisplay = true
             host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); CATransaction.flush()
             let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            let fonts = manager.fontEvidence(for: NSRange(location: 0, length: (native.string as NSString).length), in: native)
+            observations.append(["owned_layer": owned, "backing": native.backingPaintObservation(),
+                "glyph_status": fonts["status"] ?? NSNull(), "glyph_reason": fonts["reason"] ?? NSNull()])
+            XCTAssertEqual(fonts["status"] as? String, "measured-current-draw", "A blank host background is not proof of painted label glyphs")
             var painted = 0
             for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
                 if (CaptureRaster.sRGBPixel(bitmap, x: x, y: y)?[3] ?? 0) > 0 { painted += 1 }
@@ -59,6 +72,7 @@ import SwiftUI
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try images[0].write(to: directory.appendingPathComponent("label-host-draw.png"))
             try images[1].write(to: directory.appendingPathComponent("label-host-layer.png"))
+            try JSONSerialization.data(withJSONObject: observations, options: [.sortedKeys]).write(to: directory.appendingPathComponent("label-host-state.json"))
         }
         XCTAssertEqual(images[0], images[1], "The candidate must preserve every hosted label pixel")
     }
