@@ -58,9 +58,14 @@ struct NativeFormField<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0)
-            content()
+            content().environment(\.nativeControlColor, RelicStyle.secondary)
         }
     }
+}
+
+private struct NativeControlColorKey: EnvironmentKey { static var defaultValue = RelicStyle.ink }
+extension EnvironmentValues {
+    var nativeControlColor: Color { get { self[NativeControlColorKey.self] } set { self[NativeControlColorKey.self] = newValue } }
 }
 
 struct NativeTextArea: View {

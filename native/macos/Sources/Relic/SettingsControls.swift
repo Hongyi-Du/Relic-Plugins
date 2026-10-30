@@ -102,6 +102,7 @@ struct SettingsSwatch: View {
 }
 
 struct ReferenceInput: View {
+    @Environment(\.nativeControlColor) private var textColor
     let placeholder: String
     @Binding var text: String
     var commit: () -> Void = {}
@@ -117,7 +118,7 @@ struct ReferenceInput: View {
     @EnvironmentObject var m: Model
     private var inputIdentity: String { controlID.isEmpty ? identity : "relic-input/" + controlID }
     var body: some View {
-        TextField(placeholder, text: $text).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400))
+        TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(monospaced ? Font(RelicStyle.monoFont(pointSize)) : RelicStyle.font(pointSize, weight: 400)).foregroundStyle(textColor)
             .accessibilityIdentifier(inputIdentity)
             .focused($focused).onSubmit { focused = false }
             .onKeyPress(.downArrow) {
@@ -134,7 +135,7 @@ struct ReferenceInput: View {
             .onChange(of: focused) { old, new in if old && !new { closeSuggestions(); commit() } }
             .onChange(of: text) { if m.inputSuggestions?.id == inputIdentity { openSuggestions() } }
             .padding(.leading, 10).padding(.trailing, !voice || m.preferences["voice"].text == "off" ? 10 : 35).frame(height: height)
-            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.accent : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
+            .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: inputIdentity))
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
             .background(GeometryReader { proxy in Color.clear.preference(key: InputSuggestionAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
             .onPreferenceChange(InputSuggestionAnchor.self) { suggestionAnchor = $0 }

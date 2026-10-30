@@ -4,6 +4,7 @@ import SwiftUI
 // A real AppKit popup owns its selected value, keyboard navigation and menu.
 // Its accessibility value is the current option, distinct from the field label.
 struct ReferenceSelect: NSViewRepresentable {
+    @Environment(\.nativeControlColor) private var textColor
     let title: String
     @Binding var selection: String
     let options: [(String, String)]
@@ -24,6 +25,7 @@ struct ReferenceSelect: NSViewRepresentable {
             for (index, option) in options.enumerated() { view.addItem(withTitle: option.1); view.lastItem?.tag = index }
         }
         if let index = options.firstIndex(where: { $0.0 == selection }) { view.selectItem(at: index) }
+        view.attributedTitle = NSAttributedString(string: view.title, attributes: [.font: RelicStyle.nativeFont(pointSize, weight: 400), .foregroundColor: NSColor(textColor), .tracking: 0])
         view.setAccessibilityLabel(title); view.setAccessibilityIdentifier("relic-dropdown/" + title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {

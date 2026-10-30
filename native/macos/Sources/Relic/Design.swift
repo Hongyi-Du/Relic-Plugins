@@ -18,6 +18,8 @@ enum RelicStyle {
     static let secondary = color(0x5A5853, 0xB8B5AE)
     static let muted = color(0x8F8C86, 0x8A877F)
     static let faint = color(0xB8B5AF, 0x5F5D58)
+    // Chromium's native placeholder paint is #757575 in both reference themes.
+    static let placeholder = color(0x757575, 0x757575)
     static let line = color(0xECEAE6, 0x2C2B29)
     static let border = color(0xDEDBD4, 0x3A3936)
     static let bubble = color(0xF4F3F0, 0x2A2A28)

@@ -4,8 +4,9 @@ import XCTest
 @MainActor final class ToastTests: XCTestCase {
     func testRealExpiryClockPausesAndResumesTheSameToast() async throws {
         var expired = 0
+        let expiry = expectation(description: "The resumed production timer expires")
         let toast = NativeToastMessage(text: "Actual timer", seconds: 0.08)
-        toast.start { expired += 1 }
+        toast.start { expired += 1; expiry.fulfill() }
         let receipt = try toast.pauseTimer()
         let paused = try XCTUnwrap(receipt["after"] as? [String: Any])
         let remaining = try XCTUnwrap(paused["remaining_ms"] as? Double)
@@ -16,7 +17,10 @@ import XCTest
         XCTAssertEqual(toast.timerSnapshot()["instance"] as? String, paused["instance"] as? String)
         let resumed = toast.resumeTimer()
         XCTAssertEqual((resumed["after"] as? [String: Any])?["state"] as? String, "running")
-        try await Task.sleep(for: .milliseconds(160))
+        // Wait for the real callback. A second sleep can resume before the
+        // timer's main-actor continuation on a busy runner even after both
+        // deadlines have passed; it does not establish that expiry is broken.
+        await fulfillment(of: [expiry], timeout: 2)
         XCTAssertEqual(expired, 1); XCTAssertEqual(toast.timerState, "expired")
     }
     func testRemovedToastCancelsItsActualExpiryTask() async throws {
