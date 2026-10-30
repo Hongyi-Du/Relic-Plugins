@@ -6,7 +6,9 @@ permissions:
   contents: read
 concurrency:
   group: native-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  # Preserve an active run, including a Mac job waiting for a runner. GitHub
+  # replaces only the pending run when a newer push arrives.
+  cancel-in-progress: false
 jobs:
   element-contracts:
     uses: ./.github/workflows/native-element-checks.yml

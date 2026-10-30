@@ -1,5 +1,11 @@
 # Native Relic App contract
 
+Changes for the clients (native build scheduling): read the macOS request to
+preserve queued build feedback. The native-apps workflow now keeps its active
+per-branch run, including a queued Mac job, while GitHub replaces the next
+pending run with the newest push. Every build, test and parity requirement is
+unchanged, and the final head still needs its own completed checks.
+
 Changes for the clients (startup navigation history): ca8d997's back arrow was
 actually disabled on Windows while the reference could go back; both opacity
 chains were 1, and both implementations already used the same disabled color.
