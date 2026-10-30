@@ -4,6 +4,49 @@ import SwiftUI
 @testable import Relic
 
 @MainActor final class NativeSurfaceFillTests: XCTestCase {
+    func testOwnedFillImageRetainsTheHostedFillAndShadowPixels() throws {
+        _ = NSApplication.shared
+        func fill(in view: NSView) -> NativeSurfaceFillView? {
+            if let fill = view as? NativeSurfaceFillView { return fill }
+            return view.subviews.lazy.compactMap { fill(in: $0) }.first
+        }
+        let fixtures: [(Color, [CGFloat])] = [(.white, [16,16,16,16]),
+            (Color(red: 0.12, green: 0.11, blue: 0.10), [8,16,4,12]), (.black.opacity(0.32), [0,0,0,0])]
+        for (index, fixture) in fixtures.enumerated() {
+            var images: [Data] = []
+            for owned in [false, true] {
+                let root = NativeSurfaceFill(color: fixture.0, corners: fixture.1, owner: nil, ownedLayer: owned)
+                    .frame(width: 160, height: 84).shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6).padding(36)
+                let host = NSHostingView(rootView: root)
+                host.frame = NSRect(x: 0, y: 0, width: 232, height: 156)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+                defer { window.orderOut(nil); window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                let native = try XCTUnwrap(fill(in: host)); native.recordDraws = true
+                native.needsDisplay = true; native.layer?.setNeedsDisplay()
+                host.displayIfNeeded(); CATransaction.flush()
+                let bitmap = try XCTUnwrap(CaptureRaster.forView(host)); host.cacheDisplay(in: host.bounds, to: bitmap)
+                XCTAssertGreaterThan(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))[3], 0)
+                XCTAssertNotNil(native.observation()["current_draw"] as? [String: Any])
+                if owned {
+                    XCTAssertEqual(native.backingPaintObservation()["current"] as? Bool, true)
+                    XCTAssertTrue((native.layer?.sublayers ?? []).isEmpty)
+                    native.configure(color: .red, corners: fixture.1, owner: nil, region: "window")
+                    XCTAssertEqual(native.backingPaintObservation()["current"] as? Bool, false)
+                }
+                images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            }
+            if images[0] != images[1] {
+                let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try images[0].write(to: directory.appendingPathComponent("fill-layer-\(index)-original.png"))
+                try images[1].write(to: directory.appendingPathComponent("fill-layer-\(index)-owned.png"))
+            }
+            XCTAssertEqual(images[0], images[1], "The owned fill image must preserve the native host's fill and surrounding shadow")
+        }
+    }
     func testActualNativeFillRetainsItsCurrentPathColorAndWindowBinding() throws {
         _ = NSApplication.shared
         let view = NativeSurfaceFillView(frame: NSRect(x: 0, y: 0, width: 160, height: 84))

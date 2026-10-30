@@ -15,6 +15,10 @@ import AppKit
             "absence_proven": false, "presentation_identity_proven": false]
         if draw == nil { errors.append("No current mounted source-bound icon stroke") }
         if view.focusRingType != .none || !view.subviews.isEmpty { errors.append("Additional native focus or child paint") }
+        if view.usesOwnedBackingImage {
+            let backing = view.backingPaintObservation(); evidence["native_backing_image"] = backing
+            if backing["current"] as? Bool != true { errors.append("The icon's current native image is not bound to its actual path draw") }
+        }
         func inspectLayer(_ layer: CALayer) -> [String: Any] {
             let children = layer.sublayers ?? []
             let animations = layer.animationKeys() ?? []

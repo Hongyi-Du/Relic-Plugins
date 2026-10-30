@@ -429,7 +429,7 @@ import CoreText
                     projected["unclipped_text_bounds"] = textLines.map(box)
                     projected["text_bounds"] = visibleLines.map(box)
                     projected["text_clip"] = ["source": "actual NSView.visibleRect, ancestor clip and content viewport intersection",
-                        "bounds": activeClip.isNull ? NSNull() : box(activeClip), "occlusion_proven": false]
+                        "bounds": activeClip.isNull ? NSNull() : box(activeClip) as Any, "occlusion_proven": false]
                     var visibleLayout = run["layout"] as! [String: Any]
                     visibleLayout["line_count"] = visibleLines.count
                     projected["layout"] = visibleLayout
