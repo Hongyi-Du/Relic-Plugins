@@ -213,7 +213,7 @@ struct FilePreview: View {
             IconButton(title: m.t("file.copy_path"), icon: "copy", size: 15) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(m.file["path"].text, forType: .string) }
             IconButton(title: m.t("file.open_default"), icon: "open", size: 15) { m.run { try await m.post("/api/fs/open", ["path": m.file["path"].text]) } }
         }.padding(.leading, 14).padding(.trailing, 8).padding(.top, 10).padding(.bottom, 10)
-            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+            .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
     }
     @ViewBuilder private var contents: some View {
         if !m.file["error"].text.isEmpty { OverviewBlock { ReferenceLabel(m.t("file.open_failed", ["error": m.file["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) } }

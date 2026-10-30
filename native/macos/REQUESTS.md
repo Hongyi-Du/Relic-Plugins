@@ -1,5 +1,24 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Please inspect two deterministic pairing errors in the actual 15581b1 report
+(`41066609753`, downloaded `parity-15581b1/report`). No geometry tolerance or
+exception change is requested:
+* `zh-CN-light-1440x900-recipients`: reference `dom-497` and native
+  `surface-paint/274` are both empty-text/empty-name menu avatars, order3,
+  bounds (358,630.609375,20,20) and (358,630,20,20). They are reported as
+  missing+extra instead of paired. Their actual parents are the first recipient
+  row. Preserve all their style/state/extraction failures after pairing.
+* `zh-CN-light-1440x900-chart`: all nine dialog cards exist in the same card
+  reading order, including the header, two switch tracks, legend and its four
+  samples, and canvas. Yet `dom-495` (header) pairs with `window/3/0/5`
+  (first switch track), and every later card shifts by one. `dom-523` (18x12
+  legend sample) pairs with `window/3/3` (1400x755 canvas); actual canvas
+  `dom-527` is called missing and the native header `window/3/0` extra.
+  Please retain established semantic-parent/anchor boundaries when aligning
+  anonymous nodes, so equal-cost leftover sequences cannot shift an entire
+  hierarchy. The actual canvas geometry is independently recorded, not a reason
+  to waive its unknown style evidence or change the comparison tolerance.
+
 The 15581b1 copies capture contains two actual accessibility regions at the
 same panel bounds: a named SwiftUI AXGroup and its unnamed NSScrollView.
 Content-sized dialogs now give the real NSScrollView the panel identifier and

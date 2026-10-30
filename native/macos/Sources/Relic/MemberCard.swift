@@ -26,7 +26,7 @@ struct MemberCard: View {
                 VStack(alignment: .leading, spacing: 7) {
                     information
                 }.padding(.top, 13)
-                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region"))
+                    .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card"))
                     .padding(.vertical, 12.5)
             actions
         }.font(RelicStyle.font(12.5, weight: 400)).frame(maxWidth: .infinity, alignment: .topLeading)
@@ -149,7 +149,7 @@ struct MemberCard: View {
                 Button { m.sheet = nil; m.run { try await m.select(m.organization, who) } } label: { ReferenceLabel(m.t("card.message"), size: 13, weight: 600, color: RelicStyle.background).frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle(primary: true))
                 Button { m.openDetails("trace", member: who) } label: { ReferenceLabel(m.t("common.context_trace"), size: 13, weight: 600).frame(maxWidth: .infinity) }
             }.buttonStyle(ReferenceButtonStyle())
-            if hasSeatActions { FlowLayout(spacing: 6) { seatActions }.padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "region")).font(RelicStyle.font(12, weight: 600)) }
+            if hasSeatActions { FlowLayout(spacing: 6) { seatActions }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 11).modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "card")).font(RelicStyle.font(12, weight: 600)) }
         }
     }
     private var hasSeatActions: Bool { own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) || hosted || card["harness"].text == "chatgpt" || !card["session"].text.isEmpty }
