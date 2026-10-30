@@ -483,7 +483,8 @@ import CoreText
                 "style": ["fontSize": NSNull(), "fontWeight": NSNull(), "fontFamily": NSNull(), "color": sample["foreground"]!,
                           "backgroundColor": [0,0,0,0], "borderColor": [0,0,0,0], "borderWidth": 0, "borderRadius": 0,
                           "border_widths": [0,0,0,0], "border_styles": ["none","none","none","none"], "border_colors": Array(repeating: [0,0,0,0], count: 4), "corner_radii": [0,0,0,0],
-                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "stroke_dash": [], "stroke_dash_offset": 0, "stroke_linecap": "round", "stroke_linejoin": "round", "stroke_width": sample["stroke_width"]!],
+                          "opacity": sample["opacity"]!, "background_image": "none", "shadow": [], "outline": sample["outline"]!,
+                          "stroke_dash": [], "stroke_dash_offset": 0, "stroke_linecap": "round", "stroke_linejoin": "round", "stroke_width": sample["stroke_width"]!],
                 "state": ["enabled": NSNull(), "selected": NSNull(), "checked": NSNull(), "expanded": NSNull(), "focused": NSNull()],
                 "icon": sample["icon"]!, "pixelSamples": samples(visible, bitmap: bitmap)]
             raw.append(node)
@@ -584,6 +585,10 @@ import CoreText
             // Only a retained TextKit span can supply its own absence evidence.
             if actualStyle["outline"] as? String == "none", let ownText = (node["projection"] as? [String: Any])?["native_text_outline"] {
                 evidence["outline"] = ownText
+            }
+            if kind == "icon", actualStyle["outline"] as? String == "none",
+               let ownIcon = (node["projection"] as? [String: Any])?["native_icon_outline"] {
+                evidence["outline"] = ownIcon
             }
             let labelEvidence = node["projection"] as? [String: Any]
                 ?? (node["owned_text_evidence"] as? [String: Any])?["projection"] as? [String: Any]

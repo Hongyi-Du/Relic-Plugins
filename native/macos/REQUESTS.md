@@ -21,6 +21,14 @@ contribution and complete layer/outline obligations remain independent. Please
 consume these actual receipts in shared validation without treating them as
 compositor equivalence. Pixel/selection/draw-invalidation regressions await CI.
 
+The exact final icon view also retains `native_icon_outline`: its current draw,
+focus ring, native children, model/presentation layer border, shadow, child layers,
+animations, masks and filters. Only a current icon with no additional own paint
+projects its own `outline: none`; no containing button receives that receipt.
+Unknown presentation/child paint stays unknown. Text sublayer diagnostics now
+retain actual class, delegate/content type and paint/effect fields recursively
+(bounded depth, explicit truncation), with `drawing_duty_proven: false` throughout.
+
 Also reserved the card's real 1px border inside its 340px box: content padding
 is now 18+1, making its definition column 238px instead of 240px. The measured
 model-note wrap difference is caused by this two-pixel width: the second `Relic`

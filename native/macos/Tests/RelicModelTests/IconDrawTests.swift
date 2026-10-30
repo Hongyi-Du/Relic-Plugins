@@ -24,6 +24,7 @@ import AppKit
         XCTAssertGreaterThan(center[3], 250)
         XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 0, y: 0))[3], 0)
         XCTAssertNil(view.currentDraw(), "An isolated bitmap does not prove a current mounted-window draw")
+        XCTAssertTrue(IconOutlineCapture.inspect(view).paint is NSNull)
         XCTAssertEqual(draw["presentation_identity_proven"] as? Bool, false)
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draw))
     }
@@ -40,6 +41,18 @@ import AppKit
         }
         try draw()
         XCTAssertNotNil(view.currentDraw())
+        let outline = IconOutlineCapture.inspect(view)
+        let nativeChildren = view.layer?.sublayers?.count ?? 0
+        let presentedChildren = view.layer?.presentation()?.sublayers?.count ?? 0
+        if nativeChildren == 0 && presentedChildren == 0 && (view.layer == nil || view.layer?.presentation() != nil) {
+            XCTAssertEqual(outline.paint as? String, "none", String(describing: outline.evidence))
+        } else { XCTAssertTrue(outline.paint is NSNull) }
+        view.focusRingType = .exterior
+        XCTAssertTrue(IconOutlineCapture.inspect(view).paint is NSNull)
+        view.focusRingType = .none
+        let child = NSView(frame: .zero); view.addSubview(child)
+        XCTAssertTrue(IconOutlineCapture.inspect(view).paint is NSNull)
+        child.removeFromSuperview()
         let first = try XCTUnwrap(view.lastDraw?["sequence"] as? Int)
         view.configure(name: "plus", size: 24, color: .systemRed)
         XCTAssertNil(view.currentDraw())
