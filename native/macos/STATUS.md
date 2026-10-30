@@ -29,7 +29,7 @@ SwiftUI 中开关的实际点击框为 36×22，卡片的 AXGroup 类型转换�
 `e5eae1d` 同时修复消息行多出的 10 px 间距及右栏宽度变化时的强制滚动；
 说明文字测试的输入宽度现按参考实际 297 px 内容框计算，原宽度断言及容差保留。
 
-最新已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
+此前已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
 整个 Native apps 工作流通过；macOS release 编译和 **151 个测试通过**。
 真实原生开关的 AX 角色、32×18 点击范围、勾选和禁用行为，以及富文本逐段 AX 读取均已通过。
 后续卡片范围辅助函数曾出现主线程隔离编译错误，已在 `666b2bf` 修复；
@@ -39,7 +39,7 @@ SwiftUI 中开关的实际点击框为 36×22，卡片的 AXGroup 类型转换�
 四个 macOS 语言／主题产物均已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`。
 每份完成记录都是 165/165、`errors: []`，共 660 个 PNG 和 660 个元素文件。
 三个窗口尺寸的进程全部完成；英文浅色任务后续的浏览器绘制诊断失败，
-原生捕获及上传已成功。共享比较报告仍在生成，不能据此计为逐元素通过。
+原生捕获及上传已成功。共享比较报告已失败，完整计数见上表。
 
 最新诊断 [41009151448 / bbe04a3](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41009151448)
 完成全部 19 个 macOS case；成员卡重命名、Copy 均有实际动作和结果回执。

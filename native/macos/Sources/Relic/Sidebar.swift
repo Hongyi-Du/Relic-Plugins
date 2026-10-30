@@ -65,6 +65,7 @@ struct OrgTree: View {
     private var active: Bool { m.organization == id }
     private var owner: String { "relic-org/" + id }
     private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
+    private var expanded: Bool { (active || !children.isEmpty) && !folded }
     private var children: [Node] { m.organizations.filter { $0["parent"].text == id && !ancestors.union([id]).contains($0["id"].text) } }
     private var query: String { m.search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var orgHit: Bool { query.isEmpty || [node["name"].text, node["purpose"].text].contains { $0.localizedCaseInsensitiveContains(query) } }
@@ -80,7 +81,7 @@ struct OrgTree: View {
                 } label: {
                     HStack(spacing: 8) {
                         ReferenceIcon(name: "chev", size: 14, color: RelicStyle.muted, owner: owner)
-                            .rotationEffect(.degrees((active || !children.isEmpty) && !folded ? 90 : 0))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
                             .highPriorityGesture(TapGesture().onEnded { if active || !children.isEmpty { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
                         ReferenceLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144, lines: 2, owner: owner).frame(maxWidth: .infinity, alignment: .leading)
@@ -88,7 +89,7 @@ struct OrgTree: View {
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
                         .environment(\.nativeElementParent, owner)
-                }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: active || !children.isEmpty ? !folded : nil)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
+                }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
                 if active && !folded {
