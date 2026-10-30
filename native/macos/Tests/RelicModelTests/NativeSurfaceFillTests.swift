@@ -28,21 +28,24 @@ import SwiftUI
 
     func testNativeFillCandidatePreservesTheExistingSurfaceBitmap() throws {
         _ = NSApplication.shared
-        for (index, radius) in [CGFloat(0), 8, 16].enumerated() {
+        let fixtures: [(radius: CGFloat, shadows: [SurfaceShadow])] = [(0, []), (8, []), (16, []), (16, SurfaceShadow.dialog)]
+        for (index, fixture) in fixtures.enumerated() {
             var images: [Data] = []
+            let margin: CGFloat = fixture.shadows.isEmpty ? 0 : 56
             for native in [false, true] {
                 let root = Color.clear.frame(width: 160, height: 84)
                     .modifier(RecordedSurface(background: Color(red: 0.93, green: 0.91, blue: 0.88),
-                        border: .black.opacity(0.2), borderWidth: 1, radius: radius, nativeFill: native))
+                        border: .black.opacity(0.2), borderWidth: 1, radius: fixture.radius,
+                        shadows: fixture.shadows, nativeFill: native)).padding(margin)
                 let host = NSHostingView(rootView: root)
-                host.frame = NSRect(x: 0, y: 0, width: 160, height: 84)
+                host.frame = NSRect(x: 0, y: 0, width: 160 + 2 * margin, height: 84 + 2 * margin)
                 let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
                 window.contentView = host; window.orderFront(nil)
                 host.layoutSubtreeIfNeeded(); host.display(); CATransaction.flush()
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(host))
                 host.cacheDisplay(in: host.bounds, to: bitmap)
                 images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
-                XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: 80, y: 42))[3], 255)
+                XCTAssertEqual(try XCTUnwrap(CaptureRaster.sRGBPixel(bitmap, x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))[3], 255)
                 window.orderOut(nil)
             }
             if images[0] != images[1] {
