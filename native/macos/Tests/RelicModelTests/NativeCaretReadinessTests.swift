@@ -30,10 +30,13 @@ import AppKit
         XCTAssertNil(layer.animation(forKey: "actual-finite-transition"))
 
         let long = CABasicAnimation(keyPath: "opacity")
-        long.fromValue = 1; long.toValue = 1; long.duration = 10; long.isRemovedOnCompletion = true
+        long.fromValue = 1; long.toValue = 1; long.duration = 0.01; long.isRemovedOnCompletion = false
         layer.add(long, forKey: "retained-transition"); CATransaction.flush()
         let timedOut = try await NativeCaretReadiness.settle(in: root, timeout: 0.05)
         XCTAssertEqual(timedOut["settled"] as? Bool, false)
+        XCTAssertTrue((NativeCaretReadiness.observations(in: root).first?["animations"] as? [[String: Any]] ?? []).contains {
+            $0["key"] as? String == "retained-transition" && $0["finite_transition"] as? Bool == true
+        }, "Completion retention must not disguise an actual finite transition")
         XCTAssertNotNil(layer.animation(forKey: "retained-transition"), "Readiness cannot remove an animation to manufacture stability")
         XCTAssertEqual(indicator.frame, frame); XCTAssertEqual(indicator.isHidden, hidden)
         XCTAssertEqual(indicator.displayMode, mode)

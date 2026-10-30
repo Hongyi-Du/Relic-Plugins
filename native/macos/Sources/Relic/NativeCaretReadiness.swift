@@ -15,7 +15,10 @@ import AppKit
                     }
                     let finite = animation.duration.isFinite && animation.duration > 0
                         && animation.repeatCount == 0 && animation.repeatDuration == 0
-                        && animation.speed > 0 && animation.isRemovedOnCompletion
+                        && animation.speed > 0
+                    // AppKit can retain a finite keyframe animation until its
+                    // own completion handler removes it. isRemovedOnCompletion
+                    // controls retention, not whether the animation is finite.
                     return ["key": key, "current_animation_available": true,
                         "class": String(describing: type(of: animation)),
                         "duration": number(animation.duration), "begin_time": number(animation.beginTime),

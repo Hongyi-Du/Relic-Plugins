@@ -11,8 +11,10 @@ struct Avatar: View {
     var stateBorder: Color = RelicStyle.background
     var borderWidth: CGFloat = 0
     var imageVisibility: ((Bool) -> Void)? = nil
+    var navigationID: String? = nil
     @State private var image: NSImage?
-    @State private var identity = "relic-avatar/" + UUID().uuidString
+    @State private var uniqueIdentity = "relic-avatar/" + UUID().uuidString
+    private var identity: String { navigationID ?? uniqueIdentity }
     @Environment(\.colorScheme) private var scheme
     private var state: String { m.members.first(where: { $0["name"].text == member })?["state"].text ?? "" }
     private var radius: CGFloat { size == 20 ? 6 : size == 28 ? 8 : size == 60 ? 14 : 9 }
@@ -317,6 +319,8 @@ struct MessageView: View {
     var continued = false
     var readingOrderPriority: Double = 0
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
+    @State private var avatarNavigationID = "relic-avatar/" + UUID().uuidString
+    @State private var metadataNavigationID = "relic-message-author/" + UUID().uuidString
     @State private var hovering = false
     @State private var originalExpanded = false
     @State private var threadAvatarImages: Set<String> = []
@@ -347,11 +351,11 @@ struct MessageView: View {
         } else {
             MessageColumns(mine: mine) {
                 if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) }
-                else if mine { Avatar(member: "human", size: inThread ? 30 : 36).accessibilitySortPriority(readingOrderPriority + 0.5) }
+                else if mine { Avatar(member: "human", size: inThread ? 30 : 36, navigationID: avatarNavigationID).accessibilitySortPriority(readingOrderPriority + 0.5) }
                 else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("").accessibilitySortPriority(readingOrderPriority + 0.5) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
-                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
+                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0, navigationID: metadataNavigationID)
                             .accessibilitySortPriority(readingOrderPriority + 0.4)
                         if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true).accessibilitySortPriority(readingOrderPriority + 0.3) }
                         if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).accessibilitySortPriority(readingOrderPriority + 0.2) }
@@ -397,7 +401,9 @@ struct MessageView: View {
                     .accessibilitySortPriority(readingOrderPriority)
             }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {
                 if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
-            }.background(MessageInteractionAnchor(messageID: item["id"].text))
+            }.background(MessageInteractionAnchor(messageID: item["id"].text,
+                avatarNavigationID: mine && !continued ? avatarNavigationID : nil,
+                metadataNavigationID: metadataNavigationID))
                 .onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
     }
