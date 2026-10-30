@@ -26,6 +26,66 @@ class PaintTraceTests(unittest.TestCase):
             paint_trace.launch_browser(playwright, "unrecognized")
         self.assertEqual(playwright.chromium.launch.call_count, 1)
 
+    def test_producer_smb_cli_default_and_single_control_do_not_allow_parameter_sweep(self):
+        parser = paint_trace.argument_parser()
+        required = ["--manifest", "fixture.json", "--output", "fixture-output"]
+        self.assertEqual(parser.parse_args(required).producer_smb_mib, 0)
+        self.assertEqual(parser.parse_args(required + ["--producer-smb-mib", "16"]).producer_smb_mib, 16)
+        for value in ["-1", "4", "8", "32", "16.0", "16;unexpected-command"]:
+            with self.subTest(value=value), patch("sys.stderr"), self.assertRaises(SystemExit):
+                parser.parse_args(required + ["--producer-smb-mib", value])
+
+    def test_producer_smb_control_preserves_actual_baseline_feature_and_launch_options(self):
+        for channel in ["chromium", "headless-shell"]:
+            with self.subTest(channel=channel):
+                playwright = Mock()
+                paint_trace.launch_browser(playwright, channel, 16)
+                options = playwright.chromium.launch.call_args.kwargs
+                self.assertEqual(options["args"], ["--disable-dev-shm-usage",
+                    "--enable-features=CDPScreenshotNewSurface,kPerfettoBackendParams:shared_memory_size_bytes/16777216"])
+                self.assertEqual(options["ignore_default_args"], ["--hide-scrollbars"])
+                self.assertIs(options["headless"], True)
+                self.assertEqual(options.get("channel"), "chromium" if channel == "chromium" else None)
+        playwright = Mock()
+        for value in [4, 8, 32, True, "16"]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                paint_trace.launch_browser(playwright, "chromium", value)
+        playwright.chromium.launch.assert_not_called()
+
+    def test_producer_smb_actual_command_line_proves_request_only_not_capacity_or_lost_content(self):
+        command_line = ("fixture-browser --headless --enable-features=CDPScreenshotNewSurface "
+                        "--enable-features=CDPScreenshotNewSurface,kPerfettoBackendParams:shared_memory_size_bytes/16777216")
+        result = paint_trace.producer_smb_receipt(16, command_line)
+        self.assertEqual(result["actual_command_line"], command_line)
+        self.assertEqual(result["requested_bytes"], 16777216)
+        self.assertTrue(result["requested_argument_observed"])
+        self.assertEqual(len(result["actual_enable_feature_values"]), 2)
+        self.assertEqual(result["errors"], [])
+        self.assertIsNone(result["actual_capacity_bytes"])
+        self.assertFalse(result["actual_capacity_directly_measured"])
+        self.assertIsNone(result["lost_packet_content_attribution"])
+        self.assertFalse(result["canonical_measurements_changed"])
+
+    def test_producer_smb_missing_wrong_or_overridden_feature_cannot_prove_request(self):
+        intended = "--enable-features=CDPScreenshotNewSurface,kPerfettoBackendParams:shared_memory_size_bytes/16777216"
+        for command_line in [None, "", "fixture-browser", "fixture-browser " + intended + "0",
+                "fixture-browser --enable-features=kPerfettoBackendParams:shared_memory_size_bytes/16777216",
+                "fixture-browser " + intended + " --enable-features=CDPScreenshotNewSurface"]:
+            with self.subTest(command_line=command_line):
+                result = paint_trace.producer_smb_receipt(16, command_line)
+                self.assertIsNot(result["requested_argument_observed"], True)
+                self.assertTrue(result["errors"])
+                self.assertIsNone(result["actual_capacity_bytes"])
+
+    def test_producer_smb_zero_leaves_default_unrequested_and_does_not_infer_four_mib(self):
+        result = paint_trace.producer_smb_receipt(0, "fixture-browser --enable-features=CDPScreenshotNewSurface")
+        self.assertEqual(result["mode"], "unchanged-default")
+        self.assertIsNone(result["requested_bytes"])
+        self.assertIsNone(result["requested_argument"])
+        self.assertIsNone(result["requested_argument_observed"])
+        self.assertIsNone(result["actual_capacity_bytes"])
+        self.assertEqual(result["errors"], [])
+
     def test_supported_trace_configuration_retains_complete_picture_and_frame_sources(self):
         parameters = paint_trace.trace_parameters()
         self.assertNotIn("categories", parameters)
@@ -176,6 +236,9 @@ class PaintTraceTests(unittest.TestCase):
             {"has_picture": True, "hidden_scrollbars": True, "expected": "failed"},
             {"has_picture": True, "missing_command_line": True, "expected": "failed"},
             {"has_picture": True, "writer_loss": 1, "expected": "failed"},
+            {"has_picture": True, "producer_smb_mib": 16, "expected": "raw_records_collected"},
+            {"has_picture": True, "producer_smb_mib": 16, "missing_smb_argument": True, "expected": "failed"},
+            {"has_picture": True, "producer_smb_mib": 16, "writer_loss": 1, "expected": "failed"},
         ]
         for fixture in cases:
             has_picture, data_loss = fixture["has_picture"], fixture.get("data_loss", False)
@@ -193,6 +256,9 @@ class PaintTraceTests(unittest.TestCase):
                 trace_cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
                 cdp.on.side_effect = lambda event, handler: callbacks.update({event: handler})
                 command_line = "fixture-browser --headless" + (" --hide-scrollbars" if fixture.get("hidden_scrollbars") else "")
+                smb_mib = fixture.get("producer_smb_mib", 0)
+                if smb_mib and not fixture.get("missing_smb_argument"):
+                    command_line += " " + paint_trace.producer_smb_request(smb_mib)["requested_argument"]
                 trace = {"metadata": {"command_line": None if fixture.get("missing_command_line") else command_line,
                             "trace_processor_stats": {"traced_buf": [{"trace_writer_packet_loss": fixture.get("writer_loss", 0)}]}},
                     "traceEvents": [{"args": {"skp64": base64.b64encode(b"synthetic fixture bytes").decode()}}] if has_picture else []}
@@ -236,7 +302,7 @@ class PaintTraceTests(unittest.TestCase):
                 case = {"id": "fixture-" + scene, "scene": scene, "width": 1440, "height": 900}
                 with patch.object(paint_trace, "input_text_evidence", return_value={"inputs": {}, "errors": []}), \
                         patch.object(paint_trace, "font_evidence", return_value={"errors": []}):
-                    result = paint_trace.collect_scene(browser, context, manifest, case, Path(folder) / "scene", "fixture source")
+                    result = paint_trace.collect_scene(browser, context, manifest, case, Path(folder) / "scene", "fixture source", smb_mib)
                 self.assertEqual(result["status"], fixture["expected"])
                 from capture import REFERENCE_BOOT_READY
                 page.wait_for_function.assert_called_once_with(REFERENCE_BOOT_READY, timeout=30_000)
@@ -254,6 +320,9 @@ class PaintTraceTests(unittest.TestCase):
                                  {"percentFull": 0.25, "eventCount": 1})
                 diagnostics = json.loads((Path(folder) / "scene" / "trace-diagnostics.json").read_text())
                 self.assertEqual(diagnostics["command_line"], trace["metadata"]["command_line"])
+                smb_receipt = json.loads((Path(folder) / "scene" / "producer-smb-receipt.json").read_text())
+                self.assertEqual(smb_receipt, paint_trace.producer_smb_receipt(smb_mib, trace["metadata"]["command_line"]))
+                self.assertEqual(result["producer_smb_receipt"], smb_receipt)
                 page.screenshot.assert_called_once()
                 page.close.assert_called_once()
                 progress = json.loads((Path(folder) / "scene" / "progress.json").read_text())
@@ -283,6 +352,8 @@ class PaintTraceTests(unittest.TestCase):
                     self.assertTrue(any(row["source"] == "browser_command_line" for row in result["errors"]))
                 if fixture.get("writer_loss"):
                     self.assertTrue(any(row["source"] == "trace_processor_stats" for row in result["errors"]))
+                if fixture.get("missing_smb_argument"):
+                    self.assertTrue(any(row["source"] == "producer_smb_command_line" for row in result["errors"]))
                 if scene == "file-markdown":
                     candidate = json.loads((Path(folder) / "scene" / "marker-paint-candidates.json").read_text())
                     self.assertEqual(len(candidate["candidates"]), 1)

@@ -1,5 +1,50 @@
 # Native Relic App contract
 
+Changes for the clients (new macOS ownership request under implementation): the
+owner added appkit-current-field-editor-v3 for ordinary native text fields, with
+actual base-class/currentEditor/controlView identities. Shared reader support is
+being implemented with the existing strict value/window/focus/unique-owner checks;
+until then v3 is not accepted. The new opaque-candidate diagnostics do not remove
+elements or establish visibility in the shared gate; unknown occlusion still fails.
+
+Changes for the clients (one producer-buffer hypothesis control): paint-only
+diagnostics accept an optional 16MiB producer SMB request, with default zero
+preserving the original launch. This uses the fixed Chromium feature parameter,
+preserves its observed screenshot feature, and records the actual trace command
+line. Actual SMB capacity and lost-packet content identity remain unmeasured.
+The central 200MiB buffer, three diagnostic scenes, trace categories and all loss/
+attribution failures stay unchanged. This is one causal experiment, not a repair
+claim or a new acceptance path; no further parameter sweep is authorized here.
+
+Changes for the clients (observer DPI contract): the out-of-process UIA observer
+now explicitly declares PerMonitorV2/asInvoker in its executable manifest. Six
+actual native thread-context readings bracket early UIA construction and window
+reads. They preserve raw API returns/exceptions and distinguish PMv1 from PMv2;
+unknown/non-PMv2 readings fail. This removes dependence on PresentationCore load
+timing, not a proven explanation for fractional rectangles becoming zero. No
+provider, rectangle, coordinate transform or existing failure is rewritten.
+The app and observer headless builds pass; ten mock cases run in CI.
+
+Changes for the clients (panel readiness phase completion): d59bede's real drag
+completed at the correct pane geometry while Thumb hover was not yet delivered.
+The old after-action assertion still ran before the relocated final settling
+wait. It now records that preparation state and performs the same required hover
+assertion after the existing bounded wait, before any screenshot baseline.
+Subsequent state/event identity comparisons and all time budgets stay unchanged.
+
+Capture evidence at d59bede: settings-navigation-hover now retains actual hover,
+hit-test inclusion and the same bounds through after_element_extraction; group
+has 24 bound avatar lifetime lookups. Remaining capture failures are live tool
+UIA rectangles, panel preparation and Markdown UIA rectangles/application error.
+These are partial repairs, not scene acceptance. Browser paint trace still loses
+producer packets; both new Chromium variants expose only the old empty Renderer
+SKP bytes. No font or ellipsis unknown is cleared on that evidence.
+
+Changes for the clients (macOS banner request consumed): the owner independently
+replaced its fixed icon column with native CoreText/CFStringTokenizer intrinsic
+flex sizing and SVG meet geometry. It uses actual attributed text and no scene
+coordinates. Mounted layout and whole-scene results remain for CI.
+
 Changes for the clients (detail-tab initialization): 55d8eca file-markdown shows
 a real InfoBar reporting child collection mutation during measure/arrange.
 Its twelve NativePathText receipts are laid-out without fallback failure. The
