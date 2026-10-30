@@ -1,3 +1,34 @@
+## 2026-10-30: full dark-capture text differences, quote and original disclosure
+
+Downloaded actual 72f5571 zh-CN/dark native+reference captures (165 each) into
+`parity-72f5571/full-macos-zh-CN-dark` and `full-reference-zh-CN-dark` under the
+visual output directory. The static direct-pairing diagnostic has 96 text errors;
+several are from session/settings/mention fixes already present after that head.
+It is not a formal accepted full report, and the actual raw captures are retained.
+
+The remaining radio errors came from using AXLabel as visible text despite the
+real NSButton/NSButtonCell having an empty title and separately drawn labels.
+The exporter now reads that native title for radio/checkbox text while retaining
+the full AX name. The native radio and its visible labels are not removed.
+
+Quote preview now draws the actual localized bold `composer.quoting` prefix and
+the selected passage as separate attributed text spans, clamped together at three
+lines. Its close icon uses the reference 14px glyph / 22px button. Optional draft
+author/text fields preserve the presentation through navigation/restart; legacy
+draft JSON still decodes. Existing serialized outbound quote text is unchanged.
+
+The plain-language Original button now has its separate painted before-marker
+and owned title, preserving the real full AX name and expanded state. Opening it
+also uses the reference 4px gap before the original bubble. The marker retains
+its actual parent/control state but is not folded into the button's visible title.
+New native span, draft, radio-title and ownership regressions await CI.
+
+74ac42c's release compile passed, but the new keyboard test fixture used `flipped`,
+an inherited AppKit property name. 41ed54d renames the fixture field; no production
+API or acceptance change is involved. The earlier 86b52e7 run verifies popup,
+card-wrap and late-mounted-scroll regressions; its only failures are the two
+already-corrected outline-test assertions. Latest-head tests remain required.
+
 ## 2026-10-30: real conversation keyboard behavior; no projected state override
 
 The reference stream has tabindex=0, while the captured native scroll area is

@@ -2,6 +2,19 @@ import XCTest
 @testable import Relic
 
 final class ElementOwnershipTests: XCTestCase {
+    func testDisclosureOwnsOnlyItsTitleWhileItsPaintedMarkerRemainsIndependent() {
+        let owner = "relic-text-button/original/example"
+        var nodes: [[String: Any]] = [
+            ["id": "summary", "identifier": owner, "text": "▸ Original", "name": "▸ Original", "style": [:]],
+            ["id": "marker", "parent": "summary", "text": "▸ ", "name": "", "native_control_label_owner": owner],
+            ["id": "title", "production_owner": owner, "text": "Original", "style": ["fontSize": 11.5]]]
+        XCTAssertTrue(ElementOwnership.attachLabels(to: &nodes).isEmpty)
+        XCTAssertEqual(nodes.compactMap { $0["id"] as? String }, ["summary", "marker"])
+        XCTAssertEqual(nodes[0]["text"] as? String, "Original")
+        XCTAssertEqual(nodes[0]["name"] as? String, "▸ Original")
+        XCTAssertEqual(nodes[1]["text"] as? String, "▸ ")
+        XCTAssertEqual(nodes[1]["name"] as? String, "")
+    }
     func testMeasuredNativeAncestryOrdersIgnoredAvatarAndDotInsideTheirActualRow() {
         func measured(_ id: String, _ path: [Int], parent: String = "row-owner") -> [String: Any] {
             ["id": id, "native_structure": ["parent_identifier": parent, "native_subview_path": path]]

@@ -336,11 +336,8 @@ struct MessageView: View {
                     } else if wantsPlain, let plain = m.plain[item["id"].text] {
                         messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
                         VStack(alignment: .leading, spacing: 0) {
-                            Button { preserveScroll(); originalExpanded.toggle() } label: {
-                                ReferenceLabel((originalExpanded ? "▾ " : "▸ ") + m.t("msg.original"), size: 11.5, color: RelicStyle.muted)
-                                    .padding(.horizontal, 2).modifier(RecordedSurface(background: .clear, expanded: originalExpanded))
-                            }.buttonStyle(.plain)
-                            if originalExpanded { messageBubble(bodyText) }
+                            OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
+                            if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
                         }
                     } else {
                         messageBubble(bodyText)

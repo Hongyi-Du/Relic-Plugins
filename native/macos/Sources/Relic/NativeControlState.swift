@@ -29,12 +29,14 @@ enum NativeControlState {
             let fields = owner["role"] as? String == "AXCheckBox" ? ["enabled", "focused", "checked", "indeterminate"] : ["enabled", "focused"]
             var measured: [String: Any] = [:]
             for field in fields { measured[field] = actual[field] ?? NSNull() }
+            if let expanded = owner["recorded_expanded"] as? Bool { measured["expanded"] = expanded }
             elements[index]["native_control_state"] = measured
             elements[index]["native_control_state_evidence"] = [
                 "source": "Current AX state of the uniquely mounted control owning this production decoration",
                 "owner_identifier": identifier, "owner_id": owner["id"] ?? NSNull(), "role": owner["role"] ?? NSNull(),
                 "owner_native_structure": ownerStructure, "child_native_structure": structure ?? [:],
-                "raw_owner_state": actual, "raw_decoration_state": node["state"] ?? NSNull()
+                "raw_owner_state": actual, "raw_decoration_state": node["state"] ?? NSNull(),
+                "owner_rendered_expanded": owner["recorded_expanded"] ?? NSNull()
             ]
         }
         return errors
