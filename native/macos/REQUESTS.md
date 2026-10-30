@@ -1,3 +1,20 @@
+## 2026-10-30: actual popup fill observations now available
+
+`e8307ed` macOS job 124132215180 passes both NativeSurfaceFill tests, including
+all four byte-identical SwiftUI/native bitmap fixtures (square, rounded and
+dialog-shadow surfaces). The production dialog and action/recipient menu fills
+now use that native painter. Each raw `*.ax.json` exposes `native_fill_draws`:
+actual owner/region, submitted path/fill/CTM/clip, draw revision and sequence,
+mounted view/window identity, current screen bounds and content coordinate
+basis, native ancestry and opacity ancestry. Stale draws remain null/errors.
+
+Shared checker request: consume these observations as actual paint evidence
+when establishing popup occlusion. `occlusion_proven` intentionally stays false:
+the observer still needs final-frame binding and measured compositing order
+relative to each allegedly covered element. Do not suppress elements merely
+because they fall inside the reference dialog or its native bounding rectangle.
+No tolerance or exception change is requested.
+
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
 20e61cf passes all eight unchanged glyph-image comparisons, but the mounted
