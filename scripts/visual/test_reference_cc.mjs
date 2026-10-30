@@ -10,6 +10,10 @@ const start = app.indexOf('  async function loadCc() {');
 const end = app.indexOf('  function drawCopies() {', start);
 assert.ok(start >= 0 && end > start);
 const ccFunctions = app.slice(start, end);
+const digestStart = app.indexOf('  function toggleDigest() {');
+const digestEnd = app.indexOf('  async function loadDigest(', digestStart);
+assert.ok(digestStart >= 0 && digestEnd > digestStart);
+const digestFunction = app.slice(digestStart, digestEnd);
 const hook = readFileSync(new URL('./reference-hook.js', import.meta.url), 'utf8');
 const capture = readFileSync(new URL('./capture.py', import.meta.url), 'utf8');
 const bootReadiness = capture.match(/REFERENCE_BOOT_READY = """([\s\S]*?)"""/)?.[1];
@@ -18,7 +22,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const bootReady = env => vm.runInContext('(' + bootReadiness + ')()', env.context);
 
 function environment() {
-  const requests = [], events = [], search = {};
+  const requests = [], events = [], search = {}, digestViews = [], saved = [];
   let tick = 0;
   const detail = {open: false, querySelector: selector => {
     assert.equal(selector, 'summary');
@@ -33,19 +37,37 @@ function environment() {
       return new Promise((resolve, reject) => requests.push({resolve, reject}));
     }, renderAppbar: () => events.push('appbar'), drawCopies: () => events.push('copies'),
     closeLayer: () => {}, closeCard: () => {}, closeMenu: () => {}, closeMention: () => {},
-    loadOrgs: async () => {}, openOrg: async () => {}, save: () => {},
+    loadOrgs: async () => {}, openOrg: async org => { S.orgId = org; }, save: (key, value) => saved.push({key, value}),
+    renderHead: () => digestViews.push({view: 'head', open: S.digestOpen}),
+    renderBanner: () => digestViews.push({view: 'banner', open: S.digestOpen, digest: S.digest}),
+    loadDigest: () => { throw new Error('A seeded digest must not request replacement content'); },
     toggleSide: () => {}, togglePanel: () => {}, renderAll: () => events.push('quick-start'),
     openAppMenu: () => events.push('menu'), $: () => search,
     h: () => ({isConnected: true}), scrim: () => events.push('open-copies'),
     t: key => key, toast: () => events.push('load-error')});
-  vm.runInContext('let ccAsked=0, ccBox=null, settingsPane=null;\n' + ccFunctions + '\n' + hook, context);
-  return {context, requests, events, S, detail};
+  vm.runInContext('let ccAsked=0, ccBox=null, settingsPane=null;\n' + ccFunctions + '\n' + digestFunction + '\n' + hook, context);
+  return {context, requests, events, S, detail, digestViews, saved};
 }
 
 async function untilRequests(env, count) {
   for (let i=0; i<20 && env.requests.length<count; i++) await Promise.resolve();
   assert.equal(env.requests.length, count);
 }
+
+test('digest capture opens the seeded card and updates its header through the production toggle', async () => {
+  const env = environment();
+  const digest = {text: 'Deterministic digest fixture', count: 3, last_id: 17};
+  const pending = env.context.window.__relicVisual('digest', {org: 'fixture-org', digest});
+  await untilRequests(env, 1);
+  env.requests[0].resolve({items: [], unread: 0});
+  await pending;
+  assert.equal(env.S.digestOpen, true);
+  assert.equal(env.S.digest, digest);
+  assert.deepEqual(plain(env.digestViews), [
+    {view: 'head', open: true}, {view: 'banner', open: true, digest},
+  ]);
+  assert.ok(env.saved.some(row => row.key === 'relic.digest.fixture-org' && row.value === true));
+});
 
 test('scene controls wait for production CC and keep the server total, not unread item count', async () => {
   for (const scene of ['menu-file', 'quick-start']) {
