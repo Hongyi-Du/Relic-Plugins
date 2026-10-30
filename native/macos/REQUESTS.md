@@ -1,5 +1,14 @@
 ## 2026-10-30: actual AX coordinate basis and glyph regression
 
+Shared CI request: the macOS unit-test job should upload
+`native/macos/.build/draw-diagnostics/**` with `if: failure()` and
+`if-no-files-found: ignore`, artifact name `native-macos-draw-diagnostics`.
+GlyphCaptureTests now saves both actual native PNGs plus their exact source
+when the existing byte-equality assertion fails. These are small CI-only
+diagnostics, not golden images or replacement screenshots. This is needed
+because the current crash-report artifact retains nothing for ordinary
+pixel assertion failures. Keep all test assertions unchanged.
+
 d74684f now exports the requested v2 `owner_ax_frame` and
 `content_screen_frame`, with the exact source strings and bottom-left AppKit
 screen coordinates. Both are independent actual native API measurements;

@@ -4,7 +4,7 @@ import AppKit
 
 @MainActor final class GlyphCaptureTests: XCTestCase {
     func testDirectLabelPrimitivePreservesTextKitsActualGlyphBitmap() throws {
-        for text in ["Relic → 组织", "A long label that must end in an ellipsis", "Done 任务", "🙂 Relic"] {
+        for (index, text) in ["Relic → 组织", "A long label that must end in an ellipsis", "Done 任务", "🙂 Relic"].enumerated() {
             var images: [Data] = []
             for direct in [false, true] {
                 let view = ReferenceLabel(text, size: 14, lines: 1, struck: text.hasPrefix("Done")).makeLabelView()
@@ -15,6 +15,16 @@ import AppKit
                 let bitmap = try XCTUnwrap(CaptureRaster.forView(view))
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+            }
+            if images[0] != images[1] {
+                // Retain the actual failed CI renders, never synthetic expected
+                // pixels, so the next correction can inspect the exact defect.
+                let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                let directory = package.appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try images[0].write(to: directory.appendingPathComponent("glyph-\(index)-appkit.png"))
+                try images[1].write(to: directory.appendingPathComponent("glyph-\(index)-direct.png"))
+                try text.write(to: directory.appendingPathComponent("glyph-\(index)-source.txt"), atomically: true, encoding: .utf8)
             }
             XCTAssertEqual(images[0], images[1], "The drawing primitive must preserve shaping, truncation, fallback and decorations: \(text)")
         }
