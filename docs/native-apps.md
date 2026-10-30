@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (detail-tab initialization): 55d8eca file-markdown shows
+a real InfoBar reporting child collection mutation during measure/arrange.
+Its twelve NativePathText receipts are laid-out without fallback failure. The
+detail SelectorBar can synchronously publish its initial selection and rebuild
+the same parent. A same-selection guard now prevents this code-level reentry,
+while real mode changes retain their callbacks. The existing capture error log
+also retains caught Exception.ToString after startup; the InfoBar stays visible.
+The old artifact lacks the original stack, so CI must confirm the actual cause.
+
+Changes for the clients (macOS request consumed after 98841c1): hosted fill and
+actual light/dark bitmap tests pass at 06890e8, and the owner enabled fill images.
+Pointer assertions still fail there; later fixes need capture. Message-action
+capture now appends its own observation rather than replacing independent
+pointer/fill/layer evidence, preserving incomplete receipts and existing errors.
+
 Changes for the clients (private-chat banner flex layout): Windows now uses
 actual production text clusters/normal-break boundaries to allocate the icon and
 selectable text with two flex-shrink factors of one. The old fixed 15px icon
