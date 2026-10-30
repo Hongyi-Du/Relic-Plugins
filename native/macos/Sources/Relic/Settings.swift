@@ -13,7 +13,7 @@ struct SettingsView: View {
                 ReferenceLabel(m.t("common.settings"), size: 16, weight: 650)
                     .padding(.top, 4).padding(.horizontal, 10).padding(.bottom, 12)
                 ForEach(sections, id: \.0) { key, title in
-                    SettingsNavigationButton(title: m.t(title), icon: sectionIcon(key), selected: m.settingsSection == key) { m.settingsSection = key }
+                    SettingsNavigationButton(key: key, title: m.t(title), icon: sectionIcon(key), selected: m.settingsSection == key) { m.settingsSection = key }
                 }
                 Spacer(minLength: 0)
             }.padding(.vertical, 14).padding(.horizontal, 10).frame(width: 220)
@@ -31,7 +31,7 @@ struct SettingsView: View {
                     default: about
                     }
                 }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 28).frame(maxWidth: .infinity, alignment: .topLeading)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).background(SettingsContentProbe())
         }.onAppear { name = m.preferences["name"].text }
     }
     private func sectionIcon(_ key: String) -> String { ["profile": "user", "appearance": "palette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "plug", "about": "info"][key] ?? "gear" }

@@ -44,11 +44,13 @@ struct NativeCheck: NSViewRepresentable {
 }
 
 struct SettingsNavigationButton: View {
+    let key: String
     let title: String, icon: String
     let selected: Bool
     let action: () -> Void
     @State private var hovered = false
-    @State private var identity = "relic-tab/settings/" + UUID().uuidString
+    @State private var trace = SettingsNavigationTrace()
+    private var identity: String { "relic-tab/settings/" + key }
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
@@ -56,9 +58,10 @@ struct SettingsNavigationButton: View {
                 ReferenceLabel(title, weight: selected ? 600 : 400, color: selected || hovered ? RelicStyle.ink : RelicStyle.secondary, owner: identity)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.padding(.horizontal, 10).frame(height: 34)
-                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovered ? RelicStyle.hover : .clear, radius: 8, hovered: hovered, selected: selected))
-        }.buttonStyle(.plain).onHover { hovered = $0 }.accessibilityIdentifier(identity).accessibilityLabel(title).help(title)
+                .modifier(RecordedSurface(background: selected ? RelicStyle.selected : hovered ? RelicStyle.hover : .clear, radius: 8, owner: identity, hovered: hovered, selected: selected))
+        }.buttonStyle(.plain).onHover { hovered = $0; trace.receivedHover($0) }.accessibilityIdentifier(identity).accessibilityLabel(title).help(title)
             .accessibilityAddTraits(selected ? .isSelected : [])
+            .background(SettingsNavigationProbe(key: key, owner: identity, selected: selected, hovered: hovered, trace: trace))
     }
 }
 

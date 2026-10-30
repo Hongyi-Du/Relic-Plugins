@@ -1,3 +1,22 @@
+## 2026-10-30: required settings navigation hover capture and CI correction
+
+Implemented the new `settings-navigation-hover` case without omitting prior cases.
+Actual pointer movement targets the mounted unselected `notify` item; Appearance
+remains selected. `.scene-action.json` and `capture_evidence.settings_navigation_action`
+retain actual production hover callbacks, native input events, seven owned paint
+surfaces, mounted page content identities/text/control states, pointer and geometry.
+Checks run after interaction, around the PNG and after element extraction. Missing
+paint/page evidence, clicks/keys, changed content/selection/geometry or lost hover
+fail capture. Passive observers add no visible or interactive element. New tests
+exercise actual mounted content reads and separate hover/selection bindings.
+
+41ed54d release compilation passed; 191/192 tests passed. The sole failing icon
+unit test assumed a 1.7px antialiased crossing covered a pixel completely (actual
+alpha 250). Its fixture now uses the same renderer at 48px / 3.4px to sample a
+fully covered center, retaining the existing strict alpha assertion. Production
+rendering, element tolerances, scene coverage and exceptions are unchanged.
+Static macOS parity still covers 686 keys / 52 routes / 214 flows. New CI required.
+
 ## 2026-10-30: full dark-capture text differences, quote and original disclosure
 
 Downloaded actual 72f5571 zh-CN/dark native+reference captures (165 each) into
