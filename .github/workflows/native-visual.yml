@@ -1,4 +1,5 @@
 name: Native visual review
+run-name: ${{ inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.matrix || 'full' }}
 on:
   push:
     branches: [native-apps, native-macos]
@@ -10,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       matrix:
-        description: Full acceptance matrix or fast first-look scenes
+        description: Full acceptance matrix, fast first-look scenes, or browser paint diagnostics only
         type: choice
-        options: [smoke, full]
+        options: [smoke, full, paint]
         default: full
 permissions:
   contents: read
@@ -20,7 +21,14 @@ concurrency:
   group: visual-${{ github.ref_name }}-${{ inputs.matrix || 'full' }}
   cancel-in-progress: false
 jobs:
+  paint-diagnostics:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.matrix == 'paint' }}
+    uses: ./.github/workflows/native-paint-diagnostics.yml
+    with:
+      language: en-US
+      theme: light
   element-checker:
+    if: ${{ inputs.matrix != 'paint' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +43,7 @@ jobs:
       - name: Test strict matcher thresholds and failure coverage
         run: python -m unittest discover -s scripts/visual -p 'test_*.py' -v
   windows:
+    if: ${{ inputs.matrix != 'paint' }}
     runs-on: windows-2025
     timeout-minutes: 45
     strategy:
@@ -87,6 +96,7 @@ jobs:
           name: paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
           path: visual/paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
   macos:
+    if: ${{ inputs.matrix != 'paint' }}
     runs-on: macos-15
     timeout-minutes: 45
     strategy:
@@ -140,7 +150,7 @@ jobs:
           path: visual/paint-trace-full-chromium-macos-en-US-light
   compare:
     needs: [windows, macos, element-checker]
-    if: always()
+    if: always() && inputs.matrix != 'paint'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -4,6 +4,19 @@ run-name: Paint diagnostics ${{ github.ref_name }} ${{ inputs.language }} ${{ in
 # Diagnostic-only: no push/PR trigger, native application, acceptance scene
 # filtering, or dependency on the full visual-review workflow.
 on:
+  # First branch-only dispatch at cb692a0 returned HTTP 404: this workflow
+  # was not found on the default branch. The already registered visual-review
+  # workflow invokes this same-ref reusable entry only for its manual paint mode.
+  workflow_call:
+    inputs:
+      language:
+        description: Fixture language
+        type: string
+        default: en-US
+      theme:
+        description: Production appearance
+        type: string
+        default: light
   workflow_dispatch:
     inputs:
       language:
@@ -26,6 +39,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         include:
           - os: windows-2025
