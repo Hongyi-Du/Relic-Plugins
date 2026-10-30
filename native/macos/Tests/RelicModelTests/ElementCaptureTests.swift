@@ -6,6 +6,16 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testTextKit2InspectionDoesNotReplaceItsActualRenderer() throws {
+        let storage = NSTextContentStorage(), layout = NSTextLayoutManager(), container = NSTextContainer(size: NSSize(width: 200, height: 100))
+        storage.addTextLayoutManager(layout); layout.textContainer = container
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), textContainer: container)
+        view.isEditable = false; view.string = "Preserve the actual TextKit 2 renderer"
+        XCTAssertTrue(view.textLayoutManager === layout)
+        XCTAssertTrue(ElementCapture.textRuns(view).isEmpty, "A TextKit 1 projection cannot supply a TextKit 2 measurement")
+        XCTAssertTrue(view.textLayoutManager === layout, "Inspection must not trigger the irreversible compatibility switch")
+        XCTAssertEqual(view.string, "Preserve the actual TextKit 2 renderer")
+    }
     func testActualStaticTextValueSuppliesItsNameWithoutPromotingEditableValues() throws {
         let label = NSTextField(labelWithString: "Native static label")
         label.setAccessibilityLabel("")

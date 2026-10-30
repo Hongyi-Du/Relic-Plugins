@@ -147,6 +147,11 @@ import CoreText
         } }
     }
     static func textRuns(_ view: NSTextView) -> [[String: Any]] {
+        // Merely reading layoutManager on TextKit 2 permanently switches its
+        // renderer to TextKit 1 and removes its live content/selection views.
+        // Preserve those controls and their AX evidence until their own layout
+        // API can be measured; never mutate the UI while extracting evidence.
+        guard view.textLayoutManager == nil else { return [] }
         var result: [[String: Any]] = []
         view.effectiveAppearance.performAsCurrentDrawingAppearance { result = measuredTextRuns(view) }
         return result
@@ -253,15 +258,18 @@ import CoreText
             node["native_ax_label"] = label
             node["native_name_source"] = label.isEmpty && role == "AXStaticText" ? "AXValue of static text" : "AXLabel"
             if let handle = object as? TextAreaResizeView { node["native_resize_handle"] = handle.observation() }
-            if let text = object as? NSTextView, let drawing = text.layoutManager as? NativeGlyphLayoutManager {
-                node["native_glyph_drawing"] = drawing.lastDraw as Any? ?? NSNull()
+            if let text = object as? NSTextView {
+                node["native_text_layout_system"] = text.textLayoutManager == nil ? "TextKit1" : "TextKit2"
+                if text.textLayoutManager == nil, let drawing = text.layoutManager as? NativeGlyphLayoutManager {
+                    node["native_glyph_drawing"] = drawing.lastDraw as Any? ?? NSNull()
+                }
             }
             if let view = object as? NSView {
                 node["native_view_geometry"] = ["frame": box(view.frame), "bounds": box(view.bounds), "flipped": view.isFlipped,
                     "screen_bounds": view.window.map { box($0.convertToScreen(view.convert(view.bounds, to: nil))) } as Any? ?? NSNull(),
                     "superview_identity": view.superview.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()]
             }
-            let textView = (object as? NSTextView).flatMap { $0.isEditable ? nil : $0 }
+            let textView = (object as? NSTextView).flatMap { $0.isEditable || $0.textLayoutManager != nil ? nil : $0 }
             if textView != nil { node["projection_reason"] = "Read-only TextKit container; individual rendered attribute runs own the text" }
             if suppressElements { node["projection_reason"] = "Raw AX child retained; rendered text is owned by the TextKit run projection" }
             raw.append(node)
