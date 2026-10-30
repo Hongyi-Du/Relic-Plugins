@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (complete Windows matrix job partition): the cd16413
+full Windows jobs reached the existing 45-minute limit; zh-CN/light was cancelled
+45m01s after job start while still capturing 1024x700 reference scenes. Windows
+full capture is now 12 jobs (four language/theme combinations, three existing
+viewports), each containing the same 55 cases. Native/reference metadata and
+artifact names include the viewport so merging cannot overwrite another shard.
+The full gate still requires all original 660 case IDs. No scene or timeout was
+changed; eight new mocked checks verify the exact complete union and paths.
+macOS capture partitioning is unchanged.
+
+`a3ca2a3` CI passes 87 Node, 453 Python, 28 Windows core and 64 Windows
+capture/layout tests. Its actual Windows capture still fails, while macOS
+completed its 19 diagnostic scenes. The WinRT-versus-COM fractional text-range
+findings and unresolved cross-layer identity are recorded without waiving any
+error in `docs/native-windows-text-range-evidence.md`.
+
 Changes for the clients (macOS mounted-ancestry merge): actual sidebar,
 organization and profile child records now retain their native parent
 environment and mounted NSView ancestry, restoring order only for a unique
