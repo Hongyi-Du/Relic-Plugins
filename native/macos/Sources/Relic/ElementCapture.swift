@@ -106,6 +106,22 @@ import CoreText
             }
         }
         else if let field = object as? NSTextField { font = field.font; foreground = field.textColor; if field.drawsBackground { background = field.backgroundColor } }
+        else if let cell = object as? NSTextFieldCell {
+            // SwiftUI exposes its real NSTextFieldCell through AX, while the
+            // owning NSTextField is an ignored backing view. Read that actual
+            // cell instead of treating a cell as an unmeasured virtual control.
+            font = cell.font; foreground = cell.textColor
+            if cell.drawsBackground { background = cell.backgroundColor }
+            if cell.stringValue.isEmpty {
+                if let placeholder = cell.placeholderAttributedString, placeholder.length > 0 {
+                    font = placeholder.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? font
+                    foreground = placeholder.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+                    result["native_placeholder_attributes"] = Dictionary(uniqueKeysWithValues:
+                        placeholder.attributes(at: 0, effectiveRange: nil).map { ($0.key.rawValue, String(describing: $0.value)) })
+                } else { foreground = nil }
+            }
+            result["native_cell_control_identity"] = cell.controlView.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull()
+        }
         else if let popup = object as? NSPopUpButton {
             font = popup.font
             if popup.attributedTitle.length > 0 { foreground = popup.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
