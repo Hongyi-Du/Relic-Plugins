@@ -133,17 +133,19 @@ struct TextButton: View {
     var height: CGFloat? = nil
     var padding: CGFloat = 0
     var lines = 1
+    var fillsWidth = false
     var identifier: String? = nil
     let action: () -> Void
     @State private var automaticIdentity = "relic-text-button/" + UUID().uuidString
     private var identity: String { identifier ?? automaticIdentity }
-    init(_ title: String, role: ButtonRole? = nil, size: CGFloat = 12, weight: Int = 600, color: Color = RelicStyle.ink, height: CGFloat? = nil, padding: CGFloat = 0, lines: Int = 1, identifier: String? = nil, action: @escaping () -> Void) {
+    init(_ title: String, role: ButtonRole? = nil, size: CGFloat = 12, weight: Int = 600, color: Color = RelicStyle.ink, height: CGFloat? = nil, padding: CGFloat = 0, lines: Int = 1, fillsWidth: Bool = false, identifier: String? = nil, action: @escaping () -> Void) {
         self.title = title; self.role = role; self.size = size; self.weight = weight; self.color = color
         self.height = height; self.padding = padding; self.lines = lines; self.action = action
         self.identifier = identifier
+        self.fillsWidth = fillsWidth
     }
     var body: some View {
-        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity).padding(.horizontal, padding).frame(height: height) }
+        Button(role: role, action: action) { ReferenceLabel(title, size: size, weight: weight, color: color, lines: lines, owner: identity).padding(.horizontal, padding).frame(height: height).frame(maxWidth: fillsWidth ? .infinity : nil) }
             .accessibilityIdentifier(identity).accessibilityLabel(title)
     }
 }
