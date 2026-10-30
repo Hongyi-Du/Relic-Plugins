@@ -12,7 +12,7 @@ namespace Relic;
 // The actual peer is accessed on the UI thread. Its public COM Simple interface
 // is marshaled to an MTA; await keeps WinUI pumping provider callbacks. Calling
 // UiaNodeFromProvider on the UI thread would deadlock the existing identity read.
-internal static class InProcessTextRangeProviderProbe
+internal static partial class InProcessTextRangeProviderProbe
 {
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern int CoInitializeEx(IntPtr reserved, uint flags);
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern void CoUninitialize();
@@ -29,13 +29,13 @@ internal static class InProcessTextRangeProviderProbe
         using var progress = new StreamWriter(new FileStream(Path.Combine(directory, caseId + ".inprocess-text-range-provider-probe.progress.jsonl"),
             FileMode.Create, FileAccess.Write, FileShare.Read), new UTF8Encoding(false)) { AutoFlush = true };
         var owners = new JsonArray(); var selection = new JsonArray(); var errors = new JsonArray();
-        var inapplicableNativePaths = new JsonArray();
+        var nativePathSelections = new JsonArray();
         var receipt = new JsonObject { ["contract"] = "actual-inprocess-com-text-range-diagnostic-v1", ["case_id"] = caseId,
-            ["source"] = "Same retained actual TextBlock/peer, public COM provider vtables while independent observer holds UIA references",
+            ["source"] = "Same retained actual TextBlock or NativePathText/peer, public COM provider vtables while independent observer holds UIA references",
             ["observer"] = observer.DeepClone(), ["started_qpc"] = Stopwatch.GetTimestamp(), ["qpc_frequency"] = Stopwatch.Frequency,
             ["selection_rule"] = "Actual current WinRT rectangle height > 0 and < 1, without name, position or expected-reference lookup",
-            ["selection_scope"] = "Original actual TextBlock owners sampled by TextRangeProviderProbe; NativePathText is a different provider and has no applicable TextBlock WinRT source receipt",
-            ["inapplicable_native_path_owners"] = inapplicableNativePaths,
+            ["selection_scope"] = "Actual TextBlock owners sampled by TextRangeProviderProbe and separately observed actual NativePathText existing-peer WinRT providers; only observed subpixel ranges select COM reads",
+            ["native_path_winrt_selection"] = nativePathSelections,
             ["selection"] = selection, ["owners"] = owners, ["errors"] = errors,
             ["winrt_file"] = caseId + ".text-range-provider-probe.json", ["external_com_file"] = caseId + ".uia.json",
             ["canonical_geometry_supplied"] = false, ["canonical_identity_supplied"] = false, ["provider_errors_resolved"] = false,
@@ -52,22 +52,33 @@ internal static class InProcessTextRangeProviderProbe
         Save();
         foreach (var (value, ownerId) in identities)
         {
-            if (value is NativePathText)
-                inapplicableNativePaths.Add(new JsonObject { ["owner_id"] = ownerId, ["actual_type"] = value.GetType().FullName,
-                    ["reason"] = "Actual NativePathText is outside the original TextBlock WinRT probe scope; no source range or rectangle is inferred" });
-            if (value is not TextBlock owner) continue;
-            var records = winrtProbe["owners"]?.AsArray().OfType<JsonObject>()
+            if (value is not FrameworkElement owner || (owner is not TextBlock && owner is not NativePathText)) continue;
+            AutomationPeer? selectionPeer = null;
+            JsonObject? pathWinrt = null;
+            JsonObject[] records;
+            if (owner is NativePathText nativePath)
+            {
+                pathWinrt = CaptureNativePathWinRt(nativePath, ownerId, step => Trace(ownerId, step), out selectionPeer);
+                nativePathSelections.Add(pathWinrt); Save();
+                foreach (var failure in pathWinrt["errors"]!.AsArray())
+                    errors.Add(new JsonObject { ["owner_id"] = ownerId, ["source"] = "Actual NativePathText WinRT selection observation", ["error"] = failure?.DeepClone() });
+                records = [pathWinrt];
+            }
+            else records = winrtProbe["owners"]?.AsArray().OfType<JsonObject>()
                 .Where(item => item["owner_id"]?.ToString() == ownerId).ToArray() ?? [];
             var reasons = new JsonArray();
             if (records.Length == 1) CollectFractionalHeights(records[0], reasons);
             var selected = records.Length == 1 && reasons.Count != 0;
             selection.Add(new JsonObject { ["owner_id"] = ownerId, ["selected"] = selected,
+                ["owner_type"] = owner.GetType().FullName,
+                ["winrt_source"] = pathWinrt == null ? "TextRangeProviderProbe retained actual TextBlock" : "native_path_winrt_selection actual NativePathText existing peer",
                 ["winrt_owner_record_count"] = records.Length, ["actual_fractional_height_ranges"] = reasons,
                 ["reason"] = records.Length != 1 ? "No unique actual current WinRT owner receipt" : selected
                     ? "Actual WinRT provider returned a positive subpixel rectangle height" : "No observed positive subpixel rectangle height" });
             if (!selected) continue;
             var record = new JsonObject { ["owner_id"] = ownerId, ["owner_type"] = owner.GetType().FullName,
                 ["status"] = "unavailable", ["started_qpc"] = Stopwatch.GetTimestamp(), ["lifecycle"] = new JsonArray() };
+            if (pathWinrt != null) record["native_path_winrt_selection"] = pathWinrt.DeepClone();
             owners.Add(record); Save();
             var calls = record["lifecycle"]!.AsArray();
             void Check(string operation, int hr)
@@ -94,14 +105,25 @@ internal static class InProcessTextRangeProviderProbe
                 if (!owner.DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("Actual owner read must start on its UI thread");
                 peer = FrameworkElementAutomationPeer.FromElement(owner);
                 record["peer_is_null"] = peer == null; record["peer_type"] = peer?.GetType().FullName;
-                record["owner_text_before"] = InProcessTextRangeNative.Utf16(owner.Text);
+                record["owner_text_before"] = InProcessTextRangeNative.Utf16(OwnerText(owner));
                 if (peer == null) { record["unavailable_reason"] = "Actual owner has no existing peer"; continue; }
+                if (pathWinrt != null)
+                {
+                    record["peer_same_object_as_winrt_selection"] = ReferenceEquals(selectionPeer, peer);
+                    if (!ReferenceEquals(selectionPeer, peer)) throw new InvalidOperationException("Actual NativePathText peer changed after WinRT selection");
+                }
                 var sameOwner = peer is FrameworkElementAutomationPeer elementPeer && ReferenceEquals(elementPeer.Owner, owner);
                 record["same_owner_object"] = sameOwner;
                 if (!sameOwner) throw new InvalidOperationException("Actual peer owner differs from retained XAML object");
                 events = peer.EventsSource;
                 record["events_source_type"] = events?.GetType().FullName; record["events_source_is_null"] = events == null;
-                record["frame_before"] = frameCheckpoint(owner, peer, "inprocess-com.before")?.DeepClone();
+                record["frame_before"] = owner is TextBlock textOwner ? frameCheckpoint(textOwner, peer, "inprocess-com.before")?.DeepClone() : null;
+                if (owner is NativePathText pathOwner)
+                {
+                    record["frame_unavailable_reason"] = "The existing TextBlock frame observer does not retain NativePathText; production snapshots are not a complete frame observer";
+                    record["native_path_production_before"] = NativeCaptureNumbers.Prepare(pathOwner.CaptureProductionPathReceipt(), "inprocess native path before");
+                    record["frame_continuity_proven"] = false;
+                }
                 record["held_identity_before"] = nodes.TryGetValue(owner, out var node)
                     ? node["automation_identity_evidence"]?.DeepClone() : null;
                 inspectable = WinRT.MarshalInspectable<object>.FromManaged(peer);
@@ -175,8 +197,10 @@ internal static class InProcessTextRangeProviderProbe
                     var after = FrameworkElementAutomationPeer.FromElement(owner);
                     record["peer_same_object_after"] = ReferenceEquals(peer, after);
                     record["events_source_same_object_after"] = peer != null ? ReferenceEquals(events, peer.EventsSource) : null;
-                    record["owner_text_after"] = InProcessTextRangeNative.Utf16(owner.Text);
-                    record["frame_after"] = frameCheckpoint(owner, peer, "inprocess-com.after")?.DeepClone();
+                    record["owner_text_after"] = InProcessTextRangeNative.Utf16(OwnerText(owner));
+                    record["frame_after"] = owner is TextBlock textOwner ? frameCheckpoint(textOwner, peer, "inprocess-com.after")?.DeepClone() : null;
+                    if (owner is NativePathText pathOwner)
+                        record["native_path_production_after"] = NativeCaptureNumbers.Prepare(pathOwner.CaptureProductionPathReceipt(), "inprocess native path after");
                 }
                 catch (Exception ex) { record["owner_recheck_error"] = ex.ToString(); }
                 record["completed_qpc"] = Stopwatch.GetTimestamp();
@@ -186,9 +210,12 @@ internal static class InProcessTextRangeProviderProbe
         }
         receipt["capture_completed"] = true; receipt["completed_qpc"] = Stopwatch.GetTimestamp();
         receipt["selected_owner_count"] = owners.Count;
-        receipt["selection_result"] = owners.Count == 0 ? "no-applicable-owner-in-original-TextBlock-scope" : "selected-actual-subpixel-TextBlock-owners";
+        receipt["selection_result"] = owners.Count == 0 ? "no-observed-subpixel-owner-in-TextBlock-or-NativePathText-scope" : "selected-actual-subpixel-TextBlock-or-NativePathText-owners";
         Save(); return receipt;
     }
+
+    private static string OwnerText(FrameworkElement owner) => owner switch
+    { TextBlock text => text.Text, NativePathText path => path.SourceText, _ => throw new InvalidOperationException("Unsupported actual text owner") };
 
     private static void CollectFractionalHeights(JsonObject owner, JsonArray reasons)
     {

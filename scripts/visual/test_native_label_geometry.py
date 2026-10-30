@@ -2,7 +2,7 @@
 from copy import deepcopy
 import unittest
 
-from native_label_geometry import native_label_geometry
+from native_label_geometry import empty_native_glyph_outline, native_label_geometry
 
 
 def box(x, y, width, height):
@@ -52,7 +52,112 @@ def fixture():
     return node, image
 
 
+def empty_outline_fixture():
+    """Synthetic outline proof plus the recorded db91b1b space run raw values.
+
+    No actual GetGlyphRunOutline result was available in db91b1b. These success
+    fields test the new contract only and are not evidence that CI measured it.
+    """
+    node, image = fixture()
+    node["native_label_evidence"]["text"] = " ABC"
+    run = node["native_label_evidence"]["draw"]["glyph_runs"][0]
+    run.update(description={"text": " ", "text_position_utf16": 0, "text_length_utf16": 1, "cluster_map": [0]},
+               glyph_indices=[2], glyph_advances=[3.2871094], glyph_offsets=[{"advance": 0, "ascender": 0}],
+               callback_run_pointer="1100", font_face_process_pointer="2200", ink_bounds_world_dip=None)
+    run["face"]["color_font"] = False
+    binding = {key: deepcopy(run[key]) for key in ("font_face_process_pointer", "em_size", "glyph_indices", "glyph_advances", "glyph_offsets", "sideways", "bidi_level")}
+    binding.update(glyph_count=1, right_to_left=False)
+    run["ink_bounds_evidence"] = {
+        "source": "Actual GetGlyphRunWorldBounds result and same-callback glyph outline observation",
+        "bounds_hresult": 0, "bounds_hresult_hex": "0x00000000", "classification": "outline-empty", "failure": None,
+        "raw_bounds_classification": "nonfinite",
+        "raw_bounds": {key: {"value": None if key in ("left", "top") else 3.4028235e38,
+                             "raw_value": "Infinity" if key in ("left", "top") else "3.4028235E+38",
+                             "ieee754_format": "binary32", "ieee754_bits": "7F800000" if key in ("left", "top") else "7F7FFFFF"}
+                       for key in ("left", "top", "right", "bottom")},
+        "outline": {"source": "Actual same-run IDWriteFontFace.GetGlyphRunOutline into ID2D1PathGeometry",
+                    "glyph_run_ordinal": 0, "callback_run_pointer": "1100", "color_font": False, "binding": binding,
+                    "failure": None, "figure_count": 0, "segment_count": 0,
+                    "create_path_hresult": 0, "open_hresult": 0, "outline_hresult": 0, "close_hresult": 0,
+                    "figure_count_hresult": 0, "segment_count_hresult": 0}}
+    return node, image, run
+
+
 class NativeLabelGeometryTests(unittest.TestCase):
+    def test_proven_empty_outline_has_no_fake_rect_and_keeps_nonzero_advance(self):
+        node, image, run = empty_outline_fixture()
+        before = deepcopy(node)
+        data, issues = native_label_geometry(node, image)
+        self.assertTrue(empty_native_glyph_outline(run))
+        self.assertEqual(issues, [])
+        self.assertTrue(data["glyph_ink"][0]["outline_empty"])
+        self.assertIsNone(data["glyph_ink"][0]["world_bounds"])
+        self.assertIsNone(data["glyph_ink"][0]["window"])
+        self.assertEqual(data["font_metric_advance"][0]["local_bounds"]["width"], 3.2871094)
+        self.assertIsNone(data["final_pixel_contribution"])
+        self.assertEqual(node, before)
+
+    def test_old_nonfinite_receipt_without_outline_proof_still_fails(self):
+        node, image, run = empty_outline_fixture()
+        del run["ink_bounds_evidence"]
+        data, issues = native_label_geometry(node, image)
+        self.assertFalse(data["glyph_ink"][0]["outline_empty"])
+        self.assertTrue(any(row["property"].endswith("glyph_ink") for row in issues))
+
+    def test_each_failed_or_missing_actual_outline_result_cannot_prove_empty(self):
+        for key in ("create_path_hresult", "open_hresult", "outline_hresult", "close_hresult", "figure_count_hresult", "segment_count_hresult"):
+            for value in (None, -1, True):
+                with self.subTest(key=key, value=value):
+                    _, _, run = empty_outline_fixture()
+                    run["ink_bounds_evidence"]["outline"][key] = value
+                    self.assertFalse(empty_native_glyph_outline(run))
+
+    def test_nonempty_or_unmeasured_outline_keeps_coverage_failure(self):
+        for change in ({"figure_count": 1}, {"segment_count": 1}, {"figure_count": None}, {"segment_count": False},
+                       {"failure": "actual failure"}, {"cleanup_failure": "actual cleanup failure"}, {"color_font": None}, {"color_font": True}):
+            with self.subTest(change=change):
+                node, image, run = empty_outline_fixture()
+                run["ink_bounds_evidence"]["outline"].update(change)
+                _, issues = native_label_geometry(node, image)
+                self.assertTrue(any(row["property"].endswith("glyph_ink") for row in issues))
+
+    def test_cross_run_face_or_glyph_binding_cannot_supply_empty_outline(self):
+        for change in ({"font_face_process_pointer": "3300"}, {"glyph_indices": [3]}, {"glyph_advances": [0]},
+                       {"glyph_offsets": None}, {"em_size": 11}, {"glyph_count": 2}, {"right_to_left": True}):
+            with self.subTest(change=change):
+                _, _, run = empty_outline_fixture()
+                run["ink_bounds_evidence"]["outline"]["binding"].update(change)
+                self.assertFalse(empty_native_glyph_outline(run))
+        for key, value in (("glyph_run_ordinal", 1), ("callback_run_pointer", "1200")):
+            _, _, run = empty_outline_fixture()
+            run["ink_bounds_evidence"]["outline"][key] = value
+            self.assertFalse(empty_native_glyph_outline(run))
+
+    def test_raw_bits_must_match_classification_and_preserved_finite_value(self):
+        for change in ({"ieee754_bits": "broken"}, {"ieee754_format": "binary64"}, {"value": 0}, {"ieee754_bits": "00000000"}):
+            with self.subTest(change=change):
+                _, _, run = empty_outline_fixture()
+                run["ink_bounds_evidence"]["raw_bounds"]["right"].update(change)
+                self.assertFalse(empty_native_glyph_outline(run))
+        _, _, run = empty_outline_fixture()
+        run["ink_bounds_evidence"]["raw_bounds_classification"] = "reversed"
+        self.assertFalse(empty_native_glyph_outline(run))
+
+    def test_success_flag_does_not_override_failed_original_bounds_api(self):
+        _, _, run = empty_outline_fixture()
+        run["ink_bounds_evidence"]["bounds_hresult"] = -1
+        self.assertFalse(empty_native_glyph_outline(run))
+
+    def test_empty_outline_does_not_erase_independent_transform_or_font_gaps(self):
+        node, image, run = empty_outline_fixture()
+        run["description"]["cluster_map"] = None
+        image["native_label_surface_evidence"]["owner_id"] = "other-label"
+        data, issues = native_label_geometry(node, image)
+        self.assertTrue(data["glyph_ink"][0]["outline_empty"])
+        self.assertTrue(any(row["property"].endswith("font_metric_advance") for row in issues))
+        self.assertTrue(any(row["property"].endswith("image_placement") for row in issues))
+        self.assertTrue(any(row["property"].endswith("run_transform") for row in issues))
+
     def test_distinct_measured_quantities_and_zero_height_ellipsis_are_retained(self):
         node, image = fixture()
         before = deepcopy(node), deepcopy(image)

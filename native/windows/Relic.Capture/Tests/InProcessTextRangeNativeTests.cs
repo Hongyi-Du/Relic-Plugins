@@ -17,7 +17,9 @@ public sealed class InProcessTextRangeNativeTests
         public readonly double[] Values = [475.125, 127, 251.783203125, 0.8499908447265625];
         public bool PatternUnavailable, FailProviderQuery, WrongArrayType, FailRectangles, FailDestroy;
         public bool DirectSimpleAvailable, FailFragmentQuery, FailFragmentSimpleQuery;
+        public bool NullCollapsedText, NullNoncollapsedPrefix, FailCollapsedText, FailCollapsedCompare, WrongStringLength;
         public int TextQueries, DoubleReads;
+        public readonly List<IntPtr> LengthReads = [];
         private const string DocumentText = "A\uD800B";
         public int Query(IntPtr source, Guid iid, out IntPtr result)
         {
@@ -43,7 +45,13 @@ public sealed class InProcessTextRangeNativeTests
         public int Visible(IntPtr provider, out IntPtr array) { array = (IntPtr)20; return 0; }
         public int Clone(IntPtr range, out IntPtr result) { result = (IntPtr)nextRange++; ranges[result] = ranges[range]; return 0; }
         public int Text(IntPtr range, out IntPtr bstr)
-        { TextQueries++; var (s, e) = ranges[range]; bstr = (IntPtr)nextString++; strings[bstr] = DocumentText.Substring(s, e - s); return 0; }
+        {
+            TextQueries++; var (s, e) = ranges[range];
+            if (s == e && FailCollapsedText) { bstr = IntPtr.Zero; return unchecked((int)0x8000FFFF); }
+            if ((s == e && NullCollapsedText) || (range.ToInt64() >= 100 && e > s && NullNoncollapsedPrefix))
+            { bstr = IntPtr.Zero; return 0; }
+            bstr = (IntPtr)nextString++; strings[bstr] = DocumentText.Substring(s, e - s); return 0;
+        }
         public int Rectangles(IntPtr range, out IntPtr array)
         { array = FailRectangles ? IntPtr.Zero : range == (IntPtr)8 ? (IntPtr)30 : (IntPtr)31; return FailRectangles ? unchecked((int)0x8000FFFF) : 0; }
         public int Move(IntPtr range, int endpoint, IntPtr target, int targetEndpoint)
@@ -52,7 +60,10 @@ public sealed class InProcessTextRangeNativeTests
             ranges[range] = (current.start, targetEndpoint == 0 ? to.start : to.end); return 0;
         }
         public int Compare(IntPtr range, int endpoint, IntPtr target, int targetEndpoint, out int comparison)
-        { var from = ranges[range]; var to = ranges[target]; comparison = (endpoint == 0 ? from.start : from.end) - (targetEndpoint == 0 ? to.start : to.end); return 0; }
+        {
+            var from = ranges[range]; var to = ranges[target]; comparison = (endpoint == 0 ? from.start : from.end) - (targetEndpoint == 0 ? to.start : to.end);
+            return FailCollapsedCompare && range == target ? unchecked((int)0x8000FFFF) : 0;
+        }
         public uint Dimensions(IntPtr array) => 1;
         public uint ElementSize(IntPtr array) => array == (IntPtr)20 ? (uint)IntPtr.Size : 8;
         public int ArrayType(IntPtr array, out ushort type) { type = array == (IntPtr)20 ? (ushort)13 : WrongArrayType ? (ushort)3 : (ushort)5; return 0; }
@@ -61,7 +72,9 @@ public sealed class InProcessTextRangeNativeTests
         public int Double(IntPtr array, int index, out double value) { DoubleReads++; value = Values[index - 5]; return 0; }
         public int Unknown(IntPtr array, int index, out IntPtr value) { Assert.Equal(-2, index); value = (IntPtr)9; return 0; }
         public int Destroy(IntPtr array) { Destroyed.Add(array); return FailDestroy ? unchecked((int)0x8000FFFF) : 0; }
-        public string? String(IntPtr bstr) => strings[bstr];
+        public string? String(IntPtr bstr) => bstr == IntPtr.Zero ? null : strings[bstr];
+        public uint StringLength(IntPtr bstr)
+        { LengthReads.Add(bstr); return WrongStringLength ? 100U : bstr == IntPtr.Zero ? 0U : (uint)strings[bstr].Length; }
         public void FreeString(IntPtr bstr) { Assert.True(strings.Remove(bstr)); }
         public int Release(IntPtr value) { Released.Add(value); return 1; }
     }
@@ -94,6 +107,53 @@ public sealed class InProcessTextRangeNativeTests
         Assert.Equal(3, range["end"]!["verified_prefix_utf16_length"]!.GetValue<int>());
         Assert.True(range["text_matches_document_snapshot_slice"]!.GetValue<bool>());
         Assert.Equal(new byte[] { 0, 0xD8, 0x42, 0 }, Convert.FromBase64String(range["text"]!["utf16_le_base64"]!.ToString()));
+    }
+
+    [Fact]
+    public void SuccessfulNullBstrWithMeasuredCollapsedPrefixPreservesNullAndProvesZeroOffset()
+    {
+        var api = new Api { NullCollapsedText = true }; var receipt = InProcessTextRangeNative.Read((IntPtr)1, api);
+        var range = receipt["document_range"]!; var start = range["start"]!;
+        Assert.Equal("observed", receipt["status"]!.ToString());
+        Assert.True(start["text"]!["is_null"]!.GetValue<bool>());
+        Assert.True(start["bstr"]!["pointer_is_null"]!.GetValue<bool>());
+        Assert.Equal(0U, start["bstr"]!["sys_string_len"]!.GetValue<uint>());
+        Assert.Equal(0, start["prefix_start_to_end_compare"]!.GetValue<int>());
+        Assert.Equal(0, start["verified_prefix_utf16_length"]!.GetValue<int>());
+        Assert.True(range["text_matches_document_snapshot_slice"]!.GetValue<bool>());
+        Assert.Contains(IntPtr.Zero, api.LengthReads);
+    }
+
+    [Fact]
+    public void SuccessfulNullBstrForNoncollapsedPrefixDoesNotInventZeroOffset()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { NullNoncollapsedPrefix = true });
+        var end = receipt["document_range"]!["end"]!;
+        Assert.True(end["text"]!["is_null"]!.GetValue<bool>());
+        Assert.NotEqual(0, end["prefix_start_to_end_compare"]!.GetValue<int>());
+        Assert.False(end["null_bstr_collapsed_prefix"]!.GetValue<bool>());
+        Assert.Null(end["verified_prefix_utf16_length"]);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void FailedTextOrEndpointCallCannotBeReclassifiedAsEmptyBstr(bool textFailure, bool compareFailure)
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1,
+            new Api { NullCollapsedText = true, FailCollapsedText = textFailure, FailCollapsedCompare = compareFailure });
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        Assert.Null(receipt["document_range"]!["start"]!["verified_prefix_utf16_length"]);
+        Assert.Contains(receipt["errors"]!.AsArray(), item => item?["hresult"]?.GetValue<int>() == unchecked((int)0x8000FFFF));
+    }
+
+    [Fact]
+    public void BstrLengthDisagreementRemainsAnActualReadError()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { WrongStringLength = true });
+        Assert.Equal("unavailable", receipt["status"]!.ToString());
+        Assert.NotEmpty(receipt["errors"]!.AsArray());
+        Assert.Null(receipt["document_range"]);
     }
 
     [Fact]

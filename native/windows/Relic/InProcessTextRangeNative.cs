@@ -38,6 +38,7 @@ internal static class InProcessTextRangeNative
         int Unknown(IntPtr array, int index, out IntPtr value);
         int Destroy(IntPtr array);
         string? String(IntPtr bstr);
+        uint StringLength(IntPtr bstr);
         void FreeString(IntPtr bstr);
         int Release(IntPtr value);
     }
@@ -62,10 +63,12 @@ internal static class InProcessTextRangeNative
         public int Unknown(IntPtr array, int index, out IntPtr value) => SafeArrayGetUnknown(array, ref index, out value);
         public int Destroy(IntPtr array) => SafeArrayDestroy(array);
         public string? String(IntPtr bstr) => bstr == IntPtr.Zero ? null : Marshal.PtrToStringBSTR(bstr);
+        public uint StringLength(IntPtr bstr) => SysStringLen(bstr);
         public void FreeString(IntPtr bstr) => Marshal.FreeBSTR(bstr);
         public int Release(IntPtr value) => Marshal.Release(value);
     }
     [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern uint SafeArrayGetDim(IntPtr array);
+    [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern uint SysStringLen(IntPtr bstr);
     [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern uint SafeArrayGetElemsize(IntPtr array);
     [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern int SafeArrayGetVartype(IntPtr array, out ushort type);
     [DllImport("oleaut32.dll", ExactSpelling = true)] private static extern int SafeArrayGetLBound(IntPtr array, uint dimension, out int lower);
@@ -196,7 +199,14 @@ internal static class InProcessTextRangeNative
             try
             {
                 Trace(path + ".GetText(-1)", "pending"); Check(path + ".GetText(-1)", api.Text(range, out bstr));
-                var text = api.String(bstr); record["text"] = Utf16(text); return text;
+                var length = api.StringLength(bstr);
+                record["bstr"] = new JsonObject { ["pointer_is_null"] = bstr == IntPtr.Zero,
+                    ["sys_string_len"] = length, ["source"] = "SysStringLen on the actual successful GetText BSTR" };
+                Trace(path + ".SysStringLen", "observed", record["bstr"]);
+                var text = api.String(bstr); record["text"] = Utf16(text);
+                if ((bstr == IntPtr.Zero && length != 0) || (bstr != IntPtr.Zero && (text == null || text.Length != length)))
+                    throw new InvalidOperationException("Actual BSTR length differs from its UTF16 projection");
+                return text;
             }
             finally { if (bstr != IntPtr.Zero) api.FreeString(bstr); }
         }
@@ -211,9 +221,18 @@ internal static class InProcessTextRangeNative
                 Check(path + ".MoveEndpointByRange", api.Move(prefix, 1, range, endpoint));
                 Check(path + ".CompareEnd", api.Compare(prefix, 1, range, endpoint, out var end));
                 Check(path + ".CompareStart", api.Compare(prefix, 0, document, 0, out var start));
-                value["end_compare"] = end; value["start_compare"] = start;
+                Check(path + ".ComparePrefixStartToEnd", api.Compare(prefix, 0, prefix, 1, out var collapsed));
+                value["end_compare"] = end; value["start_compare"] = start; value["prefix_start_to_end_compare"] = collapsed;
                 var text = Text(prefix, path + ".prefix", value);
-                value["verified_prefix_utf16_length"] = start == 0 && end == 0 && text != null ? text.Length : null;
+                // SysStringLen(null) is specified as zero. Preserve the actual
+                // null BSTR; only an independently collapsed prefix can use it
+                // as a measured zero offset, never a failed/missing GetText.
+                // https://learn.microsoft.com/en-us/windows/win32/api/oleauto/nf-oleauto-sysstringlen
+                var measuredNullPrefix = text == null && value["bstr"]?["pointer_is_null"]?.GetValue<bool>() == true
+                    && value["bstr"]?["sys_string_len"]?.GetValue<uint>() == 0 && collapsed == 0;
+                value["null_bstr_collapsed_prefix"] = measuredNullPrefix;
+                int? measuredLength = text != null ? text.Length : measuredNullPrefix ? 0 : null;
+                value["verified_prefix_utf16_length"] = start == 0 && end == 0 ? measuredLength : null;
             }
             catch (Exception ex) { Fail(path, ex); value["error"] = ex.ToString(); }
             finally { Release(prefix, path + " prefix"); }
