@@ -82,7 +82,7 @@ def measured(nodes):
 
 class ProjectionTests(unittest.TestCase):
     def capture(self, nodes, uia_nodes=None, *, xaml_changes=None, uia_changes=None,
-                image_size=None):
+                image_size=None, text_probe=None):
         xaml = {"schema_version": 1, "scene_id": SCENE, "client": "windows",
                 "viewport": deepcopy(VIEWPORT), "raw_nodes": nodes, "extraction_errors": []}
         uia = {"schema_version": 1, "case_id": SCENE, "client": "windows",
@@ -93,12 +93,39 @@ class ProjectionTests(unittest.TestCase):
             root = Path(folder)
             (root / "scene.xaml.json").write_text(json.dumps(xaml), encoding="utf-8")
             (root / "scene.uia.json").write_text(json.dumps(uia), encoding="utf-8")
+            if text_probe is not None:
+                (root / "scene.text-range-provider-probe.json").write_text(json.dumps(text_probe), encoding="utf-8")
             Image.new("RGBA", image_size or (1024, 700), (248, 247, 245, 255)).save(root / "scene.png")
             return project(root / "scene.xaml.json", root / "scene.uia.json", root / "scene.png")
 
     @staticmethod
     def by_id(result):
         return {element["id"]: element for element in result["elements"]}
+
+    def test_precision_diagnostic_does_not_replace_bounds_or_erase_provider_errors(self):
+        nodes = measured([xaml_node("text", text="Actual captured source")])
+        failure = "Observed zero-area native COM text rectangle"
+        kwargs = {"uia_changes": {"extraction_errors": [failure]}}
+        baseline = self.capture(nodes, **kwargs)
+        result = self.capture(nodes, text_probe={"source": "unbound probe", "owners": [], "errors": []}, **kwargs)
+        for field in ("elements", "extraction_errors", "coverage", "projection", "nonvisible_diagnostics"):
+            self.assertEqual(result[field], baseline[field])
+        diagnostic = result["capture_evidence"]["text_range_precision"]
+        self.assertFalse(diagnostic["canonical_geometry_supplied"])
+        self.assertFalse(diagnostic["provider_errors_resolved"])
+        self.assertEqual(diagnostic["original_uia_errors"], [failure])
+        self.assertTrue(diagnostic["unresolved"])
+
+    def test_malformed_optional_precision_diagnostic_keeps_original_capture(self):
+        nodes = measured([xaml_node("text", text="Original")])
+        baseline = self.capture(nodes)
+        for malformed in ([], "not an object"):
+            result = self.capture(nodes, text_probe=malformed)
+            for field in ("elements", "extraction_errors", "coverage", "projection"):
+                self.assertEqual(result[field], baseline[field])
+            diagnostic = result["capture_evidence"]["text_range_precision"]
+            self.assertEqual(diagnostic["status"], "unavailable")
+            self.assertFalse(diagnostic["provider_errors_resolved"])
 
     def test_actual_region_grid_preserves_each_independent_child_paint(self):
         region = xaml_node("region", "NativeRegionGrid", bounds=box(0, 0, 400, 200),

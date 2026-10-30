@@ -18,6 +18,7 @@ from windows_outline import native_outline
 from native_label_geometry import native_label_geometry
 from native_label_fonts import native_label_fonts
 from windows_automation_identity import bind_automation_identities
+from windows_text_precision import analyze_text_precision
 from line_breaks import BREAK_FIELDS, break_strategy_issues
 from font_weights import project_font_weights, font_weight_issues
 
@@ -1781,6 +1782,18 @@ def project(xaml_path, uia_path, png_path):
         element["parent"] = parent
     capture_evidence = copy.deepcopy(xaml.get("capture_evidence", {}))
     capture_evidence["automation_identity_bindings"] = bind_automation_identities(source_raw, uia)
+    # Optional supplementary diagnostic. Keep the original UIA errors, bounds
+    # and canonical element measurements unchanged until actual frame/range
+    # continuity is independently established.
+    probe_path = Path(xaml_path).with_name(Path(xaml_path).name.removesuffix(".xaml.json") + ".text-range-provider-probe.json")
+    if probe_path.exists():
+        try:
+            probe = json.loads(probe_path.read_text(encoding="utf-8-sig"))
+            capture_evidence["text_range_precision"] = analyze_text_precision(xaml, uia, probe)
+        except (ValueError, TypeError, KeyError, AttributeError, OSError) as error:
+            capture_evidence["text_range_precision"] = {
+                "source": probe_path.name, "status": "unavailable", "error": str(error),
+                "canonical_geometry_supplied": False, "provider_errors_resolved": False}
     if range_failures:
         capture_evidence["uia_text_range_failures"] = range_failures
     return {"schema_version": 1, "scene_id": xaml["scene_id"], "client": "windows", "viewport": xaml["viewport"],
