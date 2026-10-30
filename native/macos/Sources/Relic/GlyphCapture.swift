@@ -7,6 +7,9 @@ import CoreText
 class NativeGlyphLayoutManager: NSLayoutManager {
     var recordDraws = false
     var drawsGlyphsIntoCurrentContext = false
+    // Unit-test diagnostics only; normal capture never snapshots a draw callback.
+    var captureCallbackBitmap = false
+    private(set) var lastCallbackBitmap: CGImage?
     private var sequence = 0
     private var calls: [[String: Any]] = []
     private var activeRange: NSRange?
@@ -124,7 +127,10 @@ class NativeGlyphLayoutManager: NSLayoutManager {
     override func showCGGlyphs(_ glyphs: UnsafePointer<CGGlyph>, positions: UnsafePointer<CGPoint>, count glyphCount: Int,
                               font: NSFont, textMatrix: CGAffineTransform, attributes: [NSAttributedString.Key: Any] = [:], in context: CGContext) {
         NativeTextRasterization.begin(context)
-        defer { context.restoreGState() }
+        defer {
+            if captureCallbackBitmap { lastCallbackBitmap = context.makeImage() }
+            context.restoreGState()
+        }
         if recordDraws, activeRange != nil {
             func transform(_ t: CGAffineTransform) -> [String: Double] { ["a": t.a, "b": t.b, "c": t.c, "d": t.d, "tx": t.tx, "ty": t.ty] }
             func box(_ rect: CGRect) -> Any {
