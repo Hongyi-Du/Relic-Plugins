@@ -73,8 +73,14 @@ final class ReferencePopUpButton: NSPopUpButton {
     }
     override func layout() {
         super.layout()
-        titleLabel.frame = NSRect(x: 0, y: (bounds.height - titleHeight) / 2,
-                                 width: max(0, bounds.width - 16), height: titleHeight)
+        // The selected title has its own content padding inside the popup.
+        // The surrounding field padding also positions the native control; it
+        // cannot replace this inset (NSPopUpButton has alignment-rect insets).
+        // Keep the arrow at the same trailing position and reduce the real
+        // text container, so long selections truncate before that arrow.
+        let leading: CGFloat = 10
+        titleLabel.frame = NSRect(x: leading, y: (bounds.height - titleHeight) / 2,
+                                 width: max(0, bounds.width - leading - 16), height: titleHeight)
     }
     func configureAccessibility(title: String, name: String? = nil) {
         let identity = "relic-dropdown/" + title
@@ -100,6 +106,8 @@ final class ReferencePopUpButton: NSPopUpButton {
         if VisualCapture.enabled {
             arrowDraw = ["provider": "production ReferencePopUpButton.draw", "points_local": points.map { ["x": $0.x, "y": $0.y] },
                 "line_width": 2, "line_cap": "butt", "line_join": "miter", "color": ElementCapture.rgba(arrowColor),
+                "control_bounds": ElementCapture.box(bounds), "title_frame": ElementCapture.box(titleLabel.frame),
+                "alignment_insets": [alignmentRectInsets.top, alignmentRectInsets.left, alignmentRectInsets.bottom, alignmentRectInsets.right],
                 "flipped": isFlipped, "draw_returned": true]
         }
     }
