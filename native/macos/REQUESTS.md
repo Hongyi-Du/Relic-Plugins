@@ -1,3 +1,46 @@
+## 2026-10-30: actual static-face weight receipt (shared matcher request)
+
+The actual Menlo glyph callbacks have no `wght` axis. `font_weights.py` currently
+requires that axis for every face, so even a real static font stays unresolved.
+The native callback now adds `style.rendered_fonts[].weight_measurement` and the
+same field in the retained `native_font_drawing.fonts` / raw callback font:
+
+```json
+{
+  "version": 1,
+  "source": "CTFont tables and variations of the actual showCGGlyphs font",
+  "postscript_name": "Menlo-Regular",
+  "available_table_tags": [1330851634],
+  "variation_axes": null,
+  "actual_variations": null,
+  "os2_base64": "<complete actual CTFontCopyTable(OS/2) bytes>",
+  "status": "measured",
+  "value": 400,
+  "quantity": "static-face-os2-usWeightClass"
+}
+```
+
+The example table list is shortened here only; production records the complete
+`CTFontCopyAvailableTables` result. Please validate the existing actual-draw /
+source-span ownership first, the same PostScript identity, nonmissing table
+inventory with `OS/2` and without `fvar`, no nonempty variation axes or coordinates,
+and decode the retained complete table bytes (big-endian uint16 at offset 4,
+valid 1...1000; known OS/2 version and at least 68 bytes). Reject corrupt,
+inconsistent, variable or unbound receipts. Do not substitute OS/2 for an unknown
+variable-font instance: its weight class is not adjusted by variation data.
+Variable callbacks retain their actual coordinate and quantity
+`actual-wght-coordinate`; absent coordinates remain unknown.
+
+This is an additional actual measurement, not a tolerance or exception. Native
+tests draw real Menlo Regular/Bold and reject variable/missing/truncated evidence.
+The reference still needs its own independently bound actual-face measurement;
+do not infer its weight from the native font, a family name, requested CSS weight
+or a separately resolved replacement font. Final PNG attribution remains unknown
+where the existing paint evidence cannot prove it.
+
+Sources: [OpenType OS/2](https://learn.microsoft.com/en-us/typography/opentype/spec/os2),
+[CTFontCopyTable](https://developer.apple.com/documentation/coretext/ctfontcopytable(_:_:_:)).
+
 ## 2026-10-30: live matrix consumption and shared extraction failures
 
 `682034a` smoke run `41022654907` now has all 19 native captures with

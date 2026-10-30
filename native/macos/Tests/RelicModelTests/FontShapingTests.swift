@@ -4,6 +4,35 @@ import CoreText
 @testable import Relic
 
 @MainActor final class FontShapingTests: XCTestCase {
+    func testActualStaticGlyphFontCarriesItsOwnOpenTypeWeightTable() throws {
+        for weight in [400, 700] {
+            let view = ReferenceLabel("Actual static face", size: 12.5, weight: weight, monospaced: true).makeLabelView()
+            (view.layoutManager as? NativeGlyphLayoutManager)?.recordDraws = true
+            view.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(view)); view.cacheDisplay(in: view.bounds, to: bitmap)
+            let row = try XCTUnwrap(ElementCapture.textRuns(view).first)
+            let fonts = try XCTUnwrap((row["style"] as? [String: Any])?["rendered_fonts"] as? [[String: Any]])
+            XCTAssertFalse(fonts.isEmpty)
+            for font in fonts {
+                let measured = try XCTUnwrap(font["weight_measurement"] as? [String: Any])
+                XCTAssertEqual(measured["postscript_name"] as? String, font["postscript_name"] as? String)
+                XCTAssertEqual(measured["quantity"] as? String, "static-face-os2-usWeightClass")
+                XCTAssertEqual(measured["value"] as? Int, weight)
+                XCTAssertNotNil(Data(base64Encoded: try XCTUnwrap(measured["os2_base64"] as? String)))
+            }
+        }
+    }
+
+    func testStaticWeightCannotStandInForAnUnknownVariableInstance() throws {
+        let font = RelicStyle.monoFont(12) as CTFont
+        let data = try XCTUnwrap(CTFontCopyTable(font, kCTFontTableOS2, [])) as Data
+        XCTAssertEqual(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2], hasVariationAxes: false), 400)
+        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2, NativeFontWeight.variationTag], hasVariationAxes: false))
+        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: [kCTFontTableOS2], hasVariationAxes: true))
+        XCTAssertNil(NativeFontWeight.staticWeight(table: data, availableTags: nil, hasVariationAxes: false))
+        XCTAssertNil(NativeFontWeight.staticWeight(table: Data(data.prefix(5)), availableTags: [kCTFontTableOS2], hasVariationAxes: false))
+    }
+
     func testRecipientArrowUsesTheActualReferenceSystemFallbackAndAdvance() throws {
         // Actual 682034a DOM Range and CDP face list for the group recipient.
         let view = ReferenceLabel("→ 全体", size: 12, lineHeight: 15.6, lines: 0).makeLabelView()
