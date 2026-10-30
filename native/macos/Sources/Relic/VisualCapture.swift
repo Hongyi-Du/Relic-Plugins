@@ -22,6 +22,8 @@ import RelicAX
         var display: CaptureDisplay?
         do {
             guard env["GITHUB_ACTIONS"] == "true" else { throw RelicError.message("Visual capture is restricted to GitHub Actions") }
+            try "startup: initializing native capture".write(to: manifestURL.deletingLastPathComponent().appendingPathComponent("current-case.txt"), atomically: true, encoding: .utf8)
+            print("Native capture bootstrap: \(manifestURL.path)"); fflush(stdout)
             NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
             let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)))
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)

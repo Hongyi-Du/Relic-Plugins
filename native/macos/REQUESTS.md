@@ -1,5 +1,23 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+**Actual full-shard startup failure, `afe7f6f` / `41004901717`:** zh-CN/light
+job `123897519335` completes the first 55-case viewport, then the 1280x800
+process (PID 29604) writes no client log/progress and times out at 1200 seconds;
+1024x700 likewise writes nothing before the unchanged 45-minute job deadline.
+Downloaded evidence: `parity-afe7f6f/macos-zh-CN-light/data/zh-CN/light/viewports`.
+This is a startup failure, not slow successful cases. macOS previously started
+capture only from the ordinary Window's `.task`; a later process may restore
+that window as closed. Capture now starts from `applicationDidFinishLaunching`
+and owns its own model/window regardless of ordinary-window restoration, with
+an immediate startup log/progress marker. Full multi-process validation is pending.
+
+Shared request: `native_process` currently creates `current-case.txt` before
+launch only for Windows. Please initialize a startup marker for macOS too so a
+process that never reaches our app lifecycle triggers the existing 90-second
+progress deadline and stack sampling, rather than waiting 1200 seconds without
+startup evidence. Preserve all process/case/job deadlines, all 165 cases in
+each language/theme and the existing failed-shard aggregation.
+
 `edb98f3` smoke `41005480198` completes all 19 macOS captures; its actual new
 PNG reveals a shadow regression: the non-linear drawingGroup clips all paint
 outside its layout bounds. At the member-card left edge the native samples at
