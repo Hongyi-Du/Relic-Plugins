@@ -1414,8 +1414,17 @@ def native_process(manifest_path, manifest, exe):
         process = subprocess.Popen([str(exe)], env=environment, stdout=log, stderr=log)
         completed_requests, capture_errors = set(), []
         expected_ids = {case["id"] for case in manifest["cases"]}
+        progress_observations = []
         def capture_elements():
             if manifest["client"] != "windows":
+                progress_path = manifest_path.parent / "current-case.txt"
+                if progress_path.is_file():
+                    current = progress_path.read_text(encoding="utf-8-sig").strip()
+                    if current and (not progress_observations or current != progress_observations[-1]["text"]):
+                        progress_observations.append({"text": current, "case_id": current if current in expected_ids else None,
+                            "pid": process.pid, "observed_monotonic": time.monotonic()})
+                        (manifest_path.parent / "progress-observations.json").write_text(
+                            json.dumps(progress_observations, ensure_ascii=False, indent=2), encoding="utf-8")
                 return
             pending = pending_element_request(manifest_path.parent, completed_requests)
             if pending is None:
@@ -1450,10 +1459,9 @@ def native_process(manifest_path, manifest, exe):
             receipt.with_suffix(".tmp").replace(receipt)
             completed_requests.add(last_request)
         try:
-            if manifest["client"] == "windows":
-                (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,
-                    "case_ids": sorted(expected_ids), "state_directory": manifest["state_directory"],
-                    "fixture_home": manifest["fixture"]["home"]}), encoding="utf-8")
+            (manifest_path.parent / "process.json").write_text(json.dumps({"pid": process.pid,
+                "case_ids": [case["id"] for case in manifest["cases"]], "state_directory": manifest.get("state_directory"),
+                "fixture_home": manifest["fixture"]["home"]}), encoding="utf-8")
             wait_options = {"timeout": 240 if manifest["client"] == "windows" else 1200, "on_tick": capture_elements}
             if manifest["client"] == "macos" and sys.platform == "darwin":
                 wait_options["on_stall"] = lambda reason: sample_native_stall(process, manifest_path.parent, manifest["client"], reason)
@@ -1474,17 +1482,25 @@ def native_process(manifest_path, manifest, exe):
                     raise RuntimeError("; ".join(capture_errors))
             return receipt
         finally:
-            if manifest["client"] == "windows":
+            try:
                 cleanup = stop_native_process(process)
+            except Exception as error:
+                cleanup = {"pid": process.pid, "status": "failed", "error": str(error),
+                           "error_type": type(error).__name__, "returncode": process.returncode}
+                raise
+            finally:
                 (manifest_path.parent / "process-exit.json").write_text(json.dumps(cleanup), encoding="utf-8")
-            elif process.poll() is None:
-                process.terminate()
-                process.wait(timeout=20)
 
 
 def native(manifest_path, manifest, exe):
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Native visual capture is CI-only; no local process is launched.")
+    if manifest["client"] == "macos":
+        from macos_capture_shards import capture_shards, viewport_shards
+        shards = viewport_shards(manifest)
+        if len(shards) > 1:
+            return capture_shards(manifest_path, manifest, exe, native_process)
+        return native_process(manifest_path, manifest, exe)
     if manifest["client"] != "windows":
         return native_process(manifest_path, manifest, exe)
     if not manifest["cases"]:
