@@ -1,5 +1,19 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+`da54b3c` Native apps run `41014596650`, job `123927946212`, compiled the
+production app and ran 150 tests. Four assertions in the new checkbox test
+failed: the custom empty NSButtonCell supplied AXUnknown, a 30x16 interior
+frame and no checkbox value. `717d2d3` implements the actual NSButton's AX
+checkbox role, native state, full mounted hit frame and enabled press action.
+The 32x18 and checked/disabled assertions are unchanged; fresh CI is required.
+
+Correction to the Windows vocabulary request below: the shared owner traced
+the four keys to the reference's actual `if (isMac())` desktop-connection UI.
+They are used by macOS; no dead Windows references or new Windows UI should be
+added for those macOS-only controls. The platform-guarded source inventory
+needs its own accurate measurement, without excluding any captured scene.
+
+
 **Requested-vs-resolved font weight remains a shared measurement issue.**
 `a3ca2a3` group reference bold has computed CSS weight 700 but CDP reports
 `PingFangSC-Semibold`; the native actual callback uses that same face with
