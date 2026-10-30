@@ -4,20 +4,19 @@ import RelicCore
 struct OrganizationBadge: View {
     let node: Node
     var body: some View {
-        ReferenceLabel(String(node["name"].text.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased(), size: 11, weight: 700, color: RelicStyle.avatar(node["id"].text, background: false, dark: false), alignment: .center)
-            .frame(width: 22, height: 22)
-            .modifier(RecordedSurface(background: RelicStyle.avatar(node["id"].text, background: true, dark: false), border: RelicStyle.avatar(node["id"].text, background: false, dark: false), borderWidth: node["kind"].text == "subgroup" ? 1.5 : 0, radius: 6, kind: "avatar", borderDash: node["kind"].text == "subgroup" ? [3,3] : []))
-            .overlay { if node["cabinet"].flag { RoundedRectangle(cornerRadius: 9.5).strokeBorder(RelicStyle.violet, lineWidth: 1.5).padding(-3.5); RoundedRectangle(cornerRadius: 8).strokeBorder(RelicStyle.card, lineWidth: 2).padding(-2) } }
+        OrganizationAvatar(node: node, desaturateEnded: false)
     }
 }
 
 struct ChartChip: View {
     let text: String
     var tone = ""
+    @State private var identity = "relic-chip/chart/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: 10.5, color: tone == "sec" ? RelicStyle.violet : tone == "warn" ? RelicStyle.amber : RelicStyle.secondary)
+        ReferenceLabel(text, size: 10.5, color: tone == "sec" ? RelicStyle.violet : tone == "warn" ? RelicStyle.amber : RelicStyle.secondary, owner: identity)
             .padding(.horizontal, 6).frame(height: 20)
-            .modifier(RecordedSurface(background: tone == "sec" ? RelicStyle.violetSoft : tone == "warn" ? RelicStyle.amberSoft : RelicStyle.hover, radius: 10, kind: "chip"))
+            .modifier(RecordedSurface(background: tone == "sec" ? RelicStyle.violetSoft : tone == "warn" ? RelicStyle.amberSoft : RelicStyle.hover, radius: 10, kind: "chip", owner: identity))
+            .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
     }
 }
 

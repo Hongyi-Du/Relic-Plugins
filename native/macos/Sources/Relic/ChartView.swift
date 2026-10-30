@@ -91,13 +91,16 @@ struct ChartView: View {
                     if sharedCount(node) > 0 { ChartChip(text: m.t("chart.shared", ["n": String(sharedCount(node))]), tone: "sec").help(sharedTip(node)) }
                 }
             }.padding(.horizontal, 12.5).padding(.vertical, 9.5).frame(width: OrganizationLayout.card.width, height: OrganizationLayout.card.height, alignment: .leading)
+                .environment(\.nativeElementParent, identity)
                 .modifier(RecordedSurface(background: node["cabinet"].flag ? RelicStyle.mix(RelicStyle.violetSoft, RelicStyle.card, fraction: 0.75) : RelicStyle.card,
                     border: hovered == node["id"].text ? RelicStyle.muted : node["cabinet"].flag || node["governance"].text == "peer" ? RelicStyle.violet : RelicStyle.border, borderWidth: 1.5, radius: 12, kind: "chart-node", owner: identity, hovered: hovered == node["id"].text,
                     shadows: node["id"].text == m.organization ? [] : hovered == node["id"].text ? SurfaceShadow.dialog : SurfaceShadow.small,
                     borderDash: node["kind"].text == "subgroup" ? [4,3] : [], current: node["id"].text == m.organization, outerRingWidth: node["id"].text == m.organization ? 3 : 0, outerRingColor: RelicStyle.accent.opacity(0.4)))
         }.buttonStyle(.plain).accessibilityIdentifier(identity)
             .help(([m.t("chart.open_hint", ["name": node["name"].text]), leader, node["purpose"].text, sharedTip(node)]).filter { !$0.isEmpty }.joined(separator: "\n"))
-            .recordedOpacity(node["status"].text == "active" ? 1 : 0.5).onHover { hovered = $0 ? node["id"].text : "" }
+            .recordedOpacity(node["status"].text == "active" ? 1 : 0.5)
+            .saturation(node["status"].text == "active" ? 1 : 0)
+            .onHover { hovered = $0 ? node["id"].text : "" }
     }
     private func edges(_ graph: OrganizationLayout) -> [ChartEdge] {
         func n(_ value: CGFloat) -> String { String(format: "%g", Double(value)) }

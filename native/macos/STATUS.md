@@ -10,6 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+最新已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
+整个 Native apps 工作流通过；macOS release 编译和 **151 个测试通过**。
+真实原生开关的 AX 角色、32×18 点击范围、勾选和禁用行为，以及富文本逐段 AX 读取均已通过。
+后续卡片范围辅助函数曾出现主线程隔离编译错误，已在 `666b2bf` 修复；
+`0a1d569` 包含该修复及右栏文字、组织徽标、图表标签归属，正在等待新 CI，尚不能算通过。
+
 完整捕获恢复：[41011131381 / 2cb073c](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41011131381)
 四个 macOS 语言／主题产物均已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`。
 每份完成记录都是 165/165、`errors: []`，共 660 个 PNG 和 660 个元素文件。

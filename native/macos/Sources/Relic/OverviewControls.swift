@@ -93,14 +93,19 @@ struct OverviewLink: View {
     var icon = "chev"
     var leading = false
     let action: () -> Void
+    @State private var hovered = false
+    @State private var identity = "relic-text-button/overview-link/" + UUID().uuidString
+    private var color: Color { hovered ? RelicStyle.accent : RelicStyle.muted }
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: RelicStyle.muted) }
-                Text(text).font(RelicStyle.font(12, weight: 400))
-                if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: RelicStyle.muted) }
-            }.foregroundStyle(RelicStyle.muted).frame(minHeight: 19.2)
-        }.buttonStyle(.plain)
+                if leading { ReferenceIcon(name: icon, size: icon == "plus" ? 13 : 12, color: color, owner: identity) }
+                ReferenceLabel(text, size: 12, color: color, lines: 0, owner: identity)
+                if !leading && !icon.isEmpty { ReferenceIcon(name: icon, size: 12, color: color, owner: identity) }
+            }.frame(minHeight: 19.2)
+                .modifier(RecordedSurface(background: .clear, owner: identity, hovered: hovered))
+        }.buttonStyle(.plain).onHover { hovered = $0 }
+            .accessibilityIdentifier(identity).accessibilityLabel(text)
     }
 }
 
@@ -119,14 +124,15 @@ struct OverviewPicker: View {
 struct OverviewRow<Leading: View, Trailing: View>: View {
     let title: String, subtitle: String
     var struck = false
+    var owner: String? = nil
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
     var body: some View {
         HStack(spacing: 9) {
             leading
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(RelicStyle.font(13, weight: 600)).strikethrough(struck).lineLimit(1).frame(minHeight: 20.8)
-                Text(subtitle).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
+                ReferenceLabel(title, size: 13, weight: 600, owner: owner, struck: struck).frame(minHeight: 20.8)
+                ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, owner: owner).frame(minHeight: 19.2)
             }.frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }.padding(.horizontal, 8).padding(.vertical, 6).padding(.horizontal, -8)
