@@ -113,14 +113,14 @@ public sealed partial class MainWindow
         return new NativeOrganizationAvatarPaint(surface, initial, outline, cabinet);
     }
 
-    private Grid OverviewRowContent(UIElement? first, string title, string note, UIElement? last = null, bool struck = false, bool noteWrap = false)
+    private Grid OverviewRowContent(UIElement? first, string title, string note, UIElement? last = null, bool struck = false, bool noteWrap = false, bool selectable = true)
     {
         var row = new Grid { ColumnSpacing = 9 };
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.Children.Add(first ?? new Grid());
-        var heading = OverviewText(title, 13, weight: 600); heading.TextWrapping = TextWrapping.NoWrap; heading.TextTrimming = TextTrimming.CharacterEllipsis;
+        var heading = OverviewText(title, 13, weight: 600); heading.IsTextSelectionEnabled = selectable; heading.TextWrapping = TextWrapping.NoWrap; heading.TextTrimming = TextTrimming.CharacterEllipsis;
         if (struck) heading.TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough;
-        var subtitle = OverviewText(note, 12, true); subtitle.TextWrapping = noteWrap ? TextWrapping.Wrap : TextWrapping.NoWrap; subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
+        var subtitle = OverviewText(note, 12, true); subtitle.IsTextSelectionEnabled = selectable; subtitle.TextWrapping = noteWrap ? TextWrapping.Wrap : TextWrapping.NoWrap; subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
         var labels = new StackPanel(); labels.Children.Add(heading); labels.Children.Add(subtitle); labels.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(labels, 1); row.Children.Add(labels);
         var tail = last ?? new Grid(); Grid.SetColumn((FrameworkElement)tail, 2); row.Children.Add(tail);
         return row;
@@ -128,7 +128,8 @@ public sealed partial class MainWindow
 
     private Button OverviewRow(UIElement? first, string title, string note, Func<Task> action, UIElement? last = null, bool ended = false, bool struck = false)
     {
-        var row = OverviewRowContent(first, title, note, last, struck);
+        // Only actionable rows have decorative content; the episode rows remain selectable.
+        var row = OverviewRowContent(first, title, note, last, struck, selectable: false); row.IsHitTestVisible = false;
         var button = QuietButton("", action); button.Content = row; button.MinHeight = 0; button.Padding = new Thickness(8, 6, 8, 6);
         button.Margin = new Thickness(-8, 0, -8, 0); button.CornerRadius = new CornerRadius(8); button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         if (ended) button.Opacity = .55;

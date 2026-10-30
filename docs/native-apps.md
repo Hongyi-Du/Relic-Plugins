@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (button interaction and macOS diagnostics): Windows
+button labels, reply summaries, secretary choices, avatar overlays and clickable
+overview rows no longer intercept their parent button's pointer action as
+selectable text. Ordinary conversation and episode text remains selectable;
+session delivery hints retain their own tooltip hit target. Actual CI clicks
+must still verify these source fixes. The macOS request in db161d1 is implemented:
+failed unit tests upload `.build/draw-diagnostics/**` as
+`native-macos-draw-diagnostics`, preserving actual PNGs and source without
+changing the existing pixel assertions or acceptance criteria.
+
 Changes for the clients (direct provider diagnostic): CI now independently
 queries the same retained peer's public COM TextPattern provider for actual
 WinRT ranges whose measured height is between 0 and 1. It records SAFEARRAY

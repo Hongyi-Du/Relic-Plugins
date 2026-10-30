@@ -73,8 +73,9 @@ public sealed partial class MainWindow
     }
     private Button ChipButton(string icon, string label, string tooltip, Func<Task> action)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
-        row.Children.Add(ReferenceIcon(icon, 15)); var text = Text(label, 12.5); text.TextWrapping = TextWrapping.NoWrap; row.Children.Add(text);
+        // This content belongs to the chip button's one action, not a selectable text surface.
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        row.Children.Add(ReferenceIcon(icon, 15)); var text = Text(label, 12.5); text.TextWrapping = TextWrapping.NoWrap; text.IsTextSelectionEnabled = false; row.Children.Add(text);
         var button = QuietButton("", action); button.Content = row; button.Height = 28; button.Padding = new Thickness(11, 0, 11, 0); button.CornerRadius = new CornerRadius(14);
         button.Background = Paint("FFFFFF", "252523"); button.Margin = new Thickness(0, 0, 4, 0);
         button.BorderBrush = Paint("DEDBD4", "3A3936"); button.BorderThickness = new Thickness(1); button.Foreground = Paint("5A5853", "B8B5AE"); text.Foreground = button.Foreground;
