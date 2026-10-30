@@ -1,5 +1,29 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `74b14eb` evidence-shape follow-up: macOS retains the original native
+line-break properties under `raw`, with `source`, actual `owner`, and
+`applicable:true` for `bool(text) || kind == "text"`. Non-text elements emit
+version 1/null strategies/false applicability and a reason. Text controls with
+no measured paragraph/container configuration retain explicit errors and null
+strategies; the required shape is not used to disguise missing measurements.
+
+New `597e113` smoke artifacts are downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-597e113\{macos,reference,report}`.
+18/19 native cases are captured; Copy is completed and continuity observed
+through `after-native-source-and-element-extraction`. The one failure is rename:
+client.log records a click at window x=1194, but the loaded card's actual rename
+button center is x=1389. The capture clicked the pre-load layout. It now waits
+for the real card AX identity derived from the fetched member name, flushes
+layout and dispatches exactly one action; the attempted target/result is saved
+even on failure. The existing bounded API-readiness deadline is used; no scene
+or failed assertion is excluded and no second click is used to hide failure.
+
+Actual antialiasing verification: the same 1440 group message, measured from
+its actual text rectangle, has native red-channel ink coverage 2065.15 versus
+reference 2068.80 in 597e113. The old 56253c7 capture measured 2444.42 versus
+2068.80. This confirms the observed excess ink was reduced for that paragraph,
+not whole-font or whole-matrix equivalence. Both current reports still fail.
+
 The real macOS popup AX element is `ReferencePopUpCell`, not its backing
 `ReferencePopUpButton`. Captured cells had empty field names/identifiers and
 only their 22px interior frame. The production control now assigns its actual
