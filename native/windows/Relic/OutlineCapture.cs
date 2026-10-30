@@ -154,6 +154,12 @@ public sealed partial class MainWindow
             || actual == typeof(Microsoft.UI.Xaml.Shapes.Path) || actual == typeof(Polygon) || actual == typeof(Polyline) ? "native-shape-fill-and-stroke"
         : actual == typeof(TextBlock) || actual == typeof(RichTextBlock) ? "native-text-glyphs"
         : actual == typeof(Image) ? "native-image-content"
+        // The pinned SDK's pre/post-children switches have no own renderer
+        // for these exact core control types. Their applied template children
+        // still receive independent receipts below; focus and app Composition
+        // are NOT covered by this contract. Do not generalize to ContentControl
+        // (which has its own renderer), presenters, or arbitrary subclasses.
+        : TemplateChildOnlyControl(actual) ? "native-core-control-template-children-only"
         // Exact SDK 1.6.9, commit da699b040bddc2a6adf660512a7c6db8a96bfbe3:
         // src/dxaml/xcp/core/inc/Viewbox.h and core/elements/Viewbox.cpp:
         // CFrameworkElement scale/arrange only; the internal Border is a child.
@@ -165,6 +171,14 @@ public sealed partial class MainWindow
         : actual == typeof(Viewbox) ? "native-viewbox-child-transform"
         : actual == typeof(ReferenceVectorIcon) ? "relic-reference-vector-usercontrol-child-only"
         : LocalLayoutOutlineContract(actual)?.Contract;
+
+    private static bool TemplateChildOnlyControl(Type actual) =>
+        actual == typeof(Button) || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.RepeatButton)
+        || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.ToggleButton)
+        || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.ScrollBar)
+        || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.Thumb)
+        || actual == typeof(ScrollViewer) || actual == typeof(ListViewItem)
+        || actual == typeof(ListView) || actual == typeof(ComboBox) || actual == typeof(TextBox);
 
     // These six exact sealed production types add layout or a region peer only.
     // Their own background/border follows the fixed SDK's CPanel path:
