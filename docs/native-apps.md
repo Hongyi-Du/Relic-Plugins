@@ -1,5 +1,15 @@
 # Native Relic App contract
 
+Changes for the clients (Windows actual file document layout): the file path
+now uses the production DirectWrite label with character ellipsis, unchanged
+11px Cascadia Code and full accessible text/tooltip. The code document takes
+the actual viewport's remaining width while preserving long-line horizontal
+scrolling. The recorded 6183507 document was only 323px inside its 519px parent;
+no text ranges, CRs, errors or padding are removed. The headless build passes;
+provider behavior still needs CI. The latest macOS REQUESTS checker fixture
+failure was corrected in 4f67f67: the malformed-pattern test now retains its
+independent absent-outline evidence and still rejects every malformed pattern.
+
 Changes for the clients (macOS viewport sharding implemented): shared capture
 now runs multi-size macOS manifests as independent per-viewport processes with
 the same fixture/server, output root, case IDs and original order. Each retains
