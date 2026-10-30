@@ -21,6 +21,8 @@ public sealed partial class MainWindow
         var nodes = new JsonArray(); var errors = new JsonArray(); var visited = new HashSet<DependencyObject>();
         if (capturedNativeLabelEvidence?["failure"] != null)
             errors.Add("NativeLabel capture observer failed; frame/surface synchronization remains unmeasured: " + capturedNativeLabelEvidence["failure"]);
+        if (capturedNativeLabelEvidence?["surface_readback_errors"] is JsonArray readbackErrors)
+            foreach (var error in readbackErrors) errors.Add("NativeLabel actual target readback: " + error);
         var declaredContent = new Dictionary<DependencyObject, (string Owner, string Property)>();
         var renderIds = new Dictionary<DependencyObject, string>();
         var renderNodes = new Dictionary<DependencyObject, JsonObject>();
