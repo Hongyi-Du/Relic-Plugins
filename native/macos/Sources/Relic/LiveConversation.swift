@@ -13,7 +13,7 @@ struct LiveTurnView: View {
                 }.padding(.top, messageGap).environment(\.selectedAuthor, "human")
             }
             HStack(alignment: .top, spacing: 10) {
-                MemberCardButton(member: m.member) { Avatar(member: m.member, size: 36) }.buttonStyle(.plain)
+                MemberCardButton(member: m.member) { Avatar(member: m.member, size: 36) }.buttonStyle(.plain).accessibilityLabel("")
                 VStack(alignment: .leading, spacing: 4) {
                     FlowLayout(spacing: 6) {
                         ReferenceLabel(m.name(m.member), size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25)

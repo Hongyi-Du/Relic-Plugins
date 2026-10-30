@@ -1,4 +1,31 @@
-## 2026-10-29: live matrix consumption and shared extraction failures
+## 2026-10-30: live matrix consumption and shared extraction failures
+
+**Actual 0a1d569 capture found two integration failures after its 152-test
+green build (`41019034175`).** Smoke run `41019075828` captured all 19 macOS
+cases with no capture errors. The hosted checkbox is 36x22 (a standalone
+NSButton test was 32x18); `caaa834` removes the real NSButton bezel alignment
+insets and adds a SwiftUI-hosted paint/hit-frame equality test. The card's
+AXGroup arrives as `region` before surface kind refinement, so f9562b3 did
+not update its bounds; caaa834 handles that actual transition and updates the
+regression fixture. These are new runtime findings, not passing geometry.
+
+`e5eae1d` removes an actual extra 10px message-column gap and preserves scroll
+position during inspector width reflow. Reference `applyPanelWidth` does not
+scroll the stream to its end. New sequence tests retain live-content following
+and the actual strict <120px threshold. The new hierarchy-note regression in
+8df1d5a failed because its test width omitted the real 10px scrollbar gutter;
+the reference's retained owner box is **297px**, not 307px. e5eae1d corrects that
+input, retaining all three reference advances and the original 0.5px tolerance.
+
+**Full failed report downloaded:** `41011131381` / `2cb073c`,
+`S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\report\parity-report.json`
+and all HTML/heat maps are local (1.95GB artifact). macOS raw native152916,
+valid152833/invalid83, raw reference128628, valid126540/invalid2088, paired118753.
+macOS missing7787, extra34080, text12880, geometry125674, style233000,
+state16778, kind528, region898, order65230, layout79374, icon12, extraction808805.
+Both platforms have scenes_checked=0, scenes_passed=0, matched_elements=0;
+exceptions=[] and all 660 cases/platform remain mandatory. Capture completeness
+is confirmed; the strict parity gate is still failing.
 
 `1d3a643` Native apps run `41016580612` is fully green; macOS job
 `123934169316` built the production app and passed **151 tests**. The corrected
@@ -14,7 +41,8 @@ Each language/theme manifest records 165/165 cases, with `errors: []`;
 660 actual PNGs and 660 element files are present. All three sequential viewport
 processes now start and finish. The en-US/light job's subsequent browser-paint
 diagnostic failed, but its native capture and upload succeeded. The comparison
-job is still running; this is capture completeness, not a parity pass.
+job failed and its complete report is downloaded as recorded above; this is
+capture completeness, not a parity pass.
 
 `f9562b3` corrects an independently observed geometry projection: SwiftUI
 AXGroup supplies inner content bounds, while the uniquely identified mounted

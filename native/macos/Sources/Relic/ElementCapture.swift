@@ -368,7 +368,11 @@ import CoreText
                     var evidence = run; evidence.removeValue(forKey: "local_rect"); evidence["local_bounds"] = box((run["local_rect"] as! NSValue).rectValue)
                     projected["projection"] = evidence
                     projected["native_structure"] = run["native_structure"]
-                    if let accessible = run["native_accessible_range"] as? [String: Any],
+                    if let nativeLabel = textView as? ReferenceLabelView, nativeLabel.hasExplicitAccessibilityName,
+                       let actualLabel = attributes["label"] as? String {
+                        projected["name"] = actualLabel
+                        projected["native_name_source"] = "Actual explicit AXLabel of the native text element; AXValue retains its visible text"
+                    } else if let accessible = run["native_accessible_range"] as? [String: Any],
                        accessible["matches_rendered_text"] as? Bool == true, let value = accessible["value"] as? String {
                         projected["name"] = value
                         projected["native_name_source"] = "AX attributed range value of the read-only text fragment"

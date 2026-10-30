@@ -34,7 +34,8 @@ struct Avatar: View {
                 guard !member.isEmpty else { image = nil; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
-            }.onChange(of: image != nil) { imageVisibility?(image != nil) }
+            }.onAppear { imageVisibility?(image != nil) }
+            .onChange(of: image != nil) { imageVisibility?(image != nil) }
             .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel("")
     }
 }
@@ -184,7 +185,7 @@ struct ChatView: View {
     }
     private var header: some View {
         HStack(spacing: 12) {
-            if m.member.isEmpty { ReferenceIcon(name: "hash", size: 14).frame(width: 28, height: 28).background(RelicStyle.hover, in: RoundedRectangle(cornerRadius: 8)) } else { Avatar(member: m.member, size: 28, secretaryStyle: m.member == m.secretary, showState: true) }
+            if m.member.isEmpty { SidebarGroupAvatar() } else { Avatar(member: m.member, size: 28, secretaryStyle: m.member == m.secretary, showState: true) }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.selectedMember["role"].text.isEmpty ? m.t("common.secretary") : m.selectedMember["role"].text]) : m.name(m.member)
@@ -284,10 +285,17 @@ struct MessageView: View {
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
     @State private var originalExpanded = false
+    @State private var threadAvatarImages: Set<String> = []
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
     private var groupPlain: Bool { m.plainMode && m.member.isEmpty && !inThread }
     private var wantsPlain: Bool { (groupPlain || m.plainOne.contains(item["id"].text)) && item["from"].text != "human" && Int(item["id"].text) != nil }
+    private var threadAccessibilityName: String {
+        let initials = item["thread"]["people"].rows.prefix(3).filter { !threadAvatarImages.contains($0.text) }
+            .map { String(m.name($0.text).prefix(1)).uppercased() }.joined(separator: " ")
+        return [initials, m.t("thread.replies", ["n": item["thread"]["count"].text]),
+            m.t("thread.last_reply", ["when": m.shortWhen(item["thread"]["last_at"])])].filter { !$0.isEmpty }.joined(separator: " ")
+    }
     private var recipientLabel: String {
         let recipients = Set(item["to"].rows.map(\.text))
         let everyone = m.members.map { $0["name"].text }.filter { $0 != item["from"].text }
@@ -304,7 +312,7 @@ struct MessageView: View {
             ActivityGroup(item: item).padding(.leading, inThread ? 40 : 46).padding(.top, 4)
         } else {
             HStack(alignment: .top, spacing: 0) {
-                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain) } }
+                if !mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("") } }
                 else { Spacer(minLength: 0) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
@@ -341,11 +349,15 @@ struct MessageView: View {
                     if !inThread, !item["thread"].isNull {
                         Button { m.run { try await m.openThread(item["id"].text) } } label: {
                             HStack(spacing: 6) {
-                                HStack(spacing: -4) { Rows(Array(item["thread"]["people"].rows.prefix(3))) { person in Avatar(member: person.text, size: 20).padding(2).background(RelicStyle.background, in: RoundedRectangle(cornerRadius: 8)) } }
+                                HStack(spacing: -4) { Rows(Array(item["thread"]["people"].rows.prefix(3))) { person in
+                                    Avatar(member: person.text, size: 20, imageVisibility: { visible in
+                                        if visible { threadAvatarImages.insert(person.text) } else { threadAvatarImages.remove(person.text) }
+                                    }).padding(2).background(RelicStyle.background, in: RoundedRectangle(cornerRadius: 8))
+                                } }
                                 ReferenceLabel(m.t("thread.replies", ["n": item["thread"]["count"].text]), size: 12.5, weight: 600, color: RelicStyle.accent, lines: 0, owner: threadIdentity)
                                 ReferenceLabel(m.t("thread.last_reply", ["when": m.shortWhen(item["thread"]["last_at"])]), size: 12.5, color: RelicStyle.muted, lines: 0, owner: threadIdentity)
                             }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
-                        }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity)
+                        }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity).accessibilityLabel(threadAccessibilityName)
                     }
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
                     .padding(mine ? .trailing : .leading, 10)
