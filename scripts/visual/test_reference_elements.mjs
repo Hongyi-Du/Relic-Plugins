@@ -624,7 +624,7 @@ test('actual PostScript identity preserves localized family evidence without ali
 });
 
 test('requested weight and variation settings stay distinct from resolved faces', () => {
-  const request = vm.runInNewContext('(' + expression('fontRequestEvidence', 'platformFonts') + ')', {
+  const request = vm.runInNewContext('(' + expression('fontRequestEvidence', 'fontWeightEvidence') + ')', {
     number: value => Number.isFinite(parseFloat(value)) ? parseFloat(value) : null,
   });
   const actual = normalize(request({ fontWeight: '550', fontVariationSettings: '"wght" 575, "wdth" 90', fontStyle: 'oblique 12deg', fontStretch: '90%' }));
@@ -636,6 +636,29 @@ test('requested weight and variation settings stay distinct from resolved faces'
   assert.equal(actual.resolved_numeric_weight, undefined, 'A computed request must not become a measured resolved axis');
   assert.equal(request({ fontWeight: 'bold', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 700);
   assert.equal(request({ fontWeight: 'normal', fontVariationSettings: 'normal', fontStyle: 'normal', fontStretch: 'normal' }).weight, 400);
+});
+
+test('computed 700 never becomes a resolved weight through a Semibold face name', () => {
+  const read = vm.runInNewContext('(' + expression('fontWeightEvidence', 'platformFonts') + ')');
+  const request = { source: 'getComputedStyle', weight: 700, weight_css: '700', variation_settings: 'normal' };
+  const fonts = [{ family_name: '蘋方-簡', postscript_name: 'PingFangSC-Semibold', glyph_count: 1 }];
+  const actual = normalize(read('actual-dom-node', request, fonts, true));
+  assert.equal(actual.configured.value, 700);
+  assert.equal(actual.legacy.value, 700);
+  assert.equal(actual.owner, 'actual-dom-node');
+  assert.deepEqual(actual.configured.raw, request);
+  assert.equal(actual.resolved.faces[0].value, null);
+  assert.deepEqual(actual.resolved.faces[0].raw, fonts[0]);
+  assert.equal(actual.resolved.source_span_complete, false);
+});
+
+test('unmeasured font request and actual face remain explicit unknown quantities', () => {
+  const read = vm.runInNewContext('(' + expression('fontWeightEvidence', 'platformFonts') + ')');
+  const actual = normalize(read('unknown-owner', null, null, true));
+  assert.equal(actual.configured.value, null);
+  assert.equal(actual.resolved.faces, null);
+  assert.equal(actual.applicable, true);
+  assert.equal(normalize(read('nontext-owner', null, [], false)).applicable, false);
 });
 
 function fontNodeReader() {

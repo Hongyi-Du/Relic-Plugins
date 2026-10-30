@@ -1,5 +1,21 @@
 # Native Relic App contract
 
+Changes for the clients (font-weight quantity contract): the shared schema now
+keeps actual configured requests separate from actual rendered-face weights.
+The original `style.font_weight` is retained with its provider meaning; both
+new quantities compare exactly and missing quantities remain failures. The
+recorded a3ca2a3 badge proves CSS requested 700 and the native drawn face's
+axis was 600, but CDP does not report the reference axis. It is still unknown,
+not filled from the Semibold name. Real owned-label evidence requires a unique
+matching ID/production-owner/text path; parent and child values cannot be mixed.
+Seventeen helper, two matcher and two Node regressions await CI. The full
+matrix stays at 660 states per platform.
+
+The latest macOS REQUESTS correction confirms the four vocabulary keys are
+macOS-only controls. Its fixed-size checkbox follow-up implements the actual
+NSButton accessibility role/state/hit frame after four assertions failed in
+run 41014596650; the original assertions stay unchanged in the merged revision.
+
 Changes for the clients (current Mac integration): merged the production
 rich-text accessibility range reads, composite ownership and fixed-size switch
 binding through native-macos. REQUESTS.md adds no further shared request in

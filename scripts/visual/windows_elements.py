@@ -19,6 +19,7 @@ from native_label_geometry import native_label_geometry
 from native_label_fonts import native_label_fonts
 from windows_automation_identity import bind_automation_identities
 from line_breaks import BREAK_FIELDS, break_strategy_issues
+from font_weights import project_font_weights, font_weight_issues
 
 
 def project_line_break_strategies(layout, text, kind, owner):
@@ -1738,6 +1739,9 @@ def project(xaml_path, uia_path, png_path):
                                 "image_source_evidence": copy.deepcopy(node.get("image_source_evidence")),
                                 "occlusion_masks": occlusion_masks.get(node["id"], []),
                                 "visible_fragments_are_envelopes": True}}
+        element["evidence"]["font_weight_quantities"] = project_font_weights(element)
+        for issue in font_weight_issues(element):
+            unmeasured.append({"id": node["id"], "property": "style." + issue["field"], "reason": issue["reason"]})
         project_background_pattern(element, node)
         project_windows_image(element, unmeasured, errors)
         for key in ("background", "border_color", "corner_radius", "opacity", "shadow", "background_image"):

@@ -417,6 +417,17 @@
     variation_settings: s.fontVariationSettings, style: s.fontStyle, stretch: s.fontStretch,
     quantity: 'computed render request, not resolved OpenType face weight or actual variation axes',
   });
+  const fontWeightEvidence = (id, request, fonts, applicable) => ({
+    version: 1, applicable, owner: id,
+    legacy: { value: request?.weight ?? null, quantity: 'configured' },
+    configured: { value: request?.weight ?? null, source: request?.source ?? null, raw: request },
+    resolved: { source_span_complete: false, source: 'CDP.CSS.getPlatformFontsForNode',
+      faces: Array.isArray(fonts) && fonts.length ? fonts.map(font => ({
+        family_name: font.family_name, postscript_name: font.postscript_name, value: null,
+        source: 'CDP.CSS.getPlatformFontsForNode', raw: font,
+        reason: 'The actual CDP face record has no measured numeric weight or variation axes.' })) : null,
+      reason: 'Computed CSS weight is a request; CDP actual face identity does not measure resolved wght. Neither the request nor a face-name suffix supplies that missing measurement.' },
+  });
   const platformFonts = (el, text, id, options) => {
     if (!text) return { fonts: [], evidence: null };
     const measured = meta.reference_environment?.fonts;
@@ -892,6 +903,18 @@
     const panelResize = kind === 'resize-handle' ? panelResizeEvidence(el) : null;
     const actualFonts = platformFonts(el, text, id, options);
     paintStyle.rendered_fonts = actualFonts.fonts;
+    const weightRequest = text ? fontRequestEvidence(s) : null;
+    const weightQuantities = fontWeightEvidence(id, weightRequest, actualFonts.fonts, !!text || kind === 'text');
+    if (text && !options.pseudo && (options.ownedTextNodes || []).some(node => {
+      const owned = node.parentElement ? fontRequestEvidence(styleOf(node.parentElement)) : null;
+      return !owned || owned.weight !== weightRequest.weight || owned.variation_settings !== weightRequest.variation_settings;
+    })) {
+      weightQuantities.configured.value = null;
+      weightQuantities.configured.reason = 'Owned actual Text nodes do not share the measured configured weight and variation settings.';
+      unmeasured.push({ element: id, property: 'style.font_weight.configured', reason: weightQuantities.configured.reason });
+    }
+    if (weightQuantities.applicable)
+      unmeasured.push({ element: id, property: 'style.font_weight.resolved', reason: weightQuantities.resolved.reason });
     const measured = (options.ownedTextNodes || (options.textNode ? [options.textNode] : [])).map(textMeasurement);
     const textMeasurements = measured.map(measurement => measurement.evidence);
     const geometry = textGeometry(measured, boxes, kind, options.unclippedBounds || rect(el.getBoundingClientRect()), bounds);
@@ -907,7 +930,7 @@
         text_bounds: geometry.text_bounds, text_layout_bounds: geometry.text_layout_bounds, text_bounds_quantity: geometry.text_bounds_quantity,
         clipped_range_envelope: geometry.clipped_range_envelope, text_line_count_source: geometry.line_count_source,
         placeholder: el.getAttribute('placeholder'), value: 'value' in el ? el.value : null, aria_current: el.getAttribute('aria-current'), accessibility, platform_fonts: actualFonts.evidence, svg_strokes: svgStrokeData(el), text_measurements: textMeasurements,
-        font_request: text ? fontRequestEvidence(s) : null, line_break_configuration: breaks.evidence,
+        font_request: weightRequest, font_weight_quantities: weightQuantities, line_break_configuration: breaks.evidence,
         panel_resize: panelResize, outline: outline.evidence, image_resource: imageResourceEvidence(el), name_source: panelResize && !accessibility.name && panelResize.title ? 'actual DOM title attribute' : 'CDP accessibility',
         font_weight: text ? { requested_css: s.fontWeight, computed_css: textStyle.font_weight,
           resolved_faces: actualFonts.fonts, resolved_numeric_weight: null,
