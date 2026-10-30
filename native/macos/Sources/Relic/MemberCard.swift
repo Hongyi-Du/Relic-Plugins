@@ -266,7 +266,7 @@ struct ForwardForm: View {
             ReferenceLabel(m.t(info["waiting"].rows.isEmpty ? "forward.how" : "forward.waiting", ["name": m.name(m.cardMember), "n": String(info["waiting"].rows.count), "ids": info["waiting"].rows.first?["ids"].rows.map(\.text).joined(separator: ",") ?? ""]), size: 12.5, color: RelicStyle.muted, lines: 0)
             VStack(alignment: .leading, spacing: 12) {
                 NativeFormField(title: m.t("forward.to")) { ReferenceInput(placeholder: m.t("forward.to_placeholder"), text: $recipients, height: 36, pointSize: 12.5) }
-                NativeFormField(title: m.t("common.reply")) { NativeTextArea(placeholder: m.t("forward.body_placeholder"), text: $reply, rows: 10, voice: false) }
+            NativeFormField(title: m.t("common.reply")) { NativeTextArea(placeholder: m.t("forward.body_placeholder"), text: $reply, rows: 10, voice: false, initiallyFocused: true) }
             }
             SaveButton(labelKey: "common.send", reserveErrorSpace: true) {
                 let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)

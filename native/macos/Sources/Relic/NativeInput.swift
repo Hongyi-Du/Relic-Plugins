@@ -16,6 +16,7 @@ struct MentionEditor: NSViewRepresentable {
     var pointSize: CGFloat? = nil
     var sendsOnReturn = true
     var viewportHeight: CGFloat? = nil
+    var initiallyFocused = false
     let members: [Node]
     let onMention: (String) -> Void
     let send: () -> Void
@@ -36,6 +37,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         editor.placeholder = placeholder; editor.setAccessibilityLabel(accessibleName ?? placeholder); editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
+        editor.needsInitialFocus = initiallyFocused
         editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
         scroll.documentView = editor; editor.updatePlaceholder(); return scroll
@@ -109,6 +111,16 @@ final class ComposerTextView: NSTextView {
     var sendsOnReturn = true
     var placeholder = ""
     var focusChanged: (Bool) -> Void = { _ in }
+    var needsInitialFocus = false
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard needsInitialFocus, let window else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window, self.needsInitialFocus, self.isEditable else { return }
+            self.needsInitialFocus = false
+            window.makeFirstResponder(self)
+        }
+    }
     func fitViewport(height: CGFloat) {
         minSize.height = height
         guard let layoutManager, let textContainer else { return }

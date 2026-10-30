@@ -1,3 +1,16 @@
+## 2026-10-30: production focus behavior matches the reference actions
+
+The reference explicitly focuses the new-organization name, new-member name,
+edited-member role, existing-session search and forwarded-reply editor after
+opening their dialog. The native fields now perform those same initial focus
+actions. The multiline editor waits for its actual window mount and consumes
+the request once; later reattachment cannot steal focus back. A mounted native
+responder test checks that behavior. The recipient trigger and live-tool
+disclosure also request their real SwiftUI focus when activated, so their click
+does not leave focus on the conversation viewport. Actual new-org, recipients
+and live-tool-output focus mismatches remain pending CI verification; no state
+getter is overridden to claim an expected value.
+
 ## 2026-10-30: actual pointer-hit observation, without inferred hover
 
 The strict smoke report still contains many hovered=null failures when the real

@@ -532,6 +532,7 @@ struct ComposerView: View {
     @State private var recipientIdentity = "relic-text-button/recipients"
     @StateObject private var recipientAnchor = NativeControlAnchor()
     @State private var recipientHovered = false
+    @FocusState private var recipientFocused: Bool
     private var placeholder: String { m.t(m.member.isEmpty ? "composer.group_placeholder" : "composer.dm_placeholder", ["name": m.name(m.member)]) }
     private var recipientLabel: String { m.t("composer.send_to", ["to": ReferenceText.clip(m.recipients.contains("all") ? m.t("msg.everyone") : m.list(m.recipients.map { m.name($0) }), to: 24)]) }
     var body: some View {
@@ -544,6 +545,7 @@ struct ComposerView: View {
             HStack(spacing: 6) {
                 if m.member.isEmpty {
                     Button {
+                        recipientFocused = true
                         if m.recipientPicker { m.recipientPicker = false }
                         else if let anchor = recipientAnchor.contentBounds {
                             m.recipientAnchor = anchor; m.recipientPicker = true
@@ -555,6 +557,7 @@ struct ComposerView: View {
                         }.padding(.horizontal, 12).frame(height: 28)
                             .modifier(RecordedSurface(background: recipientHovered ? RelicStyle.hover : RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 14, owner: recipientIdentity, hovered: recipientHovered))
                     }.buttonStyle(.plain).accessibilityIdentifier(recipientIdentity)
+                        .focused($recipientFocused)
                         .onHover { recipientHovered = $0 }
                         .background(NativeControlAnchorMount(anchor: recipientAnchor))
                 }
