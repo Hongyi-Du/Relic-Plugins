@@ -34,13 +34,16 @@ struct ConversationScrollFollowing {
     private var pendingDisclosure = false
 
     mutating func disclosureChanged() { pendingDisclosure = true }
+    mutating func contentChanged() { pendingDisclosure = false }
 
     mutating func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
         let heightChanged = abs(content.height - contentSize.height) > 1
         let reflow = contentSize.width > 0 && abs(content.width - contentSize.width) > 1
         let resized = viewportSize != .zero && viewport != viewportSize
         if pendingDisclosure {
-            if heightChanged || reflow || resized { pendingDisclosure = false }
+            // TextKit can publish several heights for the same expansion.
+            // Only a real server-content revision ends this interaction;
+            // another layout pass must not masquerade as an incoming message.
             contentSize = content; viewportSize = viewport
             followsBottom = bottom - viewport.height < 120
             return false

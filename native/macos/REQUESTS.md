@@ -1,3 +1,19 @@
+## 2026-10-30: live disclosure scroll and actual child ownership
+
+The `06b914e` live-tool-output action receipt records the clicked row at screen
+y=420 and the same expanded row at y=517: a 97px jump, equal to the inserted
+output height. The production follow state cleared its disclosure guard after
+the first size change; a subsequent TextKit pass could request bottom scrolling.
+It now retains that guard until a real Model.revision/content update, and the
+unit regression includes two successive layout passes before that event.
+The capture driver still performs the real click and sets no matching offset.
+
+The tool row also declares its actual parent environment for the 7px status
+dot. Its measured mounted ancestry now retains that child before the title;
+it must not be appended after unrelated cards. The earlier report paired this
+dot with a 620px permission card. No matcher positions or reference IDs are
+injected into the native hierarchy.
+
 ## 2026-10-30: actual popup fill observations now available
 
 `e8307ed` macOS job 124132215180 passes both NativeSurfaceFill tests, including
