@@ -1,3 +1,23 @@
+## 2026-10-30: real conversation keyboard behavior; no projected state override
+
+The reference stream has tabindex=0, while the captured native scroll area is
+not keyboard-focusable. ConversationStream now participates in SwiftUI focus,
+with the reference's absent focus ring, and handles scrolling keys only while
+that viewport is focused. A passive mount resolves its enclosing NSScrollView;
+the handler moves that actual clip using native line/page metrics and native
+bounds constraints. Typing and Command/Control/Option shortcuts are not consumed.
+The production scroll view has identifier `relic-conversation-scroll` for actual
+ownership. Two regressions exercise flipped/unflipped clip movement, bounds,
+unhandled keys, mounted ownership and detachment. Current AX/canonical state is
+not overridden: the next capture must establish the actual focus provider and
+any native wrapper before the state mismatch can be considered resolved.
+
+The 749e5e8 formal diagnostic report is now retained under
+`S:\Codex\Outputs\Relic-native-visual\parity-749e5e8\report\`.
+Mac captures all 19; file-code geometry errors drop 171 to 24 after actual initial
+layout readiness. Total Mac geometry errors 1187, missing 58, extra 550, style
+8025, state 1200, layout 2226, extraction 29240. Full 660 acceptance remains false.
+
 ## 2026-10-30: actual icon stroke receipts and corrected text-layer test assumption
 
 The 749e5e8 Mac job 124026432050 compiles release, then runs 185 tests with two

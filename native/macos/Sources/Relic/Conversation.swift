@@ -238,6 +238,7 @@ struct ConversationStream: View {
     @EnvironmentObject var m: Model
     @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
+    @State private var keyboard = ConversationKeyboard()
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -263,7 +264,10 @@ struct ConversationStream: View {
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
                             .environment(\.conversationDisclosure, { following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
+                            .background(ConversationKeyboardMount(keyboard: keyboard))
                     }.modifier(RecordedSurface(background: .clear, kind: "region"))
+                        .focusable().focusEffectDisabled()
+                        .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             if following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size) {
