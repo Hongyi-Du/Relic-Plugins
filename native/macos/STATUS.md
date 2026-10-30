@@ -1,5 +1,25 @@
 # macOS 原生 Relic App：逐元素验收
 
+最新可复核诊断报告：`3934d53`，位于
+`S:\Codex\Outputs\Relic-native-visual\parity-3934d53\report\`，
+[CI 41050348637](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41050348637)。
+报告要求全部 672 状态/平台，`passed: false`，`exceptions: []`；
+`scenes_checked/scenes_passed/matched_elements` 均为 0。
+macOS 实际采集 20 个诊断状态、5029 元素，与 4480 个有效参考元素配对 4404；
+其中新增悬停场景在这个旧提交中错误打开 About 页，不能算完成，61e9830 已补实际交互验证。
+Windows 此报告保留其实际失败结果，不代表 Windows 分支的最新验收。
+
+| 3934d53 诊断平台 | 缺失 | 多余 | 文字 | 几何 | 样式 | 状态 | 种类 | 区域 | 顺序 | 布局 | 图标 | 提取错误 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| macOS | 76 | 625 | 12 | 1231 | 8396 | 1211 | 0 | 2 | 644 | 2325 | 0 | 30574 |
+| Windows | 762 | 242 | 462 | 2008 | 11876 | 1114 | 8 | 15 | 920 | 1640 | 0 | 30259 |
+
+`c8ea3df` [Native apps 41051300311](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41051300311)
+全绿：macOS release 编译、199 项测试、打包通过，其他共享检查也通过。
+后续 `8613c40` release 通过，201 项测试中 1 项失败：新按钮尺寸测试未等到
+SwiftUI 发布托管 AX 节点，尚未取得尺寸；已补实际事务等待和完整视图树遍历，原尺寸断言保持不变。
+新的会话间距、完整按钮点击区域、实际焦点绑定和输入框字形采集仍待最新 CI/截图验证。
+
 最新 CI：`41ed54d` [41050111628](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41050111628)
 release 编译通过，192 项测试中 1 项图标采样断言失败，其余 191 项通过。
 失败原因是 24px / 1.7px 笔画交叉处并非完整覆盖像素；测试改为 48px / 3.4px
