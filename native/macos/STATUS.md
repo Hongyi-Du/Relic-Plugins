@@ -10,6 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+诊断产物 [41019075828 / 0a1d569](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41019075828)
+的 19 个 macOS 场景及完整对照报告已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\`。
+该子集 macOS 缺失 104、多余 717、文字 130、几何 4440、样式 8572、状态 1316、
+种类 9、区域 21、顺序 1212、布局 2633、图标 0、提取错误 33064；完整矩阵通过数仍为 0。
+其中确认了开关实际边距、卡片类型转换和群聊头像／复合名称问题；后续修复均等待新截图验证。
+
 最新完整失败报告及全部 HTML／热图已下载到
 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\report\`，
 来源为 [41011131381](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41011131381)。
