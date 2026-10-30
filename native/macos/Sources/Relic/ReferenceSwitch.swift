@@ -27,7 +27,7 @@ struct ReferenceSwitchRow: View {
     var body: some View {
         HStack(spacing: 8) {
             ReferenceSwitch(title, isOn: $isOn)
-            ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0)
+            ReferenceLabel(title, size: 12.5, color: RelicStyle.secondary, lines: 0, accessibleName: "")
                 .fixedSize(horizontal: false, vertical: true)
                 .onTapGesture { if enabled { isOn.toggle() } }
         }

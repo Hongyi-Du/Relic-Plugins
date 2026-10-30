@@ -6,6 +6,16 @@ import ApplicationServices
 @testable import Relic
 
 @MainActor final class ElementCaptureTests: XCTestCase {
+    func testSeparateCheckboxLabelKeepsVisibleAXValueWithoutRepeatingControlName() throws {
+        let label = ReferenceLabel("Auto wake", size: 12.5, accessibleName: "").makeLabelView()
+        label.frame = NSRect(x: 0, y: 0, width: 100, height: 20)
+        let actual = RelicAXRead(label)
+        XCTAssertEqual(actual["label"] as? String, "")
+        XCTAssertEqual(label.string, "Auto wake")
+        XCTAssertEqual(try XCTUnwrap(RelicAXText(label, NSRange(location: 0, length: 9))).string, "Auto wake")
+        XCTAssertTrue(label.hasExplicitAccessibilityName)
+    }
+
     func testNativeSwitchHasItsOwnHitFrameAndRealCheckboxAction() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))

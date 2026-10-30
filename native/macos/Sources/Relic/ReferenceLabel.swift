@@ -15,15 +15,17 @@ struct ReferenceLabel: NSViewRepresentable {
     var monospaced = false
     var pathWrapping = false
     var struck = false
+    var accessibleName: String? = nil
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
         self.pathWrapping = pathWrapping
         self.struck = struck
+        self.accessibleName = accessibleName
     }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let view = makeLabelView()
@@ -48,6 +50,8 @@ struct ReferenceLabel: NSViewRepresentable {
         view.textContainer?.maximumNumberOfLines = lines
         view.textContainer?.lineBreakMode = lines > 0 ? .byTruncatingTail : .byWordWrapping
         view.textStorage?.setAttributedString(attributedText)
+        view.hasExplicitAccessibilityName = accessibleName != nil
+        view.setAccessibilityLabel(accessibleName ?? text)
         return view
     }
     var attributedText: NSAttributedString {
@@ -68,7 +72,8 @@ struct ReferenceLabel: NSViewRepresentable {
         view.productionParent = nativeParent
         view.productionRegion = region
         if view.attributedString() != value { view.textStorage?.setAttributedString(value); view.invalidateIntrinsicContentSize() }
-        view.setAccessibilityLabel(text)
+        view.hasExplicitAccessibilityName = accessibleName != nil
+        view.setAccessibilityLabel(accessibleName ?? text)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
         let width = (proposal.width?.isFinite == true ? proposal.width : nil) ?? 100_000
@@ -90,6 +95,7 @@ final class ReferenceLabelView: NSTextView {
     var productionOwner: String?
     var productionParent: String?
     var productionRegion = "window"
+    var hasExplicitAccessibilityName = false
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
 }
