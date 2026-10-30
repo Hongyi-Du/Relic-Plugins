@@ -28,19 +28,19 @@ import AppKit
             guard NSIntersectionRange(range, characters).length > 0 else { continue }
             guard NSIntersectionRange(range, characters) == range,
                   let font = call["actual_font"] as? [String: Any],
-                  let ascent = font["ascent"] as? Double, let descent = font["descent"] as? Double,
+                  let ascent = (font["ascent"] as? NSNumber)?.doubleValue, let descent = (font["descent"] as? NSNumber)?.doubleValue,
                   ascent.isFinite, descent.isFinite, ascent >= 0, descent >= 0,
                   let matrix = call["text_matrix"] as? [String: Double],
                   matrix["a"] == 1, matrix["b"] == 0, matrix["c"] == 0, matrix["d"] == -1,
                   let currentCTM = call["context_ctm"] as? [String: Double],
-                  let positions = call["positions_user_space"] as? [[String: Double]], !positions.isEmpty else {
+                  let positions = call["positions_user_space"] as? [[String: Any]], !positions.isEmpty else {
                 return incomplete("Partial source coverage, unknown metrics or non-horizontal native text transform")
             }
             if let ctm, ctm != currentCTM { return incomplete("Glyph callbacks use different user-space transforms") }
             ctm = currentCTM
             var baselines: [Int: Set<Double>] = [:]
             for position in positions {
-                guard let y = position["y"], y.isFinite else { return incomplete("Unknown native glyph baseline") }
+                guard let y = (position["y"] as? NSNumber)?.doubleValue, y.isFinite else { return incomplete("Unknown native glyph baseline") }
                 let baseline = y - Double(origin.y)
                 let owners = advances.lines.indices.filter {
                     let fragment = ElementCapture.rect(advances.lines[$0]["fragment"])
