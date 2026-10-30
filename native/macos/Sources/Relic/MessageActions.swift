@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import RelicCore
 
 struct MessageActionButton: View {
     let title: String
@@ -33,6 +34,18 @@ struct MessageInteractionAnchor: NSViewRepresentable {
         live.allObjects.filter { $0.messageID == messageID && $0.window?.isVisible == true }.compactMap { view in
             guard let rect = NativeVisibility.screenClip(view), !rect.isNull, !rect.isEmpty else { return nil }; return rect
         }
+    }
+    static func revealAction(_ screen: NSRect, messageID: String, window: NSWindow) throws -> [String: Any] {
+        let matches = live.allObjects.filter { $0.messageID == messageID && $0.window === window && NativeVisibility.screenClip($0) != nil }
+        guard matches.count == 1, let anchor = matches.first, let scroll = anchor.enclosingScrollView,
+              let document = scroll.documentView else { throw RelicError.message("Message action lost its actual native scroll container") }
+        let clip = scroll.contentView, before = clip.bounds
+        let requested = document.convert(window.convertFromScreen(screen), from: nil)
+        let moved = document.scrollToVisible(requested)
+        scroll.reflectScrolledClipView(clip)
+        return ["provider": "NSView.scrollToVisible on the actual message document", "requested_screen_bounds": ElementCapture.box(screen),
+            "requested_document_bounds": ElementCapture.box(requested), "document_identity": String(describing: ObjectIdentifier(document)),
+            "clip_before": ElementCapture.box(before), "clip_after": ElementCapture.box(clip.bounds), "scrolled": moved]
     }
     final class AnchorView: NSView {
         var messageID = ""
