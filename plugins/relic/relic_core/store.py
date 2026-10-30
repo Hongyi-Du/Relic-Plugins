@@ -1932,7 +1932,7 @@ class Store:
                 for r in rows]
 
     def unread_by_member(self, org_id, skip_prefix=None):
-        """{member: [{id, sender, hop, at, reply_to}, ...]} over unread messages, oldest first; bodies starting with
+        """{member: [{id, sender, body, hop, at, reply_to}, ...]} over unread messages, oldest first; bodies starting with
         skip_prefix (automatic receipts) are left out."""
         with self.db() as db:
             rows = db.execute("SELECT id, sender, recipients, body, COALESCE(hop, 0), at, reply_to FROM messages "
@@ -1944,7 +1944,7 @@ class Store:
                 continue
             for member in json.loads(recipients):
                 if member != sender and (mid, member) not in read:
-                    out.setdefault(member, []).append({"id": mid, "sender": sender, "hop": hop, "at": at,
+                    out.setdefault(member, []).append({"id": mid, "sender": sender, "body": body, "hop": hop, "at": at,
                                                        "reply_to": reply_to})
         return out
 

@@ -5,8 +5,8 @@ automatic wake-up).
 folder and permission, seated in the organization before its first turn. Without --new the turn resumes the seat's
 current CLI session; an existing Claude GUI seat uses native peer messaging and waits for a GUI Stop receipt.
 The prompt is the introduction (on --new), text the person wrote in the window, or an auto-wake
-prompt (--wake-from names the senders). A woken seat that ends its turn without messaging its wakers sends them an
-automatic receipt with its final reply; when the turn ends, waiting wake-ups of the organization are dispatched.
+prompt (--wake-from names the senders). Each waker gets a completion receipt quoting only replies in the triggering
+message threads; when the turn ends, waiting wake-ups of the organization are dispatched.
 
 A surface=gui Codex chat open in the desktop app uses desktop.py. A CLI seat keeps its app-server route and reports
 a writer lock when its old thread is desktop-owned; it never injects that prompt into the GUI.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
-from relic_core.store import Store, now  # noqa: E402
+from relic_core.store import Store  # noqa: E402
 
 
 def run_claude(store, org, member, config, prompt, new, cwd):
@@ -154,26 +154,8 @@ def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.conn
     return "codex:" + thread, reply or (error or ""), failed, approvals
 
 
-def receipt(store, org_id, member, wake_from, since, state):
-    """Every woken turn ends with exactly one receipt to its wakers (sent once, from this runner's finally): whether
-    the turn finished or failed, and its final words. Messages the seat sent during the turn may be progress notes,
-    so they never replace the receipt; they only shorten it."""
-    replied = store.sent_since(org_id, member, since, skip_prefix=wake.RECEIPT_MARK)
-    if state.get("status") == "failed":
-        what = "the turn failed: %s" % (state.get("error") or state.get("reply") or "unknown error")[-1200:]
-    elif state.get("status") != "done":
-        what = "the turn is not complete: %s" % (state.get("error") or "no matching GUI Stop receipt")[-1200:]
-    elif all(m in replied for m in wake_from):
-        what = "the turn finished; it also messaged you during the turn. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-600:])
-    else:
-        what = "the turn finished without a reply through Relic. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-1500:])
-    declined = (state.get("approvals") or {}).get("declined") or []
-    if declined:
-        what += "\nRequests the runner declined: " + "; ".join("%s (%s)" % (d["method"], d["about"]) for d in declined[:5])
-    return store.send_as(org_id, member, wake_from, "%s %s was woken by your message(s); %s" % (
-        wake.RECEIPT_MARK, member, what))
+def receipt(store, org_id, member, wake_from, after, state):
+    return wake.receipt(store, org_id, member, wake_from, after, state)
 
 
 def needs_receipt(harness, error):
@@ -198,10 +180,12 @@ def main():
     state = runner.run_state(a.org, a.member) or {}
     state.update(status="running", started=state.get("started") or time.time(), pid=os.getpid())
     runner.write_state(a.org, a.member, state)  # liveness: others check this pid before starting another turn
-    since = now()
+    after = 0
     harness = None
     try:
         store = Store()
+        after = wake.message_checkpoint(store, a.org)
+        state["wake_after"] = after
         org = store.get(a.org)
         seat = org["members"][a.member]
         config = store.seat_config(a.org, a.member, org) or runner.default_config(seat.get("harness") or "codex")
@@ -250,7 +234,7 @@ def main():
             if wake_from:
                 error = None if state.get("status") == "done" else str(state.get("error") or state.get("reply") or "failed")
                 if needs_receipt(harness, error):
-                    receipt(store, a.org, a.member, wake_from, since, state)
+                    receipt(store, a.org, a.member, wake_from, after, state)
                 # A held/unknown/sent GUI request can still arrive. Consume this wake
                 # claim without calling it complete or scheduling a duplicate send.
                 wake.finish(store, a.org, a.member, None if state.get("delivery_possible") else error)

@@ -260,7 +260,8 @@ class Runner(unittest.TestCase):
             time.sleep(0.1)
         receipt = [m for m in self.store.history(self.oid) if m["body"].startswith(wake.RECEIPT_MARK)][-1]
         self.assertEqual((receipt["from"], receipt["to"]), ("bob", ["alice"]))
-        self.assertIn("Seated as a Codex member.", receipt["body"])
+        self.assertIn("the turn finished", receipt["body"])
+        self.assertNotIn("Seated as a Codex member.", receipt["body"])
         self.assertEqual(runner.run_state(self.oid, "bob")["wake_from"], ["alice"])
 
     def test_unsafe_permissions_refused(self):

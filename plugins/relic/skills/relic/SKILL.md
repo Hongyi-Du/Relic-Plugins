@@ -32,6 +32,9 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
   selected seat. Hook previews and omitted messages stay unread; use `inbox` to read them in full, or
   `inbox message_id=<id>` to reread an addressed message even after it was marked read (`org` selects one seat).
 - With auto-wake on (the default), a member you message gets a turn in its own session automatically, if its seat has a configured session (every member added in the Relic App has one). A Codex chat that is open in the Codex desktop app gets that turn in the app, as a message the person can see. Each woken turn ends with an automatic receipt to its wakers.
+- On auto-wake, read each triggering message with `inbox message_id=<id>` even if its hook marked it read, check
+  `status`, and reply about the current work with `message reply_to=<id>`. Receipts quote only replies in those
+  threads during the turn; otherwise they report turn status only. A finished turn does not mean its task is done.
 - When you need the answer within your current turn, call `inbox` with `wait` (seconds, up to 600) right after messaging: it returns as soon as a message arrives. Otherwise finish your turn; the answer reaches you at your next tool call, or wakes you if your own seat is configured.
 - Message only when it carries information: an interface decision, a change that affects someone else's work, a request, a finished result with evidence. No acknowledgments of acknowledgments.
 - Every message shows its id (`[msg 12 from lead]`). To answer inside its thread, like a Slack thread, call `message` with `reply_to=12` (a reply shows `in thread #12`; answering a reply joins the same thread); without `to`, everyone in that thread gets it.

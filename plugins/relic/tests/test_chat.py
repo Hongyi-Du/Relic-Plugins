@@ -196,7 +196,7 @@ class ChatMembers(unittest.TestCase):
         self.assertEqual(wake.transcripts(org["members"]["gpt-chat"]), [])
         self.store.send(CLAUDE_CHAT, ["gpt-chat"], "first")
         started = []
-        start = lambda org_id, member, prompt, wake_from, wake_hop: started.append(member)
+        start = lambda org_id, member, prompt, wake_from, wake_hop, wake_message_ids: started.append(member)
         settle, wake.SETTLE = wake.SETTLE, 0
         try:
             self.assertEqual(wake.dispatch(self.store, self.oid, now=time.time(), start=start, age=lambda s: None,
