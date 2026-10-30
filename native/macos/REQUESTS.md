@@ -1,5 +1,23 @@
 ## 2026-10-30: live matrix consumption and shared extraction failures
 
+**Shared CI scheduling request:** set `jobs.macos.strategy.max-parallel: 2`
+in `native-visual.yml`, retaining all four language/theme entries, all three
+sizes, 55 scenes and the exact same 660-case acceptance gate. The four long
+0a1d569 full jobs are running while the newer native build and diagnostic
+capture wait for macOS capacity. Limiting concurrent full shards would leave
+room to validate fixes while both branches continue their full matrices.
+This is scheduling only; do not remove, truncate or exempt any capture.
+
+The complete 0a1d569 diagnostic report is downloaded to
+`S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\report\` (19 cases only).
+Its actual group still has missing3, extra13, text6, geometry235, style449,
+state11, order65, layout141 and extraction1437. Header avatar, compound
+avatar/reply names, explicit checkbox-label names and the chevron state are
+now corrected in the production controls through 682034a, awaiting capture.
+The newer font-weight schema adds independently required measurements, so
+its aggregate style/error counts should not be treated as directly comparable
+to older schema runs. All strict failures are retained.
+
 **Actual 0a1d569 capture found two integration failures after its 152-test
 green build (`41019034175`).** Smoke run `41019075828` captured all 19 macOS
 cases with no capture errors. The hosted checkbox is 36x22 (a standalone

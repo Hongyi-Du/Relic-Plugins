@@ -10,6 +10,12 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+诊断产物 [41019075828 / 0a1d569](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41019075828)
+的 19 个 macOS 场景及完整对照报告已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-0a1d569\`。
+该子集 macOS 缺失 104、多余 717、文字 130、几何 4440、样式 8572、状态 1316、
+种类 9、区域 21、顺序 1212、布局 2633、图标 0、提取错误 33064；完整矩阵通过数仍为 0。
+其中确认了开关实际边距、卡片类型转换和群聊头像／复合名称问题；后续修复均等待新截图验证。
+
 最新完整失败报告及全部 HTML／热图已下载到
 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\report\`，
 来源为 [41011131381](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41011131381)。
@@ -29,7 +35,7 @@ SwiftUI 中开关的实际点击框为 36×22，卡片的 AXGroup 类型转换�
 `e5eae1d` 同时修复消息行多出的 10 px 间距及右栏宽度变化时的强制滚动；
 说明文字测试的输入宽度现按参考实际 297 px 内容框计算，原宽度断言及容差保留。
 
-最新已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
+此前已验证构建：[41016580612 / 1d3a643](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41016580612)
 整个 Native apps 工作流通过；macOS release 编译和 **151 个测试通过**。
 真实原生开关的 AX 角色、32×18 点击范围、勾选和禁用行为，以及富文本逐段 AX 读取均已通过。
 后续卡片范围辅助函数曾出现主线程隔离编译错误，已在 `666b2bf` 修复；
@@ -39,7 +45,7 @@ SwiftUI 中开关的实际点击框为 36×22，卡片的 AXGroup 类型转换�
 四个 macOS 语言／主题产物均已下载到 `S:\Codex\Outputs\Relic-native-visual\parity-2cb073c\`。
 每份完成记录都是 165/165、`errors: []`，共 660 个 PNG 和 660 个元素文件。
 三个窗口尺寸的进程全部完成；英文浅色任务后续的浏览器绘制诊断失败，
-原生捕获及上传已成功。共享比较报告仍在生成，不能据此计为逐元素通过。
+原生捕获及上传已成功。共享比较报告已失败，完整计数见上表。
 
 最新诊断 [41009151448 / bbe04a3](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41009151448)
 完成全部 19 个 macOS case；成员卡重命名、Copy 均有实际动作和结果回执。
