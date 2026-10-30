@@ -1,3 +1,17 @@
+## 2026-10-30: digest reference scene omits the real header update
+
+The full `dea54e8` reference scene `en-US-dark-1024x700-digest` records
+`dom-164` (Digest) with class `chip-btn`, ordinary background `[37,37,35,255]`
+and border `[58,57,54,255]`, while the digest card is open. This comes from
+`scripts/visual/reference-hook.js`'s digest branch: it sets `S.digestOpen=true`
+and calls only `renderBanner()`. The production `toggleDigest()` in app.js
+calls both `renderHead()` and `renderBanner()`. Please make the reference
+scene execute that real header update (or the actual click path), retaining
+the deterministic digest fixture. Cover the open-card and selected-header
+state together. This is a fixture-state correction, not a tolerance change;
+the native production ChipButton already binds to the actual digestOpen state.
+Do not change the native selected colors to reproduce a stale reference DOM.
+
 ## 2026-10-30: successful-test draw diagnostics upload
 
 `be51e7f` / Native apps 41141825696 passes release and all 240 tests, including
