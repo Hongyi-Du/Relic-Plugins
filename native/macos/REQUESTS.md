@@ -1,5 +1,12 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Consumed `74b14eb` evidence-shape follow-up: macOS retains the original native
+line-break properties under `raw`, with `source`, actual `owner`, and
+`applicable:true` for `bool(text) || kind == "text"`. Non-text elements emit
+version 1/null strategies/false applicability and a reason. Text controls with
+no measured paragraph/container configuration retain explicit errors and null
+strategies; the required shape is not used to disguise missing measurements.
+
 New `597e113` smoke artifacts are downloaded to
 `S:\Codex\Outputs\Relic-native-visual\parity-597e113\{macos,reference,report}`.
 18/19 native cases are captured; Copy is completed and continuity observed

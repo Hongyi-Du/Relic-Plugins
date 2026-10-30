@@ -32,7 +32,9 @@ import AppKit
         let observed = NativeLineBreaks.inspect(view, range: NSRange(location: 0, length: (source as NSString).length))
         XCTAssertEqual(observed.layout["normal_break_strategy"] as? String, "word")
         XCTAssertEqual(observed.layout["emergency_break_strategy"] as? String, "break-unbreakable")
-        XCTAssertEqual(observed.evidence["slash_word_break_suppression"] as? Bool, true)
+        XCTAssertEqual((observed.evidence["raw"] as? [String: Any])?["slash_word_break_suppression"] as? Bool, true)
+        XCTAssertEqual(observed.evidence["applicable"] as? Bool, true)
+        XCTAssertFalse((observed.evidence["owner"] as? String ?? "").isEmpty)
     }
 
     func testActualWordAndCharacterWrappingChooseDifferentFirstLines() throws {

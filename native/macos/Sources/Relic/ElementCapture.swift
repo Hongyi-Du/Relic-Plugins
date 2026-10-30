@@ -545,8 +545,21 @@ import CoreText
             evidence["outline"] = (node["surface_evidence"] as? [String: Any])?["outline"] ?? NSNull()
             let labelEvidence = node["projection"] as? [String: Any]
                 ?? (node["owned_text_evidence"] as? [String: Any])?["projection"] as? [String: Any]
-            evidence["line_break_configuration"] = labelEvidence?["line_break_configuration"] ?? NSNull()
-            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": node["layout"] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()], "icon": node["icon"] ?? NSNull(), "evidence": evidence]
+            var measuredLayout = node["layout"] as? [String: Any] ?? ["wrap": NSNull(), "truncation": NSNull(), "line_count": NSNull()]
+            let textApplicable = !text.isEmpty || kind == "text"
+            if textApplicable, let configuration = labelEvidence?["line_break_configuration"] {
+                evidence["line_break_configuration"] = configuration
+            } else {
+                measuredLayout["break_strategy_version"] = 1
+                measuredLayout["normal_break_strategy"] = NSNull(); measuredLayout["emergency_break_strategy"] = NSNull()
+                var configuration: [String: Any] = ["source": "current native element measurement",
+                    "owner": node["object_identity"] ?? (node["surface_evidence"] as? [String: Any])?["identity"] ?? id,
+                    "applicable": textApplicable, "raw": ["native_kind": kind, "native_text": text]]
+                if textApplicable { configuration["errors"] = ["No actual paragraph/container break configuration for this native element"] }
+                else { configuration["reason"] = "This native element has neither visible text nor text kind under the shared applicability rule" }
+                evidence["line_break_configuration"] = configuration
+            }
+            return ["id": id, "parent": emittedParent(node), "region": region, "order": order, "kind": kind, "text": text, "name": node["name"]!, "bounds": node["rect"]!, "visible_bounds": node["visibleRect"]!, "style": actualStyle, "state": state, "layout": measuredLayout, "icon": node["icon"] ?? NSNull(), "evidence": evidence]
         }
         let normalized: [String: Any] = ["schema_version": 1, "scene_id": item["id"].text, "client": "macos", "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh, "scale": 1], "extraction_errors": captureErrors.map { ["type": "native_scene_action_failed", "detail": $0] }, "coverage": ["raw_nodes": raw.count, "emitted_elements": canonical.count, "unmeasured": unmeasured], "elements": canonical, "raw_tree": stem.appendingPathExtension("ax.json").lastPathComponent]
         // Preserve every measurement while avoiding multi-megabyte indentation

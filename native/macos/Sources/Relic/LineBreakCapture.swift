@@ -12,7 +12,7 @@ import AppKit
         guard view.textLayoutManager == nil, let container = view.textContainer,
               let storage = view.textStorage, range.location < storage.length else {
             evidence["reason"] = "No measured TextKit1 paragraph/container configuration"
-            return (layout, evidence)
+            return result(layout, evidence)
         }
         let paragraph = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
             ?? view.defaultParagraphStyle ?? NSParagraphStyle.default
@@ -28,7 +28,7 @@ import AppKit
             evidence["layout_delegate"] = String(describing: type(of: delegate))
             guard let paths = delegate as? PathLineBreaks else {
                 evidence["reason"] = "An unmeasured layout delegate can override line break opportunities"
-                return (layout, evidence)
+                return result(layout, evidence)
             }
             evidence["slash_word_break_suppression"] = paths.enabled
         }
@@ -47,6 +47,14 @@ import AppKit
         @unknown default:
             evidence["reason"] = "Unknown native line-break mode"
         }
+        return result(layout, evidence)
+    }
+    private static func result(_ layout: [String: Any], _ measurements: [String: Any]) -> (layout: [String: Any], evidence: [String: Any]) {
+        var raw = measurements
+        raw.removeValue(forKey: "source"); raw.removeValue(forKey: "owner")
+        var evidence: [String: Any] = ["source": measurements["source"]!, "owner": measurements["owner"]!,
+            "raw": raw, "applicable": true]
+        if let reason = measurements["reason"] as? String { evidence["errors"] = [reason] }
         return (layout, evidence)
     }
 }
