@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreText
 
 // Native text selection supplies the exact selected passage to the Quote command.
 struct SelectedAuthorKey: EnvironmentKey { static let defaultValue = "" }
@@ -132,6 +133,11 @@ enum NativeTextStyle {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight ?? baseSize * 1.65; paragraph.maximumLineHeight = paragraph.minimumLineHeight
         let baseFont = monospaced ? RelicStyle.monoFont(baseSize) : RelicStyle.nativeFont(baseSize, weight: weight == .bold ? 700 : weight == .semibold ? 600 : 400)
+        if monospaced {
+            let space = NSAttributedString(string: " ", attributes: [.font: baseFont, .tracking: 0])
+            paragraph.tabStops = []
+            paragraph.defaultTabInterval = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(space), nil, nil, nil) * 8
+        }
         // Keep character spacing explicit in both drawing and intrinsic sizing.
         // The CI advance regression separately checks the resolved font metrics.
         rendered.addAttributes([.font: baseFont, .foregroundColor: NSColor(color), .paragraphStyle: paragraph, .tracking: 0,

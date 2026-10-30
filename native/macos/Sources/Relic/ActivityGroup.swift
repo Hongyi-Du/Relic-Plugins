@@ -2,6 +2,7 @@ import SwiftUI
 import RelicCore
 
 struct ActivityGroup: View {
+    @Environment(\.conversationDisclosure) private var preserveScroll
     @EnvironmentObject var m: Model
     let item: Node
     @State private var expanded = false
@@ -9,7 +10,7 @@ struct ActivityGroup: View {
     private var rows: [ToolActivity] { ToolActivity.pair(item["steps"].rows) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { expanded.toggle() } label: {
+            Button { preserveScroll(); expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     ReferenceIcon(name: "chev", size: 13, color: RelicStyle.muted, owner: identity).rotationEffect(.degrees(expanded ? 90 : 0))
                     ReferenceLabel(m.t("step.actions", ["n": String(rows.count)]), size: 12.5, weight: 600, color: RelicStyle.secondary, owner: identity).fixedSize()

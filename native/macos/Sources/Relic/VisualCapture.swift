@@ -439,9 +439,9 @@ import RelicAX
         }
         try click(frame, window: window)
         try await Task.sleep(for: .milliseconds(250))
-        // Expanding a live result can scroll the conversation to keep its end
-        // visible. Validate against the row's current bounds, not the point
-        // where the preceding click happened before that layout change.
+        // Read the row's current bounds after the actual disclosure layout.
+        // Production scrolling preserves the person's reading position; this
+        // driver must not force a scroll offset to match the reference.
         guard let expandedFrame = accessibilityFrame(identifier: "relic-row/live-tool/" + tool["id"].text, root: content) else {
             throw RelicError.message("Expanded live tool row disappeared after its click")
         }
