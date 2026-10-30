@@ -23,6 +23,7 @@ struct MemberNameInput: View {
     private let identity = "relic-input/member-rename"
     var body: some View {
         TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(RelicStyle.placeholder)).textFieldStyle(.plain).font(RelicStyle.font(14, weight: 400))
+            .accessibilityIdentifier(identity).accessibilityLabel(placeholder).help(m.t("card.rename_hint"))
             .focused($focused).onSubmit(save)
             .onKeyPress(.escape) { cancel(); return .handled }
             .onChange(of: text) { _, value in text = ReferenceText.inputPrefix(value, utf16Limit: 40) }
@@ -32,7 +33,6 @@ struct MemberNameInput: View {
                 if focused { RoundedRectangle(cornerRadius: 11).strokeBorder(RelicStyle.accent.opacity(0.6), lineWidth: 2).padding(-3).allowsHitTesting(false) }
             }
             .overlay(alignment: .trailing) { VoiceButton(text: $text).padding(.trailing, 4) }
-            .accessibilityIdentifier(identity).accessibilityLabel(placeholder).help(m.t("card.rename_hint"))
             .task { focused = true }
     }
 }
