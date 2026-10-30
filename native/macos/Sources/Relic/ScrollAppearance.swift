@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import RelicAX
 
 // The reference's styled scrollbars reserve a 10px gutter on overflow. Preserve
 // native scrolling/AX/keyboard behavior and let NSScrollView tile that actual
@@ -32,6 +33,12 @@ final class ReferenceScroller: NSScroller {
     private var over = false
     private(set) var lastPaint: [String: Any]?
     override class var isCompatibleWithOverlayScrollers: Bool { true }
+    override func accessibilityChildren() -> [Any]? {
+        // This scroller draws one thumb. NSScroller's legacy arrow/page-button
+        // providers are disabled and have no corresponding painted buttons.
+        // Expose the actual native thumb; parent scrolling actions stay native.
+        super.accessibilityChildren()?.filter { RelicAXRead($0)["role"] as? String == "AXValueIndicator" }
+    }
     override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat { 10 }
     var paintedKnob: NSRect {
         let knob = rect(for: .knob)
