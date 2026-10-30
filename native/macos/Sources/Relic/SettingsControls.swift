@@ -109,6 +109,7 @@ struct ReferenceInput: View {
     var voice = true
     var suggestions: [String] = []
     var controlID = ""
+    var initiallyFocused = false
     @State private var suggestionAnchor = CGRect.zero
     @FocusState private var focused: Bool
     @State private var identity = "relic-input/" + UUID().uuidString
@@ -137,6 +138,7 @@ struct ReferenceInput: View {
             .overlay(alignment: .trailing) { if voice && m.preferences["voice"].text != "off" { VoiceButton(text: $text).padding(.trailing, 5) } }
             .background(GeometryReader { proxy in Color.clear.preference(key: InputSuggestionAnchor.self, value: proxy.frame(in: .named("relic-window"))) })
             .onPreferenceChange(InputSuggestionAnchor.self) { suggestionAnchor = $0 }
+            .task { if initiallyFocused { await Task.yield(); focused = true } }
             .onDisappear { closeSuggestions() }
     }
     private func closeSuggestions() { if m.inputSuggestions?.id == inputIdentity { m.inputSuggestions = nil } }

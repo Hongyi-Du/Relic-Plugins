@@ -82,11 +82,12 @@ private struct LiveToolRow: View {
     let item: Node
     @State private var expanded = false
     @State private var hovering = false
+    @FocusState private var disclosureFocused: Bool
     private var identity: String { "relic-row/live-tool/" + item["id"].text }
     private var dot: Color { item["status"].text == "completed" ? RelicStyle.green : item["status"].text == "failed" ? RelicStyle.red : RelicStyle.faint }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { if !item["text"].text.isEmpty { preserveScroll() }; expanded.toggle() } label: {
+            Button { disclosureFocused = true; if !item["text"].text.isEmpty { preserveScroll() }; expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: 7, height: 7).modifier(RecordedSurface(background: dot, radius: 3.5, kind: "card"))
                     ReferenceLabel(ReferenceText.clip(item["title"].text, to: 60), size: 12.5, weight: 600, lineHeight: 20, owner: identity).fixedSize()
@@ -96,6 +97,7 @@ private struct LiveToolRow: View {
                     .padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 3).contentShape(Rectangle())
                     .modifier(RecordedSurface(background: hovering ? RelicStyle.sidebar : .clear, owner: identity, hovered: hovering, expanded: expanded))
             }.buttonStyle(.plain).accessibilityIdentifier(identity)
+                .focused($disclosureFocused)
                 .accessibilityLabel(ReferenceText.clip(item["title"].text, to: 60) + " " + LivePresentation.toolState(item["status"].text, words: m.words))
                 .onHover { hovering = $0 }
             if expanded && !item["text"].text.isEmpty {

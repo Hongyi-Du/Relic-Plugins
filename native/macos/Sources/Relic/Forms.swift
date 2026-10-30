@@ -32,7 +32,7 @@ struct CreateOrgView: View {
             ReferenceLabel(m.t("common.new_org"), size: 17, weight: 650)
             VStack(alignment: .leading, spacing: 12) {
                 NativeFormField(title: m.t("common.name")) {
-                    ReferenceInput(placeholder: m.t("neworg.name_placeholder"), text: $name, height: 36, pointSize: 12.5)
+                    ReferenceInput(placeholder: m.t("neworg.name_placeholder"), text: $name, height: 36, pointSize: 12.5, initiallyFocused: true)
                 }
                 NativeFormField(title: m.t("neworg.purpose")) {
                     NativeTextArea(placeholder: m.t("neworg.purpose_placeholder"), text: $purpose, rows: 3)
@@ -85,12 +85,13 @@ struct NativeTextArea: View {
     var rows = 3
     var pointSize: CGFloat = 12.5
     var voice = true
+    var initiallyFocused = false
     @State private var identity = "form-" + UUID().uuidString
     @State private var focused = false
     @State private var resized: CGSize?
     private var editorHeight: CGFloat { max(pointSize * 1.6, (resized?.height ?? (CGFloat(rows) * pointSize * 1.6 + 16)) - 16) }
     var body: some View {
-        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, accessibleName: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") }, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, viewportHeight: editorHeight, members: [], onMention: { _ in }, send: {})
+        MentionEditor(text: $text, contextID: identity, placeholder: placeholder, accessibleName: fieldLabel.map { $0 + (voice ? " " + m.t("common.voice_input") : "") }, focusChanged: { focused = $0 }, pointSize: pointSize, sendsOnReturn: false, viewportHeight: editorHeight, initiallyFocused: initiallyFocused, members: [], onMention: { _ in }, send: {})
             .frame(height: editorHeight).padding(.horizontal, 11).padding(.vertical, 8)
             .frame(width: resized?.width)
             .modifier(RecordedSurface(background: RelicStyle.background, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.55) : RelicStyle.border, borderWidth: 1, radius: 9, owner: "relic-composer/" + identity))
