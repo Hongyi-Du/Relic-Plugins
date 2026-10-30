@@ -1,5 +1,30 @@
 // Injected into the reference's closure by Playwright only. Calls the existing
 // production views and controls; does not replace their markup or styles.
+const visualCcLoads = [];
+const readVisualCc = () => JSON.parse(JSON.stringify({asked: ccAsked, cc: S.cc, copies_connected: !!(ccBox && ccBox.isConnected)}));
+Object.defineProperty(window, '__relicVisualCcState', {get: () => ({
+  source: 'actual production closure S.cc and ccAsked; detached read-only snapshot',
+  ...readVisualCc(), loads: JSON.parse(JSON.stringify(visualCcLoads))
+})});
+async function visualLoadCc(stage) {
+  const record = {stage, before: readVisualCc(), requested_at: performance.now(), status: 'loading'};
+  visualCcLoads.push(record);
+  try {
+    const pending = loadCc();
+    record.request_asked = ccAsked;
+    await pending;
+    record.after = readVisualCc(); record.completed_at = performance.now();
+    if (!Number.isSafeInteger(record.request_asked) || record.request_asked !== record.before.asked + 1 ||
+        record.after.asked !== record.request_asked || record.after.cc.loaded !== true ||
+        !Array.isArray(record.after.cc.items) || !Number.isSafeInteger(record.after.cc.unread) || record.after.cc.unread < 0) {
+      throw new Error('Production loadCc was superseded or did not establish measured CC readiness: ' + stage);
+    }
+    record.status = 'ready';
+  } catch (error) {
+    record.after = readVisualCc(); record.status = 'failed'; record.error = String(error);
+    throw error;
+  }
+}
 window.__relicVisual = async (scene, fixture) => {
   const sceneState = fixture.scene_state;
   const liveScene = scene.startsWith('live-');
@@ -11,6 +36,9 @@ window.__relicVisual = async (scene, fixture) => {
   S.folded.clear(); S.search = ''; $('#search').value = '';
   await loadOrgs();
   await openOrg(sceneState?.org || fixture.org, { kind: 'group', member: null });
+  // loadCc redraws the appbar. Complete it before opening menus or any other
+  // scene control, without assigning a badge, unread total, or loaded state.
+  await visualLoadCc('before-scene-controls');
   save('relic.plain.' + S.orgId, false);
   toggleSide(true); togglePanel(S.panelOpen);
   if (scene.startsWith('settings-')) { openSettings(scene.slice(9)); return; }
@@ -28,8 +56,11 @@ window.__relicVisual = async (scene, fixture) => {
     case 'thread': await openThread(Number(fixture.thread)); break;
     case 'overview': setPane('org'); break;
     case 'workspace': S.workMember = fixture.member; setPane('work'); break;
-    case 'copies': openCopies(); break;
-    case 'copy-rules': openCopies(); setTimeout(() => document.querySelectorAll('#layer details').forEach(x => x.open = true), 100); break;
+    case 'copies': openCopies(); await visualLoadCc('after-open-copies'); break;
+    case 'copy-rules':
+      openCopies(); await visualLoadCc('after-open-copies');
+      document.querySelectorAll('#layer details').forEach(x => { if (!x.open) x.querySelector('summary').click(); });
+      break;
     case 'chart': openChart(fixture.org); break;
     case 'new-org': orgDialog(); break;
     case 'member-app': await memberDialog({ mode: 'app' }); break;

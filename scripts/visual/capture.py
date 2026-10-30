@@ -34,6 +34,145 @@ RESIZE_SCENES = frozenset(("new-org-textarea-resized",))
 PANEL_RESIZE_SCENES = frozenset(("panel-resize-hover", "panel-resized"))
 
 
+def validate_reference_cc(state, responses):
+    """Bind ready closure values to the observed production GET sequence.
+
+    loadCc increments ccAsked immediately before its sole GET. The observer is
+    installed before navigation, so a missing request, an acknowledgement-only
+    increment, or a superseding load cannot silently borrow another response.
+    """
+    if not isinstance(state, dict) or state.get("source") != "actual production closure S.cc and ccAsked; detached read-only snapshot":
+        raise RuntimeError("Reference CC closure state is unmeasured")
+    asked, cc, loads = state.get("asked"), state.get("cc"), state.get("loads")
+    if type(asked) is not int or asked <= 0 or not isinstance(cc, dict) or cc.get("loaded") is not True:
+        raise RuntimeError("Reference CC state has not completed a production load")
+    if not isinstance(loads, list) or not loads or not isinstance(loads[-1], dict):
+        raise RuntimeError("Reference CC has no awaited production load receipt")
+    latest = loads[-1]
+    before, after = latest.get("before"), latest.get("after")
+    if (latest.get("status") != "ready" or latest.get("request_asked") != asked
+            or not isinstance(before, dict) or type(before.get("asked")) is not int or before["asked"] + 1 != asked
+            or not isinstance(after, dict) or after.get("asked") != asked or after.get("cc") != cc):
+        raise RuntimeError("Reference CC awaited load was superseded or its closure state changed")
+    if len(responses) != asked or any(row.get("ordinal") != index for index, row in enumerate(responses, 1)):
+        raise RuntimeError("Reference CC request sequence does not bind the actual ccAsked counter")
+    row = responses[-1]
+    if (row.get("request_observed") is not True or row.get("finished") is not True
+            or row.get("failure") or row.get("errors") or row.get("method") != "GET"
+            or row.get("url") != row.get("request_url") or type(row.get("status")) is not int
+            or not 200 <= row["status"] < 300 or row.get("body_base64") is None):
+        raise RuntimeError("Reference CC latest actual response is missing, failed or incomplete")
+    body = row.get("json")
+    if (not isinstance(body, dict) or not isinstance(body.get("items"), list)
+            or type(body.get("unread")) is not int or body["unread"] < 0):
+        raise RuntimeError("Reference CC actual response has no measured items and unread total")
+    if cc != {"items": body["items"], "unread": body["unread"], "loaded": True}:
+        raise RuntimeError("Reference CC closure values differ from the actual latest response")
+    return {"response_id": row["id"], "asked": asked, "unread": body["unread"],
+            "rule": "pre-navigation GET request order equals actual ccAsked; awaited unsuperseded load and exact response-to-closure values"}
+
+
+class ReferenceCcCapture:
+    """Observe real /api/cc requests; never intercept or issue an HTTP request."""
+    def __init__(self, page, output, case_id):
+        self.page = page
+        self.path = Path(output) / (case_id + ".cc.json")
+        self.requests, self.retained = [], {}
+        self.evidence = {"source": "actual pre-navigation Playwright request/response events and production CC closure getter",
+            "case_id": case_id, "responses": [], "checkpoints": [], "errors": [],
+            "measurement_limit": "Readiness and actual server totals only; no badge count or painted element is assigned."}
+        self.baseline = None
+        self.listeners = [("request", self.on_request), ("response", self.on_response),
+                          ("requestfinished", self.on_finished), ("requestfailed", self.on_failed)]
+        for event, callback in self.listeners:
+            page.on(event, callback)
+        self.save()
+
+    def save(self):
+        self.path.write_text(json.dumps(self.evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def entry(self, request):
+        for actual, row in self.requests:
+            if actual is request:
+                return row
+        if request.method != "GET" or urllib.parse.urlsplit(request.url).path != "/api/cc":
+            return None
+        ordinal = len(self.requests) + 1
+        row = {"id": "cc-response-" + str(ordinal), "ordinal": ordinal, "request_url": request.url,
+            "method": request.method, "request_observed": False, "url": None, "status": None, "headers": None,
+            "finished": False, "failure": None, "errors": [], "body_base64": None, "byte_length": None, "json": None}
+        self.requests.append((request, row)); self.evidence["responses"].append(row)
+        return row
+
+    def on_request(self, request):
+        row = self.entry(request)
+        if row is not None:
+            row.update(request_observed=True, request_host_monotonic=time.monotonic()); self.save()
+
+    def on_response(self, response):
+        row = self.entry(response.request)
+        if row is not None:
+            self.retained[row["id"]] = response
+            try:
+                row.update(url=response.url, status=response.status, headers=response.headers,
+                           response_host_monotonic=time.monotonic())
+            except Exception as error:
+                row["errors"].append("Actual response metadata: " + str(error))
+            self.save()
+
+    def on_finished(self, request):
+        row = self.entry(request)
+        if row is not None:
+            row.update(finished=True, finished_host_monotonic=time.monotonic()); self.save()
+
+    def on_failed(self, request):
+        row = self.entry(request)
+        if row is not None:
+            row.update(failure=request.failure or "Actual requestfailed event", failed_host_monotonic=time.monotonic()); self.save()
+
+    def collect(self):
+        for _, row in self.requests:
+            response = self.retained.get(row["id"])
+            if row["finished"] and response is not None and row["body_base64"] is None:
+                try:
+                    body = response.body()
+                    row.update(body_base64=base64.b64encode(body).decode("ascii"), byte_length=len(body))
+                    row["json"] = json.loads(body)
+                except Exception as error:
+                    row["errors"].append("Actual response body: " + str(error))
+        self.save()
+
+    def checkpoint(self, stage):
+        state = self.page.evaluate("window.__relicVisualCcState")
+        self.collect()
+        point = {"stage": stage, "host_monotonic": time.monotonic(), "state": state, "binding": None}
+        self.evidence["checkpoints"].append(point); self.save()
+        try:
+            point["binding"] = validate_reference_cc(state, self.evidence["responses"])
+            if self.baseline is None:
+                self.baseline = state
+            elif state != self.baseline:
+                raise RuntimeError("Reference CC closure/readiness state changed between scene controls, PNG and source evidence")
+        except Exception as error:
+            point["error"] = str(error); self.evidence["errors"].append(stage + ": " + str(error)); self.save()
+            raise
+        self.save()
+
+    def fail(self, error):
+        self.evidence["errors"].append(str(error))
+        try:
+            self.evidence["failure_state"] = self.page.evaluate("window.__relicVisualCcState")
+            self.collect()
+        except Exception as read_error:
+            self.evidence["errors"].append("Failure evidence: " + str(read_error))
+        self.save()
+
+    def close(self):
+        self.save()
+        for event, callback in self.listeners:
+            self.page.remove_listener(event, callback)
+
+
 class TextareaResizeCapture:
     """Observe a real textarea corner drag; the action point is not a grip box."""
     SELECTOR = "#layer .dialog[role='dialog'] .form textarea"
@@ -899,7 +1038,7 @@ def record_caret_coverage(elements, evidence):
     elements.setdefault("extraction_errors", []).append({"type": "ua_caret_measurement_unavailable", "node": owner, "reason": reason})
 
 
-def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None, image_resources=None):
+def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None, image_resources=None, cc_capture=None):
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
@@ -919,6 +1058,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             action.checkpoint("before_screenshot")
         if image_resources is not None:
             source_step("source:image_objects_before_screenshot", lambda: image_resources.before_screenshot(cdp))
+        if cc_capture is not None:
+            source_step("source:cc_before_screenshot", lambda: cc_capture.checkpoint("before_screenshot"))
         if case["scene"] == "message-copy-toast":
             capture_message_png(page, cdp, output / case["file"], case["width"], case["height"], message)
             message.pause_for_sources()
@@ -926,6 +1067,8 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             source_step("screenshot:Playwright", lambda: page.screenshot(path=output / case["file"], caret="initial", animations="allow" if case["scene"] in LIVE_SCENES | MESSAGE_SCENES | RESIZE_SCENES | PANEL_RESIZE_SCENES else "disabled"))
         for action in actions:
             action.checkpoint("after_screenshot")
+        if cc_capture is not None:
+            source_step("source:cc_after_screenshot", lambda: cc_capture.checkpoint("after_screenshot"))
         snapshot = source_step("source:DOMSnapshot", lambda: cdp.send("DOMSnapshot.captureSnapshot", {"computedStyles": [], "includePaintOrder": True, "includeDOMRects": True}))
         for action in actions:
             action.checkpoint("after_dom_snapshot")
@@ -965,8 +1108,15 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
         if datalist is not None:
             record_datalist_coverage(elements, datalist)
             (output / (case["id"] + ".datalist-popup.json")).write_text(json.dumps(datalist, ensure_ascii=False), encoding="utf-8")
+        if cc_capture is not None:
+            source_step("source:cc_after_element_extraction", lambda: cc_capture.checkpoint("after_element_extraction"))
+            # Embed the full raw responses as well as saving the standalone
+            # sidecar, so report copies of .elements.json retain every byte.
+            elements.setdefault("capture_evidence", {})["cc_readiness"] = cc_capture.evidence
         (output / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
     except Exception as error:
+        if cc_capture is not None:
+            cc_capture.fail(error)
         for action in actions:
             action.evidence["errors"].append(str(error))
             action.save()
@@ -981,7 +1131,11 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
                     if image_resources is not None:
                         image_resources.close()
                 finally:
-                    cdp.detach()
+                    try:
+                        if cc_capture is not None:
+                            cc_capture.close()
+                    finally:
+                        cdp.detach()
             finally:
                 page.close()
 
@@ -1020,6 +1174,7 @@ def reference_browser(manifest):
             page = context.new_page()
             from image_resource_capture import ImageResourceCapture
             image_resources = ImageResourceCapture(page, manifest["output"], case["id"])
+            cc_capture = ReferenceCcCapture(page, manifest["output"], case["id"])
             page.set_viewport_size({"width": case["width"], "height": case["height"]})
             page.clock.set_fixed_time(manifest["fixture"]["clock"])
             page.route("**/app.js", lambda route: route.fulfill(body=source, content_type="application/javascript"))
@@ -1030,7 +1185,13 @@ def reference_browser(manifest):
             page.wait_for_function("typeof window.__relicVisual === 'function' && document.querySelector('#stream-inner')?.children.length > 0")
             navigation_scene = "member-card" if case["scene"] in MEMBER_CARD_SCENES else "group" if case["scene"] in MESSAGE_SCENES | PANEL_RESIZE_SCENES else "new-org" if case["scene"] in RESIZE_SCENES else case["scene"]
             progress("opening actual scene controls")
-            page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
+            try:
+                page.evaluate("([scene, fixture]) => window.__relicVisual(scene, fixture)", [navigation_scene, case_fixture])
+                cc_capture.checkpoint("after_scene_controls")
+            except Exception as error:
+                cc_capture.fail(error)
+                cc_capture.close()
+                raise
             if case["scene"] == "documents":
                 # Exercise the production selection handler and its real GET.
                 page.locator(".details .left .chat-row").first.click()
@@ -1051,7 +1212,7 @@ def reference_browser(manifest):
             if animation is not None:
                 (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
             progress("capturing actual actions, PNG and source evidence")
-            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist, image_resources)
+            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist, image_resources, cc_capture)
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
         progress("closing browser context and runtime")
