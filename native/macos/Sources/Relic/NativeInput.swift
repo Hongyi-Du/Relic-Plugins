@@ -90,6 +90,9 @@ final class ComposerTextView: NSTextView {
          .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0]
     }
     override func draw(_ dirtyRect: NSRect) {
+        let context = NSGraphicsContext.current?.cgContext
+        if let context { NativeTextRasterization.begin(context) }
+        defer { context?.restoreGState() }
         super.draw(dirtyRect)
         if string.isEmpty {
             NSAttributedString(string: placeholder, attributes: placeholderAttributes)
