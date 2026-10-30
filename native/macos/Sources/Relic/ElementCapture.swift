@@ -295,6 +295,7 @@ import CoreText
         let contentScreen = window.convertToScreen(content.convert(content.bounds, to: nil))
         let viewport = NSRect(origin: .zero, size: content.bounds.size)
         var raw: [[String: Any]] = [], elements: [[String: Any]] = [], seen = Set<ObjectIdentifier>()
+        var childReadErrors: [String] = []
         let regions = ElementRegionProbe.regions(in: contentScreen)
         func region(_ rect: NSRect, fallback: String) -> String {
             let point = NSPoint(x: rect.midX, y: rect.midY)
@@ -302,11 +303,14 @@ import CoreText
         }
         func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false, scrollbarOwner: ReferenceScroller? = nil) {
             let object = value as AnyObject
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let attributes = RelicAXRead(object)
             let childSnapshot = RelicAXChildSnapshot(object)
             let actualChildren = childSnapshot["children"] as? [Any] ?? []
+            if let failure = (childSnapshot["evidence"] as? [String: Any])?["error"] as? String {
+                childReadErrors.append(path + ":native child snapshot:" + failure)
+            }
             let ax = Node(attributes)
-            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
             let role = ax["role"].text
             let scroller = (object as? ReferenceScroller) ?? scrollbarOwner
             let isThumb = role == "AXValueIndicator" && scroller != nil
@@ -565,6 +569,7 @@ import CoreText
         let metadata: [String: Any] = ["version": 1, "client": "macos", "caseId": item["id"].text, "scene": item["scene"].text, "language": language, "theme": theme, "viewport": ["width": bitmap.pixelsWide, "height": bitmap.pixelsHigh], "coordinateSpace": "content-top-left-logical-pixels", "screenshot": png.lastPathComponent]
         var unmeasured = ["Paint-only SwiftUI decoration coverage beyond instrumented path icons", "Exact opaque-overlay occlusion", "Reading order for paint without an AX owner"]
         unmeasured.append(contentsOf: surfaceGaps)
+        unmeasured.append(contentsOf: childReadErrors)
         if raw.count < 2 || elements.isEmpty { unmeasured.append("AX extraction returned no descendant controls") }
         if RelicAXChildren(content).isEmpty { unmeasured.append("SwiftUI hosting view has no virtual AX descendants; AppKit subviews alone are incomplete") }
         var orders: [String: Int] = [:]
