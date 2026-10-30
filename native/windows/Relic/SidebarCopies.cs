@@ -139,7 +139,9 @@ public sealed partial class MainWindow
             // Left alignment keeps a short name's badge immediately after it;
             // an Auto name column instead expands outside the available row.
             var heading = new Grid { ColumnSpacing = 6, HorizontalAlignment = HorizontalAlignment.Left, UseLayoutRounding = false }; heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            var name = SidebarText(title, 13.3, weight: 550, lineHeight: 17.955); name.IsTextSelectionEnabled = false; name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; heading.Children.Add(name);
+            var name = new NativeLabel(title, FontFamilies.UI, 13.3, 550, words.Language, 17.955,
+                characterEllipsis: true, accessibleText: true) { Foreground = Ink };
+            heading.Children.Add(name);
             OverviewBadgeView? tag = null;
             if (secretary && !secretarySetup) tag = SidebarTag(OverviewRoleName(who, T("common.secretary")), true);
             else if (snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Flag("leader")) tag = SidebarTag(T("common.leader"), false);
