@@ -35,7 +35,7 @@ struct Avatar: View {
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
             }.onChange(of: image != nil) { imageVisibility?(image != nil) }
-            .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
+            .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel("")
     }
 }
 

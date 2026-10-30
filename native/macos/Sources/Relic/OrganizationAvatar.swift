@@ -17,7 +17,7 @@ struct OrganizationAvatar: View {
                 rings: node["cabinet"].flag ? [SurfaceRing(width: 2, color: RelicStyle.card), SurfaceRing(width: 3.5, color: RelicStyle.violet)] : [],
                 outline: subgroup ? SurfaceOutline(width: 1.5, color: foreground, dash: [3, 3]) : nil))
             .saturation(ended ? 0 : 1)
-            .accessibilityElement(children: .ignore).accessibilityLabel(initial).accessibilityIdentifier(identity)
+            .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
     }
 }
 

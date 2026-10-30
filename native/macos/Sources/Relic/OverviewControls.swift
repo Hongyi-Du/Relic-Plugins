@@ -104,26 +104,6 @@ struct OverviewLink: View {
     }
 }
 
-struct OverviewToggleStyle: ToggleStyle {
-    @Environment(\.isEnabled) private var enabled
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 8) {
-            Button { configuration.isOn.toggle() } label: {
-                Color.clear.frame(width: 14, height: 14)
-                    .modifier(RecordedSurface(background: .white, radius: 7, kind: "card",
-                        shadows: [SurfaceShadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)]))
-                    .frame(width: 28, alignment: configuration.isOn ? .trailing : .leading).padding(2)
-                    .modifier(RecordedSurface(background: configuration.isOn ? RelicStyle.accent : RelicStyle.border, radius: 9))
-            }.buttonStyle(.plain).accessibilityRepresentation {
-                Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox).labelsHidden()
-                    .frame(width: 32, height: 18).accessibilityIdentifier("relic-toggle")
-            }
-            configuration.label.font(RelicStyle.font(12.5, weight: 400)).foregroundStyle(RelicStyle.secondary)
-                .fixedSize(horizontal: false, vertical: true).onTapGesture { if enabled { configuration.isOn.toggle() } }
-        }
-    }
-}
-
 struct OverviewPicker: View {
     let title: String
     @Binding var selection: String
