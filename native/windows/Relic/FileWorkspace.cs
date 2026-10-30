@@ -155,7 +155,8 @@ public sealed partial class MainWindow
     private async Task OpenFile(string path, int line = 0)
     {
         var epoch = ++fileEpoch;
-        filePath = path; fileLine = line; fileMode = "preview"; fileData = null; pane = "files"; panelOpen = true; LayoutColumns(); DrawDetail(); SaveViewState();
+        filePath = path; fileLine = line; fileMode = "preview"; fileData = null; pane = "files"; panelOpen = true;
+        LayoutColumns(); DrawDetail(); DrawToolbar(); SaveViewState();
         JsonNode data;
         try { data = await api!.Get("/api/fs/read?path=" + Client.Segment(path)); }
         catch (Exception ex) { data = new JsonObject { ["error"] = ex.Message }; }

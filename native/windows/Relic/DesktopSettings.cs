@@ -187,6 +187,9 @@ public sealed partial class MainWindow
             var item = new SelectorBarItem { Text = text, Tag = content, IsSelected = selected, Padding = new Thickness(0), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
                 CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
+            // The custom visual template has no default Text presenter from
+            // which the SelectorBarItem peer can derive its accessible name.
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, text);
             values.Add(item, value); tabs.Items.Add(item);
             if (selected) tabs.SelectedItem = item;
         }
@@ -354,6 +357,7 @@ public sealed partial class MainWindow
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
                 Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tab, T(label));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "settings-nav-" + key);
             tab.PointerEntered += (_, _) => { if (hoveredNavigationItems.Add(tab)) PaintNavigation(); };
             tab.PointerExited += (_, _) => { if (hoveredNavigationItems.Remove(tab)) PaintNavigation(); };
