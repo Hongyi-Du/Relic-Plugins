@@ -9,6 +9,7 @@ struct Avatar: View {
     var secretaryStyle = false
     var showState = false
     var stateBorder: Color = RelicStyle.background
+    var imageVisibility: ((Bool) -> Void)? = nil
     @State private var image: NSImage?
     @State private var identity = "relic-avatar/" + UUID().uuidString
     @Environment(\.colorScheme) private var scheme
@@ -33,7 +34,8 @@ struct Avatar: View {
                 guard !member.isEmpty else { image = nil; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
                 if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
-            }.accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
+            }.onChange(of: image != nil) { imageVisibility?(image != nil) }
+            .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel(m.name(member))
     }
 }
 

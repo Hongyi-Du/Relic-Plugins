@@ -5,7 +5,8 @@ struct OrganizationAvatar: View {
     let node: Node
     @State private var identity = "relic-avatar/" + UUID().uuidString
     private var foreground: Color { RelicStyle.avatar(node["id"].text, background: false, dark: false) }
-    private var initial: String { String(node["name"].text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased() }
+    static func initial(for node: Node) -> String { String(node["name"].text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased() }
+    private var initial: String { Self.initial(for: node) }
     private var subgroup: Bool { node["kind"].text == "subgroup" }
     private var ended: Bool { !node["status"].text.isEmpty && node["status"].text != "active" }
     var body: some View {
