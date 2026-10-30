@@ -24,8 +24,14 @@ import RelicCore
     var selectedAuthor = ""
     weak var selectedTextView: NSTextView?
     @Published var pane = "overview"
-    @Published var error = ""
-    @Published var notice = ""
+    @Published var toasts: [NativeToastMessage] = []
+    @Published var error = "" { didSet { if ready && !error.isEmpty { toasts.append(NativeToastMessage(text: error, seconds: 3.6)) } } }
+    @Published var notice = "" {
+        didSet {
+            if notice.isEmpty { toasts = [] }
+            else { toasts.append(NativeToastMessage(text: notice, seconds: 3.6)) }
+        }
+    }
     @Published var ready = false
     @Published var sending = false
     @Published var threadSending = false
@@ -175,7 +181,7 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { inputSuggestions = nil; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
+    func stop() { inputSuggestions = nil; toasts = []; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
     func schedule() {
         pending = true
         guard refreshTask == nil else { return }

@@ -350,18 +350,29 @@ struct MessageView: View {
                             }.padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
                         }.buttonStyle(QuietButtonStyle()).accessibilityIdentifier(threadIdentity)
                     }
-                }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading).overlay(alignment: .topTrailing) {
-                    if hovering { HStack {
-                        if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil { Button(m.t(wantsPlain ? "msg.original" : "msg.plain")) { if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) } else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } } }.help(m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words")) }
-                        Button(m.t("common.quote")) { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
-                        if !inThread, Int(item["id"].text) != nil { Button(m.t("common.reply")) { m.run { try await m.openThread(item["id"].text) } }.help(m.t("msg.reply_in_thread")) }
-                        Button(m.t("common.copy")) { NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed") }
-                    }.buttonStyle(.link).font(RelicStyle.font(11, weight: 400)).padding(5).background(RelicStyle.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(RelicStyle.line)).offset(y: -14) }
-                }
+                }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
                 if mine { if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) } else { Avatar(member: "human", size: inThread ? 30 : 36) } }
                 else { Spacer(minLength: 0) }
-            }.onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
+            }.overlay(alignment: mine ? .topLeading : .topTrailing) {
+                if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
+            }.background(MessageInteractionAnchor(messageID: item["id"].text))
+                .onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
+    }
+    private var hoverActions: some View {
+        HStack(spacing: 2) {
+            if !groupPlain, item["from"].text != "human", Int(item["id"].text) != nil {
+                MessageActionButton(title: m.t(wantsPlain ? "msg.original" : "msg.plain"), hint: m.t(wantsPlain ? "msg.hide_plain" : "common.plain_words"), icon: "lang") {
+                    if m.plainOne.contains(item["id"].text) { m.plainOne.remove(item["id"].text) }
+                    else { m.plainOne.insert(item["id"].text); m.run { try await m.requestPlain([item["id"].text]) } }
+                }
+            }
+            MessageActionButton(title: m.t("common.quote"), hint: m.t("common.quote"), icon: "quote") { m.setQuote(bodyText, from: item["fromLabel"].text.isEmpty ? item["from"].text : item["fromLabel"].text, stripExisting: true) }
+            if !inThread, Int(item["id"].text) != nil { MessageActionButton(title: m.t("common.reply"), hint: m.t("msg.reply_in_thread"), icon: "thread") { m.run { try await m.openThread(item["id"].text) } } }
+            MessageActionButton(title: "", hint: m.t("common.copy"), icon: "copy", controlID: "message-copy/" + item["id"].text) {
+                NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed")
+            }
+        }.padding(3).modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8, kind: "card", shadows: SurfaceShadow.small))
     }
     private func messageBubble(_ text: String, plain: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -370,7 +381,7 @@ struct MessageView: View {
         }.padding(.horizontal, plain ? 14 : 13).padding(.vertical, plain ? 10 : 9)
             .modifier(RecordedSurface(background: mine ? RelicStyle.mine : plain ? RelicStyle.violetSoft : RelicStyle.bubble,
                 border: plain ? RelicStyle.violet.opacity(0.22) : .clear, borderWidth: plain ? 1 : 0, radius: 14, kind: "card",
-                cornerRadii: mine ? [14,4,14,14] : [4,14,14,14], insetLeadingWidth: item["from"].text == m.secretary ? 3 : 0, insetLeadingColor: RelicStyle.violet))
+                cornerRadii: mine ? [14,4,14,14] : [4,14,14,14], insetLeadingWidth: item["from"].text == m.secretary && m.member.isEmpty && !inThread ? 3 : 0, insetLeadingColor: RelicStyle.violet))
     }
 }
 

@@ -10,6 +10,44 @@
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
 
+### edf599a：105 个测试通过；最新完整失败报告为 4f6d66b
+
+[Native apps 40975283582](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40975283582)
+Windows/macOS 构建、静态覆盖检查通过，macOS 105 个测试零失败。
+粗体段落实际宽度 292.419097 px，参考 DOMRange 为 292.40625 px；实际字体
+同为 PingFangSC-Semibold。普通文本的四组宽度回归也继续通过。
+这些测试并不替代完整逐元素门禁。
+
+[4f6d66b 完整视觉运行 40970311201](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40970311201)
+已结束且失败。macOS 四个分片均在候选菜单处超时，各保留前 15 个 PNG；
+528 个预期 case 没有全部完成。最新下载的完整 HTML/JSON/热图位于
+`S:\Codex\Outputs\Relic-native-visual\parity-4f6d66b\report\`。
+以下是该目录 `summary.json` 的原始计数；不是当前 HEAD 的结果。
+
+| 4f6d66b 严格报告 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 528 | 528 |
+| scenes_checked / passed | 0 / 0 | 0 / 0 |
+| reference_elements | 97,870 | 97,302 |
+| native_elements（有效） | 33,601 | 14,800 |
+| invalid_native_elements | 0 | 196 |
+| paired_elements / matched_elements | 29,729 / 0 | 8,558 / 0 |
+| missing | 68,141 | 88,744 |
+| extra | 3,872 | 6,242 |
+| text_mismatch | 8,005 | 5,086 |
+| geometry_out_of_tolerance | 48,880 | 18,725 |
+| style_out_of_tolerance | 103,780 | 31,684 |
+| state_mismatch | 8,256 | 7,006 |
+| kind_mismatch | 340 | 690 |
+| region_mismatch | 160 | 56 |
+| order_mismatch | 4,202 | 754 |
+| layout_mismatch | 11,979 | 13,560 |
+| icon_mismatch | 532 | 200 |
+| extraction_errors | 84,571 | 130,338 |
+
+例外表和批准的图标映射均为空。未完成的捕获及未知测量继续计入失败，
+没有将超时 case 排除，也没有把这些计数描述为通过。
+
 ### e9a0dd5 之后：实时会话、编辑态与候选菜单故障修复
 
 已合入共享矩阵的三个实时会话场景。macOS 每个 case 都调用 fixture 的
