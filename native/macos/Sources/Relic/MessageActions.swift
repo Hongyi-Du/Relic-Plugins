@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import RelicCore
+import RelicAX
 
 struct MessageActionButton: View {
     let title: String
@@ -23,13 +24,19 @@ struct MessageActionButton: View {
     }
 }
 
-/// Read-only geometry of the actual message for CI hover/copy actions. It has
-/// no paint or accessibility element and is also present during normal use.
+/// Mount for message geometry and the actual VoiceOver navigation order. It
+/// has no paint or accessible element and is present during normal use.
 struct MessageInteractionAnchor: NSViewRepresentable {
     let messageID: String
+    var avatarNavigationID: String? = nil
+    var metadataNavigationID: String? = nil
     static let live = NSHashTable<AnchorView>.weakObjects()
     func makeNSView(context: Context) -> AnchorView { let view = AnchorView(); Self.live.add(view); updateNSView(view, context: context); return view }
-    func updateNSView(_ view: AnchorView, context: Context) { view.messageID = messageID }
+    func updateNSView(_ view: AnchorView, context: Context) {
+        view.messageID = messageID
+        view.avatarNavigationID = avatarNavigationID; view.metadataNavigationID = metadataNavigationID
+        view.scheduleNavigationOrder()
+    }
     static func visibleBounds(messageID: String) -> [NSRect] {
         live.allObjects.filter { $0.messageID == messageID && $0.window?.isVisible == true }.compactMap { view in
             guard let rect = NativeVisibility.screenClip(view), !rect.isNull, !rect.isEmpty else { return nil }; return rect
@@ -49,7 +56,26 @@ struct MessageInteractionAnchor: NSViewRepresentable {
     }
     final class AnchorView: NSView {
         var messageID = ""
+        var avatarNavigationID: String?, metadataNavigationID: String?
+        private var navigationPending = false
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleNavigationOrder() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); scheduleNavigationOrder() }
+        override func layout() { super.layout(); scheduleNavigationOrder() }
+        func scheduleNavigationOrder() {
+            guard !navigationPending, avatarNavigationID != nil else { return }
+            navigationPending = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }; self.navigationPending = false
+                guard self.window != nil, let scroll = self.enclosingScrollView,
+                      let avatar = self.avatarNavigationID, let metadata = self.metadataNavigationID else { return }
+                // Outgoing avatars are visually on the right, but VoiceOver
+                // should introduce the author before the message metadata.
+                // Move the existing native object; never create a proxy or
+                // replace the scroll area's accessible child inventory.
+                RelicAXPlaceChildBefore(scroll, avatar, metadata)
+            }
+        }
     }
 }
