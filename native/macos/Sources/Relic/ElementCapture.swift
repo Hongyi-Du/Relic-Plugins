@@ -94,6 +94,10 @@ import CoreText
         var font: NSFont?, foreground: NSColor?, background: NSColor?
         if let textView = object as? NSTextView { font = textView.font; foreground = textView.textColor; if textView.drawsBackground { background = textView.backgroundColor } }
         else if let field = object as? NSTextField { font = field.font; foreground = field.textColor; if field.drawsBackground { background = field.backgroundColor } }
+        else if let popup = object as? NSPopUpButton {
+            font = popup.font
+            if popup.attributedTitle.length > 0 { foreground = popup.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
+        }
         else if let control = object as? NSControl { font = control.font }
         if !text.isEmpty, let attributed = RelicAXText(object, NSRange(location: 0, length: (text as NSString).length)), attributed.length > 0 {
             let attributes = attributed.attributes(at: 0, effectiveRange: nil)

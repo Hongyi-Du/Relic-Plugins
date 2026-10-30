@@ -1,5 +1,15 @@
 ## 2026-10-29: live matrix consumption and shared extraction failures
 
+Shared checker failure to fix on `native-apps`: full run `40982407855`, job
+`123825557731`, fails `test_all_52_cases_get_fresh_process_inputs_and_continue_after_menu_crash`
+in `scripts/visual/test_windows_capture_processes.py:54`. The 53-scene matrix
+now ends in `new-org-textarea-resized`, but this assertion still expects
+`message-copy-toast`; the success count still expects 51 instead of 52 after
+the one deliberately failed menu case. Preserve the assertions and all 53
+attempts, updating the stale expected last case and successful count. Current
+`58d0179` still contains both old values. No client/source parity tolerance
+change is requested.
+
 The new `new-org-textarea-resized` scene from `a87f924` is consumed (53 states /
 636 cases, diagnostic 17). Production native form textareas now have an AppKit
 corner handle and resize through their real mouseDown/Dragged/Up handler in

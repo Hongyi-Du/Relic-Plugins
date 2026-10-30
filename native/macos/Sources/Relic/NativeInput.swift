@@ -6,6 +6,7 @@ import RelicCore
 
 struct MentionEditor: NSViewRepresentable {
     @EnvironmentObject var m: Model
+    @Environment(\.nativeControlColor) private var textColor
     @Binding var text: String
     var contextID = "main"
     var placeholder = ""
@@ -30,6 +31,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.presentationModel = m; editor.composerID = contextID; editor.setAccessibilityIdentifier("relic-composer/" + contextID)
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
+        editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.minSize.height = viewportHeight; editor.setFrameSize(NSSize(width: editor.frame.width, height: max(viewportHeight, editor.frame.height))) }
         scroll.documentView = editor; return scroll
     }
@@ -41,6 +43,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.presentationModel = m; editor.composerID = contextID
         editor.placeholder = placeholder; editor.focusChanged = focusChanged
         editor.sendsOnReturn = sendsOnReturn
+        editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.minSize.height = viewportHeight; editor.setFrameSize(NSSize(width: editor.frame.width, height: max(viewportHeight, editor.frame.height))) }
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
@@ -78,7 +81,7 @@ final class ComposerTextView: NSTextView {
         super.draw(dirtyRect)
         if string.isEmpty {
             let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-        NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.muted), .paragraphStyle: paragraph, .tracking: 0])
+        NSAttributedString(string: placeholder, attributes: [.font: font ?? RelicStyle.nativeFont(14, weight: 400), .foregroundColor: NSColor(RelicStyle.placeholder), .paragraphStyle: paragraph, .tracking: 0])
                 .draw(in: NSRect(x: textContainerInset.width, y: textContainerInset.height, width: bounds.width - textContainerInset.width * 2, height: bounds.height - textContainerInset.height * 2))
         }
     }

@@ -3,12 +3,63 @@
 ## Amendment 4：逐元素机器验收重新打开
 
 此前视觉近似和烟雾截图通过均不满足新标准。当前尚无通过的逐元素报告；
-原有全部 504 状态保留，新增候选菜单、实时会话、成员卡和消息交互后为 624 状态；
+原有全部 504 状态保留，新增候选菜单、实时会话、成员卡、消息交互和文本框拖拽后为 636 状态；
 字体/文字/几何/颜色/状态/图标均按用户指定容差检查。
 正在实现 macOS 实际 AX 控件树及渲染属性提取，再接入共享 matcher。
 未知测量必须暴露并失败，不能用参考值填充。没有申请或批准任何例外；
 此前列出的菜单、名片、日期、图表、Markdown、快速开始差异都恢复为待修复项。
 下文保留 Amendment 3 的历史证据，不代表 Amendment 4 通过。
+
+### 2026-10-30：当前修复及最新下载的完整失败报告
+
+已合入 `native-apps` 的 `58d0179`，当前矩阵为 53 个场景 × 12 个语言/主题/尺寸组合，
+每个平台 636 个 case；17 个快速诊断 case 只用于定位问题。没有批准或添加任何例外，
+容差和完整门禁保持原样。
+
+`b556960` 的 [Native apps 40981767058](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40981767058)
+通过构建和 114 个测试，包括实际 ImageRenderer 阴影检查。随后 `c2dc7c9` 的
+[40982517205](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40982517205) 构建通过，
+118 个测试中 toast 测试有两个断言失败：固定睡眠返回时，实际到期回调还未得到主线程调度。
+新几何、滚动条和拖拽测试通过。`48c7ebb` 改为等待真实到期回调，保留暂停期间不失效及同一实例
+的检查；[40983301213](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40983301213) 待完成。
+
+当前新增修复包括：对话框阴影仅绘制于背景轮廓；成员表单并行加载必要选项；表单 textarea
+实际 AppKit 拖拽；10 px 原生滚动条占位；按已下载参考测量设置表单文字和占位颜色。截图采集
+增加实际 NSView/NSClipView 几何在 PNG 和 AX 提取前后的稳定性检查；现有聊天区 PNG 与部分
+元素坐标不一致的原因仍待新证据确定，不能用偏移补偿冒充修复。实际表单拖拽、消息复制/悬停、
+显示模式调整和完整新矩阵仍待 CI 截图验证。
+
+最新下载的完整报告来自旧提交 `f7b6bf0`，不是上述修复后的结果：
+[Native visual review 40974621706](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/40974621706)。
+HTML、JSON、已有配对的热图和源元素文件位于
+`S:\Codex\Outputs\Relic-native-visual\parity-f7b6bf0\report\`。该运行保留 564 个预期 case 的
+报告，macOS 仍只捕获每分片前 15 个原生窗口，候选输入操作后停滞，绝不是完成验收。
+`scenes_checked = 0` 表示没有完整且有效的可验收比较，不表示没有采集数据。
+
+| f7b6bf0 原始报告计数 | Windows | macOS |
+| --- | ---: | ---: |
+| scenes_expected | 564 | 564 |
+| scenes_checked / scenes_passed | 0 / 0 | 0 / 0 |
+| raw_reference_elements | 105138 | 104502 |
+| raw_native_elements | 99335 | 14772 |
+| valid_native_elements / invalid_native_elements | 99335 / 0 | 14575 / 197 |
+| paired_elements / matched_elements | 89656 / 0 | 9162 / 0 |
+| missing | 15482 | 95340 |
+| extra | 9679 | 5413 |
+| text_mismatch | 24165 | 5998 |
+| geometry_out_of_tolerance | 130161 | 15920 |
+| style_out_of_tolerance | 296053 | 28294 |
+| state_mismatch | 28098 | 8571 |
+| kind_mismatch | 276 | 76 |
+| region_mismatch | 540 | 56 |
+| order_mismatch | 12006 | 756 |
+| layout_mismatch | 35912 | 12326 |
+| icon_mismatch | 1766 | 206 |
+| extraction_errors | 224660 | 120390 |
+
+以上属性差异计数可在同一个元素上出现多项，不能解读为独立元素总数。`passed = false`，
+`exceptions = []`，`approved_icon_mappings = []`。参考滚动条环境及矩阵已变化，不能把旧报告
+计数直接当成修复趋势。窗口尺寸、菜单、表单控件、所有未测量绘制和文字覆盖仍以严格报告为准。
 
 ### 102c1dc 之后：真实事件队列与当前截图修正，等待 CI
 
