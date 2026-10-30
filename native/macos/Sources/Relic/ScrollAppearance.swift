@@ -17,10 +17,12 @@ struct ScrollAppearance: NSViewRepresentable {
             guard let root = window?.contentView else { return }
             func apply(_ view: NSView) {
                 if let scroll = view as? NSScrollView {
+                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "before-scroller-configuration") }
                     if scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller) { scroll.verticalScroller = ReferenceScroller() }
                     if scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller) { scroll.horizontalScroller = ReferenceScroller() }
                     if scroll.scrollerStyle != .legacy { scroll.scrollerStyle = .legacy }
                     if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
+                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "after-scroller-configuration") }
                 }
                 for child in view.subviews { apply(child) }
             }
