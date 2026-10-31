@@ -78,6 +78,11 @@ internal sealed class VirtualRows : Grid
         PerformanceTrace.Count(TraceName + ".realized", Realized);
         return result;
     }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
+        return base.ArrangeOverride(finalSize);
+    }
     private sealed class RowFactory : IElementFactory
     {
         private readonly Stack<Border> empty = new();

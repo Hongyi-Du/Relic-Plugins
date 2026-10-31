@@ -8,6 +8,16 @@ namespace Relic;
 // Their real peers expose the same localized section names to assistive tools.
 internal sealed class NativeRegionGrid : Grid
 {
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        using var timing = PerformanceTrace.Measure("region.measure");
+        return base.MeasureOverride(availableSize);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        using var timing = PerformanceTrace.Measure("region.arrange");
+        return base.ArrangeOverride(finalSize);
+    }
     protected override AutomationPeer OnCreateAutomationPeer() => new RegionPeer(this);
 
     private sealed class RegionPeer(NativeRegionGrid owner) : FrameworkElementAutomationPeer(owner)
