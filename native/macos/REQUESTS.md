@@ -1,5 +1,16 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+`3d9648e` full-window CI **41171394417** is green on both systems. All four Mac
+captures report zero unprepared visible Markdown; wide views report one mounted
+inspector. Downloaded `titlebar-3d9648e\macos` and inspected both dark sizes:
+bold, inline code, fenced code, and the wide inspector are now correctly present.
+Mac Native apps **41171394497** built but failed one of 285 tests: the new clipping
+regression showed that AppKit `visibleRect` alone can include offscreen children.
+The probe now explicitly intersects every native NSClipView (no assertion removed).
+Strict **41171394443** still fails startup, **775.595 ms / 132.203 MiB / 9 threads**.
+Next diagnostic records both main-dispatch and common-mode run-loop probes;
+the original dispatcher result remains the gate, with the same 250 ms threshold.
+
 05:09Z visual follow-up to `dd1ee4d`: confirmed raw Markdown in the actual dark
 1024x700 full-window PNG at `b8e2195`; the green chrome check was insufficient.
 `b22074f` removes the remaining initial native-clip jump, uses SwiftUI-owned

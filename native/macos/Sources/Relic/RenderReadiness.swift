@@ -27,7 +27,20 @@ import AppKit
     }
     final class Probe: NSView {
         var kind = "", ready = false
-        var visibleInViewport: Bool { !isHiddenOrHasHiddenAncestor && visibleRect.width > 1 && visibleRect.height > 1 }
+        var visibleInViewport: Bool {
+            guard !isHiddenOrHasHiddenAncestor else { return false }
+            var rect = bounds, ancestor = superview
+            while let view = ancestor {
+                // AppKit visibleRect alone can include a document's offscreen
+                // children. Intersect the actual native scrolling viewport.
+                if view is NSClipView || view.clipsToBounds {
+                    rect = rect.intersection(convert(view.bounds, from: view))
+                }
+                ancestor = view.superview
+            }
+            if let root = window?.contentView { rect = rect.intersection(convert(root.bounds, from: root)) }
+            return !rect.isNull && rect.width > 1 && rect.height > 1
+        }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
     }
