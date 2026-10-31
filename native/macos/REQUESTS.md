@@ -1,3 +1,39 @@
+## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
+
+Confirmed macOS hot paths at `1e1fc14`: `ConversationStream` deliberately uses
+an eager VStack for the complete 1000-item response; `Timeline.merge` searches
+the accumulated array for every incoming item (quadratic); message Markdown
+and conversation rows are recomputed during view evaluation. I will first add
+a CI measurement entry point without changing those paths, publish its commit
+as the macOS baseline, then optimize and run the identical fixture/interactions.
+
+Please supply the shared large **synthetic** fixture, server/driver and workflow:
+13 orgs, 5000+ main-chat messages, several 1000+ chats, 40+ members, hundreds of
+tasks/events, including long/Markdown bodies. No human store data is needed.
+Current `app.js` actually requests `limit=1000` and eagerly renders its response;
+there is no chat before-page handler (only transcript paging at 400). Please
+define the common reference/native chat page size and update that reference
+contract. Proposed calls: initial `/api/org/{id}/chat?kind=group&limit=200` or
+`kind=private&member={name}&limit=200`, earlier pages append `&before={id}`.
+Existing response `{items: [...], more: bool}` is sufficient; keep old items
+reachable on scrolling rather than silently truncating history.
+
+Proposed macOS CI entry point: `RELIC_RESPONSIVENESS_CAPTURE=1` and
+`RELIC_VISUAL_MANIFEST=<json>`, permitted only on GitHub Actions. Reuse manifest
+`fixture.port/token` and `output`; add `seed` (default 17) and `duration_seconds`
+(at least 180 for the seeded mouse run). It discovers every org/member using
+the ordinary APIs, visits their chats, panes/dialogs/menus, resizes, and scrolls.
+Output `responsiveness-report.json` with platform, duration, worst UI stall,
+peak/final RSS and threads, timestamped samples, action counts and errors, plus
+manifest-directory `complete.json`. A background watchdog records and fails
+at >250 ms; it retains a report even if the main thread stops progressing.
+Please align the exact report/resource-growth fields with Windows in
+`docs/native-apps.md` early. Both platforms must use the same growth criterion.
+
+The visual workflow already marks individual jobs continue-on-error but the
+person still sees a red PR check. Please make the retained aggregate truly
+report-only or fix the failure in the shared workflow, retaining its evidence.
+
 ## 2026-10-31: Amendment 6 window placement and reflow
 
 Shared Windows capture failure at `d67957a`: all four cases exit with
