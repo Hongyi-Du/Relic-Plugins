@@ -49,6 +49,14 @@ import RelicCore
         XCTAssertFalse(model.moreChat)
     }
     func testRealConversationHomeAndEndMoveTheLazyNativeViewport() async throws {
+        try await exerciseConversationEdges(messageCount: 50)
+    }
+
+    func testThousandsOfVariableHeightRowsStillShowRealContentAtBothEdges() async throws {
+        try await exerciseConversationEdges(messageCount: 5_850)
+    }
+
+    private func exerciseConversationEdges(messageCount: Int) async throws {
         _ = NSApplication.shared
         let suite = "Relic.KeyboardViewport." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
@@ -56,11 +64,13 @@ import RelicCore
         let model = Model(defaults: defaults)
         model.organization = "test"
         model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
-        model.messages = (1...50).map { Node(["id": $0, "type": "message", "from": "human", "to": ["all"], "text": "Message \($0)", "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
+        model.messages = (1...messageCount).map { Node(["id": $0, "type": "message", "from": "human", "to": ["all"],
+            "text": $0.isMultiple(of: 17) ? String(repeating: "Variable height history. 完整历史内容。 ", count: 40) : "Message \($0)",
+            "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
         let paragraph = String(repeating: "Long synthetic message. 原生界面必须保留完整内容并保持响应。 ", count: 8)
         let longMarkdown = "# Newest message\n\n" + Array(repeating: paragraph, count: 12).joined(separator: "\n\n")
             + "\n\n```swift\nlet result = 42\nprint(result)\n```\n\nFinal paragraph."
-        model.messages[49] = Node(["id": 50, "type": "message", "from": "human", "to": ["all"],
+        model.messages[messageCount - 1] = Node(["id": messageCount, "type": "message", "from": "human", "to": ["all"],
             "text": longMarkdown,
             "at": "2026-10-30T12:00:00Z"] as [String: Any])
         let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
@@ -74,7 +84,10 @@ import RelicCore
             return nil
         }
         func settled() async throws {
-            let deadline = ProcessInfo.processInfo.systemUptime + 5
+            // The production admission queue deliberately spreads thousands
+            // of identities over display turns. This is a completion deadline,
+            // not the separate unchanged 250 ms responsiveness watchdog.
+            let deadline = ProcessInfo.processInfo.systemUptime + (messageCount > 1_000 ? 30 : 5)
             var quiet = 0
             var previousHeight: CGFloat?
             repeat {
@@ -101,14 +114,14 @@ import RelicCore
         let initialBottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, initialBottom, accuracy: 2, "Initial presentation must show the newest row completely")
         XCTAssertTrue(visibleText("Final paragraph.", in: host), "The latest Markdown paragraph must be inside the actual viewport")
-        model.messages.append(Node(["id": 51, "type": "message", "from": "human", "to": ["all"], "text": "Arrived after the view mounted", "at": "2026-10-30T12:01:00Z"] as [String: Any]))
+        model.messages.append(Node(["id": messageCount + 1, "type": "message", "from": "human", "to": ["all"], "text": "Arrived after the view mounted", "at": "2026-10-30T12:01:00Z"] as [String: Any]))
         try await settled()
         XCTAssertTrue(visibleText("Arrived after the view mounted", in: host), "Scoped conversation observation must update actual visible native text")
         XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")
-        model.messages.append(Node(["id": 52, "type": "message", "from": "human", "to": ["all"], "text": "Arrived while reading history", "at": "2026-10-30T12:02:00Z"] as [String: Any]))
+        model.messages.append(Node(["id": messageCount + 2, "type": "message", "from": "human", "to": ["all"], "text": "Arrived while reading history", "at": "2026-10-30T12:02:00Z"] as [String: Any]))
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "New messages must not override a person's explicit history navigation")
         XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
