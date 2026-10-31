@@ -1,5 +1,24 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+062dcba removes that instrumentation crash: normal Windows pressure 41176785566
+completes 175 fixed + 111 random actions over 181.402 s, maximum 192.263 ms,
+426.598 MiB and 38 threads, errors empty. Diagnostic-only 41176785876 completes
+175 + 123 actions over 180.327 s, max 133.238 ms, with no stack trigger and no
+acceptance eligibility. Actual first Settings measure is 35.949 / 54.233 ms in
+these two runs. The earlier intermittent 504.908 ms modal measure is not yet
+explained by a native stack; these passes do not establish its cause or fix.
+Native apps 41176790028 and Python validation 41176790013 pass both systems.
+
+Changes for the clients: Native visual review has an explicitly manual
+`diagnostic_scene` input for individual Settings screenshots and real element
+extraction. Focused receipts/manifests say acceptance_eligible=false; the full
+comparison job does not run for that diagnostic. Default smoke keeps all 22
+scenes and full keeps all 56 scenes / 672 cases. No matcher threshold, exception,
+or acceptance matrix changes. This permits inspecting the instrumented native
+Settings layout without waiting for unrelated scene captures. macOS REQUESTS.md
+at d690ec8 reports remaining resize latency and a dark-window bottom-anchor
+regression; its inspector-identity and native scroll fixes are merged for CI.
+
 The a9bfd92 instrumentation run 41176231953 exposed a separate regression:
 deriving SelectorBar for a measure override caused WinUI's native Style TargetType
 check to see Control, throwing 0x800F1000 on Settings. Its actual

@@ -1,5 +1,5 @@
 name: Native visual review
-run-name: ${{ inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.capture_run_id || inputs.matrix || 'smoke' }}
+run-name: ${{ inputs.diagnostic_scene && inputs.diagnostic_scene != 'all' && 'Focused scene diagnostic only' || inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.diagnostic_scene && inputs.diagnostic_scene != 'all' && inputs.diagnostic_scene || inputs.capture_run_id || inputs.matrix || 'smoke' }}
 on:
   push:
     branches: [native-apps, native-macos]
@@ -19,6 +19,11 @@ on:
         description: Optional existing capture run to recompare; leaves every original measurement unchanged
         type: string
         default: ''
+      diagnostic_scene:
+        description: Manual single-scene debug only; leaves the normal smoke/full matrix unchanged
+        type: choice
+        options: [all, settings-profile, settings-appearance, settings-about]
+        default: all
       paint_archive_run_id:
         description: In paint mode only, decode an existing browser SKP artifact without starting any app or browser
         type: string
@@ -31,7 +36,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'smoke' }}
+  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'smoke' }}-${{ inputs.diagnostic_scene || 'all' }}
   cancel-in-progress: false
 jobs:
   archive-compare:
@@ -99,7 +104,7 @@ jobs:
         run: |
           Set-TimeZone -Id UTC
           ./scripts/visual/windows-display.ps1
-      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --viewport ${{ matrix.viewport }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --viewport ${{ matrix.viewport }} --diagnostic-scene ${{ inputs.diagnostic_scene || 'all' }} --output visual/windows
         id: capture
         continue-on-error: true
         timeout-minutes: 45
@@ -164,7 +169,7 @@ jobs:
         timeout-minutes: 45
         run: |
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
+            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --diagnostic-scene ${{ inputs.diagnostic_scene || 'all' }} --output visual/macos
           done
       - name: Retain actual macOS capture crash reports
         if: always()
@@ -209,7 +214,7 @@ jobs:
           path: visual/reference-macos
   compare:
     needs: [windows, macos, element-checker]
-    if: always() && inputs.matrix != 'paint' && !inputs.capture_run_id
+    if: always() && inputs.matrix != 'paint' && !inputs.capture_run_id && (!inputs.diagnostic_scene || inputs.diagnostic_scene == 'all')
     runs-on: ubuntu-latest
     continue-on-error: true # Retain failed/missing extraction as regression findings
     permissions:

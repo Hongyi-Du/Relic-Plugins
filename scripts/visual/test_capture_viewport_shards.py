@@ -58,6 +58,18 @@ class CaptureViewportShardTests(unittest.TestCase):
                 capture.capture_sizes(self.spec, "full", viewport)
         self.assertEqual(capture.capture_sizes(self.spec, "full"), self.spec["sizes"])
 
+    def test_focused_diagnostic_does_not_change_the_default_scene_contract(self):
+        original = list(self.spec["scenes"])
+        self.assertEqual(capture.capture_scenes(self.spec, "full"), original)
+        self.assertEqual(len(capture.capture_scenes(self.spec, "smoke")), 22)
+        for scene in ("settings-profile", "settings-appearance", "settings-about"):
+            self.assertEqual(capture.capture_scenes(self.spec, "smoke", scene), [scene])
+        self.assertEqual(self.spec["scenes"], original)
+        self.assertEqual(capture.capture_scenes(self.spec, "full"), original)
+        for scene in ("", "settings-fake", "../settings-profile"):
+            with self.assertRaisesRegex(ValueError, "existing scenes.json scene"):
+                capture.capture_scenes(self.spec, "full", scene)
+
     def test_merge_multiple_cannot_overwrite_other_shards_metadata(self):
         native_metadata, reference_metadata, receipts = [], [], []
         for job in self.full_jobs:

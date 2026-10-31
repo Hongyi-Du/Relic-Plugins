@@ -1985,6 +1985,15 @@ def capture_sizes(spec, matrix, viewport=None):
     return [selected]
 
 
+def capture_scenes(spec, matrix, diagnostic_scene="all"):
+    """Focused manual diagnostics never replace the complete review matrix."""
+    if diagnostic_scene != "all":
+        if diagnostic_scene not in spec["scenes"]:
+            raise ValueError("--diagnostic-scene must name an existing scenes.json scene")
+        return [diagnostic_scene]
+    return spec["scenes"] if matrix == "full" else ["group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized", "recipients", "file-markdown"]
+
+
 def capture_metadata_directory(output, lang, theme, viewport=None):
     directory = Path(output) / "data" / lang / theme
     return directory / viewport if viewport is not None else directory
@@ -2019,6 +2028,7 @@ def main():
     parser.add_argument("--lang", choices=["zh-CN", "en-US"])
     parser.add_argument("--theme", choices=["light", "dark"])
     parser.add_argument("--viewport", help="One existing scenes.json WIDTHxHEIGHT; filters capture only, never the full parity gate")
+    parser.add_argument("--diagnostic-scene", default="all", help="One existing scene for manual debugging only; not matrix acceptance")
     parser.add_argument("--exe", type=Path)
     parser.add_argument("--uia-exe", type=Path, help="Independent Windows UIA reader; CI only")
     parser.add_argument("--reference", action="store_true", help="Capture reference against this exact native fixture/server on its own platform")
@@ -2027,12 +2037,12 @@ def main():
     spec = json.loads((HERE / "scenes.json").read_text(encoding="utf-8"))
     try:
         sizes = capture_sizes(spec, args.matrix, args.viewport)
+        scenes = capture_scenes(spec, args.matrix, args.diagnostic_scene)
     except ValueError as error:
         parser.error(str(error))
     output = args.output.resolve()
     reference_output = output.parent / ("reference-macos" if args.client == "macos" else "reference")
     output.mkdir(parents=True, exist_ok=True)
-    scenes = spec["scenes"] if args.matrix == "full" else ["group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart", "menu-file", "file-code", "live-tool-output", "live-typing", "member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized", "recipients", "file-markdown"]
     languages = [args.lang] if args.lang else spec["languages"] if args.matrix == "full" else ["zh-CN"]
     themes = [args.theme] if args.theme else spec["themes"] if args.matrix == "full" else ["light"]
     capture_errors, captured_client, captured_reference = [], 0, 0
@@ -2050,6 +2060,8 @@ def main():
                     work.mkdir(parents=True, exist_ok=True)
                     cases = capture_cases(scenes, sizes, lang, theme)
                     manifest = {"version": 1, "client": args.client, "lang": lang, "theme": theme, "fixture": fixture, "output": str(output), "cases": cases}
+                    if args.diagnostic_scene != "all":
+                        manifest.update(diagnostic_scene=args.diagnostic_scene, acceptance_eligible=False)
                     if args.viewport is not None:
                         manifest["viewport_filter"] = args.viewport
                     if args.client == "windows":
@@ -2070,6 +2082,8 @@ def main():
     expected_count = len(scenes) * len(sizes) * len(languages) * len(themes)
     receipt = {"client": args.client, "matrix": args.matrix, "count": captured_client,
                "expected_count": expected_count, "errors": capture_errors}
+    if args.diagnostic_scene != "all":
+        receipt.update(diagnostic_scene=args.diagnostic_scene, acceptance_eligible=False)
     if args.viewport is not None:
         receipt["viewport_filter"] = args.viewport
     (output / receipt_name).write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
@@ -2077,6 +2091,8 @@ def main():
         reference_receipt = {"client": "reference", "platform": args.client,
             "matrix": args.matrix, "count": captured_reference, "expected_count": expected_count,
             "errors": capture_errors}
+        if args.diagnostic_scene != "all":
+            reference_receipt.update(diagnostic_scene=args.diagnostic_scene, acceptance_eligible=False)
         if args.viewport is not None:
             reference_receipt["viewport_filter"] = args.viewport
         (reference_output / receipt_name).write_text(json.dumps(reference_receipt, ensure_ascii=False), encoding="utf-8")
