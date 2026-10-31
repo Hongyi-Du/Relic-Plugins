@@ -1,3 +1,9 @@
+35bd31b / Native apps41253717697 compiles, but its existing shadow edge test
+FAILS15 pixel assertions (other307 tests pass). The Quartz path inverted y in
+an already-flipped native context, placing the shadow above the surface.
+Correct its offset sign; retain the exact original expected pixels/tolerance.
+Python41253717709 passes all four jobs. Strict41253717577 is still running;
+there is no completed responsiveness acceptance or final package claim.
 0ed6e7e Native apps41252939967 passes308 tests (new actual header/Markdown
 width/content invalidation tests pass). Strict41252939866 FAILS270.014 ms at
 first file-menu action0155,221.719 MiB,9threads. Message-column max is now

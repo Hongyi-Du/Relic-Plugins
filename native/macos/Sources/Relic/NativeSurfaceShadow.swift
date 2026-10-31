@@ -34,7 +34,9 @@ struct NativeSurfaceShadow: NSViewRepresentable {
                 guard let color = NSColor(shadow.color).usingColorSpace(.sRGB) else { continue }
                 context.saveGState()
                 context.setBlendMode(.normal); context.setAlpha(1); context.setShouldAntialias(true)
-                context.setShadow(offset: CGSize(width: shadow.x, height: -shadow.y), blur: shadow.radius * 2, color: color.cgColor)
+                // This flipped NSView's drawing context already expresses
+                // positive y toward the bottom of the surface.
+                context.setShadow(offset: CGSize(width: shadow.x, height: shadow.y), blur: shadow.radius * 2, color: color.cgColor)
                 context.setFillColor(fill.cgColor); context.addPath(path); context.fillPath()
                 context.restoreGState()
             }

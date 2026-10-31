@@ -1,3 +1,9 @@
+35bd31b / Native apps41253717697 compiles, but its existing shadow edge test
+FAILS15 pixel assertions (other307 tests pass). The Quartz path inverted y in
+an already-flipped native context, placing the shadow above the surface.
+Correct its offset sign; retain the exact original expected pixels/tolerance.
+Python41253717709 passes all four jobs. Strict41253717577 is still running;
+there is no completed responsiveness acceptance or final package claim.
 `0ed6e7e`：Native apps `41252939967` 的308项测试及包通过，新增标题/Markdown的
 文字和宽度变化原生测试通过。严格 `41252939866` 在首次文件菜单action-0155仍失败：
 270.014 ms、221.719 MiB、9线程；消息列测量峰值57.663 ms。未进入随机阶段。
