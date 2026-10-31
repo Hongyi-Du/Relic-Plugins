@@ -72,7 +72,7 @@ struct RecordedSurface: ViewModifier {
                             ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
                                 shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
                             }
-                        }.padding(shadowOutset).drawingGroup(opaque: false, colorMode: .nonLinear).padding(-shadowOutset)
+                        }.padding(shadowOutset).compositingGroup().padding(-shadowOutset)
                     }
                 // Keep AppKit's original fill path when SwiftUI composites
                 // shadows. Quantizing that fill into another 8-bit image first
@@ -87,14 +87,12 @@ struct RecordedSurface: ViewModifier {
                     }
                     shape.fill(background)
                 }
-                // Keep translucent shadow layers in the reference's non-linear
-                // sRGB blending space. AppKit controls remain outside this
-                // shape-only raster group and retain their actual native draws.
-                // A drawingGroup raster is limited to its layout bounds. Give
-                // the actual blur kernel/offset room, then restore the original
-                // surface layout size; otherwise every outside shadow is clipped.
+                // Composite native shadow layers without forcing an offscreen
+                // image for every surface. In particular the first composer
+                // should not initialize a raster pipeline before its controls
+                // can appear. Preserve the complete blur/offset bounds.
                 .padding(shadowOutset)
-                .drawingGroup(opaque: false, colorMode: .nonLinear)
+                .compositingGroup()
                 .padding(-shadowOutset)
             }
         }

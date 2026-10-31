@@ -35,7 +35,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // Diagnostic-only sampling begins before the cold native view layout.
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
-        if sample { queue.async { self.sample("startup-diagnostic", seconds: 3) } }
+        if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func finish(_ receipt: [String: Any]) {
