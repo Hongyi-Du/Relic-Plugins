@@ -138,7 +138,18 @@ install Microsoft's `dotnet-stack` 8.x into `native-build/diagnostics`. Nothing
 is installed, built or run on the person's machine. The first UI probe pending
 for at least 250 ms (measured using the heartbeat worker's own timestamp),
 failed completed UI probe, or failed Windows window-response probe starts
-sampling. The diagnostic order is two native snapshots followed by one managed
+sampling. Only in enabled Windows CI diagnostics, when the actual heartbeat
+action begins exactly with `dialog:`, the pending-probe sampling threshold is
+100 ms so the collector can reach short modal layout stalls before they end.
+This early sample does not append a product error or start the post-failure
+observation timer. The acceptance limit remains 250 ms; ordinary runs and
+other action names keep their existing behavior. `monkey dialog:` is not an
+early-modal match. `trigger_details` separately records the action, observed
+pending duration, `sampling_threshold_ms`, `acceptance_ui_limit_ms:250`, and
+`early_modal_sample`. A 100 ms trigger is diagnostic evidence, not a recorded
+250 ms violation, and diagnostic runs remain ineligible for acceptance.
+
+The diagnostic order is two native snapshots followed by one managed
 `dotnet-stack report -p <owned native pid>` report. Each helper is windowless;
 at most one is in flight, with at most three reports, a five-second deadline
 per report, and a fifteen-second total sampling window. Native reports are

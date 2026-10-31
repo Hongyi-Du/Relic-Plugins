@@ -1,5 +1,31 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Focused Settings capture at 2090f5c (41177859278) finds a real Windows rendering
+regression: all seven navigation captions are blank, while icons/body remain.
+Raw XAML confirms placeholder widths, layout/surface/draw revisions zero,
+IsLoaded=true, queued=true and valid explicit brushes. The macOS/reference
+screens show the captions. Files are in
+`S:\Codex\Outputs\Relic-native-visual\settings-2090f5c`.
+Both extraction receipts retain their real errors (Windows unfinished native
+draw evidence; macOS geometry changed during extraction). These are focused
+diagnostic images, not successful parity evidence. Windows async preparation /
+loaded-state / draw scheduling is corrected by normal-priority short ownership
+handoff and coalesced drawing, repairing mounted labels' retired subscription
+state, and queuing paint whenever layout invalidates it. Font discovery remains
+on the bounded worker. Normal dialog pressure now requires seven actual visible
+navigation labels with current successful paint before dismissing Settings or
+About; the raw states are retained in navigation_text_ready. Frame extraction
+also waits for real submitted surfaces without replacing any evidence. Headless
+build passes; runtime screenshots and the 250 ms gate must validate this change.
+
+Changes for the clients: diagnostic-only Windows stack collection can sample
+an actual `dialog:` pending UI probe at 100 ms, before a short modal stall ends.
+`trigger_details` distinguishes that sampling threshold from the unchanged
+250 ms acceptance limit. Early sampling does not append a product error or
+start the post-failure timer; normal runs and every resource/coverage gate are
+unchanged. Diagnostic runs remain ineligible, with the same three-report,
+single-in-flight, five-second/report and fifteen-second total limits.
+
 Changes for the clients (shared REQUESTS.md 5f753ff): the scene-selection
 refactor moved a CLI assignment into a validated helper, so the old AST-only
 contract lookup raised StopIteration. The test now follows the actual CLI call,

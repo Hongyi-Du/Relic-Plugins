@@ -131,6 +131,20 @@ public sealed partial class MainWindow
             {
                 foreach (var label in labelsToDraw) label.RequestCaptureRedraw();
             });
+            // Rendered can precede queued production text work, especially when
+            // a modal realizes labels while background shaping finishes. Wait
+            // for the real submissions before establishing the frame baseline;
+            // this does not force a draw, replace evidence or accept a blank.
+            var submissions = Stopwatch.StartNew();
+            while (NativeLabelsForCapture().Any(label => !label.HasCurrentDraw))
+            {
+                if (submissions.Elapsed > TimeSpan.FromSeconds(10))
+                    throw new TimeoutException("Native labels did not finish their requested production draw: "
+                        + new JsonArray(NativeLabelsForCapture().Where(label => !label.HasCurrentDraw)
+                            .Select(label => (JsonNode)label.DrawState()).ToArray()).ToJsonString());
+                await Task.Delay(16);
+            }
+            cycle["production_submission_wait_ms"] = submissions.Elapsed.TotalMilliseconds;
             // A completed Rendered callback can still precede the Image's
             // pending arrange. db91b1b retained seven real settings labels
             // whose images changed from 0x0 to their actual dimensions while

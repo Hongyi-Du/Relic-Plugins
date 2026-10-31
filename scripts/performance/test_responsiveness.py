@@ -131,6 +131,47 @@ class DiagnosticStackSampling(unittest.TestCase):
         self.assertEqual(driver.pending_probe_ms({"unix_ms": 1249, "pending_since_unix_ms": 1000}), 249)
         self.assertEqual(driver.pending_probe_ms({"unix_ms": 1250, "pending_since_unix_ms": 0}), 0)
 
+    def test_diagnostic_dialog_samples_at_100_without_changing_acceptance_limit(self):
+        child = Mock(pid=456)
+        child.poll.return_value = 0
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(driver.subprocess, "Popen", return_value=child) as start:
+            sampler = self.sampler(folder)
+            sampler.observe_pending({"unix_ms": 1099, "pending_since_unix_ms": 1000, "action": "dialog: settings"})
+            start.assert_not_called()
+            sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": "dialog: settings"})
+            start.assert_called_once()
+            self.assertEqual(sampler.summary()["trigger_details"], {
+                "source": "pending_ui_probe", "action": "dialog: settings", "observed_pending_ms": 100,
+                "sampling_threshold_ms": 100, "acceptance_ui_limit_ms": 250, "early_modal_sample": True})
+            self.assertEqual(driver.UI_LIMIT_MS, 250)
+            self.assertFalse(driver.observation_policy(True)["acceptance_eligible"])
+            sampler.close()
+
+    def test_diagnostic_other_actions_keep_250ms_sampling_threshold(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for action in ("group: synthetic", "monkey dialog: settings", "initial organization load"):
+                with self.subTest(action=action):
+                    sampler = self.sampler(folder)
+                    with patch.object(sampler, "trigger") as trigger:
+                        sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": action})
+                        sampler.observe_pending({"unix_ms": 1249, "pending_since_unix_ms": 1000, "action": action})
+                        trigger.assert_not_called()
+                        sampler.observe_pending({"unix_ms": 1250, "pending_since_unix_ms": 1000, "action": action})
+                    trigger.assert_called_once()
+                    self.assertEqual(trigger.call_args.args[1]["sampling_threshold_ms"], 250)
+                    self.assertFalse(trigger.call_args.args[1]["early_modal_sample"])
+
+    def test_normal_nonci_and_nonwindows_never_sample_early_dialogs(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(driver.subprocess, "Popen") as start:
+            for options in ({"diagnostic": False}, {"ci": "false"}, {"client": "macos"}, {"platform": "linux"}):
+                with self.subTest(options=options):
+                    sampler = self.sampler(folder, **options)
+                    sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": "dialog: settings"})
+                    self.assertIsNone(sampler.summary()["trigger_details"])
+                    sampler.close()
+            start.assert_not_called()
+
 
 class SnapshotReads(unittest.TestCase):
     def test_windows_reader_shares_read_write_and_delete(self):

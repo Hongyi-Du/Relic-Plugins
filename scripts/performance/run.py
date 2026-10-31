@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "plugins" / "relic"))
 from relic_core.process import creation_flags
 
 UI_LIMIT_MS = 250
+DIAGNOSTIC_DIALOG_SAMPLE_MS = 100
 RSS_LIMIT = 1024 * 1024 * 1024
 THREAD_LIMIT = 160
 
@@ -27,7 +28,7 @@ def observation_policy(diagnostic=False):
 
 
 class DiagnosticStacks:
-    """Bounded native-first and managed stacks for failed Windows CI UI probes."""
+    """Bounded diagnostic stacks, with an early sample during modal UI work."""
     CAPTURE_ORDER = ("native", "native", "managed")
     MAX_REPORTS = 3
     REPORT_SECONDS = 5
@@ -44,6 +45,7 @@ class DiagnosticStacks:
         self.pid = pid
         self.started = None
         self.reason = None
+        self.trigger_details = None
         self.reports = []
         self.process = None
         self.files = []
@@ -52,6 +54,7 @@ class DiagnosticStacks:
 
     def summary(self):
         return {"enabled": self.enabled, "trigger": self.reason, "target_pid": self.pid,
+                "trigger_details": self.trigger_details, "acceptance_ui_limit_ms": UI_LIMIT_MS,
                 "capture_order": list(self.CAPTURE_ORDER),
                 "max_reports": self.MAX_REPORTS, "per_report_seconds": self.REPORT_SECONDS,
                 "total_seconds": self.TOTAL_SECONDS, "reports": self.reports}
@@ -60,11 +63,25 @@ class DiagnosticStacks:
         if self.started is not None:
             atomic_json(self.output / "sampling.json", self.summary())
 
-    def trigger(self, reason):
+    def observe_pending(self, heartbeat):
+        if not self.enabled:
+            return
+        action = str(heartbeat.get("action", ""))
+        threshold = DIAGNOSTIC_DIALOG_SAMPLE_MS if action.startswith("dialog:") else UI_LIMIT_MS
+        pending = pending_probe_ms(heartbeat)
+        if pending >= threshold:
+            self.trigger(f"Diagnostic pending UI sample at {pending:.3f} ms during {action}", {
+                "source": "pending_ui_probe", "action": action, "observed_pending_ms": pending,
+                "sampling_threshold_ms": threshold, "acceptance_ui_limit_ms": UI_LIMIT_MS,
+                "early_modal_sample": threshold < UI_LIMIT_MS,
+            })
+
+    def trigger(self, reason, details=None):
         if not self.enabled or self.closed or self.started is not None:
             return
         self.started = time.monotonic()
         self.reason = reason
+        self.trigger_details = details
         self.output.mkdir(parents=True, exist_ok=True)
         self.tick()
 
@@ -412,13 +429,13 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                     if heartbeat.get("sequence") != previous_sequence:
                         heartbeats.append(heartbeat)
                         previous_sequence = heartbeat.get("sequence")
-                    pending_ms = pending_probe_ms(heartbeat)
-                    if pending_ms >= UI_LIMIT_MS:
-                        stacks.trigger(f"Pending UI probe reached {pending_ms:.3f} ms during {heartbeat.get('action')}")
+                    stacks.observe_pending(heartbeat)
                     maximum = float(heartbeat.get("max_ui_stall_ms") or 0)
                     if maximum > UI_LIMIT_MS and not any("UI thread" in e for e in errors):
                         errors.append(f"UI thread probe exceeded {UI_LIMIT_MS} ms: {maximum:.3f} ms during {heartbeat.get('action')}")
-                        stacks.trigger(errors[-1])
+                        stacks.trigger(errors[-1], {"source": "completed_ui_probe", "action": heartbeat.get("action"),
+                                                   "observed_max_ui_stall_ms": maximum, "sampling_threshold_ms": UI_LIMIT_MS,
+                                                   "acceptance_ui_limit_ms": UI_LIMIT_MS, "early_modal_sample": False})
                     if time.time() * 1000 - float(heartbeat.get("unix_ms") or 0) > 2000 and native_receipt is None:
                         if "Native heartbeat stopped for more than 2 seconds" not in errors:
                             errors.append("Native heartbeat stopped for more than 2 seconds")
@@ -453,7 +470,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                     if observed.get("not_responding") or observed.get("wm_null_responded") is False:
                         if "Native window stopped responding" not in errors:
                             errors.append("Native window stopped responding")
-                            stacks.trigger(errors[-1])
+                            stacks.trigger(errors[-1], {"source": "window_response", "sampling_threshold_ms": UI_LIMIT_MS,
+                                                       "acceptance_ui_limit_ms": UI_LIMIT_MS, "early_modal_sample": False})
                 stacks.tick()
                 if native_receipt is not None:
                     break

@@ -50,10 +50,26 @@ public sealed class NativeLabel : Panel
     private Exception? preparationError;
     private bool preparationRetired;
     private static int pendingPreparations;
+    private long attachCount, detachCount, preparationsStarted, preparationsApplied;
     internal static int PendingPreparations => Volatile.Read(ref pendingPreparations);
     internal bool IsLayoutPrepared => layout != IntPtr.Zero;
+    internal bool HasCurrentDraw => IsLoaded && layout != IntPtr.Zero && surfaceInterop != IntPtr.Zero
+        && surface != null && image.Source != null && image.ActualWidth > 0 && image.ActualHeight > 0
+        && !drawDirty && !queued && !rendering && failure == null && drawOrdinal > 0;
     internal Exception? LayoutPreparationError => preparationError;
     internal event Action? LayoutPrepared;
+    internal JsonObject DrawState() => new()
+    {
+        ["text"] = text, ["is_loaded"] = IsLoaded, ["layout_prepared"] = IsLayoutPrepared,
+        ["preparation_pending"] = preparation != null, ["preparation_retired"] = preparationRetired,
+        ["queued"] = queued, ["rendering"] = rendering, ["draw_dirty"] = drawDirty,
+        ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision,
+        ["draw_ordinal"] = drawOrdinal, ["surface_width"] = pixelWidth, ["surface_height"] = pixelHeight,
+        ["width"] = ActualWidth, ["height"] = ActualHeight, ["current_draw"] = HasCurrentDraw,
+        ["attach_count"] = attachCount, ["detach_count"] = detachCount,
+        ["preparations_started"] = preparationsStarted, ["preparations_applied"] = preparationsApplied,
+        ["failure"] = failure
+    };
 
     private static Windows.UI.ViewManagement.UISettings CreateTextSettings()
     {
@@ -263,6 +279,11 @@ public sealed class NativeLabel : Panel
         ["current_draw_ordinal"] = drawOrdinal,
         ["current_submission"] = new JsonObject { ["source"] = "Actual NativeLabel state at receipt capture",
             ["is_loaded"] = IsLoaded, ["queued"] = queued, ["rendering"] = rendering,
+            ["draw_dirty"] = drawDirty, ["layout_prepared"] = IsLayoutPrepared,
+            ["preparation_pending"] = preparation != null, ["preparation_retired"] = preparationRetired,
+            ["root_subscription_present"] = observedRoot != null,
+            ["attach_count"] = attachCount, ["detach_count"] = detachCount,
+            ["preparations_started"] = preparationsStarted, ["preparations_applied"] = preparationsApplied,
             ["surface_binding_same_com_identity"] = ProductionSurfaceBindingMatches() },
         ["foreground_resolution"] = ObserveForegroundBinding(),
         ["last_failure"] = failure, ["draw"] = receipt?.DeepClone(),
@@ -275,6 +296,7 @@ public sealed class NativeLabel : Panel
     private void Attach()
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.attach");
+        attachCount++;
         preparationRetired = false;
         DetachSubscriptions();
         if (scaleText) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
@@ -353,18 +375,29 @@ public sealed class NativeLabel : Panel
     private void Detach()
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.detach");
+        detachCount++;
         preparationRetired = true; preparation?.Cancel(); preparationError = null;
         DetachSubscriptions(); Release(ref surfaceInterop); surface = null; image.Source = null;
         Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;
         resolvedLineHeight = lineHeight; InvalidateDraw();
     }
-    private void InvalidateDraw() { receipt = null; drawDirty = true; }
+    private void InvalidateDraw() { receipt = null; drawDirty = true; QueueDraw(); }
+
+    private void EnsureMountedState()
+    {
+        // SelectorBar/ContentPresenter can reparent a measured child before its
+        // deferred lifecycle events settle. A currently mounted label that is
+        // being measured/arranged must not remain in its retired state with all
+        // foreground/root subscriptions cleared by a previous Unloaded event.
+        if (IsLoaded && (preparationRetired || observedRoot == null)) Attach();
+    }
 
     private void StartPreparation(float width, float height)
     {
         if (preparation != null || preparationRetired || preparationError != null || layout != IntPtr.Zero) return;
         var cancellation = preparation = new CancellationTokenSource();
+        preparationsStarted++;
         var dispatcher = DispatcherQueue;
         var requested = new NativeLabelLayoutRequest(text, familyList, locale, fontSize, weight, lineHeight,
             width, height, wrapWholeWords, primaryFontLineSpacing, characterEllipsis);
@@ -377,7 +410,7 @@ public sealed class NativeLabel : Panel
             try { prepared = await NativeLabelPreparation.PrepareAsync(requested, cancellation.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             catch (Exception failure) { error = failure; }
-            if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
             {
                 try
                 {
@@ -394,6 +427,7 @@ public sealed class NativeLabel : Panel
                             layoutWidth = prepared.Width; layoutHeight = prepared.Height;
                             resolvedLineHeight = prepared.ResolvedLineHeight;
                             fallbackConfiguration = prepared.Fallback; lineSpacingConfiguration = prepared.LineSpacing;
+                            preparationsApplied++;
                             layoutRevision++; InvalidateDraw();
                         }
                         InvalidateMeasure(); InvalidateArrange(); QueueDraw();
@@ -487,6 +521,7 @@ public sealed class NativeLabel : Panel
     protected override LayoutSize MeasureOverride(LayoutSize availableSize)
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.measure");
+        EnsureMountedState();
         try
         {
             if (!EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), wrapWholeWords ? 1000000 : lineHeight))
@@ -510,6 +545,7 @@ public sealed class NativeLabel : Panel
     protected override LayoutSize ArrangeOverride(LayoutSize finalSize)
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.arrange");
+        EnsureMountedState();
         arrangedWidth = finalSize.Width; arrangedHeight = finalSize.Height;
         // Fractional DIP dimensions keep native geometry. Whole surface pixels
         // occupy exactly pixels / rasterizationScale DIPs, without squeezing the
@@ -525,10 +561,11 @@ public sealed class NativeLabel : Panel
     private void QueueDraw()
     {
         if (queued || rendering || !drawDirty || !IsLoaded) return; queued = true;
-        // Painting is coalesced per label and yields to input/commands. A
-        // viewport full of freshly realized labels must not place all GPU
-        // submissions ahead of the next user event at normal priority.
-        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+        // At most one submission per realized label is queued. Visible text is
+        // foreground work: low-priority callbacks can remain pending throughout
+        // modal layout/observation while the label displays only its placeholder.
+        // Font discovery and first shaping remain on the bounded worker.
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal,
             () => { queued = false; if (IsLoaded && drawDirty) Render(); })) queued = false;
     }
     private void EnsureSurface(int width, int height)
