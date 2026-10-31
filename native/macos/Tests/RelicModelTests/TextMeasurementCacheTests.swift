@@ -17,8 +17,8 @@ import AppKit
                     storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
                     let used = layout.usedRect(for: container)
                     let measured = cache.label(source, width: width, lines: limit, mode: mode, minimum: 20, pathBreaks: paths)
-                    XCTAssertEqual(measured.width, min(width, ceil(used.width)), accuracy: 0.01)
-                    XCTAssertEqual(measured.height, max(20, used.height), accuracy: 0.01)
+                    XCTAssertEqual(measured.width, min(width, ceil(used.width)), accuracy: 0.01, "characters=\(text.count), width=\(width), lines=\(limit)")
+                    XCTAssertEqual(measured.height, max(20, used.height), accuracy: 0.01, "characters=\(text.count), width=\(width), lines=\(limit)")
                 }
             }
         }

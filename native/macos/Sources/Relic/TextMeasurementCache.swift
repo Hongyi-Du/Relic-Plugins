@@ -27,6 +27,10 @@ final class TextMeasurementCache {
         }
         container.maximumNumberOfLines = lines; container.lineBreakMode = mode
         container.containerSize = CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude)
+        // TextKit can retain the old truncated last line when only the line
+        // limit changes at the same width. Recompute line fragments on a cache
+        // miss; glyph shaping and completed proposals are still reused.
+        layout.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
         let result = CGSize(width: min(width, ceil(used.width)), height: max(minimum, used.height))
