@@ -38,10 +38,13 @@ struct MainView: View {
                     ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
                 }
                 if !loadingOrganization && m.panelOpen && !floatingPanel {
-                    if contentPhase >= 3 { inspector }
-                    else { Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48)) }
+                    // Reserve inline space, but keep the inspector itself at
+                    // one structural location across responsive breakpoints.
+                    // Moving it between HStack and overlay destroys its native
+                    // controls and rebuilds them inside the resize transaction.
+                    Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
                 }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen && floatingPanel { inspector } }
+            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
         .task(id: organizationKey) {

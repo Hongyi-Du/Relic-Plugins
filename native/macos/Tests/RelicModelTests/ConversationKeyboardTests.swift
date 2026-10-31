@@ -14,6 +14,9 @@ import RelicCore
         model.organization = "test"
         model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
         model.messages = (1...50).map { Node(["id": $0, "type": "message", "from": "human", "to": ["all"], "text": "Message \($0)", "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
+        model.messages[49] = Node(["id": 50, "type": "message", "from": "human", "to": ["all"],
+            "text": "Newest message\n\n**Prepared asynchronously**\n\n```swift\nlet result = 42\nprint(result)\n```\n\nFinal paragraph.",
+            "at": "2026-10-30T12:00:00Z"] as [String: Any])
         let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
         host.sizingOptions = []; host.autoresizingMask = [.width, .height]
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -39,6 +42,8 @@ import RelicCore
         try await settled()
         let scroll = try XCTUnwrap(find(host))
         let keyboard = try XCTUnwrap(ConversationKeyboardMount.controller(for: scroll))
+        let initialBottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
+        XCTAssertEqual(scroll.contentView.bounds.minY, initialBottom, accuracy: 2, "Initial presentation must show the newest row completely")
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")

@@ -78,7 +78,11 @@ import RelicCore
                 }
                 let readiness = RenderReadiness.observation(in: window, expectInspector: current.panelOpen)
                 guard readiness.ready, readiness.markdown > 0 else { throw RelicError.message("Whole-window capture has no prepared visible conversation") }
+                guard let bottomGap = ConversationKeyboardMount.bottomGap(in: window), bottomGap <= 2 else {
+                    throw RelicError.message("Whole-window capture clips the latest conversation: bottom gap \(ConversationKeyboardMount.bottomGap(in: window) ?? -1) pt")
+                }
                 let record: [String: Any] = ["case_id": item["id"].text, "file": file.lastPathComponent,
+                    "conversation_bottom_gap_pt": bottomGap,
                     "content_readiness": readiness.record,
                     "provider": "/usr/sbin/screencapture -x -o -l", "window_number": number,
                     "window_frame": ElementCapture.box(window.frame), "content_bounds": ElementCapture.box(host.bounds),
