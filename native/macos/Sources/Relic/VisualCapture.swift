@@ -116,6 +116,7 @@ import RelicAX
                 // request can coalesce with opening the wider File pane, while
                 // the reference has already rendered its original conversation.
                 try phases.record("before-initial-scroll-layout")
+                try await PerformanceRendering.waitForContent(model)
                 let initialLayout = try await settledScrollLayout(hosting)
                 try phases.record("after-initial-scroll-layout")
                 try evidence(initialLayout, suffix: ".initial-layout.json", item: item, output: output)
@@ -267,6 +268,7 @@ import RelicAX
                     try evidence(["provider": "production NSAnimation clocks", "clocks": clocks], suffix: ".animations.json", item: item, output: output)
                 }
                 try phases.record("before-final-layout")
+                try await PerformanceRendering.waitForContent(model)
                 hosting.layoutSubtreeIfNeeded()
                 try phases.record("before-final-display")
                 hosting.displayIfNeeded(); CATransaction.flush()

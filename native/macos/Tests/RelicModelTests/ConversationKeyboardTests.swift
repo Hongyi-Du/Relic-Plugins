@@ -9,18 +9,18 @@ import SwiftUI
         override var isFlipped: Bool { documentCoordinatesFlipped }
     }
 
-    func testLazyHeightCorrectionFollowsNewestContentAndExplicitNavigationCancelsIt() async {
+    func testEdgeNavigationUsesTheLazyFrameworkOwner() {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
         scroll.documentView = document; scroll.tile()
         let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
-        keyboard.settleBottom(); keyboard.settleBottom()
-        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
-        XCTAssertEqual(scroll.contentView.bounds.maxY, document.frame.maxY, accuracy: 1)
-        document.setFrameSize(NSSize(width: 200, height: 1100))
-        keyboard.settleBottom()
-        _ = keyboard.handle(.home, modifiers: [])
-        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        var edges: [Bool] = []
+        keyboard.scrollToEdge = { edges.append($0) }
+        XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
+        XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
+        XCTAssertEqual(edges, [false, true])
+        // SwiftUI owns both its offset and row visibility. Do not also force
+        // a native clip offset that bypasses the lazy row lifecycle.
         XCTAssertEqual(scroll.contentView.bounds.origin.y, 0, accuracy: 1)
     }
 
