@@ -43,6 +43,7 @@ struct ProgressiveRow<Content: View>: View {
     @Environment(\.captureRegion) private var region
     var estimatedHeight: CGFloat
     var estimatedWidth: CGFloat? = nil
+    var workLabel: String? = nil
     @ViewBuilder var content: () -> Content
     @State private var mounted = false
     var body: some View {
@@ -53,7 +54,7 @@ struct ProgressiveRow<Content: View>: View {
             guard !mounted else { return }
             let ticket = PerformanceRendering.beginSurface(), turn = UUID()
             defer { PerformanceRendering.endSurface(ticket) }
-            guard await RowMountQueue.shared.acquire(turn, label: "row." + region) else { return }
+            guard await RowMountQueue.shared.acquire(turn, label: workLabel ?? "row." + region) else { return }
             defer { RowMountQueue.shared.release(turn) }
             guard !Task.isCancelled else { return }
             mounted = true

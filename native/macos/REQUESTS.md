@@ -1,3 +1,16 @@
+712cb0b / 41190893980 FAILS startup, first 270.766 ms /max 359.569 ms,
+174.297 MiB /9 threads. Identity batching is gone, but without the initial
+bottom anchor the cold viewport constructs early rows before seeking the tail
+(24 completed conversation mount turns, versus five in d4ca408's first-stall
+snapshot). Restore initial bottom presentation; keep one ID update per API
+page and actual row-based Home/End. Body admission now has its own diagnostic
+scope. This is still pending strict validation, not a claimed root-cause fix.
+d4ca408's new 5850-row native test fails two completion deadlines (301 tests,
+2 assertions), while actual visible-text/position assertions and the 50-row
+case pass. The test now names each settling phase without extending limits.
+Diagnostic 41190715896 records 316.439 ms during action-0056, 204.844 MiB /
+9 threads; first-stall trace again identifies a message-identities turn with
+lazy row placement in its actual sampled main-thread stack. It is ineligible.
 d4ca408 strict 41190456806 FAILS startup: first 323.137 ms, cumulative max
 947.889 ms, peak 165.156 MiB /8 threads. A message-identities turn is active;
 39 completed turns repeatedly update the growing ForEach and seek the tail.

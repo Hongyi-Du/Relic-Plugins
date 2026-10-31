@@ -374,13 +374,10 @@ struct ConversationStream: View {
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }
-                        // ScrollViewReader is the sole placement owner. A
-                        // default bottom anchor also reacts to estimated size
-                        // changes, including the large corrections made when
-                        // Home/End realizes a distant variable-height row.
-                        // Initial/append placement already targets that real
-                        // row below; a second extent anchor can strand it.
+                    }.defaultScrollAnchor(.bottom)
+                        // Start at the latest page before lazy row creation.
+                        // Otherwise a cold mount first constructs the oldest
+                        // visible rows and then discards them on the tail seek.
                         .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
@@ -548,7 +545,7 @@ struct MessageView: View {
                     // A cold row used to construct the author controls and all
                     // native body/layout types in one display turn. Keep the
                     // same final layout but admit its content separately.
-                    ProgressiveRow(estimatedHeight: 42) {
+                    ProgressiveRow(estimatedHeight: 42, workLabel: "message-body") {
                         MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain)
                     }
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
