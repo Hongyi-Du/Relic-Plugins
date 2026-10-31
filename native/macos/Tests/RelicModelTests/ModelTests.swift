@@ -29,10 +29,28 @@ final class ModelTransport: URLProtocol {
         withObservationTracking {
             XCTAssertEqual(model.windowSize, CGSize(width: 1440, height: 900))
         } onChange: { changed.fulfill() }
-        model.windowSize = CGSize(width: 1024, height: 700)
+        model.updateWindowGeometry(CGSize(width: 1024, height: 700))
         await fulfillment(of: [changed], timeout: 1)
         XCTAssertEqual(model.windowSize, CGSize(width: 1024, height: 700))
         XCTAssertEqual(dataUpdates, 0, "Resize must not invalidate the whole conversation model")
+    }
+    func testResizeStillDismissesVisibleTransientControls() throws {
+        let model = try model(); model.recipientPicker = true; model.appMenu = "file"
+        model.updateWindowGeometry(CGSize(width: 1024, height: 700))
+        XCTAssertFalse(model.recipientPicker)
+        XCTAssertNil(model.appMenu)
+    }
+    func testRepeatedAppMenuDismissalDoesNotRepublishConversationData() throws {
+        let model = try model()
+        var updates = 0
+        let subscription = model.objectWillChange.sink { updates += 1 }
+        defer { subscription.cancel() }
+        model.appMenu = nil
+        XCTAssertEqual(updates, 0)
+        model.appMenu = "file"; model.appMenu = "file"
+        XCTAssertEqual(updates, 1)
+        model.appMenu = nil; model.appMenu = nil
+        XCTAssertEqual(updates, 2, "Only actual menu changes should notify views")
     }
     func testDialogPresentationDoesNotInvalidateConversationAndOrganizationData() throws {
         let model = try model()

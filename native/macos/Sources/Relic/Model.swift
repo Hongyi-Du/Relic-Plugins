@@ -60,6 +60,13 @@ import Observation
         get { windowMetrics.size }
         set { if windowMetrics.size != newValue { windowMetrics.size = newValue } }
     }
+    func updateWindowGeometry(_ size: CGSize) {
+        windowSize = size
+        mentionEditor?.closeMentions()
+        if inputSuggestions != nil { inputSuggestions = nil }
+        if recipientPicker { recipientPicker = false }
+        if appMenu != nil { appMenu = nil }
+    }
     @Published var expandRules = false
     @Published var recipientPicker = false
     @Published var mentionItems: [Node] = []
@@ -69,7 +76,11 @@ import Observation
     var mentionVisible = false
     weak var mentionEditor: ComposerTextView?
     @Published var recipientAnchor = CGRect.zero
-    @Published var appMenu: String?
+    @Published private var presentedAppMenu: String?
+    var appMenu: String? {
+        get { presentedAppMenu }
+        set { if newValue != presentedAppMenu { presentedAppMenu = newValue } }
+    }
     let dialogPresentation = DialogPresentation()
     var sheet: Sheet? {
         get { dialogPresentation.sheet }

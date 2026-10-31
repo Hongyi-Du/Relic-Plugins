@@ -43,7 +43,7 @@ struct MainView: View {
                 }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
-        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
+        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
         .task(id: organizationKey) {
             let ticket = PerformanceRendering.beginSurface()
             defer { PerformanceRendering.endSurface(ticket) }
@@ -231,6 +231,7 @@ struct RightPane: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 2) {
                         ForEach(Array((Choices.panes + (m.threadID.isEmpty ? [] : [("thread", "panel.thread")])).enumerated()), id: \.offset) { index, pane in
+                            ProgressiveRow(estimatedHeight: 28, estimatedWidth: 70) {
                             Button { m.setPane(pane.0) } label: {
                                 HStack(spacing: 5) {
                                     ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
@@ -239,6 +240,7 @@ struct RightPane: View {
                                 }.padding(.horizontal, 9).frame(height: 28)
                             }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityLabel(m.t(pane.1)).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
                                 .environment(\.nativeElementParent, "relic-tab/" + pane.0)
+                            }
                         }
                     }
                 }.scrollIndicators(.hidden).frame(height: 28)

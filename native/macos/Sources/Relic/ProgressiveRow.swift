@@ -42,12 +42,13 @@ import SwiftUI
 struct ProgressiveRow<Content: View>: View {
     @Environment(\.captureRegion) private var region
     var estimatedHeight: CGFloat
+    var estimatedWidth: CGFloat? = nil
     @ViewBuilder var content: () -> Content
     @State private var mounted = false
     var body: some View {
         Group {
             if mounted { content() }
-            else { Color.clear.frame(height: estimatedHeight).accessibilityHidden(true) }
+            else { Color.clear.frame(width: estimatedWidth, height: estimatedHeight).accessibilityHidden(true) }
         }.task {
             guard !mounted else { return }
             let ticket = PerformanceRendering.beginSurface(), turn = UUID()
