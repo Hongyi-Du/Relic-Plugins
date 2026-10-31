@@ -50,15 +50,27 @@ struct RichText: View {
     init(_ text: String, pointSize: CGFloat? = nil, document: Bool = false) { self.text = text; self.pointSize = pointSize; self.document = document }
     private var baseSize: CGFloat { pointSize ?? (document ? 13.5 : m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) }
     private var textLineHeight: CGFloat { baseSize * (document ? 1.7 : 1.65) }
-    private var blocks: [MarkdownBlock] { NativeMarkdown.blocks(text) }
+    @State private var prepared: PreparedMarkdown?
+    private var parsed: PreparedMarkdown? { prepared?.source == text ? prepared : nil }
+    private var blocks: [MarkdownBlock] { parsed?.blocks ?? [] }
+    private func attributed(_ value: String) -> AttributedString { parsed?.inline(value) ?? AttributedString(value) }
+    private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { parsed?.list(block) ?? [] }
+    private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
     var body: some View {
-        IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
+        Group {
+        if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
+        else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
                 }
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
-        }.environment(\.openURL, OpenURLAction { url in
+        } }
+        }.task(id: text) {
+            let value = await MarkdownPreparation.shared.prepare(text)
+            if !Task.isCancelled { prepared = value }
+        }.onDisappear { prepared = nil }
+        .environment(\.openURL, OpenURLAction { url in
             if url.scheme == "relic-file", let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let path = parts.queryItems?.first(where: { $0.name == "path" })?.value {
                 let line = Int(parts.queryItems?.first(where: { $0.name == "line" })?.value ?? "") ?? 0
                 m.run { try await m.openFile(path, line: line) }; return .handled
@@ -85,19 +97,19 @@ struct RichText: View {
     }
     private var preferredWidth: CGFloat {
         let size = baseSize
-        return NativeMarkdown.blocks(text).map { block -> CGFloat in
+        return blocks.map { block -> CGFloat in
             switch block.kind {
             case "code": return NativeTextStyle.preferredWidth(NativeTextStyle.render(AttributedString(block.text), size: document ? 10.8 : 11.25, monospaced: true)) + 24
-            case "head": return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), size: document ? size * 1.02 : size, weight: .bold))
+            case "head": return NativeTextStyle.preferredWidth(NativeTextStyle.render(attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), size: document ? size * 1.02 : size, weight: .bold))
             case "quote": return NativeTextStyle.preferredWidth(NativeTextStyle.render(quoteText(block), size: size * 0.92)) + 13
-            case "list": return NativeMarkdown.list(block).map { NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed($0.text), size: size)) + ($0.indented ? 40 : 22) }.max() ?? 0
+            case "list": return list(block).map { NativeTextStyle.preferredWidth(NativeTextStyle.render(attributed($0.text), size: size)) + ($0.indented ? 40 : 22) }.max() ?? 0
             case "table": return tableWidths(block).reduce(0,+)
-            default: return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(block.text), size: size))
+            default: return NativeTextStyle.preferredWidth(NativeTextStyle.render(attributed(block.text), size: size))
             }
         }.max() ?? 0
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: NativeMarkdown.attributed(value), pointSize: baseSize, lineHeight: textLineHeight).help(m.t("chat.path_preview"))
+        SelectableText(value: attributed(value), pointSize: baseSize, lineHeight: textLineHeight).help(m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
@@ -105,14 +117,14 @@ struct RichText: View {
             SelectableText(value: AttributedString(block.text), pointSize: document ? 10.8 : 11.25, lineHeight: document ? 18.6 : 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
         }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
-        case "head": SelectableText(value: NativeMarkdown.attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight * (document ? 1.02 : 1))
+        case "head": SelectableText(value: attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight * (document ? 1.02 : 1))
         case "quote":
             SelectableText(value: quoteText(block), color: RelicStyle.secondary, pointSize: baseSize * 0.92, lineHeight: textLineHeight * 0.92)
                 .padding(.leading, 13).padding(.vertical, 2)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 0), kind: "card"))
                 .fixedSize(horizontal: false, vertical: true)
         case "list":
-            VStack(alignment: .leading, spacing: 0) { ForEach(Array(NativeMarkdown.list(block).enumerated()), id: \.offset) { _, item in
+            VStack(alignment: .leading, spacing: 0) { ForEach(Array(list(block).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: 0) {
                     if item.marker == "•" {
                         let metrics = NativeListMarkerMetrics(font: RelicStyle.nativeFont(baseSize, weight: 400))
@@ -127,12 +139,12 @@ struct RichText: View {
             } }
         case "table":
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                ForEach(Array(NativeMarkdown.table(block).enumerated()), id: \.offset) { index, row in GridRow {
+                ForEach(Array(table(block).enumerated()), id: \.offset) { index, row in GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                        SelectableText(value: NativeMarkdown.attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
+                        SelectableText(value: attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
                             .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: tableWidths(block)[column], alignment: .leading)
-                            .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == NativeMarkdown.table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
-                            .accessibilityLabel(String(NativeMarkdown.attributed(cell).characters))
+                            .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
+                            .accessibilityLabel(String(attributed(cell).characters))
                     }
                 } }
             }.padding(.vertical, 6) }.fixedSize(horizontal: false, vertical: true)
@@ -140,11 +152,11 @@ struct RichText: View {
         }
     }
     private func tableWidths(_ block: MarkdownBlock) -> [CGFloat] {
-        let rows = NativeMarkdown.table(block), count = rows.map(\.count).max() ?? 0
+        let rows = table(block), count = rows.map(\.count).max() ?? 0
         return (0..<count).map { column in
             rows.enumerated().map { index, row in
                 guard row.indices.contains(column) else { return CGFloat.zero }
-                return NativeTextStyle.preferredWidth(NativeTextStyle.render(NativeMarkdown.attributed(row[column]), size: baseSize * 0.93, weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular)) + 17
+                return NativeTextStyle.preferredWidth(NativeTextStyle.render(attributed(row[column]), size: baseSize * 0.93, weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular)) + 17
             }.max() ?? 0
         }
     }
@@ -257,13 +269,9 @@ struct ConversationStream: View {
             VStack(spacing: 0) {
                 GeometryReader { viewport in
                     ScrollView {
-                        // The server supplies a bounded conversation page. Lay
-                        // out that page before anchoring: LazyVStack estimates
-                        // offscreen row heights and revises the document when
-                        // accessibility subsequently materializes those rows.
-                        VStack(alignment: .leading, spacing: 0) {
-                            let rows = m.conversationRows(m.displayMessages)
-                            if m.displayMessages.isEmpty && m.displayLiveItems.isEmpty {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            let rows = m.streamRows
+                            if rows.isEmpty && m.displayLiveItems.isEmpty {
                                 NoticeLayout {
                                     ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
                                         size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
@@ -271,43 +279,47 @@ struct ConversationStream: View {
                                         .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                let priority = Double((rows.count - index) * 2)
+                            ForEach(rows) { row in
+                                VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
                                     ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
                                         .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                        .accessibilitySortPriority(priority + 1)
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                    .accessibilitySortPriority(priority)
+                                }.id(row.id).onAppear {
+                                    if row.id == rows.first?.id, !initialLoad, !following.followsBottom, m.moreChat, !m.loadingOlder {
+                                        m.run { try await m.loadOlder(); proxy.scrollTo(row.id, anchor: .top) }
+                                    }
+                                }
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in
                             // the scroll target. Padding outside the target is
                             // scrolled offscreen by scrollTo(anchor: .bottom).
-                            Color.clear.frame(height: 24).id("end").background(GeometryReader { end in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: end.frame(in: .named("conversation")).maxY)) })
+                            Color.clear.frame(height: 24).id("end")
                         }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
-                            .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(height: content.size.height, width: content.size.width)) })
+                            .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }.modifier(RecordedSurface(background: .clear, kind: "region"))
+                    }.defaultScrollAnchor(.bottom).modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
-                            if following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size) {
-                                DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
-                            }
+                            // Lazy height estimates change during scrolling.
+                            // Observe them, but never feed a layout change back
+                            // into scrollTo; only new content requests anchoring.
+                            _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
                         }
                 }
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; following = ConversationScrollFollowing() }
-                .onChange(of: m.revision) {
+                .onChange(of: m.streamVersion) {
                     keyboard.discardDisclosurePosition()
                     following.contentChanged()
-                    if initialLoad || following.followsBottom { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }; initialLoad = false }
+                    if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { proxy.scrollTo("end", anchor: .bottom); initialLoad = false }
                 }
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
         }

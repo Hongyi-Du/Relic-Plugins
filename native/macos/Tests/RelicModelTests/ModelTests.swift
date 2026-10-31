@@ -340,6 +340,45 @@ final class ModelTransport: URLProtocol {
         }
         try await model.loadOlder(); XCTAssertEqual(model.messages.first?["id"].integer, 10); XCTAssertFalse(model.moreChat)
     }
+    func testRefreshingLatestPageDoesNotReopenExhaustedHistoryOrDiscardOlderMessages() async throws {
+        let model = try model(); defer { model.stop() }
+        model.setSelection(ChatSelection("a"))
+        var requestedBefore = false
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, #"[{"id":"a"}]"#)
+            case "/api/cc": return (200, #"{"items":[],"unread":0}"#)
+            case "/api/org/a": return (200, #"{"members":[]}"#)
+            case "/api/org/a/chat":
+                if request.url!.query!.contains("before=1001") {
+                    requestedBefore = true
+                    return (200, #"{"items":[{"id":1,"body":"first"}],"more":false}"#)
+                }
+                return (200, #"{"items":[{"id":1001,"body":"latest"}],"more":true}"#)
+            default: XCTFail("Unexpected request"); return (500, "{}")
+            }
+        }
+        try await model.refresh(); XCTAssertTrue(model.moreChat)
+        try await model.loadOlder(); XCTAssertTrue(requestedBefore); XCTAssertFalse(model.moreChat)
+        try await model.refresh()
+        XCTAssertFalse(model.moreChat)
+        XCTAssertEqual(model.messages.map { $0["id"].integer }, [1, 1001])
+    }
+    func testPreparedConversationDiscardsPreviousSelectionAndKeepsStableIDs() async throws {
+        let model = try model(); defer { model.stop() }
+        model.setSelection(ChatSelection("a"))
+        model.messages = (1...5500).map { Node(["id": $0, "type": "message", "from": "secretary", "at": 1000 + $0]) }
+        await Task.yield()
+        model.setSelection(ChatSelection("b"))
+        model.messages = [Node(["id": 9000, "type": "message", "from": "member", "at": 20000])]
+        let prepared = expectation(description: "latest selection projected off main actor")
+        let subscription = model.$streamRows.sink { rows in
+            if rows.map(\.id) == ["id:9000#0"] { prepared.fulfill() }
+        }
+        await fulfillment(of: [prepared], timeout: 5)
+        XCTAssertEqual(model.streamRows.map(\.id), ["id:9000#0"])
+        subscription.cancel()
+    }
 }
 
 private extension InputStream {
