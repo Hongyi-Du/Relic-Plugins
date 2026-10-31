@@ -22,7 +22,7 @@ struct DetailsView: View {
             switch m.detailTab {
             case "tasks":
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         SettingsSegments(options: [("open", m.t("task.working") + " " + String(tasks("open").count)), ("blocked", m.t("task.blocked") + " " + String(tasks("blocked").count)), ("done", m.t("details.filter_done") + " " + String(tasks("done").count)), ("all", m.t("common.all") + " " + String(tasks("all").count))], selection: $m.detailFilter).padding(.bottom, 12)
                         if tasks(m.detailFilter).isEmpty { ReferenceLabel(m.t("details.no_tasks"), size: 13, color: RelicStyle.muted).padding(22) }
                         Rows(Array(tasks(m.detailFilter).reversed())) { TaskCard(task: $0).padding(.bottom, 8) }
@@ -45,7 +45,7 @@ struct DocumentsView: View {
     var body: some View {
         HStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
+                LazyVStack(alignment: .leading, spacing: 1) {
                     Rows(m.snapshot["documents"].rows) { item in
                         Button { m.detailDocument = item["key"].text } label: {
                             HStack(spacing: 9) {
@@ -60,7 +60,7 @@ struct DocumentsView: View {
                 }.padding(8)
             }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if m.snapshot["documents"].rows.isEmpty || doc["missing"].flag { ReferenceLabel(m.t("details.no_docs"), size: 13, color: RelicStyle.muted).padding(22) }
                     if !m.detailDocument.isEmpty, !doc.isNull {
                         ReferenceLabel(m.detailDocument + " · " + m.t("details.revision", ["n": doc["revision"].text]), size: 16.38, weight: 700, lines: 0).padding(.bottom, 4)
@@ -98,14 +98,14 @@ struct TraceView: View {
     var body: some View {
         HStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
+                LazyVStack(alignment: .leading, spacing: 1) {
                     Rows(m.members) { who in
                         TraceMemberRow(member: who)
                     }
                 }.padding(8)
             }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ReferenceLabel(m.t("trace.title", ["name": m.name(m.detailMember)]), size: 16.38, weight: 700).padding(.bottom, 2)
                     ReferenceLabel(sessionLabel, size: 12.5, color: RelicStyle.muted, lines: 0).padding(.bottom, 12)
                     HStack(spacing: 8) {
@@ -117,7 +117,7 @@ struct TraceView: View {
                     if data["missing"].flag { ReferenceLabel(m.t("trace.no_session"), size: 13, color: RelicStyle.muted).padding(22) }
                     else {
                         if steps.isEmpty { ReferenceLabel(m.t(loading ? "common.loading" : "trace.no_steps"), size: 13, color: RelicStyle.muted).padding(22) }
-                        VStack(spacing: 0) { Rows(steps) { StepView(step: $0, member: m.detailMember) } }.frame(maxWidth: .infinity, alignment: .leading)
+                        LazyVStack(spacing: 0) { Rows(steps) { StepView(step: $0, member: m.detailMember) } }.frame(maxWidth: .infinity, alignment: .leading)
                         if data["total"].integer > 0 { ReferenceLabel(m.t("trace.total", ["n": data["total"].text]) + (data["path"].text.isEmpty ? "" : " · " + data["path"].text), size: 12, color: RelicStyle.muted, lines: 0).padding(.top, 8) }
                     }
                     if !error.isEmpty { Text(error).foregroundStyle(RelicStyle.red) }

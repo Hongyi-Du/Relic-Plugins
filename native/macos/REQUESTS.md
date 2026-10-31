@@ -13,6 +13,17 @@ failed result for before/after comparison; do not rerun it from a fixed head.
 Initial page size remains 1000, matching the current web client. Older pages
 use the already implemented `limit=200&before=...` endpoint.
 
+Measured baseline `41162500465` (mode baseline): startup fails at 250 ms;
+worst retained dispatch delay **1986.742 ms**, peak RSS **133.281 MiB**, peak
+threads **8**. The shared driver terminates after the first stall plus its
+observation interval; it did not reach exhaustive/monkey completion. The
+automatic run of the identical pre-fix source (`41162494417`, labelled
+candidate by the push trigger) also failed startup, worst **816.036 ms**,
+**133.641 MiB**, **7** threads. Preserve both as variability evidence, not as
+a steady-state memory comparison. Reports downloaded under
+`S:\Codex\Outputs\Relic-native-visual\responsiveness-6a92a00-baseline\macos\`
+and `responsiveness-6a92a00\macos\`. First optimization is `68139d4`; CI pending.
+
 Confirmed macOS hot paths at `1e1fc14`: `ConversationStream` deliberately uses
 an eager VStack for the complete 1000-item response; `Timeline.merge` searches
 the accumulated array for every incoming item (quadratic); message Markdown
