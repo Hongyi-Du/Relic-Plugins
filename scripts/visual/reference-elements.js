@@ -881,7 +881,7 @@
   const stateOf = el => {
     const role = el.getAttribute('role'), checkable = el.matches('input[type=checkbox],input[type=radio],[role=switch],[role=checkbox],[role=radio]');
     const expandable = el.localName === 'summary' || el.hasAttribute('aria-expanded') || el.matches('.org-row,.frow.dir');
-    const selectable = el.matches('.tabs>button,.seg>button,.settings nav>button,.org-row,.chat-row,.item-row,.session-row,.who-pick .who,[role=tab],[aria-selected]');
+    const selectable = el.matches('.tabs>button,.seg>button,.settings nav>button,.swatches>button.swatch,.org-row,.chat-row,.item-row,.session-row,.who-pick .who,[role=tab],[aria-selected]');
     const interactive = el.matches('button,input,textarea,select,summary,a[href],[tabindex],[role=button],[role=tab],[role=menuitem]') || panelResizeEvidence(el) !== null;
     return { enabled: interactive ? !el.matches(':disabled,[aria-disabled=true]') : null,
       selected: selectable ? el.getAttribute('aria-selected') === 'true' || el.classList.contains('on') : null,

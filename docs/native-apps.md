@@ -1,5 +1,13 @@
 # Native Relic App contract
 
+Changes for the clients (macOS request, 2026-10-31): the reference extractor now
+reads selected state for the actual appearance preference swatch buttons from
+their production `on` class. The selector is limited to `.swatches>button.swatch`;
+chart legend swatches remain nonselectable. Shared tests exercise actual
+drawAppearance/setPrefs/redraw and clicks, including selected/unselected states,
+the `/api/prefs` write and unrelated swatches. This resolves the request in
+native/macos/REQUESTS.md without erasing native state or changing tolerances.
+
 Changes for the clients (post-capture scrollbar evidence): reference capture now
 records a bounded diagnostic of actual pointer hover and gutter PNG responses
 after the original scene checkpoints. It retains the exact browser revision,
