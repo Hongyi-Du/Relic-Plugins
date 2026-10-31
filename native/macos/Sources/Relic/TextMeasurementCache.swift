@@ -1,5 +1,24 @@
 import AppKit
 
+/// Unwrapped Markdown widths do not depend on the offered window width.
+/// Reuse them across body updates (menus, dialogs, SSE) and keep the retained
+/// attributed sources bounded. Copy keys so caller mutation cannot corrupt
+/// the cache or silently reuse the previous font's measurement.
+final class PreferredTextWidthCache {
+    static let shared = PreferredTextWidthCache()
+    private let values = NSCache<NSAttributedString, NSNumber>()
+    init() { values.countLimit = 256; values.totalCostLimit = 4 * 1024 * 1024 }
+    func width(_ source: NSAttributedString, measure: () -> CGFloat) -> CGFloat {
+        if let value = values.object(forKey: source) { return CGFloat(value.doubleValue) }
+        let result = measure()
+        let cost = source.length * 8
+        if cost <= values.totalCostLimit {
+            values.setObject(NSNumber(value: Double(result)), forKey: NSAttributedString(attributedString: source), cost: cost)
+        }
+        return result
+    }
+}
+
 /// Each visible native text view retains a small set of width proposals. A
 /// content/style change invalidates the set. Never change the live text view's
 /// container while SwiftUI is probing alternative widths.
