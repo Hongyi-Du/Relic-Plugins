@@ -239,7 +239,10 @@ struct ChatView: View {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty { ConversationBanner() }
-                ConversationStream().id(m.selection)
+                // Keep the native scroll view, focus controller and composer
+                // across navigation. The stream resets its reading intent on
+                // selection changes; only the loaded message identities change.
+                ConversationStream()
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
@@ -435,7 +438,7 @@ struct ConversationStream: View {
                 if mountedComposer {
                     ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
-            }.task(id: "\(m.streamVersion)/\(enabled)") {
+            }.task(id: "\(m.selection.key)/\(m.streamVersion)/\(enabled)") {
                 // A replacement chat can exist beneath the organization's
                 // loading cover. Mount its native viewport only when enabled
                 // and its current row preparation has completed, so it cannot

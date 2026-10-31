@@ -109,7 +109,14 @@ import Combine
     private var presentedAppMenu: String?
     var appMenu: String? {
         get { presentedAppMenu }
-        set { if newValue != presentedAppMenu { presentedAppMenu = newValue } }
+        set {
+            guard newValue != presentedAppMenu else { return }
+            if newValue != nil {
+                mentionEditor?.closeMentions()
+                if recipientPicker { recipientPicker = false }
+            }
+            presentedAppMenu = newValue
+        }
     }
     let dialogPresentation = DialogPresentation()
     var sheet: Sheet? {
