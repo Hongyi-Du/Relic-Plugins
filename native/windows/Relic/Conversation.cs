@@ -356,7 +356,11 @@ public sealed partial class MainWindow
             stream.Children.Add(() => Message(item!, false, continued), estimate);
             if (item.Text("type") != "acts") previous = item;
         }
-        if (member.Length > 0) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });
+        var liveState = liveData["status"].Text("state");
+        var hasLiveRows = liveState is "running" or "waiting" or "starting" ? liveData.Rows("items").Count > 0
+            : liveData.Rows("items").Any(item => item.Text("type") == "permission"
+                && snap.Rows("decisions").Any(decision => decision.Text("kind") == "permission" && decision.Text("id") == item.Text("id")));
+        if (member.Length > 0 && hasLiveRows) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });
         stream.Commit();
         if (atBottom) ScrollToLatest();
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
@@ -715,18 +719,17 @@ public sealed partial class MainWindow
     }
 }
 
-// CSS grid's fit-content behavior keeps a wrapping bubble at the constrained
-// preferred width. RichTextBlock.DesiredSize alone shrinks it to the longest
-// already-wrapped line, moving the bubble edge even when line breaks match.
+// Measure text once at its actual available width. Alternating infinity and
+// the constrained width in each pass dirties descendant rich-text layout twice
+// and can keep a virtualizing parent's measure pass from converging.
 public sealed class MessageBubbleLayout : Panel
 {
     protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
     {
         if (Children.Count == 0) return default;
         var child = Children[0];
-        child.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        child.Measure(new Windows.Foundation.Size(availableSize.Width, double.PositiveInfinity));
         var width = Math.Min(child.DesiredSize.Width, availableSize.Width);
-        child.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
         return new Windows.Foundation.Size(width, child.DesiredSize.Height);
     }
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
@@ -746,9 +749,8 @@ public sealed class CenteredFractionLayout : Panel
     protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
     {
         if (Children.Count == 0) return default;
-        var child = Children[0]; child.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var child = Children[0]; child.Measure(new Windows.Foundation.Size(availableSize.Width * Fraction, double.PositiveInfinity));
         childWidth = Math.Min(child.DesiredSize.Width, availableSize.Width * Fraction);
-        child.Measure(new Windows.Foundation.Size(childWidth, double.PositiveInfinity));
         return new Windows.Foundation.Size(double.IsFinite(availableSize.Width) ? availableSize.Width : childWidth, child.DesiredSize.Height);
     }
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
