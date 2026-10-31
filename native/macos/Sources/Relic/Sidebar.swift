@@ -28,7 +28,11 @@ struct Sidebar: View {
                         ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
                         if !m.organizations.isEmpty { ReferenceLabel(String(m.organizations.count), size: 12, color: RelicStyle.muted, lines: 0) }
                     }.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
-                    Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: [], revealMembers: revealMembers) }
+                    ForEach(OrganizationOutline.rows(organizations: m.organizations, selected: m.organization,
+                        members: m.members, folded: m.folded, search: m.search, groupLabel: m.t("common.group_chat"),
+                        secretaryLabel: m.t("common.secretary"), revealMembers: revealMembers && !m.snapshot["org"].isNull)) { row in
+                        SidebarOutlineRow(row: row)
+                    }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
             }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
@@ -58,35 +62,59 @@ struct Sidebar: View {
     }
 }
 
-struct OrgTree: View {
+private struct SidebarOutlineRow: View {
+    @EnvironmentObject var m: Model
+    let row: OrganizationOutlineRow
+    var body: some View {
+        VStack(spacing: 0) {
+            if row.kind == .organization { OrgTree(node: row.node, depth: row.depth, hasChildren: row.hasChildren) }
+            else {
+                Group {
+                    switch row.kind {
+                    case .group: SidebarChatRow(who: nil, group: true)
+                    case .secretary: SidebarChatRow(who: row.node["name"].isNull ? nil : row.node, group: false)
+                    case .member: SidebarChatRow(who: row.node, group: false)
+                    case .addMember:
+                        Button { m.openMemberForm() } label: {
+                            HStack(spacing: 8) {
+                                ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted, owner: "relic-text-button/add-member/" + row.organization)
+                                ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0, owner: "relic-text-button/add-member/" + row.organization)
+                                Spacer(minLength: 0)
+                            }.padding(.horizontal, 8).padding(.vertical, 6)
+                        }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-text-button/add-member/" + row.organization)
+                    case .organization: EmptyView()
+                    }
+                }.padding(.leading, 15).padding(.top, row.first ? 2 : 1).padding(.bottom, row.last ? 8 : 0)
+                    .overlay(alignment: .leading) { Rectangle().fill(RelicStyle.border).frame(width: 1).allowsHitTesting(false).accessibilityHidden(true) }
+                    .padding(.leading, 10)
+            }
+        }.onAppear { PerformanceRendering.rowAppeared("sidebar") }
+            .onDisappear { PerformanceRendering.rowDisappeared("sidebar") }
+    }
+}
+
+private struct OrgTree: View {
     @EnvironmentObject var m: Model
     @Environment(\.colorScheme) private var scheme
     let node: Node
-    let ancestors: Set<String>
-    var depth = 0
-    var revealMembers = true
+    let depth: Int
+    let hasChildren: Bool
     private var id: String { node["id"].text }
     private var active: Bool { m.organization == id }
     private var owner: String { "relic-org/" + id }
     private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
-    private var expanded: Bool { (active || !children.isEmpty) && !folded }
-    private var children: [Node] { m.organizations.filter { $0["parent"].text == id && !ancestors.union([id]).contains($0["id"].text) } }
-    private var query: String { m.search.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var orgHit: Bool { query.isEmpty || [node["name"].text, node["purpose"].text].contains { $0.localizedCaseInsensitiveContains(query) } }
-    private var memberHits: [Node] { active ? m.members.filter { query.isEmpty || [$0.display, $0["name"].text, $0["role"].text].contains { $0.localizedCaseInsensitiveContains(query) } } : [] }
+    private var expanded: Bool { (active || hasChildren) && !folded }
     private var accessibilityName: String {
         [OrganizationAvatar.initial(for: node), node["name"].text, active ? "" : m.shortWhen(node["last_at"])].filter { !$0.isEmpty }.joined(separator: " ")
     }
     var body: some View {
-        VStack(spacing: 0) {
-            if orgHit || !memberHits.isEmpty {
                 Button {
                     if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
                 } label: {
                     HStack(spacing: 8) {
                         ReferenceIcon(name: "chev", size: 14, color: RelicStyle.muted, owner: owner)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .highPriorityGesture(TapGesture().onEnded { if active || !children.isEmpty { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
+                            .highPriorityGesture(TapGesture().onEnded { if active || hasChildren { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
                         ReferenceLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144, lines: 2, owner: owner).frame(maxWidth: .infinity, alignment: .leading)
                         if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
@@ -96,26 +124,6 @@ struct OrgTree: View {
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
-                if active && !folded && revealMembers && !m.snapshot["org"].isNull {
-                    LazyVStack(spacing: 1) {
-                        if query.isEmpty || orgHit || m.t("common.group_chat").localizedCaseInsensitiveContains(query) {
-                            SidebarChatRow(who: nil, group: true)
-                        }
-                        let secretary = m.members.first { $0["secretary"].flag }
-                        if query.isEmpty || m.t("common.secretary").localizedCaseInsensitiveContains(query) || secretary.map({ member in memberHits.contains { $0["name"].text == member["name"].text } }) == true {
-                            SidebarChatRow(who: secretary, group: false)
-                        }
-                        Rows(memberHits.filter { !$0["secretary"].flag }) { MemberRow(who: $0) }
-                        Button { m.openMemberForm() } label: {
-                            HStack(spacing: 8) { ReferenceIcon(name: "plus", size: 14, color: RelicStyle.muted, owner: "relic-text-button/add-member/" + id); ReferenceLabel(m.t("common.add_member"), size: 12.5, color: RelicStyle.muted, lines: 0, owner: "relic-text-button/add-member/" + id); Spacer(minLength: 0) }.padding(.horizontal, 8).padding(.vertical, 6)
-                        }.buttonStyle(QuietButtonStyle(radius: 8)).accessibilityIdentifier("relic-text-button/add-member/" + id)
-                    }.padding(.leading, 15).padding(.top, 2).padding(.bottom, 8)
-                        .modifier(RecordedSurface(background: .clear, border: RelicStyle.border, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "card", owner: "relic-card/org-children/" + id))
-                        .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/org-children/" + id).accessibilityLabel("").padding(.leading, 10)
-                }
-            }
-            if !folded { Rows(children) { child in AnyView(OrgTree(node: child, ancestors: ancestors.union([id]), depth: depth + 1, revealMembers: revealMembers)) } }
-        }
     }
 }
 
