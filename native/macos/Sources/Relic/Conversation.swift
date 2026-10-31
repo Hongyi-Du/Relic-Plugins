@@ -343,8 +343,12 @@ struct ConversationStream: View {
                             // lazy height correction back into another layout.
                             // Observe the real position without moving it.
                             _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
+                            // Actual proximity to the top is sufficient. Lazy
+                            // height corrections can retain the previous bottom
+                            // following state during a Home/scroll transition.
+                            // That state must not suppress the history pager.
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
-                               !initialLoad, !following.followsBottom, olderAnchor == nil, m.moreChat, !m.loadingOlder,
+                               !initialLoad, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {
                                 olderAnchor = first
                                 m.run {
@@ -402,6 +406,7 @@ struct ConversationStream: View {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = m.streamRows.isEmpty
                     keyboard.scrollToEdge = { top in
+                        following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
                         else if !top { proxy.scrollTo("end", anchor: .bottom) }
                     }
