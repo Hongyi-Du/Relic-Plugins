@@ -5,6 +5,34 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class WindowObservationTests: XCTestCase {
+    private final class BodyCounter { var reads = 0 }
+    private struct MessageCountLabel: View {
+        @EnvironmentObject var model: Model
+        let counter: BodyCounter
+        var body: some View {
+            counter.reads += 1
+            return ReferenceLabel("Messages: \(model.messages.count)")
+        }
+    }
+    func testDialogFieldChangesDoNotReevaluateAnUnrelatedMountedConversation() async throws {
+        _ = NSApplication.shared
+        let model = Model(), counter = BodyCounter()
+        let host = NSHostingView(rootView: MessageCountLabel(counter: counter).environmentObject(model))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { model.stop(); window.orderOut(nil); window.contentView = nil; window.close() }
+        try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+        let before = counter.reads
+        XCTAssertGreaterThan(before, 0)
+        model.openMemberForm(mode: "existing", edit: "engineer", secretary: true)
+        model.settingsSection = "appearance"
+        model.openDetails("tasks", member: "engineer", task: "1")
+        try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(counter.reads, before, "Dialog state must not reevaluate an unrelated message view")
+        model.messages = [Node(["id": 1, "text": "New message"])]
+        try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(counter.reads, before, "Actual message changes must still update the mounted view")
+    }
     func testInspectorKeepsItsNativeControlsAcrossResponsiveBreakpoints() async throws {
         _ = NSApplication.shared
         let suite = "Relic.InspectorPersistence." + UUID().uuidString

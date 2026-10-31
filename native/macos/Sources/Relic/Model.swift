@@ -3,6 +3,7 @@ import SwiftUI
 import UserNotifications
 import RelicCore
 import Observation
+import Combine
 
 @Observable @MainActor final class WindowMetrics {
     var size = CGSize(width: 1440, height: 900)
@@ -16,8 +17,11 @@ import Observation
     var loadingOlder = false
 }
 
-@MainActor final class Model: ObservableObject {
-    @Published var organizations: [Node] = []
+@Observable @MainActor final class Model: ObservableObject {
+    // EnvironmentObject remains the injection API; Observation tracks each field.
+    // No change is broadcast to every view through this compatibility publisher.
+    let objectWillChange = ObservableObjectPublisher()
+    var organizations: [Node] = []
     private let conversationData = ConversationData()
     // History paging changes the conversation, not the organization tree,
     // toolbar, inspector and every already-mounted message's environment.
@@ -25,8 +29,8 @@ import Observation
         get { conversationData.messages }
         set { conversationData.messages = newValue; messageGeneration += 1; prepareConversation() }
     }
-    @Published var liveItems: [Node] = [] { didSet { liveGeneration += 1; prepareConversation() } }
-    @Published var liveStatus = Node() { didSet { liveGeneration += 1; prepareConversation() } }
+    var liveItems: [Node] = [] { didSet { liveGeneration += 1; prepareConversation() } }
+    var liveStatus = Node() { didSet { liveGeneration += 1; prepareConversation() } }
     var streamRows: [ConversationRow] {
         get { conversationData.rows }
         set { conversationData.rows = newValue; UIWorkTrace.gauge("conversation_rows", newValue.count) }
@@ -35,41 +39,41 @@ import Observation
         get { conversationData.version }
         set { conversationData.version = newValue }
     }
-    @Published var inputSuggestions: InputSuggestionsState?
-    @Published var conversation = Node() { didSet { prepareConversation() } }
-    @Published var copies: [Node] = []
-    @Published var unreadCopies = 0
-    @Published var snapshot = Node() { didSet { members = snapshot["members"].rows; prepareConversation() } }
-    @Published var preferences = Node()
-    @Published var platform = Node()
-    @Published var words = Words() { didSet { prepareConversation() } }
-    @Published var organization = ""
-    @Published var member = ""
-    @Published var draft = ""
-    @Published var recipients = ["all"]
-    @Published var quote = "" {
+    var inputSuggestions: InputSuggestionsState?
+    var conversation = Node() { didSet { prepareConversation() } }
+    var copies: [Node] = []
+    var unreadCopies = 0
+    var snapshot = Node() { didSet { members = snapshot["members"].rows; prepareConversation() } }
+    var preferences = Node()
+    var platform = Node()
+    var words = Words() { didSet { prepareConversation() } }
+    var organization = ""
+    var member = ""
+    var draft = ""
+    var recipients = ["all"]
+    var quote = "" {
         didSet { if quote != oldValue { quoteAuthor = ""; quoteText = "" } }
     }
-    @Published var quoteAuthor = ""
-    @Published var quoteText = ""
+    var quoteAuthor = ""
+    var quoteText = ""
     var quotePreviewText: String { quoteText.isEmpty ? quote.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression) : quoteText }
     var selectedText = ""
     var selectedAuthor = ""
-    weak var selectedTextView: NSTextView?
-    @Published var pane = "overview"
-    @Published var toasts: [NativeToastMessage] = [] { didSet { for item in oldValue where !toasts.contains(where: { $0 === item }) { item.cancelTimer() } } }
+    @ObservationIgnored weak var selectedTextView: NSTextView?
+    var pane = "overview"
+    var toasts: [NativeToastMessage] = [] { didSet { for item in oldValue where !toasts.contains(where: { $0 === item }) { item.cancelTimer() } } }
     var noticeSeconds: Double = 3.6
-    @Published var error = "" { didSet { if ready && !error.isEmpty { appendToast(error, seconds: 3.6) } } }
-    @Published var notice = "" {
+    var error = "" { didSet { if ready && !error.isEmpty { appendToast(error, seconds: 3.6) } } }
+    var notice = "" {
         didSet {
             if notice.isEmpty { toasts = [] }
             else { appendToast(notice, seconds: noticeSeconds) }
         }
     }
-    @Published var ready = false
-    @Published var sending = false
-    @Published var threadSending = false
-    weak var activeSpeech: SpeechInput?
+    var ready = false
+    var sending = false
+    var threadSending = false
+    @ObservationIgnored weak var activeSpeech: SpeechInput?
     var moreChat: Bool {
         get { conversationData.more }
         set { conversationData.more = newValue }
@@ -93,16 +97,16 @@ import Observation
         if recipientPicker { recipientPicker = false }
         if appMenu != nil { appMenu = nil }
     }
-    @Published var expandRules = false
-    @Published var recipientPicker = false
-    @Published var mentionItems: [Node] = []
-    @Published var mentionIndex = 0
-    @Published var mentionAnchor = CGRect.zero
+    var expandRules = false
+    var recipientPicker = false
+    var mentionItems: [Node] = []
+    var mentionIndex = 0
+    var mentionAnchor = CGRect.zero
     var mentionMenuBounds = CGRect.zero
     var mentionVisible = false
-    weak var mentionEditor: ComposerTextView?
-    @Published var recipientAnchor = CGRect.zero
-    @Published private var presentedAppMenu: String?
+    @ObservationIgnored weak var mentionEditor: ComposerTextView?
+    var recipientAnchor = CGRect.zero
+    private var presentedAppMenu: String?
     var appMenu: String? {
         get { presentedAppMenu }
         set { if newValue != presentedAppMenu { presentedAppMenu = newValue } }
@@ -120,62 +124,65 @@ import Observation
             dialogPresentation.sheet = newValue
         }
     }
-    @Published var folded: Set<String> = []
-    @Published var history = NavigationHistory()
-    @Published var recent: [ChatSelection] = []
-    @Published var sidebarOpen = true
-    @Published var panelOpen = true
-    @Published var focusSearch = false
-    @Published var search = ""
-    @Published var overviewMode = "direct"
-    @Published var detailTab = "trace"
-    @Published var detailMember = ""
-    @Published var detailDocument = ""
-    @Published var detailTask = ""
-    @Published var detailFilter = "open"
-    @Published var cardMember = ""
-    @Published var cardAnchor = CGRect.zero
-    @Published var memberMode = "app"
-    @Published var editMember = ""
-    @Published var newSecretary = false
-    @Published var settingsSection = "profile"
-    @Published var threadID = ""
-    @Published var threadData = Node()
-    @Published var threadDraft = ""
-    private var threadPreviousPane = "overview"
-    @Published var file = Node()
-    @Published var workspaceMember = ""
-    @Published var fileImage: NSImage?
-    @Published var fileLine = 0
-    @Published var plainMode = false
-    @Published var plainOne: Set<String> = []
-    @Published var plain: [String: Node] = [:]
-    @Published var plainPending: Set<String> = []
-    @Published var plainFailed: Set<String> = []
-    @Published var digestOpen = false
-    @Published var digest = Node()
-    @Published var digestPending = false
-    @Published var installLogs: [String: [String]] = [:]
-    @Published var revision = 0
+    var folded: Set<String> = []
+    var history = NavigationHistory()
+    var recent: [ChatSelection] = []
+    var sidebarOpen = true
+    var panelOpen = true
+    var focusSearch = false
+    var search = ""
+    var overviewMode = "direct"
+    var detailTab = "trace"
+    var detailMember = ""
+    var detailDocument = ""
+    var detailTask = ""
+    var detailFilter = "open"
+    var cardMember = ""
+    var cardAnchor = CGRect.zero
+    var memberMode = "app"
+    var editMember = ""
+    var newSecretary = false
+    var settingsSection = "profile"
+    var threadID = ""
+    var threadData = Node()
+    var threadDraft = ""
+    @ObservationIgnored private var threadPreviousPane = "overview"
+    var file = Node()
+    var workspaceMember = ""
+    var fileImage: NSImage?
+    var fileLine = 0
+    var plainMode = false
+    var plainOne: Set<String> = []
+    var plain: [String: Node] = [:]
+    var plainPending: Set<String> = []
+    var plainFailed: Set<String> = []
+    var digestOpen = false
+    var digest = Node()
+    var digestPending = false
+    var installLogs: [String: [String]] = [:]
+    var revision = 0
     let defaults: UserDefaults
     var drafts: [String: ChatDraft] = [:]
     var client: Client?
     var startupStage: ((String) -> Void)?
     private let host = ServerHost()
-    private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
-    private var plainTask: Task<Void, Never>?
-    private var plainQueue: Set<String> = []
-    private var refreshing = false, pending = false, starting = false
-    private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
-    private var conversationTask: Task<Void, Never>?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var plainTask: Task<Void, Never>?
+    @ObservationIgnored private var plainQueue: Set<String> = []
+    @ObservationIgnored private var refreshing = false
+    @ObservationIgnored private var pending = false
+    @ObservationIgnored private var starting = false
+    @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
+    @ObservationIgnored private var conversationTask: Task<Void, Never>?
     var isPreparingConversation: Bool { conversationTask != nil }
-    private var conversationGeneration = 0
-    private var messageGeneration = 0
-    private var liveGeneration = 0
-    private var fileRequest = UUID()
-    private var previousDecisions: [String: Set<String>] = [:]
-    private var previousMessages: [String: String] = [:]
-    private var previousCopies: Int?
+    @ObservationIgnored private var conversationGeneration = 0
+    @ObservationIgnored private var messageGeneration = 0
+    @ObservationIgnored private var liveGeneration = 0
+    @ObservationIgnored private var fileRequest = UUID()
+    @ObservationIgnored private var previousDecisions: [String: Set<String>] = [:]
+    @ObservationIgnored private var previousMessages: [String: String] = [:]
+    @ObservationIgnored private var previousCopies: Int?
     enum Sheet: String, Identifiable {
         case create, member, settings, copies, chart, protocolForm, card, secretary, forward, details, shortcuts
         var id: String { rawValue }
