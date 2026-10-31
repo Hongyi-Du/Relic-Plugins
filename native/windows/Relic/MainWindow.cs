@@ -77,7 +77,6 @@ public sealed partial class MainWindow : Window
         root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         SystemBackdrop = new MicaBackdrop();
         Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -91,7 +90,7 @@ public sealed partial class MainWindow : Window
         root.Resources["ContentDialogMaxWidth"] = 1100d;
 
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
-        columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
+        columns.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
         var sideLayout = new Grid(); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto }); sideLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); sideLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         sideLayout.Children.Add(sideTools); var treeScroll = Scroll(side); treeRegion.Children.Add(treeScroll); Grid.SetRow(treeRegion, 1); sideLayout.Children.Add(treeRegion); Grid.SetRow(sidebarFooter, 2); sideLayout.Children.Add(sidebarFooter);
@@ -124,7 +123,7 @@ public sealed partial class MainWindow : Window
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Children.Add(inspector); inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
         ConfigureNativeTitleBar();
-        root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; emptyConversation.Height = root.ActualHeight * .7; LayoutColumns(); };
+        root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; LayoutColumns(); };
         root.GotFocus += (_, e) =>
         {
             if (e.OriginalSource is TextBox box) { editing = box; editingComposer = null; selectedRich = null; }
@@ -141,7 +140,7 @@ public sealed partial class MainWindow : Window
         Closed += async (_, e) =>
         {
             if (closing) return;
-            e.Handled = true; SaveViewState(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
+            e.Handled = true; SaveViewState(); SaveWindowPlacement(); placementTimer.Stop(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
             await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
         root.Loaded += async (_, _) =>
@@ -158,7 +157,9 @@ public sealed partial class MainWindow : Window
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
-                LoadViewState(); ready = true; LayoutColumns();
+                LoadViewState();
+                if (root.ActualWidth <= ResponsiveLayout.InspectorOverlayWidth) panelOpen = false;
+                ready = true; LayoutColumns();
                 VisualStartup("registering native notifications");
                 AppNotificationManager.Default.NotificationInvoked += (_, _) => DispatcherQueue.TryEnqueue(Activate);
                 try { AppNotificationManager.Default.Register(); }
@@ -187,6 +188,7 @@ public sealed partial class MainWindow : Window
                 }, lifetime.Token);
             });
         };
+        ConfigureWindowPlacement();
     }
 
     private void AddShortcut(VirtualKey key, VirtualKeyModifiers modifiers, Func<Task> action)

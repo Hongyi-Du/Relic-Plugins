@@ -1,4 +1,35 @@
-# Current delivery policy — Amendment 5
+# Current delivery policy — Amendments 5 and 6
+
+Changes for the clients (2026-10-31, adaptive window placement): Windows stores
+normal bounds in DIPs relative to a monitor work area, separately from maximized
+state, in the per-user `window.json` beside `native-ui.json`. Default is centred
+`min(1440x900 DIP, 85% work area)`, minimum `min(960x640 DIP, work area)`.
+On a very small work area the minimum takes precedence over the 85% preference;
+the window never exceeds the work area. An unavailable monitor or a saved size
+that no longer fits falls back to a normal default; valid saved positions clamp
+inside the current work area. Windows honors WM_DPICHANGED's suggested rectangle.
+The person's 3840x2088 px work area at 150% gives 2160x1350 px (1440x900 DIP),
+centred at (840,369), and a 1440x960 px minimum (960x640 DIP).
+
+Changes for the clients (Amendment 6 capture contract): `native-window.yml`
+uses the existing full-window driver with `--window-sizing`, preserving the
+same four cases, light/dark and 1440x900/1024x700. The manifest adds
+`window_units: "dip"` on Windows and `"point"` on macOS; the old titlebar mode
+keeps its original physical-pixel Windows contract. Windows converts the
+requested logical size using actual window DPI; macOS already uses points.
+`window-report.json` and every original `.window-chrome.json` are retained.
+The Windows `sizing` receipt records the untouched initial frame, work area,
+actual DPI, default/minimum policy and final responsive pane sizes. The macOS
+REQUESTS fields `initial_window_frame`, `visible_screen_frame`,
+`minimum_window_size`, `inspector_overlay`, and `sidebar_width_pt` are retained
+unchanged. No server API change is needed. Screenshots are actual full windows,
+not scaled images. 150% screenshots are claimed only if actual window DPI is
+144; the scale-independent sizing tests also cover 100/125/150/200%.
+
+The production layout uses the reference's 1180 DIP inspector overlay,
+900 DIP hidden title, and 820 DIP compact sidebar breakpoints. Startup closes
+the inspector at 1180 DIP and below, as the reference does. Capture dimensions
+are applied only behind the existing explicit GitHub Actions capture flags.
 
 The person accepted the current native appearance and ended element-parity
 iteration. The historical requirements and measurements below remain evidence,

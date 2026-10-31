@@ -76,11 +76,13 @@ public sealed partial class MainWindow
     private void LayoutColumns()
     {
         if (columns.ColumnDefinitions.Count < 3) return;
-        var available = root.ActualWidth > 0 ? root.ActualWidth : 1440;
-        var leftWidth = sideOpen ? Math.Clamp(sideWidth, 200, Math.Max(200, available - 620)) : 0;
-        var overlay = available <= 1180;
+        var available = root.ActualWidth;
+        if (available <= 0) return;
+        var leftWidth = sideOpen ? ResponsiveLayout.SidebarWidth(available, sideWidth) : 0;
+        var overlay = available <= ResponsiveLayout.InspectorOverlayWidth;
+        appTitle.Visibility = available <= ResponsiveLayout.HiddenTitleWidth ? Visibility.Collapsed : Visibility.Visible;
         var desiredPaneWidth = pane == "files" ? fileWidth : panelWidth;
-        var actualPaneWidth = overlay ? Math.Min(desiredPaneWidth, available - 48) : Math.Clamp(desiredPaneWidth, 280, Math.Max(280, available - leftWidth - 320));
+        var actualPaneWidth = ResponsiveLayout.InspectorWidth(available, desiredPaneWidth);
         columns.ColumnDefinitions[0].Width = new GridLength(leftWidth);
         columns.ColumnDefinitions[2].Width = new GridLength(panelOpen && !overlay ? actualPaneWidth : 0);
         Grid.SetColumn(inspectorSurface, overlay ? 0 : 2); Grid.SetColumnSpan(inspectorSurface, overlay ? 3 : 1);
