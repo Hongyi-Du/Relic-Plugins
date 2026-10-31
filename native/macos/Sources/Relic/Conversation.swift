@@ -298,6 +298,7 @@ struct ConversationStream: View {
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
                             ForEach(rows) { row in
+                                ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
                                     ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
@@ -305,8 +306,9 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.id(row.id).onAppear { PerformanceRendering.rowAppeared() }
+                                }.onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
+                                }.id(row.id)
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in

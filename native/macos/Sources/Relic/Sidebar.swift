@@ -32,7 +32,7 @@ struct Sidebar: View {
                     ForEach(OrganizationOutline.rows(organizations: m.organizations, selected: m.organization,
                         members: m.members, folded: m.folded, search: m.search, groupLabel: m.t("common.group_chat"),
                         secretaryLabel: m.t("common.secretary"), revealMembers: revealMembers && !m.snapshot["org"].isNull)) { row in
-                        SidebarOutlineRow(row: row)
+                        ProgressiveRow(estimatedHeight: row.kind == .organization ? 46 : 61) { SidebarOutlineRow(row: row) }
                     }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                     }
