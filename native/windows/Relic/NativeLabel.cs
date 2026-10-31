@@ -482,11 +482,13 @@ public sealed class NativeLabel : Panel
                 {
                     prepared?.Dispose(); cancellation.Dispose();
                     Interlocked.Decrement(ref pendingPreparations);
+                    PresentationPreparation.NotifyCompletion();
                 }
             }))
             {
                 prepared?.Dispose(); cancellation.Dispose();
                 Interlocked.Decrement(ref pendingPreparations);
+                PresentationPreparation.NotifyCompletion();
             }
         }
     }

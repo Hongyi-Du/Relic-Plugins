@@ -34,6 +34,13 @@ Kinds and fields:
   the actual first historical message is reachable, then return to the latest.
   The result must include `pages_loaded`, `oldest_message_id`, and
   `history_complete`. Merely scrolling the first page is not completion.
+  On Windows, first passively verify the initial final row, send an actual
+  upward wheel, and drive the real scroll control to request earlier pages.
+  Layout while reading history must not enable automatic following. Return
+  with an actual End key on the focused conversation, require its routed key
+  event, then passively verify the final row. Every boundary must be realized,
+  visible and within 1 DIP; the driver never invokes paging/follow business
+  methods or repairs the bottom with repeated numeric offsets.
 
 Native monitoring starts as soon as the UI dispatcher/window exists, before
 initial organization rendering. A single background worker posts at most one UI

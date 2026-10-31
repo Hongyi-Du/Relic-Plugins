@@ -1,5 +1,28 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+63b688d / 41184905855 fails real history after 171 recorded actions, despite
+154.160 ms max UI delay, 401.973 MiB peak and 37 threads. The actual upward
+wheel cancels follow-latest, but virtual extent changes after the second page
+are misclassified as a new end intent and reactivate it. Whole-window captures
+41184905906 separately expose 25.800 /32.800 DIP end gaps at 1440 /1024 widths.
+Neither is accepted. Python validation 41184909445 passes all four jobs and
+Windows native builds/tests/packages pass 41184909458; runtime fixes continue.
+
+Changes for the clients: follow-latest is a user-input state, not an inference
+from estimated extent changes. The Windows history scenario now returns using
+actual SendInput End down/up to the focused scroll control, records its routed
+key event, and passively verifies the real final row and <=1 DIP gap. It never
+calls a business paging/follow method or repeatedly repairs the bottom from
+the test. Reading history must not reactivate follow-latest by layout alone.
+Four actual preparation-completion paths notify the active follow owner so a
+final canceled or off-pane job cannot leave it waiting without a layout event.
+The prepared tail's content coordinate distinguishes a changed row position
+from offset changes caused only by scrolling. All existing limits stay intact.
+Mac REQUESTS at dedf7bd records cold native shadow-compositing changes; no
+shared API change is requested. Mac unit run 41184909458 still fails actual
+appended text visibility and a 647 pt end gap in ConversationKeyboardTests.
+These results remain failures, independently of response-time measurements.
+
 The follow correction now reuses a realized final row, offers an explicit
 native anchor only when that row actually intersects the viewport, and waits
 for completed scrolling and content preparation before correcting. Corrections
