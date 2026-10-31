@@ -9,12 +9,11 @@ struct NativeSurfaceFill: NSViewRepresentable {
     let corners: [CGFloat]
     let owner: String?
     var ownedLayer = true
-    var componentBits = 8
     @Environment(\.captureRegion) private var region
     private static let live = NSHashTable<NativeSurfaceFillView>.weakObjects()
     func makeNSView(context: Context) -> NativeSurfaceFillView {
         let view = NativeSurfaceFillView(); Self.live.add(view)
-        if ownedLayer { view.enableOwnedBackingImage(componentBits: componentBits) }
+        if ownedLayer { view.enableOwnedBackingImage() }
         return view
     }
     func updateNSView(_ view: NativeSurfaceFillView, context: Context) {
@@ -40,7 +39,6 @@ struct NativeSurfaceFill: NSViewRepresentable {
     private var backingBounds = NSRect.zero, backingFrame = NSRect.zero
     private var backingWindow: ObjectIdentifier?
     private var backingScale: CGFloat = 1
-    private var componentBits = 8
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func isAccessibilityElement() -> Bool { false }
@@ -48,9 +46,7 @@ struct NativeSurfaceFill: NSViewRepresentable {
     override func makeBackingLayer() -> CALayer {
         usesOwnedBackingImage ? NativeFillBackingLayer(owner: self) : super.makeBackingLayer()
     }
-    func enableOwnedBackingImage(componentBits: Int = 8) {
-        precondition(componentBits == 8 || componentBits == 16)
-        self.componentBits = componentBits
+    func enableOwnedBackingImage() {
         usesOwnedBackingImage = true; canDrawSubviewsIntoLayer = false; wantsLayer = true
         invalidatePaint()
     }
@@ -79,9 +75,8 @@ struct NativeSurfaceFill: NSViewRepresentable {
         guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite,
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: Int(ceil(bounds.width * scale)), height: Int(ceil(bounds.height * scale)),
-                bitsPerComponent: componentBits, bytesPerRow: 0, space: space,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
-                    (componentBits == 16 ? CGBitmapInfo.byteOrder16Big.rawValue : CGBitmapInfo.byteOrder32Big.rawValue)) else {
+                bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
             layer.contents = nil; backingImage = nil; backingDraw = nil; return
         }
         context.translateBy(x: 0, y: CGFloat(context.height)); context.scaleBy(x: scale, y: -scale)
@@ -138,6 +133,7 @@ struct NativeSurfaceFill: NSViewRepresentable {
                     "bits_per_pixel": context.bitsPerPixel, "bytes_per_row": context.bytesPerRow,
                     "bitmap_info": context.bitmapInfo.rawValue, "alpha_info": context.alphaInfo.rawValue,
                     "color_space": context.colorSpace?.name.map { $0 as String } as Any? ?? NSNull(),
+                    "data_address": context.data.map { "0x" + String(UInt(bitPattern: $0), radix: 16) } as Any? ?? NSNull(),
                     "bitmap_data_available": context.data != nil],
                 "context_ctm": [context.ctm.a, context.ctm.b, context.ctm.c, context.ctm.d, context.ctm.tx, context.ctm.ty],
                 "context_clip": ElementCapture.box(context.boundingBoxOfClipPath)]

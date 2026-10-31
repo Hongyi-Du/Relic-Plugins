@@ -3,19 +3,24 @@ import AppKit
 @testable import Relic
 
 @MainActor final class NativeCaretReadinessTests: XCTestCase {
+    private final class TextOwner: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
     func testReadinessWaitsForActualFiniteAnimationWithoutRemovingOrHidingAnything() async throws {
         _ = NSApplication.shared
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 70))
+        let root = TextOwner(frame: NSRect(x: 0, y: 0, width: 160, height: 70))
         let indicator = NSTextInsertionIndicator(frame: NSRect(x: 20, y: 20, width: 2, height: 18))
         indicator.wantsLayer = true; root.addSubview(indicator)
-        let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = root; window.orderFront(nil)
+        let window = NSWindow(contentRect: root.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root; window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        XCTAssertTrue(window.makeFirstResponder(root))
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
         root.layoutSubtreeIfNeeded(); root.displayIfNeeded(); CATransaction.flush()
-        // This standalone indicator has no text editor to own its automatic
-        // focus transitions. Give the fixture a stable display mode before
-        // adding the animation; production capture never changes this mode.
-        indicator.displayMode = .visible
+        // A custom text owner manages its real first-responder state, as an
+        // NSTextView does. The .visible mode disables AppKit's cursor
+        // animations, so use the normal active text-owner mode for this test.
+        indicator.displayMode = .automatic
         let layer = try XCTUnwrap(indicator.layer)
         let transition = CABasicAnimation(keyPath: "opacity")
         transition.fromValue = 1; transition.toValue = 1; transition.duration = 0.15
