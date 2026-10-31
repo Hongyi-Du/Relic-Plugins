@@ -22,7 +22,12 @@ public sealed class NativeLabel : Panel
 {
     private readonly Image image;
     private readonly string text, familyList, locale;
-    private readonly float fontSize, lineHeight;
+    private readonly float baseFontSize, baseLineHeight;
+    private readonly bool scaleText;
+    private readonly Windows.UI.ViewManagement.UISettings textSettings = new();
+    private double textScale;
+    private float fontSize => (float)(baseFontSize * textScale);
+    private float lineHeight => (float)(baseLineHeight * textScale);
     private readonly uint weight;
     private readonly bool characterEllipsis, accessibleText, wrapWholeWords, primaryFontLineSpacing;
     private IntPtr format, layout, surfaceInterop, trimmingSign;
@@ -43,10 +48,12 @@ public sealed class NativeLabel : Panel
     private string? failure;
 
     public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
-        bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false, bool primaryFontLineSpacing = false)
+        bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false, bool primaryFontLineSpacing = false,
+        bool scaleText = true)
     {
-        this.text = text; this.familyList = familyList; this.fontSize = checked((float)fontSize);
-        weight = fontWeight; this.locale = locale; this.lineHeight = checked((float)lineHeight);
+        this.text = text; this.familyList = familyList; baseFontSize = checked((float)fontSize);
+        weight = fontWeight; this.locale = locale; baseLineHeight = checked((float)lineHeight);
+        this.scaleText = scaleText; textScale = scaleText ? textSettings.TextScaleFactor : 1;
         resolvedLineHeight = this.lineHeight;
         this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
         this.wrapWholeWords = wrapWholeWords;
@@ -253,6 +260,7 @@ public sealed class NativeLabel : Panel
     private void Attach()
     {
         DetachSubscriptions();
+        if (scaleText) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
         observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
         DependencyObject? parent = VisualTreeHelper.GetParent(this);
         while (parent != null && parent is not ContentPresenter) parent = VisualTreeHelper.GetParent(parent);
@@ -260,6 +268,17 @@ public sealed class NativeLabel : Panel
         if (presenter != null)
             foregroundToken = presenter.RegisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, (_, _) => ObserveForeground());
         ObserveForeground(); InvalidateMeasure(); QueueDraw();
+    }
+    private void TextScaleChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>
+        DispatcherQueue.TryEnqueue(RefreshTextScale);
+    private void RefreshTextScale()
+    {
+        var value = scaleText ? textSettings.TextScaleFactor : 1;
+        if (value == textScale) return;
+        textScale = value;
+        Release(ref layout); Release(ref trimmingSign); Release(ref format);
+        layoutWidth = layoutHeight = -1; resolvedLineHeight = lineHeight;
+        InvalidateMeasure(); InvalidateDraw(); QueueDraw();
     }
     private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
     {
@@ -301,6 +320,7 @@ public sealed class NativeLabel : Panel
     }
     private void DetachSubscriptions()
     {
+        textSettings.TextScaleFactorChanged -= TextScaleChanged;
         if (observedRoot != null) { observedRoot.Changed -= RootChanged; observedRoot = null; }
         if (presenter != null) { presenter.UnregisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, foregroundToken); presenter = null; }
         if (foreground != null)

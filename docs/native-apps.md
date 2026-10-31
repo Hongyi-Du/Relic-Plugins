@@ -30,6 +30,13 @@ The production layout uses the reference's 1180 DIP inspector overlay,
 900 DIP hidden title, and 820 DIP compact sidebar breakpoints. Startup closes
 the inspector at 1180 DIP and below, as the reference does. Capture dimensions
 are applied only behind the existing explicit GitHub Actions capture flags.
+Windows custom DirectWrite labels and selectable text now also observe
+`UISettings.TextScaleFactorChanged`, remeasure their glyphs and line breaks,
+and keep text scaling separate from display DPI. Standard WinUI text controls
+retain their native text-scale behavior; the root layout is never bitmap-scaled.
+macOS uses AppKit point frames and autosaving, and caps its minimum to the
+85% default on unusually small screens. Its startup/frame receipts requested in
+`native/macos/REQUESTS.md` are preserved by the shared driver.
 
 The person accepted the current native appearance and ended element-parity
 iteration. The historical requirements and measurements below remain evidence,

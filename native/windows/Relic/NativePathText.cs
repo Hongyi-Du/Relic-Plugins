@@ -25,7 +25,10 @@ public sealed partial class NativePathText : UserControl
     { internal double X { get; set; } }
     private readonly Surface body;
     private readonly string locale;
-    private readonly NativeSelectableTextStyle textStyle;
+    private readonly NativeSelectableTextStyle baseTextStyle;
+    private NativeSelectableTextStyle textStyle;
+    private readonly Windows.UI.ViewManagement.UISettings textSettings = new();
+    private double textScale = 1;
     private readonly NativeTextSourceMap sourceMap;
     private readonly MenuFlyout selectionMenu;
     private readonly List<PaintedLine> lines = [];
@@ -113,7 +116,7 @@ public sealed partial class NativePathText : UserControl
 
     private NativePathText(string text, string locale, string copyLabel, string selectAllLabel, NativeSelectableTextStyle style)
     {
-        SourceText = text; this.locale = locale; textStyle = style;
+        SourceText = text; this.locale = locale; baseTextStyle = textStyle = style;
         sourceMap = NativeTextSourceMap.Create(text, style.NormalWhitespace);
         IsTabStop = true; UseLayoutRounding = false; Padding = new Thickness(0); BorderThickness = new Thickness(0);
         MinWidth = MinHeight = 0; HorizontalAlignment = style.Center ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
@@ -144,6 +147,23 @@ public sealed partial class NativePathText : UserControl
         copy.Click += (_, _) => Copy(); all.Click += (_, _) => SetSelection(0, SourceText.Length);
         menu.Opening += (_, _) => copy.IsEnabled = SelectionEnd > SelectionStart;
         menu.Items.Add(copy); menu.Items.Add(all); ContextFlyout = menu;
+        RefreshTextScale();
+        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); };
+        Unloaded += (_, _) => textSettings.TextScaleFactorChanged -= TextScaleChanged;
+    }
+
+    private void TextScaleChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>
+        DispatcherQueue.TryEnqueue(RefreshTextScale);
+    private void RefreshTextScale()
+    {
+        var value = textSettings.TextScaleFactor;
+        if (textScale == value) return;
+        textScale = value;
+        textStyle = baseTextStyle with { Size = baseTextStyle.Size * value, LineHeight = baseTextStyle.LineHeight * value,
+            StrutSize = baseTextStyle.StrutSize * value, StrutLineHeight = baseTextStyle.StrutLineHeight * value };
+        measured = strut = null; measuredWidth = double.NaN;
+        bannerIntrinsic = null; bannerIntrinsicFailure = null;
+        body.InvalidateMeasure(); InvalidateMeasure();
     }
 
     protected override AutomationPeer OnCreateAutomationPeer() => peer ??= new NativePathPeer(this);
@@ -237,7 +257,7 @@ public sealed partial class NativePathText : UserControl
             foreach (var segment in chosen)
             {
                 var label = new NativeLabel(sourceMap.Paint[segment.Start..segment.End], textStyle.Family,
-                    textStyle.Size, textStyle.Weight, locale, textStyle.LineHeight)
+                    textStyle.Size, textStyle.Weight, locale, textStyle.LineHeight, scaleText: false)
                 { Foreground = Foreground, IsHitTestVisible = false };
                 body.Children.Add(label); label.Measure(new Size(textStyle.NormalWhitespace ? double.PositiveInfinity : width, double.PositiveInfinity));
                 var baseline = label.FirstBaseline;
@@ -281,7 +301,7 @@ public sealed partial class NativePathText : UserControl
                 LineStackingStrategy = textStyle.Kind == "banner" ? LineStackingStrategy.BlockLineHeight : LineStackingStrategy.MaxHeight,
                 TextWrapping = textStyle.Kind == "banner" ? TextWrapping.WrapWholeWords : TextWrapping.Wrap,
                 TextAlignment = textStyle.Center ? TextAlignment.Center : TextAlignment.Left,
-                IsTextSelectionEnabled = true, Foreground = Foreground };
+                IsTextSelectionEnabled = true, Foreground = Foreground, IsTextScaleFactorEnabled = false };
             if (textStyle.Kind == "banner") fallback.Language = locale;
             fallback.Inlines.Add(new Run { Text = SourceText, FontFamily = new FontFamily(textStyle.Family), FontSize = textStyle.Size });
             body.Children.Add(fallback); fallback.Measure(new Size(width, double.PositiveInfinity));
