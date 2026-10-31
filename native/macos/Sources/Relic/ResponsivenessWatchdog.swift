@@ -10,6 +10,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var pending: Double = 0, pendingEpoch: Double = 0, worst: Double = 0
     private var pings = 0, sequence = 0
     private var stage = "startup"
+    private var sampledStall = false
 
     init(output: URL) { self.output = output }
     func begin() {
@@ -32,11 +33,22 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let now = ProcessInfo.processInfo.systemUptime
         if pending > 0 { worst = max(worst, (now - pending) * 1000) }
         let enqueue = pending == 0
+        let sampleStall = worst > 250 && !sampledStall
+        if sampleStall { sampledStall = true }
         if enqueue { pending = now; pendingEpoch = Self.epoch }
         sequence += 1
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage]
         lock.unlock()
+        if sampleStall {
+            // CI-only diagnosis after the unchanged limit has already failed.
+            // Sampling our own process preserves the blocked native call stack.
+            let sampler = Process()
+            sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+            sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), "1", "1", "-file", output.appendingPathComponent("first-stall.sample.txt").path]
+            sampler.standardOutput = FileHandle.nullDevice; sampler.standardError = FileHandle.nullDevice
+            try? sampler.run()
+        }
         if enqueue {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

@@ -51,7 +51,7 @@ extension Model {
         if card["state"].text == "vacant" { return t("banner.vacant") }
         return t(card["has_transcript"].flag ? "banner.transcript" : "banner.inbox")
     }
-    private var displayNow: Date {
+    var displayNow: Date {
         if VisualCapture.enabled, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",
            let iso = ProcessInfo.processInfo.environment["RELIC_VISUAL_NOW"], let date = Timeline.date(Node(iso)) { return date }
         return Date()

@@ -263,6 +263,7 @@ struct ConversationStream: View {
     @FocusState private var viewportFocused: Bool
     @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
+    @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     var body: some View {
         ScrollViewReader { proxy in
@@ -287,11 +288,7 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.id(row.id).onAppear {
-                                    if row.id == rows.first?.id, !initialLoad, !following.followsBottom, m.moreChat, !m.loadingOlder {
-                                        m.run { try await m.loadOlder(); proxy.scrollTo(row.id, anchor: .top) }
-                                    }
-                                }
+                                }.id(row.id)
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in
@@ -312,14 +309,24 @@ struct ConversationStream: View {
                             // Observe them, but never feed a layout change back
                             // into scrollTo; only new content requests anchoring.
                             _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
+                            if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
+                               !initialLoad, !following.followsBottom, olderAnchor == nil, m.moreChat, !m.loadingOlder,
+                               let first = m.streamRows.first?.id {
+                                olderAnchor = first
+                                m.run {
+                                    do { try await m.loadOlder() }
+                                    catch { olderAnchor = nil; throw error }
+                                }
+                            }
                         }
                 }
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; following = ConversationScrollFollowing() }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
                 .onChange(of: m.streamVersion) {
                     keyboard.discardDisclosurePosition()
                     following.contentChanged()
-                    if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { proxy.scrollTo("end", anchor: .bottom); initialLoad = false }
+                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
+                    else if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { proxy.scrollTo("end", anchor: .bottom); initialLoad = false }
                 }
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
         }

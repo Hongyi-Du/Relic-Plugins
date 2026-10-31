@@ -153,8 +153,11 @@ public enum Timeline {
         }
         flush()
         if !member["embedded"].flag || steps.isEmpty && live.isEmpty { items += chat }
-        return items.enumerated().map { (index: $0.offset, item: $0.element, at: date($0.element["at"]) ?? .distantPast) }
-            .sorted { $0.at == $1.at ? $0.index < $1.index : $0.at < $1.at }.map(\.item)
+        var dated: [(index: Int, item: Node, at: Date)] = []
+        dated.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() { dated.append((index: index, item: item, at: date(item["at"]) ?? Date.distantPast)) }
+        dated.sort { left, right in left.at == right.at ? left.index < right.index : left.at < right.at }
+        return dated.map { $0.item }
     }
     public static func mergeInBackground(_ current: [Node], _ incoming: [Node]) async -> [Node] { merge(current, incoming) }
     public static func merge(_ current: [Node], _ incoming: [Node]) -> [Node] {

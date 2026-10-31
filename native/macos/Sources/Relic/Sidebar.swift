@@ -22,7 +22,7 @@ struct Sidebar: View {
                     .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
             ScrollView {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0) {
                     HStack {
                         ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
                         if !m.organizations.isEmpty { ReferenceLabel(String(m.organizations.count), size: 12, color: RelicStyle.muted, lines: 0) }
@@ -95,7 +95,7 @@ struct OrgTree: View {
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
                 if active && !folded {
-                    VStack(spacing: 1) {
+                    LazyVStack(spacing: 1) {
                         if query.isEmpty || orgHit || m.t("common.group_chat").localizedCaseInsensitiveContains(query) {
                             SidebarChatRow(who: nil, group: true)
                         }

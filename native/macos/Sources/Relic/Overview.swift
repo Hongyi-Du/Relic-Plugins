@@ -303,7 +303,7 @@ struct TaskReport: View {
 struct ProtocolList: View {
     @EnvironmentObject var m: Model
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LazyVStack(alignment: .leading, spacing: 8) {
             if ["protocols", "inherited_protocols", "replaced_protocols"].allSatisfy({ m.snapshot[$0].rows.isEmpty }) { Text(m.t("details.no_protocols")) }
             ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { key in
                 if !m.snapshot[key].rows.isEmpty {
