@@ -47,6 +47,7 @@ import RelicCore
     weak var activeSpeech: SpeechInput?
     @Published var moreChat = false
     @Published var loadingOlder = false
+    private(set) var historyPagesLoaded = 0
     @Published var windowSize = CGSize(width: 1440, height: 900)
     @Published var expandRules = false
     @Published var recipientPicker = false
@@ -107,6 +108,7 @@ import RelicCore
     private var refreshing = false, pending = false, starting = false
     private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     private var conversationTask: Task<Void, Never>?
+    var isPreparingConversation: Bool { conversationTask != nil }
     private var conversationGeneration = 0
     private var messageGeneration = 0
     private var fileRequest = UUID()
@@ -156,8 +158,9 @@ import RelicCore
             let language = Words.normalize(preferences["lang"].text.isEmpty ? Locale.current.identifier : preferences["lang"].text)
             _ = try await post("/api/prefs", ["lang": language])
             startupStage?("language")
-            words.load(try await get("/api/i18n?lang=" + language)); ready = true
+            words.load(try await get("/api/i18n?lang=" + language))
             try await refresh()
+            ready = true
             eventTask = Task { [weak self] in
                 guard let client = self?.client else { return }
                 await client.events { [weak self] event in await self?.receive(event) }
@@ -308,7 +311,7 @@ import RelicCore
         // Changing chats within an organization must not tear down its member
         // tree and inspector, then build them again after the same snapshot.
         if !sameOrganization { snapshot = Node() }
-        liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
+        liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false; historyPagesLoaded = 0
         selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
@@ -335,6 +338,7 @@ import RelicCore
         let result = try await get(selected.path("/chat?kind=" + (member.isEmpty ? "group" : "private") + "&member=" + Client.segment(member) + "&limit=200&before=" + Client.segment(before)))
         guard selected == selection else { return }
         guard await mergeMessages(result["items"].rows, selected: selected, prepend: true) else { return }
+        historyPagesLoaded += 1
         moreChat = result["more"].flag
     }
     private func mergeMessages(_ incoming: [Node], selected: ChatSelection, prepend: Bool = false) async -> Bool {

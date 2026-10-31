@@ -43,6 +43,7 @@ import RelicCore
             await current.start()
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
+            try await settleConversation(current)
             for action in manifest["plan"].rows {
                 watchdog.action(action["id"].text + ":" + action["kind"].text)
                 receipts.append(try await perform(action, model: current, window: window))
@@ -81,7 +82,7 @@ import RelicCore
         switch kind {
         case "group", "private":
             try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
-            await settle()
+            try await settleConversation(m)
             guard m.organization == action["org"].text else { throw RelicError.message("Organization navigation did not complete") }
         case "pane": m.setPane(action["pane"].text); await settle()
         case "resize":
@@ -100,19 +101,22 @@ import RelicCore
             }
             await settle(); m.sheet = nil; await settle()
         case "scroll-history":
-            try await m.select(action["org"].text); await settle()
-            var pages = 0
+            try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {
+                while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
+                guard m.moreChat else { break }
                 try scroll(window, toTop: true)
-                let before = m.messages.first?["id"].text
-                try await m.loadOlder(); pages += 1; await settle()
-                if m.moreChat && m.messages.first?["id"].text == before { throw RelicError.message("Older page did not advance") }
+                let before = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
+                try await m.loadOlder(); try await settleConversation(m)
+                while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
+                let after = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
+                if m.moreChat && after == before { throw RelicError.message("Older page did not advance") }
             }
-            try scroll(window, toTop: true); await settle()
-            result["pages_loaded"] = pages
+            try scroll(window, toTop: true); try await settleConversation(m)
+            result["pages_loaded"] = m.historyPagesLoaded
             result["oldest_message_id"] = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].integer ?? 0
             result["history_complete"] = !m.moreChat
-            try scroll(window, toTop: false); await settle()
+            try scroll(window, toTop: false); try await settleConversation(m)
         default: throw RelicError.message("Unknown performance action: " + kind)
         }
         result["passed"] = true
@@ -121,6 +125,19 @@ import RelicCore
         return result
     }
     private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func settleConversation(_ model: Model) async throws {
+        // A completed HTTP request does not mean SwiftUI displayed its rows.
+        // Wait for projection, the real stream's observation, and visible
+        // Markdown tasks, while leaving the main run loop/watchdog running.
+        let deadline = ProcessInfo.processInfo.systemUptime + 15
+        repeat {
+            await settle()
+            if !model.isPreparingConversation,
+               PerformanceRendering.streamVersion == model.streamVersion,
+               PerformanceRendering.pendingMarkdown == 0 { return }
+        } while ProcessInfo.processInfo.systemUptime < deadline
+        throw RelicError.message("Conversation did not finish displaying its current rows and Markdown")
+    }
     private static func click(_ window: NSWindow, target: String) async throws -> Int {
         guard let root = window.contentView, let bounds = PerformancePointer.bounds[target], bounds.width > 0, bounds.height > 0 else {
             throw RelicError.message("Native pointer target has no laid-out bounds: " + target)

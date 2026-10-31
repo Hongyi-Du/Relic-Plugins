@@ -340,6 +340,8 @@ final class ModelTransport: URLProtocol {
             return (200, #"{"items":[{"id":10,"body":"older"}],"more":false}"#)
         }
         try await model.loadOlder(); XCTAssertEqual(model.messages.first?["id"].integer, 10); XCTAssertFalse(model.moreChat)
+        XCTAssertEqual(model.historyPagesLoaded, 1)
+        model.setSelection(ChatSelection("b")); XCTAssertEqual(model.historyPagesLoaded, 0)
     }
     func testRefreshingLatestPageDoesNotReopenExhaustedHistoryOrDiscardOlderMessages() async throws {
         let model = try model(); defer { model.stop() }
@@ -378,6 +380,7 @@ final class ModelTransport: URLProtocol {
         }
         await fulfillment(of: [prepared], timeout: 5)
         XCTAssertEqual(model.streamRows.map(\.id), ["id:9000#0"])
+        XCTAssertFalse(model.isPreparingConversation)
         subscription.cancel()
     }
     func testEventBurstDuringSlowRefreshProducesOneFollowupWithoutAQueuedTimer() async throws {

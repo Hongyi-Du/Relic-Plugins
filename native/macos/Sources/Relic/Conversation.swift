@@ -67,6 +67,8 @@ struct RichText: View {
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         } }
         }.task(id: text) {
+            let ticket = PerformanceRendering.beginMarkdown()
+            defer { PerformanceRendering.endMarkdown(ticket) }
             let value = await MarkdownPreparation.shared.prepare(text)
             if !Task.isCancelled { prepared = value }
         }.onDisappear { prepared = nil }
@@ -325,12 +327,13 @@ struct ConversationStream: View {
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
                 .onChange(of: m.streamVersion) {
+                    PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { proxy.scrollTo("end", anchor: .bottom); initialLoad = false }
                 }
-                .onAppear { proxy.scrollTo("end", anchor: .bottom) }
+                .onAppear { PerformanceRendering.observed(streamVersion: m.streamVersion); proxy.scrollTo("end", anchor: .bottom) }
         }
     }
 }

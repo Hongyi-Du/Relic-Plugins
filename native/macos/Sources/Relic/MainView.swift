@@ -17,6 +17,7 @@ struct MainView: View {
     @StateObject private var panelResizeTrace = PanelResizeTrace()
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
     private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
+    private var loadingOrganization: Bool { !m.ready || !m.organization.isEmpty && m.snapshot["org"].isNull }
     private var panelWidth: CGFloat {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
@@ -25,12 +26,15 @@ struct MainView: View {
         VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
-            if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
+            if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
                 if m.sidebarOpen { Sidebar().frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
-                ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
-                if m.panelOpen && !floatingPanel { inspector }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
+                if loadingOrganization { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                else {
+                    ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
+                    if m.panelOpen && !floatingPanel { inspector }
+                }
+            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
