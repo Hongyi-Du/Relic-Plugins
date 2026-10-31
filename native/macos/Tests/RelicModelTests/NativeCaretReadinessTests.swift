@@ -12,6 +12,10 @@ import AppKit
         window.isReleasedWhenClosed = false; window.contentView = root; window.orderFront(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
         root.layoutSubtreeIfNeeded(); root.displayIfNeeded(); CATransaction.flush()
+        // This standalone indicator has no text editor to own its automatic
+        // focus transitions. Give the fixture a stable display mode before
+        // adding the animation; production capture never changes this mode.
+        indicator.displayMode = .visible
         let layer = try XCTUnwrap(indicator.layer)
         let transition = CABasicAnimation(keyPath: "opacity")
         transition.fromValue = 1; transition.toValue = 1; transition.duration = 0.15
