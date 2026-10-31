@@ -1,9 +1,43 @@
 import XCTest
 import AppKit
 import SwiftUI
+import RelicCore
 @testable import Relic
 
 @MainActor final class WindowObservationTests: XCTestCase {
+    func testInspectorKeepsItsNativeControlsAcrossResponsiveBreakpoints() async throws {
+        _ = NSApplication.shared
+        let suite = "Relic.InspectorPersistence." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = Model(defaults: defaults)
+        model.ready = true; model.organization = "test"; model.panelOpen = true; model.pane = "files"
+        model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
+        let host = NSHostingView(rootView: MainView().environmentObject(model))
+        host.sizingOptions = []; host.autoresizingMask = [.width, .height]
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { model.stop(); window.orderOut(nil); window.contentView = nil; window.close() }
+        func tab(_ view: NSView) -> ReferenceLabelView? {
+            if let label = view as? ReferenceLabelView, label.productionOwner == "relic-tab/files" { return label }
+            for child in view.subviews { if let label = tab(child) { return label } }
+            return nil
+        }
+        var identity: ObjectIdentifier?
+        for width in [CGFloat(1440), 1180, 1024, 1440] {
+            window.setContentSize(NSSize(width: width, height: 800))
+            let deadline = ProcessInfo.processInfo.systemUptime + 6
+            var quiet = 0
+            repeat {
+                try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+                quiet = RowMountQueue.shared.isIdle && tab(host) != nil ? quiet + 1 : 0
+            } while quiet < 3 && ProcessInfo.processInfo.systemUptime < deadline
+            XCTAssertGreaterThanOrEqual(quiet, 3)
+            let current = ObjectIdentifier(try XCTUnwrap(tab(host)))
+            if let identity { XCTAssertEqual(current, identity, "Resizing must reuse the native inspector, not recreate its controls") }
+            else { identity = current }
+        }
+    }
     private struct GeometryLabel: View {
         @EnvironmentObject var model: Model
         var body: some View {
