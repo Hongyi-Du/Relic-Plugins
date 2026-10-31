@@ -1,5 +1,16 @@
 ## 2026-10-31: Amendment 6 window placement and reflow
 
+Shared Windows capture failure at `d67957a`: all four cases exit with
+`3221226107` during window construction. The retained `app-unhandled.jsonl`
+reports `InvalidCastException: No such interface supported`, through
+`IReadOnlyListImpl<T>.GetEnumerator -> Enumerable.Select(...).ToArray ->
+ConfigureWindowPlacement`, `WindowLifecycle.cs:29`.
+[Failing job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41159185601/job/124412807319).
+Please avoid the unsupported WinRT collection enumeration when collecting
+DisplayAreas (use the collection's supported count/index access), then verify
+the same four cases. The original receipt is downloaded under
+`S:\Codex\Outputs\Relic-native-visual\window-d67957a\windows\`.
+
 macOS is replacing the fixed SwiftUI startup size with a point-based policy:
 `min(1440 x 900 pt, visibleFrame.size * 0.85)`, centred in the current screen,
 an adaptive minimum, and AppKit frame autosaving/restoration. Screen changes
