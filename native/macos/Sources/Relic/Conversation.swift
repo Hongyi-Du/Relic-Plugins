@@ -301,13 +301,17 @@ struct ConversationStream: View {
     @State private var userFollowsLatest = true
     @State private var preservingDisclosure = false
     @State private var initialLoad = true
-    @State private var presentedRowCount = 0
+    @State private var firstPresentedID: String?
     @State private var mountedViewport = false
     @State private var mountedComposer = false
     @State private var visibleRow: String?
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
+    private var firstPresentedIndex: Int {
+        guard let firstPresentedID else { return m.streamRows.count }
+        return m.streamRows.firstIndex { $0.id == firstPresentedID } ?? m.streamRows.count
+    }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -325,7 +329,7 @@ struct ConversationStream: View {
                                         .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
-                            ForEach(Array(rows.suffix(presentedRowCount))) { row in
+                            ForEach(Array(rows.dropFirst(firstPresentedIndex))) { row in
                                 ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
@@ -389,7 +393,7 @@ struct ConversationStream: View {
                             // following state during a Home/scroll transition.
                             // That state must not suppress the history pager.
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
-                               !initialLoad, olderAnchor == nil, m.moreChat, !m.loadingOlder,
+                               !initialLoad, firstPresentedIndex == 0, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {
                                 olderAnchor = first
                                 m.run {
@@ -423,11 +427,15 @@ struct ConversationStream: View {
                 // stack creates identity/state bookkeeping for every item in
                 // one transaction. Admit that full page in bounded batches,
                 // starting with its newest rows, without discarding any data.
-                while presentedRowCount < m.streamRows.count {
+                // Keep the first admitted identity stable when messages append.
+                // A fixed suffix count temporarily drops the visible first row
+                // on every append, invalidating SwiftUI's reading anchor.
+                while firstPresentedIndex > 0 {
                     let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    presentedRowCount = min(m.streamRows.count, presentedRowCount + 50)
+                    let next = max(0, firstPresentedIndex - 50)
+                    firstPresentedID = m.streamRows[next].id
                     do { try await Task.sleep(for: .milliseconds(32)) }
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)

@@ -1,5 +1,14 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+Source inspection found an additional concrete append bug in staged admission:
+`rows.suffix(presentedRowCount)` temporarily removes the visible first row when
+a message appends, until the asynchronous count catches up. Its missing identity
+invalidates the native reading anchor. Admission now retains the first admitted
+row's stable ID; new messages extend that range without removing existing rows.
+Prepending history admits older rows in batches of 50 and does not request the
+next API page until all of the existing page is admitted. The actual Home / new
+message / End regression covers preserving a person's history-reading position.
+
 7b3dbca / 41183087326 moves the cold composer below the threshold (183.980 ms
 mount scope) but still FAILS during message identity admission (353.158 ms UI
 max; 158.375 MiB, 9 threads). Per-turn identity admission is reduced from 200
