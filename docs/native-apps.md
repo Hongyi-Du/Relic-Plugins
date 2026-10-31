@@ -15,6 +15,18 @@ blocked UI must not block heartbeat/failure recording. Exercise every group and
 private chat, panes, dialogs, menus, breakpoint resizing, earlier history and a
 seeded three-minute interaction loop. No local application launches are allowed.
 
+Changes for the clients (observed random-click evidence): every monkey receipt
+in `performance-complete.json.actions` now needs a unique `id:"monkey-<index>"`,
+`pointer_target` (nonempty stable identity of the actual control), and
+`click_events` (integer >= 1 counted by that control's real click/action handler).
+The individual receipt count must equal `random_actions`, with at least two
+distinct targets during the full 180 seconds. Windows uses real pointer input
+and routed Click events. macOS must dispatch NSWindow mouse events or CGEvent
+input and record the native action handler's observation; setting the model or
+assigning a synthetic click count does not qualify. All existing latency,
+duration, exhaustive coverage and resource gates remain unchanged. The schema
+and pure receipt-validation regressions are in `scripts/performance/`.
+
 Reference contract correction: app.js currently requests 1000 messages per
 group/private page (lines 519/524), not 50. Both native clients retain that API
 page size and use viewport virtualization to avoid constructing that many visual

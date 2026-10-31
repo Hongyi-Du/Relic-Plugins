@@ -48,6 +48,21 @@ the UI is stuck. Write files atomically into `output`:
   exhaustive plan id; do not record synthetic successes or bypass production
   rendering in performance mode. `random_actions` is a count.
 
+Every monkey action has a unique `id:"monkey-<index>"` and must also include
+`pointer_target:"<actual control identity>"` and `click_events:<integer >= 1>`.
+`click_events` is the number observed by the actual target control's native
+click/action event handler during that action. It is not a count of requested
+input injections or a constant assigned after changing the model. Dispatch real
+pointer input (Windows pointer injection; macOS NSWindow mouse events or CGEvent)
+and wait for the actual control to handle it. Keep the production action outcome
+and native click receipt together. Use stable target identities, such as
+`sidebar`, `files`, or `help-menu`, rather than per-action unique labels.
+The count of individual monkey receipts must equal `random_actions`; each must
+have a nonempty target and an observed click, and the full 180-second phase must
+click at least two distinct targets. Pure model navigation does not satisfy this
+requirement. These click checks supplement the unchanged exhaustive action,
+duration, 250 ms UI latency, and resource-growth gates.
+
 The driver samples RSS, CPU seconds, and thread count using psutil. On Windows it
 also records `IsHungAppWindow` and a bounded WM_NULL response probe against the
 owned process's top-level window. It fails on any UI probe over 250 ms, a native

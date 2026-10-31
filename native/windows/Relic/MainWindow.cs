@@ -65,9 +65,11 @@ public sealed partial class MainWindow : Window
     private static ScrollViewer Scroll(UIElement content) => new() { Content = content, Style = (Style)Application.Current.Resources["RelicScrollViewerStyle"], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
     private async Task Run(Func<Task> action)
     {
+        if (PerformanceEnabled) Interlocked.Increment(ref performanceCommands);
         try { await action(); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex) { VisualStartupFailed(ex); error.Severity = InfoBarSeverity.Error; error.Message = ex.Message; error.IsOpen = true; }
+        finally { if (PerformanceEnabled) Interlocked.Decrement(ref performanceCommands); }
     }
 
     public MainWindow()

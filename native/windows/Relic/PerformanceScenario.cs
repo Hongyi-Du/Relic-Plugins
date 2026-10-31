@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     private CancellationTokenSource? performanceCancellation;
     private Task? performanceProbe;
     private long performanceWorstTicks;
+    private int performanceCommands;
     private string performanceAction = "initial organization load";
     private string PerformanceOutput => performanceManifest!.Text("output");
 
@@ -76,6 +77,7 @@ public sealed partial class MainWindow
     {
         var actions = new List<JsonObject>(); var errors = new List<string>();
         var randomActions = 0; double randomSeconds = 0;
+        var pointerRandom = new Random(int.Parse(performanceManifest!.Text("seed")));
         async Task Execute(JsonNode step, bool random)
         {
             var kind = step.Text("kind");
@@ -128,14 +130,31 @@ public sealed partial class MainWindow
             await PerformanceYield(); await WaitForMarkdown();
             if (random)
             {
-                // Exercise actual pointer/hover/routed click paths as well as
-                // the seeded production command deck, without destructive acts.
+                // Seeded real pointer targets supplement the production command
+                // deck. Count actual routed Click events, not sent input calls.
                 SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
-                var wasOpen = sideOpen; capturePointerReceipts.Clear();
-                await CaptureClick((FrameworkElement)navigationButtons.Children[1]); await PerformanceYield();
-                if (sideOpen == wasOpen) throw new InvalidOperationException("Real sidebar click was not handled");
-                await CaptureClick((FrameworkElement)navigationButtons.Children[1]); await PerformanceYield();
-                if (sideOpen != wasOpen) throw new InvalidOperationException("Real sidebar second click was not handled");
+                var targetIndex = pointerRandom.Next(8);
+                var targetName = new[] { "sidebar", "overview", "workspace", "files", "file-menu", "edit-menu", "view-menu", "help-menu" }[targetIndex];
+                var button = targetIndex == 0 ? (Button)navigationButtons.Children[1]
+                    : targetIndex < 4 ? (Button)((AppBarElementContainer)toolbar.PrimaryCommands[targetIndex + 2]).Content
+                    : nativeMenus[targetIndex - 4].Anchor;
+                var clicks = 0;
+                RoutedEventHandler clicked = (_, _) => clicks++;
+                capturePointerReceipts.Clear(); button.Click += clicked;
+                try
+                {
+                    await CaptureClick(button); await PerformanceYield();
+                    while (Volatile.Read(ref performanceCommands) > 0) await Task.Delay(20);
+                    if (clicks == 0) throw new InvalidOperationException("Real random click was not handled: " + targetName);
+                    if (targetIndex >= 4)
+                    {
+                        if (!nativeMenus[targetIndex - 4].Flyout.IsOpen) throw new InvalidOperationException("Real random menu did not open");
+                        nativeMenus[targetIndex - 4].Flyout.Hide();
+                    }
+                    await WaitForMarkdown();
+                }
+                finally { button.Click -= clicked; }
+                record["pointer_target"] = targetName; record["click_events"] = clicks;
                 record["pointer_events"] = capturePointerReceipts.DeepClone();
             }
             if (error.IsOpen) throw new InvalidOperationException(error.Message);

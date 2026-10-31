@@ -15,7 +15,10 @@ public partial class App : Application
     }
     private static void CaptureFailure(string source, Exception? error, string? message)
     {
-        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST") is not { Length: > 0 } manifest) return;
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true") return;
+        var manifest = Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST")
+            ?? Environment.GetEnvironmentVariable("RELIC_PERF_MANIFEST");
+        if (string.IsNullOrEmpty(manifest)) return;
         try
         {
             var directory = System.IO.Path.GetDirectoryName(manifest)!;

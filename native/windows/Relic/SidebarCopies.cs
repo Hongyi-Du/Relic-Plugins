@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private long toolbarLogoClipRevision;
     private VirtualRows? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
+    private string? toolbarState;
     private readonly Dictionary<(bool Selected, bool Alert), ControlTemplate> toolbarButtonTemplates = [];
     private ControlTemplate? sidebarListTemplate;
     private ControlTemplate? sidebarItemTemplate;
@@ -30,6 +31,11 @@ public sealed partial class MainWindow
     private bool sidebarKeyboardBound;
     private void DrawToolbar()
     {
+        var state = string.Join("\u001f", org, member, snap["org"].Text("name"), snap["org"].Text("secretary"),
+            Display(member), pane, panelOpen, sideOpen, historyIndex, history.Count,
+            snap.Rows("decisions").Count, copyInbox.Unread, words.Language, root.ActualTheme);
+        if (state == toolbarState) return;
+        toolbarState = state;
         toolbar.PrimaryCommands.Clear();
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
         void AddCommand(UIElement content)
