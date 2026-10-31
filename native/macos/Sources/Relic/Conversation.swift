@@ -397,7 +397,6 @@ struct ConversationStream: View {
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = m.streamRows.isEmpty
-                    let model = m
                     keyboard.scrollToEdge = { top in
                         if top { proxy.scrollTo("start", anchor: .top) }
                         else if !top { proxy.scrollTo("end", anchor: .bottom) }
