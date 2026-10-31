@@ -1,5 +1,52 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+432e6d2 / 41186072127 restores all shadow pixel checks, but the real append
+regression still fails with a 692 pt bottom gap (299 tests, two assertions).
+Deferring the source revision alone is insufficient: the preceding long row
+reflows later without changing the new last row's own size. Observe that actual
+last row's placed bottom as well as its size, and request its own scroll target
+only while following is intended and its lower edge is not already aligned.
+This never uses an estimated document maximum, and user history/disclosure
+navigation still suppresses following. Actual visible-text tests remain intact;
+the strict run must also prove that this does not create layout churn.
+
+432e6d2 / 41186072130 FAILS startup at 269.412 ms, 154.719 MiB, 9 threads.
+The cold composer is now 32.521 ms and first identity batch 85.228 ms; failure
+is inside a cold conversation row, with only two mounted rows. Message body
+construction now has its own queued display turn, separate from author/avatar
+controls; plain/original disclosure state lives with that body. The final text,
+spacing, order and actions stay the same. Added observational layout scopes
+for message columns and Markdown to distinguish native layout from admission
+scope time. All pending/actual-visible-content and watchdog checks stay intact.
+432e6d2 Python validation 41186072131 passes all platforms. Its Mac full-window
+and adaptive captures pass; the Windows jobs 41186072111 / 41186072110 fail
+full-window collection and require the shared owner to inspect their reports.
+
+dedf7bd / 41185011711 catches a shadow-rendering regression: the broad dialog
+blur becomes too light without non-linear raster composition. Restore the
+original drawingGroup path for blur radii above 1 pt, retaining native layer
+composition only for the small control shadows (composer/selected tabs).
+The real pixel-profile test and expected colors/tolerances remain unchanged.
+The same run still catches the append assertion addressed in ce1b203.
+
+dedf7bd / 41185011763 clears startup but FAILS at action-0052:group;
+maximum 280.410 ms, peak 197.141 MiB and 8 threads. The first failed work
+snapshot has message-identities active and only two message rows mounted.
+Its 50 composer mounts peak at 146.209 ms, while identity admission peaks
+at 312.977 ms (scope durations include the yield). Reduce each identity batch
+from 50 to 25, keeping the full API page, all history, and actual readiness
+checks. This needs strict measurement; no timing/resource limit is changed.
+
+0b23163 / 41184737749 finishes 299 tests with two failures in the actual
+long-Markdown viewport regression: appending message 51 leaves it invisible
+with a 1322 pt bottom gap. Initial latest content and the subsequent Home / new
+message while reading / End checks pass. A source revision that adds no older
+identity batches previously had no deferred scroll request after ForEach updated.
+It now issues one cancellable request after a layout turn, respecting current
+user-follow intent and the retained history anchor. The existing assertions and
+strict runtime checks remain unchanged and must validate this correction.
+Latest shared branch 63b688d is merged; no shared API change is requested.
+
 3ddf641 / 41184293168 independently fails startup at 380.810 ms (134.672 MiB,
 8 threads). The cold composer scope lasts 465.279 ms before any editor text or
 inline command label exists, so text-measure caching cannot explain this one.

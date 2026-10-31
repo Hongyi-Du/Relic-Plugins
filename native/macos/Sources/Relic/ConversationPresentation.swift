@@ -58,6 +58,7 @@ struct MessageColumns: Layout {
     private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews, cache: inout Cache) -> Measurement {
         let key = proposal.width ?? -.infinity
         if let value = cache.measurements[key] { return value }
+        let trace = UIWorkTrace.begin("layout.message-columns"); defer { UIWorkTrace.end(trace) }
         let avatar = subviews[0].sizeThatFits(.unspecified)
         let available = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
         let bodyWidth = min(720, available.map { max(0, $0 - avatar.width - 10) } ?? subviews[1].sizeThatFits(.unspecified).width)

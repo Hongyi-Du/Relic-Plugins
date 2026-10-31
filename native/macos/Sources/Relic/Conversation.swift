@@ -207,6 +207,7 @@ struct RichText: View {
 struct IntrinsicMarkdownLayout: Layout {
     let preferredWidth: CGFloat
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let trace = UIWorkTrace.begin("layout.markdown"); defer { UIWorkTrace.end(trace) }
         let width = min(proposal.width ?? preferredWidth, preferredWidth)
         return subviews.first?.sizeThatFits(ProposedViewSize(width: max(1, width), height: nil)) ?? .zero
     }
@@ -278,6 +279,7 @@ struct ChatView: View {
 private struct LatestMessageBounds: Equatable {
     var id = ""
     var size = CGSize.zero
+    var bottom: CGFloat = 0
 }
 private struct LatestMessageSize: PreferenceKey {
     static var defaultValue = LatestMessageBounds()
@@ -351,14 +353,14 @@ struct ConversationStream: View {
                                 }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
                                     .background {
                                         if row.id == latestRowID { GeometryReader { geometry in
-                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size))
+                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
                                         } }
                                     }
                             }
                             if !m.displayLiveItems.isEmpty {
                                 LiveTurnView().padding(.bottom, 24).id("live-end")
                                     .background(GeometryReader { geometry in
-                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size))
+                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
                                     })
                             }
                             else if rows.isEmpty { Color.clear.frame(height: 24) }
@@ -376,14 +378,16 @@ struct ConversationStream: View {
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(LatestMessageSize.self) { latest in
-                            // Observe only the actual newest row, not the lazy
-                            // document's estimated height. Markdown prepares in
-                            // stages after scrollTo's first layout; preserve the
-                            // bottom while that row acquires its real height.
+                            // Observe the actual newest row, including where
+                            // native layout places it. Appending after a long
+                            // message can change the preceding row's height
+                            // without changing this new row's own size. Restore
+                            // this real target only while following is intended
+                            // and its lower edge is not already at the viewport.
                             guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
                                   initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
-                            proxy.scrollTo(latest.id, anchor: .bottom)
+                            if abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in
@@ -443,7 +447,7 @@ struct ConversationStream: View {
                     let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    let next = max(0, firstPresentedIndex - 50)
+                    let next = max(0, firstPresentedIndex - 25)
                     guard m.streamRows.indices.contains(next) else { RowMountQueue.shared.release(turn); return }
                     firstPresentedID = m.streamRows[next].id
                     do { try await Task.sleep(for: .milliseconds(32)) }
@@ -456,6 +460,22 @@ struct ConversationStream: View {
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
+                // An append may leave the admitted range unchanged. Its new
+                // ForEach target still has to enter the native layout before
+                // ScrollViewReader can resolve it; onChange alone runs before
+                // that happens. Finish every source revision with one deferred
+                // request, even when there were no identity batches to admit.
+                // User navigation cancels following, and task cancellation
+                // cancels obsolete revisions. This is not an extent/offset loop.
+                let anchorTurn = UUID()
+                guard await RowMountQueue.shared.acquire(anchorTurn, label: "conversation-anchor") else { return }
+                defer { RowMountQueue.shared.release(anchorTurn) }
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { return }
+                if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
+                else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { return }
                 olderAnchor = nil
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
@@ -495,13 +515,11 @@ struct ConversationStream: View {
 
 struct MessageView: View {
     @EnvironmentObject var m: Model
-    @Environment(\.conversationDisclosure) private var preserveScroll
     let item: Node
     var inThread = false
     var continued = false
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
-    @State private var originalExpanded = false
     @State private var threadAvatarImages: Set<String> = []
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
@@ -540,23 +558,11 @@ struct MessageView: View {
                         else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
                         ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
                     } }
-                    if item["type"].text == "receipt" {
-                        MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
-                    } else if wantsPlain, let plain = m.plain[item["id"].text] {
-                        messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
-                        VStack(alignment: .leading, spacing: 0) {
-                            OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
-                            if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
-                        }
-                    } else {
-                        messageBubble(bodyText)
-                        if wantsPlain {
-                            if m.plainFailed.contains(item["id"].text) { TextButton(m.t("plain.retry"), size: 11.5, weight: 400, color: RelicStyle.red) { m.run { try await m.requestPlain([item["id"].text]) } }.buttonStyle(.plain) }
-                            else { HStack(spacing: 6) {
-                                if m.plainPending.contains(item["id"].text) { ProgressView().controlSize(.mini).frame(width: 10, height: 10) }
-                                ReferenceLabel(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting"), size: 11.5, color: RelicStyle.muted)
-                            } }
-                        }
+                    // A cold row used to construct the author controls and all
+                    // native body/layout types in one display turn. Keep the
+                    // same final layout but admit its content separately.
+                    ProgressiveRow(estimatedHeight: 42) {
+                        MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain)
                     }
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
                         ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted, lines: 0)
@@ -595,6 +601,39 @@ struct MessageView: View {
                 NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed")
             }
         }.padding(3).modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8, kind: "card", shadows: SurfaceShadow.small))
+    }
+}
+
+private struct MessageBodyContent: View {
+    @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
+    let item: Node
+    let inThread: Bool
+    let wantsPlain: Bool
+    @State private var originalExpanded = false
+    private var mine: Bool { item["from"].text == "human" }
+    private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
+    var body: some View {
+        VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+            if item["type"].text == "receipt" {
+                MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
+            } else if wantsPlain, let plain = m.plain[item["id"].text] {
+                messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
+                    if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
+                }
+            } else {
+                messageBubble(bodyText)
+                if wantsPlain {
+                    if m.plainFailed.contains(item["id"].text) { TextButton(m.t("plain.retry"), size: 11.5, weight: 400, color: RelicStyle.red) { m.run { try await m.requestPlain([item["id"].text]) } }.buttonStyle(.plain) }
+                    else { HStack(spacing: 6) {
+                        if m.plainPending.contains(item["id"].text) { ProgressView().controlSize(.mini).frame(width: 10, height: 10) }
+                        ReferenceLabel(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting"), size: 11.5, color: RelicStyle.muted)
+                    } }
+                }
+            }
+        }
     }
     private func messageBubble(_ text: String, plain: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
