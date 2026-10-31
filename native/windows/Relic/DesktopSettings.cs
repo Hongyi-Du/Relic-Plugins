@@ -243,7 +243,7 @@ public sealed partial class MainWindow
     }
     private async Task SettingsScreen(string section = "profile")
     {
-        var preparation = PerformanceTrace.Measure("settings.construct");
+        var preparation = PerformanceTrace.Measure("Settings.construct");
         var current = section;
         // A transparent brush keeps the layout surface hit-testable without
         // painting a second overall fill above the ContentDialog surface.
@@ -390,7 +390,7 @@ public sealed partial class MainWindow
         };
         dialog.Opened += (_, _) =>
         {
-            using var timing = PerformanceTrace.Measure("settings.opened.style");
+            using var timing = PerformanceTrace.Measure("Settings.opened.style");
             PaintNavigation();
             dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0);
             if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
@@ -408,7 +408,7 @@ public sealed partial class MainWindow
         try
         {
             Task drawing;
-            using (PerformanceTrace.Measure("settings.draw.start")) drawing = Draw(section);
+            using (PerformanceTrace.Measure("Settings.draw.start")) drawing = Draw(section);
             await drawing;
             await Dialog(dialog, contentOwnsPadding: true, singleSurfaceBackground: true);
         }

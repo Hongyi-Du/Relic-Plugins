@@ -24,7 +24,8 @@ driver = module("performance_driver_tests", "run.py")
 
 class DiagnosticStackSampling(unittest.TestCase):
     def sampler(self, output, *, diagnostic=True, client="windows", ci="true", platform="win32"):
-        with patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "RELIC_DOTNET_STACK": "dotnet-stack.exe"}), \
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "RELIC_DOTNET_STACK": "dotnet-stack.exe",
+                                     "RELIC_NATIVE_STACK": "Relic.NativeStack.exe"}), \
              patch.object(driver.sys, "platform", platform):
             return driver.DiagnosticStacks(client, diagnostic, output, 123)
 
@@ -57,9 +58,10 @@ class DiagnosticStackSampling(unittest.TestCase):
                 sampler.trigger("another failed probe")
                 sampler.tick()
             start.assert_called_once()
-            self.assertEqual(start.call_args.args[0], ["dotnet-stack.exe", "report", "-p", "123"])
+            self.assertEqual(start.call_args.args[0], ["Relic.NativeStack.exe", "--pid", "123"])
             self.assertEqual(start.call_args.kwargs["creationflags"], 0x08000000)
             self.assertEqual(start.call_args.kwargs["stdin"], driver.subprocess.DEVNULL)
+            self.assertEqual(start.call_args.kwargs["env"]["RELIC_PERF_DIAGNOSTIC"], "true")
             child.wait.assert_not_called()
             sampler.close()
             child.kill.assert_called_once()
@@ -104,6 +106,10 @@ class DiagnosticStackSampling(unittest.TestCase):
             self.assertEqual(start.call_count, 3)
             self.assertEqual(len(sampler.summary()["reports"]), 3)
             self.assertTrue(all(row["returncode"] == 0 for row in sampler.summary()["reports"]))
+            self.assertEqual([row["capture_kind"] for row in sampler.reports], ["native", "native", "managed"])
+            self.assertEqual(start.call_args_list[-1].args[0], ["dotnet-stack.exe", "report", "-p", "123"])
+            self.assertTrue(sampler.reports[0]["stdout"].startswith("native-stack-"))
+            self.assertTrue(sampler.reports[-1]["stdout"].startswith("managed-stack-"))
 
     def test_total_sampling_deadline_prevents_later_reports(self):
         child = Mock(pid=456)
@@ -119,6 +125,11 @@ class DiagnosticStackSampling(unittest.TestCase):
             sampler.tick()
             sampler.close()
             start.assert_called_once()
+
+    def test_pending_trigger_uses_observed_worker_timestamp(self):
+        self.assertEqual(driver.pending_probe_ms({"unix_ms": 1250, "pending_since_unix_ms": 1000}), 250)
+        self.assertEqual(driver.pending_probe_ms({"unix_ms": 1249, "pending_since_unix_ms": 1000}), 249)
+        self.assertEqual(driver.pending_probe_ms({"unix_ms": 1250, "pending_since_unix_ms": 0}), 0)
 
 
 class SnapshotReads(unittest.TestCase):

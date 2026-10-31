@@ -27,7 +27,8 @@ def observation_policy(diagnostic=False):
 
 
 class DiagnosticStacks:
-    """Nonblocking, bounded managed stacks after a failed Windows CI UI probe."""
+    """Bounded native-first and managed stacks for failed Windows CI UI probes."""
+    CAPTURE_ORDER = ("native", "native", "managed")
     MAX_REPORTS = 3
     REPORT_SECONDS = 5
     TOTAL_SECONDS = 15
@@ -36,7 +37,10 @@ class DiagnosticStacks:
         self.enabled = bool(diagnostic and client == "windows" and sys.platform == "win32"
                             and os.environ.get("GITHUB_ACTIONS") == "true")
         self.output = Path(output) / "stacks"
-        self.tool = os.environ.get("RELIC_DOTNET_STACK", str(ROOT / "native-build/diagnostics/dotnet-stack.exe"))
+        self.tools = {
+            "native": os.environ.get("RELIC_NATIVE_STACK", str(ROOT / "native-build/diagnostics-native/Release/Relic.NativeStack.exe")),
+            "managed": os.environ.get("RELIC_DOTNET_STACK", str(ROOT / "native-build/diagnostics/dotnet-stack.exe")),
+        }
         self.pid = pid
         self.started = None
         self.reason = None
@@ -48,6 +52,7 @@ class DiagnosticStacks:
 
     def summary(self):
         return {"enabled": self.enabled, "trigger": self.reason, "target_pid": self.pid,
+                "capture_order": list(self.CAPTURE_ORDER),
                 "max_reports": self.MAX_REPORTS, "per_report_seconds": self.REPORT_SECONDS,
                 "total_seconds": self.TOTAL_SECONDS, "reports": self.reports}
 
@@ -69,7 +74,7 @@ class DiagnosticStacks:
             stream.close()
         self.files = []
         self.process = None
-        self.next_at = now + 1
+        self.next_at = now + (.1 if self.reports[-1]["capture_kind"] == "native" else 1)
         self._save()
 
     def _kill(self, reason):
@@ -102,10 +107,11 @@ class DiagnosticStacks:
         if elapsed >= self.TOTAL_SECONDS or len(self.reports) >= self.MAX_REPORTS or now < self.next_at:
             return
         index = len(self.reports) + 1
-        row = {"index": index, "started_seconds": elapsed, "started_unix_ms": time.time() * 1000,
-               "stdout": f"stack-{index:02}.stdout.txt", "stderr": f"stack-{index:02}.stderr.txt"}
+        kind = self.CAPTURE_ORDER[index - 1]
+        row = {"index": index, "capture_kind": kind, "started_seconds": elapsed, "started_unix_ms": time.time() * 1000,
+               "stdout": f"{kind}-stack-{index:02}.stdout.txt", "stderr": f"{kind}-stack-{index:02}.stderr.txt"}
         self.reports.append(row)
-        command = [self.tool, "report", "-p", str(self.pid)]
+        command = [self.tools[kind], "--pid", str(self.pid)] if kind == "native" else [self.tools[kind], "report", "-p", str(self.pid)]
         row["command"] = command
         try:
             self.files.append((self.output / row["stdout"]).open("w", encoding="utf-8"))
@@ -114,6 +120,7 @@ class DiagnosticStacks:
             # report, so the ordinary watchdog continues observing the app.
             self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                                             stdout=self.files[0], stderr=self.files[1],
+                                            env=dict(os.environ, RELIC_PERF_DIAGNOSTIC="true"),
                                             creationflags=creation_flags())
             row["sampler_pid"] = self.process.pid
             self._save()
@@ -141,6 +148,11 @@ def atomic_json(path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def pending_probe_ms(heartbeat):
+    pending = float(heartbeat.get("pending_since_unix_ms") or 0)
+    return max(0, float(heartbeat.get("unix_ms") or 0) - pending) if pending > 0 else 0
 
 
 def windows_snapshot_fd(path, flags):
@@ -400,6 +412,9 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                     if heartbeat.get("sequence") != previous_sequence:
                         heartbeats.append(heartbeat)
                         previous_sequence = heartbeat.get("sequence")
+                    pending_ms = pending_probe_ms(heartbeat)
+                    if pending_ms >= UI_LIMIT_MS:
+                        stacks.trigger(f"Pending UI probe reached {pending_ms:.3f} ms during {heartbeat.get('action')}")
                     maximum = float(heartbeat.get("max_ui_stall_ms") or 0)
                     if maximum > UI_LIMIT_MS and not any("UI thread" in e for e in errors):
                         errors.append(f"UI thread probe exceeded {UI_LIMIT_MS} ms: {maximum:.3f} ms during {heartbeat.get('action')}")

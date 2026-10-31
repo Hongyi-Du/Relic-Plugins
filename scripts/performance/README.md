@@ -132,21 +132,33 @@ longer-window memory/thread peaks cannot be compared directly with the normal
 two-second failure baseline. Ordinary candidate and baseline measurements keep
 `diagnostic: false`, a two-second failure window, and all original strict gates.
 
-Only explicit Windows diagnostic runs install Microsoft's `dotnet-stack` 8.x
-tool into the CI workspace's `native-build/diagnostics` directory. Nothing is
-installed or run on the person's machine. The first failed UI probe or Windows
-window-response probe triggers `dotnet-stack report -p <owned native pid>` in a
-windowless background process. At most one report is in flight, with at most
-three reports, a five-second deadline per report, and a fifteen-second total
-sampling window. The watchdog continues polling and never waits for a stack
-report while its measurement loop runs; timed-out collectors are killed and
-the owned collector is cleaned up when measurement ends.
+Only explicit Windows diagnostic runs build the C++ native UI-thread helper
+from `native/windows/Relic.Diagnostics` using the runner's CMake/MSVC/SDK, and
+install Microsoft's `dotnet-stack` 8.x into `native-build/diagnostics`. Nothing
+is installed, built or run on the person's machine. The first UI probe pending
+for at least 250 ms (measured using the heartbeat worker's own timestamp),
+failed completed UI probe, or failed Windows window-response probe starts
+sampling. The diagnostic order is two native snapshots followed by one managed
+`dotnet-stack report -p <owned native pid>` report. Each helper is windowless;
+at most one is in flight, with at most three reports, a five-second deadline
+per report, and a fifteen-second total sampling window. Native reports are
+separated by at least 100 ms after completion. The watchdog continues polling
+and never waits for a report while its loop runs; timed-out collectors are
+killed and the owned collector is cleaned up when measurement ends.
 
-Each report's stdout/stderr is retained as `stacks/stack-NN.stdout.txt` and
-`stacks/stack-NN.stderr.txt`. `stacks/sampling.json` and the final report's
+The native helper validates the window/thread PID, briefly suspends the UI
+thread to copy the SDK CONTEXT and up to 256 KiB of stack, then resumes through
+RAII before using standard DbgHelp callbacks to unwind the copy. Symbol lookup
+is local-only, without a symbol-server path or downloads. JSON Lines explicitly
+report truncation, unavailable frames, resumption and timings; incomplete
+unwinding is not labeled complete. See the helper README for SDK references.
+
+Outputs are separated as `stacks/native-stack-NN.stdout.txt` (JSON Lines),
+`stacks/managed-stack-NN.stdout.txt`, and corresponding `.stderr.txt` files.
+`stacks/sampling.json` and the final report's
 `diagnostic_stacks` retain the trigger, process IDs, command, timings, exit code,
-and any collector errors. A collector can suspend or otherwise perturb the
-target while inspecting managed stacks, so these captures are diagnostic-only
+and any collector errors. Native or managed collection can suspend or otherwise
+perturb the target, so these captures are diagnostic-only
 and can never count toward acceptance. Ordinary runs never install or start
 the collector; their scope, observation window and thresholds are unchanged.
 See Microsoft's [dotnet-stack report documentation](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-stack)
