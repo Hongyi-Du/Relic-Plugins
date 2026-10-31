@@ -511,7 +511,8 @@ class App:
     def turn(self, org_id, a):
         """A wake-up for a seat the App runs (relic_core.runner.start_turn hands surface=acp seats here)."""
         member = a["member"]
-        origin = {"kind": "wake", "wake_from": a.get("wake_from") or [], "hop": a.get("wake_hop") or 0}
+        origin = {"kind": "wake", "wake_from": a.get("wake_from") or [], "hop": a.get("wake_hop") or 0,
+                  "wake_message_ids": a.get("wake_message_ids") or []}
 
         def run():
             try:

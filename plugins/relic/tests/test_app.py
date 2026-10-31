@@ -330,12 +330,15 @@ class AppServer(Isolated):
 
     def test_wake_ups_of_embedded_seats_go_through_the_app(self):
         self.add_helper()
-        self.store.send(LEAD, ["helper"], "please check the build")
-        self.assertTrue(runner.start_turn(self.oid, "helper", "[Relic auto-wake] read your inbox", wake_from=["lead"], wake_hop=1))
+        mid = self.store.send(LEAD, ["helper"], "please check the build")["message_id"]
+        self.assertTrue(runner.start_turn(self.oid, "helper", "[Relic auto-wake] read your inbox", wake_from=["lead"],
+                                          wake_hop=1, wake_message_ids=[mid]))
         receipt = wait_for(lambda: self.messages("helper", ["lead"]))
         self.assertTrue(receipt[0]["body"].startswith(wake.RECEIPT_MARK))
         state = wait_for(lambda: (runner.run_state(self.oid, "helper") or {}).get("status") == "done" and runner.run_state(self.oid, "helper"))
         self.assertEqual((state["via"], state["wake_from"]), ("relic-app", ["lead"]))
+        self.assertEqual(state["wake_message_ids"], [mid])
+        self.assertIn("ids %s" % mid, receipt[0]["body"])
 
     def test_wake_ups_fail_cleanly_when_the_app_is_closed(self):
         self.add_helper()

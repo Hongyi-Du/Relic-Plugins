@@ -55,11 +55,11 @@ class Wake(unittest.TestCase):
         os.environ.update(self.saved)
         self.tmp.cleanup()
 
-    def start(self, org_id, member, prompt, wake_from, wake_hop):
+    def start(self, org_id, member, prompt, wake_from, wake_hop, wake_message_ids=None):
         """Records the turn and leaves the run state a real start would: running, with a live pid and the hop."""
         self.started.append((member, wake_from, prompt, wake_hop))
         runner.write_state(org_id, member, {"status": "running", "started": time.time(), "pid": os.getpid(),
-                                            "wake_hop": wake_hop})
+                                            "wake_hop": wake_hop, "wake_message_ids": wake_message_ids})
 
     def finish(self, member, error=None):
         """The end of a turn, as relic_run records it: the run state, then the wake-up's claim settled."""
@@ -72,7 +72,7 @@ class Wake(unittest.TestCase):
                              retry=lambda org_id, delay: self.retries.append(delay))
 
     def test_message_wakes_a_configured_seat_once(self):
-        self.store.send(LEAD, ["cody"], "please review the API")
+        mid = self.store.send(LEAD, ["cody"], "please review the API")["message_id"]
         self.assertEqual(self.dispatch(), ["cody"])
         member, senders, prompt, hop = self.started[0]
         self.assertEqual((member, senders, hop), ("cody", ["lead"], 1))
@@ -81,7 +81,7 @@ class Wake(unittest.TestCase):
         self.finish("cody")
         self.assertEqual(self.dispatch(self.t + 1000), [])  # same unread message: no second turn
         woken = self.store.events(self.oid, ["member.woken"])
-        self.assertEqual(woken[-1]["body"], {"from": ["lead"], "unread": 1, "hop": 1})
+        self.assertEqual(woken[-1]["body"], {"from": ["lead"], "unread": 1, "hop": 1, "message_ids": [mid]})
 
     def test_mac_desktop_messages_wait_for_inbox_without_claims_or_retries(self):
         self.store.set_seat_fields(self.oid, "cody", config=dict(runner.default_config("codex"), surface="gui"))
@@ -300,19 +300,20 @@ class Wake(unittest.TestCase):
         self.assertEqual(len(self.store.unread(ANA, limit=50)), 21)
 
     def test_every_woken_turn_ends_with_one_receipt(self):
-        since = now()
+        since = wake.message_checkpoint(self.store, self.oid)
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since,
                           {"status": "done", "reply": "Reviewed; two issues."})
         first = self.store.history(self.oid, 1)[-1]
         self.assertEqual((first["from"], first["to"]), ("cody", ["lead"]))
         self.assertTrue(first["body"].startswith(wake.RECEIPT_MARK))
-        self.assertIn("without a reply through Relic", first["body"])
+        self.assertIn("No reply in the triggering thread", first["body"])
+        self.assertNotIn("Reviewed; two issues.", first["body"])
         # a progress note during the turn does not replace the final receipt
         self.store.send(CODY, ["lead"], "Started, still working")
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since, {"status": "done", "reply": "All done."})
         last = self.store.history(self.oid, 1)[-1]
         self.assertTrue(last["body"].startswith(wake.RECEIPT_MARK))
-        self.assertIn("All done.", last["body"])
+        self.assertNotIn("All done.", last["body"])
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since, {"status": "failed", "error": "boom"})
         self.assertIn("the turn failed: boom", self.store.history(self.oid, 1)[-1]["body"])
 
