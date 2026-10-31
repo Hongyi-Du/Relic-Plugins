@@ -405,6 +405,19 @@ final class ModelTransport: URLProtocol {
         try await Task.sleep(for: .milliseconds(500))
         XCTAssertEqual(snapshots, 2)
     }
+    func testChangingChatPreservesItsOrganizationTreeButChangingOrganizationClearsIt() throws {
+        let model = try model(); defer { model.stop() }
+        model.setSelection(ChatSelection("a"))
+        model.snapshot = Node(["org": ["id": "a"], "members": [["name": "analyst"], ["name": "secretary"]]])
+        model.messages = [Node(["id": 1, "body": "group message"])]
+        model.setSelection(ChatSelection("a", "analyst"))
+        XCTAssertEqual(model.members.map { $0["name"].text }, ["analyst", "secretary"])
+        XCTAssertEqual(model.snapshot["org"]["id"].text, "a")
+        XCTAssertTrue(model.messages.isEmpty)
+        model.setSelection(ChatSelection("b"))
+        XCTAssertTrue(model.members.isEmpty)
+        XCTAssertTrue(model.snapshot["org"].isNull)
+    }
 }
 
 private extension InputStream {

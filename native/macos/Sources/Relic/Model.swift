@@ -296,6 +296,7 @@ import RelicCore
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        let sameOrganization = organization == next.org && !next.org.isEmpty
         inputSuggestions = nil
         mentionEditor?.closeMentions()
         activeSpeech?.stop()
@@ -303,7 +304,11 @@ import RelicCore
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         quoteAuthor = saved.quoteAuthor ?? ""; quoteText = saved.quoteText ?? ""
-        messages = []; streamRows = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
+        messages = []; streamRows = []
+        // Changing chats within an organization must not tear down its member
+        // tree and inspector, then build them again after the same snapshot.
+        if !sameOrganization { snapshot = Node() }
+        liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
         selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
