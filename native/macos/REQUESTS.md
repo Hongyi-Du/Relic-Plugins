@@ -1,5 +1,34 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+7008a0b diagnostic 41187257750 now retains both real stack files. Its first-
+stall sample has 308/677 main-thread samples in ForEachChild.updateValue;
+installObservationSlow appears with 128 and 117 samples, including repeated
+copies of ObservationGraphMutation dictionaries. Source mapping identifies
+latestRowID read inside every row's background closure: each child subscribes
+to displayLiveItems (liveItems/liveStatus/snapshot) and streamRows. Resolve the
+shared last-row/live/density values once outside ForEach and capture immutable
+values per row. Visible MessageView children retain their own observed content.
+This is a concrete observation-registration hotspot, not a measured parse or
+TextKit stall. The diagnostic remains ineligible; strict results are pending.
+
+9a2ebda Native apps 41186594058 passes all jobs and 299 Mac tests, including
+the actual long-Markdown append/Home/End and original shadow pixel assertions.
+Its pressure failure still stands. Latest native-apps 6648e83 is merged,
+including the Windows whole-window correction. The diagnostic-only eight-second
+startup sample now uses a 10 ms sampling interval because the 1 ms dump did not
+finish symbolicating before diagnostic cleanup; neither acceptance timing nor
+coverage changes. No diagnostic result can satisfy the strict gate.
+
+9a2ebda / 41186594017 FAILS startup at max 352.220 ms, 169.938 MiB, 8 threads.
+Cold row construction is now bounded in that run (118.369 ms peak), and the new
+layout scopes peak at 10.935 ms (columns) /8.996 ms (Markdown). Admission after
+36 batches is still expensive. Source review finds scroll geometry bookkeeping
+stored as a mutable @State value: every observe call can invalidate the entire
+lazy conversation again, though no layout reads that value. Keep the existing
+pure scroll-following logic behind a retained non-observable reference instead.
+Geometry observations no longer publish list updates. The real row placement
+anchor, actual visible content, and all unchanged pressure limits still need CI.
+
 432e6d2 / 41186072127 restores all shadow pixel checks, but the real append
 regression still fails with a 692 pt bottom gap (299 tests, two assertions).
 Deferring the source revision alone is insufficient: the preceding long row

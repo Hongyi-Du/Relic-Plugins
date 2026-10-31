@@ -307,7 +307,7 @@ struct ConversationStream: View {
     @EnvironmentObject var m: Model
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
-    @State private var following = ConversationScrollFollowing()
+    @State private var following = ConversationScrollTracking()
     @State private var userFollowsLatest = true
     @State private var preservingDisclosure = false
     @State private var initialLoad = true
@@ -330,7 +330,14 @@ struct ConversationStream: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
                             let rows = m.streamRows
-                            if rows.isEmpty && m.displayLiveItems.isEmpty {
+                            // Resolve shared observable inputs once in the
+                            // parent. Reading latestRowID inside every ForEach
+                            // child registered thousands of dependencies on the
+                            // same live/status/snapshot/conversation properties.
+                            let hasLive = !m.displayLiveItems.isEmpty
+                            let lastID = hasLive ? "live-end" : rows.last?.id
+                            let compact = m.preferences["density"].text == "compact"
+                            if rows.isEmpty && !hasLive {
                                 NoticeLayout {
                                     ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
                                         size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
@@ -343,21 +350,21 @@ struct ConversationStream: View {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
                                     ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
-                                        .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
+                                        .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                 }
                                 MessageView(item: row.item, continued: row.continued)
-                                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
+                                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                 }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
-                                }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
+                                }.padding(.bottom, row.id == lastID && !hasLive ? 24 : 0)
                                     .background {
-                                        if row.id == latestRowID { GeometryReader { geometry in
+                                        if row.id == lastID { GeometryReader { geometry in
                                             Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
                                         } }
                                     }
                             }
-                            if !m.displayLiveItems.isEmpty {
+                            if hasLive {
                                 LiveTurnView().padding(.bottom, 24).id("live-end")
                                     .background(GeometryReader { geometry in
                                         Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
@@ -477,7 +484,7 @@ struct ConversationStream: View {
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
                 olderAnchor = nil
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
