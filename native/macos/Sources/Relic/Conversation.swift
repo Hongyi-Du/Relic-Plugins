@@ -83,10 +83,18 @@ struct RichText: View {
             defer { PerformanceRendering.endMarkdown(ticket) }
             let value = await MarkdownPreparation.shared.prepare(text)
             guard !Task.isCancelled else { return }
-            if prepared?.source != text { prepared = value; presentedBlocks = min(2, value.blocks.count) }
-            while presentedBlocks < value.blocks.count {
-                do { try await Task.sleep(for: .milliseconds(32)) } catch { return }
-                presentedBlocks = min(presentedBlocks + 2, value.blocks.count)
+            while prepared?.source != text || presentedBlocks < value.blocks.count {
+                // Share the native construction budget with row identities,
+                // panes and editors. Independent paragraph timers otherwise
+                // publish into the same expensive layout transaction.
+                let turn = UUID()
+                guard await RowMountQueue.shared.acquire(turn, label: "markdown-blocks") else { return }
+                guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                if prepared?.source != text { prepared = value; presentedBlocks = min(2, value.blocks.count) }
+                else { presentedBlocks = min(presentedBlocks + 2, value.blocks.count) }
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { RowMountQueue.shared.release(turn); return }
+                RowMountQueue.shared.release(turn)
             }
         }
         .background {

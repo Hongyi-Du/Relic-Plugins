@@ -1,5 +1,13 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+0fe7715 / 41183716190 passes startup and reaches action-0043 (return to the
+largest group), then FAILS at 285.890 ms, 188.422 MiB, 8 threads. The active
+scope is still message-identities. RichText was admitting paragraphs on its
+own 32 ms timer while the shared queue admitted rows; both could invalidate
+the same native layout turn. Parsed Markdown block admission now uses the
+same cancellable queue as rows/panes/editor. Parsing stays on its background
+actor, all text remains readable during staging, and the strict gate remains.
+
 Source inspection found an additional concrete append bug in staged admission:
 `rows.suffix(presentedRowCount)` temporarily removes the visible first row when
 a message appends, until the asynchronous count catches up. Its missing identity
