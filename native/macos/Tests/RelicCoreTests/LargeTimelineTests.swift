@@ -2,6 +2,14 @@ import XCTest
 @testable import RelicCore
 
 final class LargeTimelineTests: XCTestCase {
+    func testContentDiffIgnoresDictionaryOrderButKeepsNestedValuesAndRowOrder() async {
+        let a = Node(["id": 1, "data": ["done": false, "body": "original"]] as [String: Any])
+        let b = Node(["data": ["body": "original", "done": false], "id": 1] as [String: Any])
+        let c = Node(["id": 1, "data": ["done": true, "body": "original"]] as [String: Any])
+        let equal = await Node.sameContent(a, b), changed = await Node.sameContent(a, c)
+        let ordered = await Node.sameRows([a, c], [b, c]), reordered = await Node.sameRows([a, c], [c, b])
+        XCTAssertTrue(equal); XCTAssertFalse(changed); XCTAssertTrue(ordered); XCTAssertFalse(reordered)
+    }
     func testMergeKeepsEarliestMatchWhenIDsAndSequencesCollideAndChange() {
         let current = [Node(["id": 1, "seq": 10, "body": "one"]), Node(["id": 2, "seq": 20]), Node(["id": 1, "seq": 30])]
         let incoming = [Node(["id": 2, "seq": 10, "body": "updated"]), Node(["id": 1, "seq": 40]), Node(["id": 3]), Node(["id": 3, "extra": true])]

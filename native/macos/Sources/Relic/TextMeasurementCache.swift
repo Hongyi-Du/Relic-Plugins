@@ -7,30 +7,23 @@ final class TextMeasurementCache {
     private struct Key: Hashable { let width: CGFloat, lines: Int, mode: UInt, minimum: CGFloat, paths: Bool }
     private var source: NSAttributedString?
     private var results: [Key: CGSize] = [:]
-    private let storage = NSTextStorage()
-    private let layout = NSLayoutManager()
-    private let container = NSTextContainer(containerSize: .zero)
-    private var pathWrapping = false
-    init() { container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container) }
 
     func label(_ value: NSAttributedString, width: CGFloat, lines: Int, mode: NSLineBreakMode,
                minimum: CGFloat, pathBreaks: PathLineBreaks) -> CGSize {
         if source == nil || !source!.isEqual(to: value) {
-            source = NSAttributedString(attributedString: value); storage.setAttributedString(value); results.removeAll(keepingCapacity: true)
+            source = NSAttributedString(attributedString: value); results.removeAll(keepingCapacity: true)
         }
         let key = Key(width: width, lines: lines, mode: UInt(mode.rawValue), minimum: minimum, paths: pathBreaks.enabled)
         if let cached = results[key] { return cached }
-        layout.delegate = pathBreaks
-        if pathWrapping != pathBreaks.enabled {
-            layout.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
-            pathWrapping = pathBreaks.enabled
-        }
+        // Reusing a layout manager across different truncated line limits can
+        // keep stale glyph widths even after invalidateLayout. Retain measured
+        // proposals, but make each new proposal an independent TextKit layout.
+        let storage = NSTextStorage(attributedString: value), layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        if pathBreaks.enabled { layout.delegate = pathBreaks }
         container.maximumNumberOfLines = lines; container.lineBreakMode = mode
-        container.containerSize = CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude)
-        // TextKit can retain the old truncated last line when only the line
-        // limit changes at the same width. Recompute line fragments on a cache
-        // miss; glyph shaping and completed proposals are still reused.
-        layout.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
+        storage.addLayoutManager(layout); layout.addTextContainer(container)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
         let result = CGSize(width: min(width, ceil(used.width)), height: max(minimum, used.height))
