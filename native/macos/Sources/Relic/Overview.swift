@@ -9,6 +9,7 @@ struct Overview: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison")) { entry in
+                ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60) {
                 VStack(alignment: .leading, spacing: 0) {
                     if entry.kind == "introduction" { introduction }
                     else if entry.kind == "hierarchy" { HierarchyView() }
@@ -22,6 +23,7 @@ struct Overview: View {
                     }
                 }.onAppear { PerformanceRendering.rowAppeared("overview") }
                     .onDisappear { PerformanceRendering.rowDisappeared("overview") }
+                }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
