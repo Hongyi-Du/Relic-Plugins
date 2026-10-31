@@ -269,11 +269,18 @@ public sealed partial class MainWindow : Window
             if (active) MarkSeen();
             var nextOrgs = orgs; var nextSnap = snap; var nextMessages = messages;
             var nextConversation = conversation; var nextLive = liveData; var nextThread = threadData;
-            var changes = await Task.Run(() => (
-                Side: !JsonNode.DeepEquals(oldOrgs, nextOrgs) || !JsonNode.DeepEquals(oldSnap, nextSnap),
-                Chat: !JsonNode.DeepEquals(oldMessages, nextMessages) || !JsonNode.DeepEquals(oldConversation, nextConversation)
-                    || !JsonNode.DeepEquals(oldLive, nextLive),
-                Detail: !JsonNode.DeepEquals(oldSnap, nextSnap) || !JsonNode.DeepEquals(oldThread, nextThread)), lifetime.Token);
+            var changes = await Task.Run(() =>
+            {
+                // The current conversation uses its snapshot (including member
+                // names, avatars and header state), not other organizations'
+                // summaries. Keep those independent sidebar updates out of it.
+                var snapshotChanged = !JsonNode.DeepEquals(oldSnap, nextSnap);
+                return (
+                    Side: !JsonNode.DeepEquals(oldOrgs, nextOrgs) || snapshotChanged,
+                    Chat: snapshotChanged || !JsonNode.DeepEquals(oldMessages, nextMessages)
+                        || !JsonNode.DeepEquals(oldConversation, nextConversation) || !JsonNode.DeepEquals(oldLive, nextLive),
+                    Detail: snapshotChanged || !JsonNode.DeepEquals(oldThread, nextThread));
+            }, lifetime.Token);
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             var viewChanged = renderedView != org + "/" + member;
             using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
@@ -283,7 +290,7 @@ public sealed partial class MainWindow : Window
             using (PerformanceTrace.Measure("DrawSide")) if (changes.Side || viewChanged) DrawSide();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || changes.Side || viewChanged) DrawChat();
+            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged) DrawChat();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || viewChanged) DrawDetail();

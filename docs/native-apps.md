@@ -1,5 +1,18 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The 58520ef random re-entry waits 10.772 seconds for its initial end position,
+with only one DrawChat near the end of that interval; it is not evidence of
+10 Hz repeated chat redraw. Independently, source inspection confirms a broad
+dependency: global organization summaries were included in Side, which also
+triggered DrawChat. Conversation rendering reads the selected snapshot, not
+the global organization list. Refresh now compares that snapshot once, retains
+all its member/header/avatar dependencies, and lets unrelated organization
+summary changes update only their sidebar/toolbar regions. This does not claim
+to explain or solve the observed endpoint wait. Changes for the clients:
+native-macos d4e7f6a replaces repeated 25-ID ForEach diffs with one stable-ID
+update per loaded page, retaining deferred visible-row construction and its
+actual-oldest-text regression; no shared contract change is requested.
+
 58520ef / 41190616226 completes all 175 fixed interactions, all four histories
 and their real End checks, then fails at random interaction 51: numeric top is
 zero but the actual first row is absent. Maximum UI delay is 95.324 ms, peak
