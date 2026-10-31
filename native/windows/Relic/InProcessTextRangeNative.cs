@@ -201,7 +201,10 @@ internal static class InProcessTextRangeNative
             var bstr = IntPtr.Zero;
             try
             {
-                Trace(path + ".GetText(-1)", "pending"); Check(path + ".GetText(-1)", api.Text(range, out bstr));
+                Trace(path + ".GetText(-1)", "pending");
+                var textResult = api.Text(range, out bstr);
+                record["get_text_hresult"] = textResult;
+                Check(path + ".GetText(-1)", textResult);
                 var length = api.StringLength(bstr);
                 record["bstr"] = new JsonObject { ["pointer_is_null"] = bstr == IntPtr.Zero,
                     ["sys_string_len"] = length, ["source"] = "SysStringLen on the actual successful GetText BSTR" };
@@ -209,6 +212,10 @@ internal static class InProcessTextRangeNative
                 var text = api.String(bstr); record["text"] = Utf16(text);
                 if ((bstr == IntPtr.Zero && length != 0) || (bstr != IntPtr.Zero && (text == null || text.Length != length)))
                     throw new InvalidOperationException("Actual BSTR length differs from its UTF16 projection");
+                if (textResult != 0)
+                    throw new InvalidOperationException("GetText did not return the documented S_OK result");
+                record["plain_text_utf16_length"] = checked((int)length);
+                record["plain_text_length_source"] = "S_OK ITextRangeProvider.GetText(-1) + SysStringLen(actual BSTR); logical-flow UTF16 code units";
                 return text;
             }
             finally { if (bstr != IntPtr.Zero) api.FreeString(bstr); }
@@ -226,15 +233,18 @@ internal static class InProcessTextRangeNative
                 Check(path + ".CompareStart", api.Compare(prefix, 0, document, 0, out var start));
                 Check(path + ".ComparePrefixStartToEnd", api.Compare(prefix, 0, prefix, 1, out var collapsed));
                 value["end_compare"] = end; value["start_compare"] = start; value["prefix_start_to_end_compare"] = collapsed;
+                value["prefix_structurally_collapsed"] = collapsed == 0;
                 var text = Text(prefix, path + ".prefix", value);
-                // SysStringLen(null) is specified as zero. Preserve the actual
-                // null BSTR; only an independently collapsed prefix can use it
-                // as a measured zero offset, never a failed/missing GetText.
+                // GetText returns logical-flow plaintext. SysStringLen(null)
+                // measures zero UTF16 code units even if reserved structural
+                // positions make this prefix noncollapsed. Keep those distinct
+                // quantities and the actual null BSTR; neither establishes
+                // equality with another range's structural endpoints.
                 // https://learn.microsoft.com/en-us/windows/win32/api/oleauto/nf-oleauto-sysstringlen
                 var measuredNullPrefix = text == null && value["bstr"]?["pointer_is_null"]?.GetValue<bool>() == true
-                    && value["bstr"]?["sys_string_len"]?.GetValue<uint>() == 0 && collapsed == 0;
-                value["null_bstr_collapsed_prefix"] = measuredNullPrefix;
-                int? measuredLength = text != null ? text.Length : measuredNullPrefix ? 0 : null;
+                    && value["bstr"]?["sys_string_len"]?.GetValue<uint>() == 0;
+                value["null_bstr_collapsed_prefix"] = measuredNullPrefix && collapsed == 0;
+                int? measuredLength = value["plain_text_utf16_length"]?.GetValue<int>();
                 value["verified_prefix_utf16_length"] = start == 0 && end == 0 ? measuredLength : null;
             }
             catch (Exception ex) { Fail(path, ex); value["error"] = ex.ToString(); }

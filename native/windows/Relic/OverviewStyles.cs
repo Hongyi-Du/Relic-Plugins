@@ -108,7 +108,9 @@ public sealed partial class MainWindow
         var initial = OverviewText(organization.Text("name").Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(organization.Text("name")).ToUpperInvariant() : "R", 11, weight: 700);
         initial.Foreground = foreground; initial.HorizontalAlignment = HorizontalAlignment.Center; initial.VerticalAlignment = VerticalAlignment.Center;
         var surface = new Border { Background = Hsl(.4, .9), CornerRadius = new CornerRadius(6), Child = initial };
-        var outline = subgroup || organization.Text("kind") == "subgroup" ? new Rectangle { Stroke = foreground, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 2, 2 }, RadiusX = 6, RadiusY = 6 } : null;
+        // The reference's current computed subgroup outline is a 1px inset
+        // stroke (the CSS 1.5px declaration is snapped by the browser).
+        var outline = subgroup || organization.Text("kind") == "subgroup" ? new Rectangle { Stroke = foreground, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 2, 2 }, RadiusX = 6, RadiusY = 6, UseLayoutRounding = false } : null;
         var cabinet = organization.Flag("cabinet") ? new Border { BorderBrush = Paint("7058B8", "A894E0"), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9.5), Margin = new Thickness(-3.5), Child = new Border { BorderBrush = Paint("FFFFFF", "252523"), BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8) } } : null;
         return new NativeOrganizationAvatarPaint(surface, initial, outline, cabinet);
     }

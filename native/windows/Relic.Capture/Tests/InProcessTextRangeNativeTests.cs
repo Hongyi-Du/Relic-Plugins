@@ -20,6 +20,7 @@ public sealed class InProcessTextRangeNativeTests
         public bool PatternUnavailable, FailProviderQuery, WrongArrayType, FailRectangles, FailDestroy;
         public bool DirectSimpleAvailable, FailFragmentQuery, FailFragmentSimpleQuery;
         public bool NullCollapsedText, NullNoncollapsedPrefix, FailCollapsedText, FailCollapsedCompare, WrongStringLength;
+        public bool ReservedLeadingPositions, NonSOkNullText, WrongPrefixStart;
         public bool FailFormatMove, FailFormatRectangles, NullFormatClone, OneCharacterFormat, ChangeFormatStart;
         public bool NoFormatAdvance, ReportAdvanceWithoutMoving;
         public int VisibleEnd = 3;
@@ -46,8 +47,10 @@ public sealed class InProcessTextRangeNativeTests
             Assert.Equal(InProcessTextRangeNative.TextRangeProviderId, iid); result = source; return 0;
         }
         public int Pattern(IntPtr simple, out IntPtr result) { result = PatternUnavailable ? IntPtr.Zero : (IntPtr)2; return 0; }
-        public int Document(IntPtr provider, out IntPtr result) { result = (IntPtr)8; return 0; }
-        public int Visible(IntPtr provider, out IntPtr array) { ranges[(IntPtr)9] = (1, VisibleEnd); array = (IntPtr)20; return 0; }
+        public int Document(IntPtr provider, out IntPtr result)
+        { ranges[(IntPtr)8] = (0, ReservedLeadingPositions ? 5 : 3); result = (IntPtr)8; return 0; }
+        public int Visible(IntPtr provider, out IntPtr array)
+        { ranges[(IntPtr)9] = ReservedLeadingPositions ? (2, VisibleEnd + 2) : (1, VisibleEnd); array = (IntPtr)20; return 0; }
         public int Clone(IntPtr range, out IntPtr result)
         {
             if (NullFormatClone && range == (IntPtr)9) { result = IntPtr.Zero; return 0; }
@@ -59,8 +62,10 @@ public sealed class InProcessTextRangeNativeTests
         {
             TextQueries++; var (s, e) = ranges[range];
             if (s == e && FailCollapsedText) { bstr = IntPtr.Zero; return unchecked((int)0x8000FFFF); }
-            if ((s == e && NullCollapsedText) || (range.ToInt64() >= 100 && e > s && NullNoncollapsedPrefix))
-            { bstr = IntPtr.Zero; return 0; }
+            if ((s == e && NullCollapsedText) || (range.ToInt64() >= 100 && e > s && NullNoncollapsedPrefix)
+                || (ReservedLeadingPositions && s == 0 && e == 2))
+            { bstr = IntPtr.Zero; return NonSOkNullText ? 1 : 0; }
+            if (ReservedLeadingPositions) { s = Math.Max(0, s - 2); e = Math.Max(0, e - 2); }
             bstr = (IntPtr)nextString++; strings[bstr] = DocumentText.Substring(s, e - s); return 0;
         }
         public int Rectangles(IntPtr range, out IntPtr array)
@@ -83,12 +88,13 @@ public sealed class InProcessTextRangeNativeTests
             if (FailFormatMove) return unchecked((int)0x8000FFFF);
             var current = ranges[range];
             if (!NoFormatAdvance && !ReportAdvanceWithoutMoving)
-                ranges[range] = (current.start + (ChangeFormatStart ? 1 : 0), OneCharacterFormat ? current.end + 1 : 3);
+                ranges[range] = (current.start + (ChangeFormatStart ? 1 : 0), OneCharacterFormat ? current.end + 1 : ReservedLeadingPositions ? 5 : 3);
             return 0;
         }
         public int Compare(IntPtr range, int endpoint, IntPtr target, int targetEndpoint, out int comparison)
         {
             var from = ranges[range]; var to = ranges[target]; comparison = (endpoint == 0 ? from.start : from.end) - (targetEndpoint == 0 ? to.start : to.end);
+            if (WrongPrefixStart && target == (IntPtr)8 && endpoint == 0 && targetEndpoint == 0) comparison = 1;
             return FailCollapsedCompare && range == target ? unchecked((int)0x8000FFFF) : 0;
         }
         public uint Dimensions(IntPtr array) => 1;
@@ -243,14 +249,59 @@ public sealed class InProcessTextRangeNativeTests
     }
 
     [Fact]
-    public void SuccessfulNullBstrForNoncollapsedPrefixDoesNotInventZeroOffset()
+    public void SuccessfulNullBstrMeasuresZeroPlaintextWithoutCollapsingReservedStructuralPositions()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { ReservedLeadingPositions = true });
+        var range = receipt["visible_ranges"]![0]!; var start = range["start"]!;
+        Assert.Equal("observed", receipt["status"]!.ToString());
+        Assert.Equal(0, start["get_text_hresult"]!.GetValue<int>());
+        Assert.True(start["text"]!["is_null"]!.GetValue<bool>());
+        Assert.True(start["bstr"]!["pointer_is_null"]!.GetValue<bool>());
+        Assert.Equal(0U, start["bstr"]!["sys_string_len"]!.GetValue<uint>());
+        Assert.Equal(0, start["plain_text_utf16_length"]!.GetValue<int>());
+        Assert.Equal(0, start["verified_prefix_utf16_length"]!.GetValue<int>());
+        Assert.Equal(-2, start["prefix_start_to_end_compare"]!.GetValue<int>());
+        Assert.False(start["prefix_structurally_collapsed"]!.GetValue<bool>());
+        Assert.False(start["null_bstr_collapsed_prefix"]!.GetValue<bool>());
+        Assert.True(range["text_matches_document_snapshot_slice"]!.GetValue<bool>());
+        Assert.False(range["canonical_geometry_supplied"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void MeasuredNullBstrLengthDoesNotMakeAnInconsistentDocumentPartitionValid()
     {
         var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { NullNoncollapsedPrefix = true });
-        var end = receipt["document_range"]!["end"]!;
+        var range = receipt["document_range"]!; var end = range["end"]!;
         Assert.True(end["text"]!["is_null"]!.GetValue<bool>());
         Assert.NotEqual(0, end["prefix_start_to_end_compare"]!.GetValue<int>());
         Assert.False(end["null_bstr_collapsed_prefix"]!.GetValue<bool>());
-        Assert.Null(end["verified_prefix_utf16_length"]);
+        Assert.Equal(0, end["plain_text_utf16_length"]!.GetValue<int>());
+        Assert.Equal(0, end["verified_prefix_utf16_length"]!.GetValue<int>());
+        Assert.False(range["text_matches_document_snapshot_slice"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void NullBstrWithoutActualSOkCannotSupplyPlaintextLength()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { ReservedLeadingPositions = true, NonSOkNullText = true });
+        var start = receipt["visible_ranges"]![0]!["start"]!;
+        Assert.Equal("observed-with-errors", receipt["status"]!.ToString());
+        Assert.Equal(1, start["get_text_hresult"]!.GetValue<int>());
+        Assert.True(start["bstr"]!["pointer_is_null"]!.GetValue<bool>());
+        Assert.Equal(-2, start["prefix_start_to_end_compare"]!.GetValue<int>());
+        Assert.Null(start["plain_text_utf16_length"]);
+        Assert.Null(start["verified_prefix_utf16_length"]);
+        Assert.NotNull(start["error"]);
+    }
+
+    [Fact]
+    public void MeasuredPlaintextLengthDoesNotReplaceFailedPrefixStartBinding()
+    {
+        var receipt = InProcessTextRangeNative.Read((IntPtr)1, new Api { ReservedLeadingPositions = true, WrongPrefixStart = true });
+        var start = receipt["visible_ranges"]![0]!["start"]!;
+        Assert.Equal(0, start["plain_text_utf16_length"]!.GetValue<int>());
+        Assert.Equal(1, start["start_compare"]!.GetValue<int>());
+        Assert.Null(start["verified_prefix_utf16_length"]);
     }
 
     [Theory]

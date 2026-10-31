@@ -1,5 +1,19 @@
 # Native Relic App contract
 
+Changes for the clients (Windows text prefix quantities): a successful actual
+GetText(-1) / SysStringLen receipt now records logical UTF16 length independently
+of CompareEndpoints structural position. A null BSTR can therefore have length
+zero while its retained structural comparison is -2 and collapsed is false.
+The reader validates both quantities independently. It does not rewrite older
+raw records or use equal text offsets to invent cross-channel structural range
+identity. The headless WinUI build passes; new regression tests run in CI.
+
+Windows paint adjustment: the subgroup badge outline now uses the reference's
+measured 1px stroke instead of 1.5px. Its dash/contour and remaining outline
+measurements are still independently checked; this change does not certify them.
+The current shared contract run f169dc3 (41149878734) passes, including the new
+scrollbar diagnostic and actual appearance swatch tests.
+
 Changes for the clients (macOS request, 2026-10-31): the reference extractor now
 reads selected state for the actual appearance preference swatch buttons from
 their production `on` class. The selector is limited to `.swatches>button.swatch`;

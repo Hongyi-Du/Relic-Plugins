@@ -18,6 +18,7 @@ from windows_text_precision import EvidenceError, need, com_range, rectangle_val
 CONTRACT = "actual-inprocess-com-text-range-diagnostic-v1"
 SOURCE = "Observed in-process public ITextRangeProvider screen-coordinate doubles, bound to the same retained peer and source range"
 ENDPOINT_SOURCE = "DocumentRange.Clone + MoveEndpointByRange + CompareEndpoints + actual prefix GetText UTF16 length"
+PLAIN_TEXT_LENGTH_SOURCE = "S_OK ITextRangeProvider.GetText(-1) + SysStringLen(actual BSTR); logical-flow UTF16 code units"
 ZERO_ERROR = "COM text rectangle {index} is zero-area; original values retained, no inference that its text is hidden or covered."
 
 
@@ -35,6 +36,46 @@ def successful_call(com, name):
     calls = [call for call in com.get("calls", []) if call.get("api") == name]
     need(len(calls) == 1 and type(calls[0].get("hresult")) is int and calls[0]["hresult"] >= 0
          and calls[0].get("succeeded") is True, "Actual COM call was failed, missing or ambiguous: " + name)
+    return calls[0]
+
+
+def observed_prefix(point, com, document, path, index):
+    """Read the logical plaintext projection, not structural endpoint distance."""
+    need(isinstance(point, dict) and point.get("source") == ENDPOINT_SOURCE and point.get("endpoint") == index
+         and point.get("start_compare") == point.get("end_compare") == 0 and "error" not in point,
+         "Actual in-process endpoint comparisons are unavailable")
+    for operation in ("Clone", "MoveEndpointByRange", "CompareEnd", "CompareStart", "ComparePrefixStartToEnd", "prefix.GetText(-1)"):
+        call = successful_call(com, path + "." + operation)
+        need(call["hresult"] == 0, "Actual prefix operation did not return S_OK: " + path + "." + operation)
+    offset = point.get("verified_prefix_utf16_length")
+    need(type(offset) is int and 0 <= offset <= len(document) // 2, "Actual prefix UTF16 endpoint remains unknown")
+    comparison = point.get("prefix_start_to_end_compare")
+    need(type(comparison) is int, "Actual prefix structural endpoint comparison is absent")
+    measured_length = "plain_text_utf16_length" in point or "plain_text_length_source" in point
+    if measured_length:
+        # New collector receipts explicitly separate these two API quantities.
+        # Do not manufacture the fields in historical captures.
+        need(point.get("plain_text_length_source") == PLAIN_TEXT_LENGTH_SOURCE
+             and type(point.get("plain_text_utf16_length")) is int
+             and point["plain_text_utf16_length"] == offset
+             and type(point.get("get_text_hresult")) is int and point["get_text_hresult"] == 0
+             and point.get("prefix_structurally_collapsed") is (comparison == 0),
+             "Actual plaintext length receipt differs from the prefix call or structural state")
+    if (point.get("text") or {}).get("is_null") is True:
+        bstr = point.get("bstr") or {}
+        need(offset == 0 and bstr.get("pointer_is_null") is True
+             and type(bstr.get("sys_string_len")) is int and bstr["sys_string_len"] == 0
+             and bstr.get("source") == "SysStringLen on the actual successful GetText BSTR"
+             and point["text"].get("utf16_length") is None and point["text"].get("utf16_le_base64") is None
+             and point.get("null_bstr_collapsed_prefix") is (comparison == 0),
+             "Actual null BSTR or separately measured structural state is inconsistent")
+        need(measured_length or comparison == 0,
+             "Historical noncollapsed null prefix has no explicit logical plaintext length receipt")
+        prefix = b""
+    else:
+        prefix = text_bytes(point.get("text"))
+    need(prefix == document[:offset * 2], "Actual prefix differs from the retained document")
+    return offset
 
 
 def observed_range(record, com, document, path):
@@ -45,25 +86,7 @@ def observed_range(record, com, document, path):
     data = text_bytes(record.get("text"))
     offsets = []
     for index, label in enumerate(("start", "end")):
-        point = record.get(label)
-        need(isinstance(point, dict) and point.get("source") == ENDPOINT_SOURCE and point.get("endpoint") == index
-             and point.get("start_compare") == point.get("end_compare") == 0 and "error" not in point,
-             "Actual in-process endpoint comparisons are unavailable")
-        for operation in ("Clone", "MoveEndpointByRange", "CompareEnd", "CompareStart", "ComparePrefixStartToEnd", "prefix.GetText(-1)"):
-            successful_call(com, path + "." + label + "." + operation)
-        offset = point.get("verified_prefix_utf16_length")
-        need(type(offset) is int and 0 <= offset <= len(document) // 2, "Actual prefix UTF16 endpoint remains unknown")
-        if (point.get("text") or {}).get("is_null") is True:
-            need(offset == 0 and point.get("null_bstr_collapsed_prefix") is True
-                 and point.get("prefix_start_to_end_compare") == 0
-                 and point.get("bstr", {}).get("pointer_is_null") is True
-                 and point.get("bstr", {}).get("sys_string_len") == 0,
-                 "Noncollapsed/null prefix cannot supply an inferred zero endpoint")
-            prefix = b""
-        else:
-            prefix = text_bytes(point.get("text"))
-        need(prefix == document[:offset * 2], "Actual prefix differs from the retained document")
-        offsets.append(offset)
+        offsets.append(observed_prefix(record.get(label), com, document, path + "." + label, index))
     start, end = offsets
     need(start <= end and document[start * 2:end * 2] == data
          and record.get("offsets_within_document_snapshot") is True
@@ -211,6 +234,14 @@ def select_observed_text_geometry(xaml, uia, probe, frame):
                              <= owner["frame_after"]["qpc"], "Actual range read lies outside its bound frame observations")
                         external_span, raw = com_range(original, document)
                         need(span == external_span and len(raw) == len(actual), "Actual source endpoints or rectangle cardinality differ")
+                        # A zero plaintext prefix can contain reserved structural
+                        # positions. External receipts record plaintext offsets,
+                        # not cross-channel CompareEndpoints results. Measuring
+                        # its length does not fill that independent identity gap.
+                        need(not any((precise.get(label, {}).get("text") or {}).get("is_null") is True
+                                     and precise[label].get("prefix_start_to_end_compare") != 0
+                                     for label in ("start", "end")),
+                             "Noncollapsed empty plaintext prefix has no cross-channel structural endpoint identity")
                         if ".format_runs[" in path:
                             step = precise.get("format_step") or {}
                             for operation in ("ClonePrevious", "MoveEndpointByUnit(End,Format,1)", "CompareEndToParentEndBeforeClamp",

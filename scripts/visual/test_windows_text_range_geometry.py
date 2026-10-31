@@ -9,7 +9,9 @@ import struct
 import unittest
 from pathlib import Path
 
-from windows_text_range_geometry import SOURCE, select_observed_text_geometry
+from windows_text_precision import EvidenceError
+from windows_text_range_geometry import (PLAIN_TEXT_LENGTH_SOURCE, SOURCE, observed_prefix,
+                                         select_observed_text_geometry, text_bytes)
 
 
 FIXTURE = Path(__file__).with_name("fixtures") / "windows-text-range-geometry-35ac04a.json"
@@ -39,6 +41,16 @@ def last_range(source):
 
 def bits(values):
     return [struct.pack(">d", float(value)).hex().upper() for value in values]
+
+
+def modeled_plaintext_length(point):
+    """Model new collector fields in a copied receipt, never claim a CI capture."""
+    point.update({"plain_text_utf16_length": 0,
+                  "plain_text_length_source": PLAIN_TEXT_LENGTH_SOURCE,
+                  "get_text_hresult": 0,
+                  "prefix_structurally_collapsed": point["prefix_start_to_end_compare"] == 0,
+                  "verified_prefix_utf16_length": 0})
+    return point
 
 
 class ObservedTextRangeGeometryTests(unittest.TestCase):
@@ -92,6 +104,85 @@ class ObservedTextRangeGeometryTests(unittest.TestCase):
         self.assertIn("visible_ranges[0].format_runs[0]", unavailable)
         self.assertEqual(result["effective_uia"]["raw_nodes"][0]["text_pattern"]["visible_ranges"][0],
                          source["uia"]["raw_nodes"][0]["text_pattern"]["visible_ranges"][0])
+
+    def test_new_null_bstr_plaintext_length_keeps_actual_noncollapsed_state(self):
+        source = fixture()
+        com = owner(source)["com"]
+        point = modeled_plaintext_length(copy.deepcopy(com["visible_ranges"][0]["start"]))
+        before = copy.deepcopy(point)
+        document = text_bytes(owner(source)["owner_text_before"])
+        self.assertEqual(observed_prefix(point, com, document, "visible_ranges[0].start", 0), 0)
+        self.assertEqual(point, before)
+        self.assertTrue(point["text"]["is_null"])
+        self.assertTrue(point["bstr"]["pointer_is_null"])
+        self.assertEqual(point["prefix_start_to_end_compare"], -2)
+        self.assertFalse(point["prefix_structurally_collapsed"])
+        self.assertFalse(point["null_bstr_collapsed_prefix"])
+        # Historical evidence remains historical; the helper above only models
+        # fields the corrected collector will emit on its next actual capture.
+        self.assertIsNone(com["visible_ranges"][0]["start"]["verified_prefix_utf16_length"])
+        self.assertNotIn("plain_text_utf16_length", com["visible_ranges"][0]["start"])
+
+    def test_null_bstr_plaintext_requires_actual_s_ok_call_and_bound_prefix(self):
+        failures = ("failed-call", "s-false", "missing-call", "duplicate-call", "wrong-start", "wrong-end",
+                    "nonzero-bstr-length", "nonnull-pointer", "nonnull-text-data", "wrong-length-source",
+                    "false-collapse", "false-legacy-collapse", "missing-measurement", "wrong-get-text-hresult")
+        for failure in failures:
+            with self.subTest(failure=failure):
+                source = fixture()
+                com = owner(source)["com"]
+                point = modeled_plaintext_length(com["visible_ranges"][0]["start"])
+                api = "visible_ranges[0].start.prefix.GetText(-1)"
+                call = next(call for call in com["calls"] if call["api"] == api)
+                if failure in {"failed-call", "s-false"}:
+                    call["hresult"] = -2147467259 if failure == "failed-call" else 1
+                    # A claimed succeeded flag cannot replace the actual S_OK.
+                    call["succeeded"] = True
+                elif failure == "missing-call":
+                    com["calls"].remove(call)
+                elif failure == "duplicate-call":
+                    com["calls"].append(copy.deepcopy(call))
+                elif failure in {"wrong-start", "wrong-end"}:
+                    point["start_compare" if failure == "wrong-start" else "end_compare"] = 1
+                elif failure == "nonzero-bstr-length":
+                    point["bstr"]["sys_string_len"] = 1
+                elif failure == "nonnull-pointer":
+                    point["bstr"]["pointer_is_null"] = False
+                elif failure == "nonnull-text-data":
+                    point["text"]["utf16_le_base64"] = "QQA="
+                elif failure == "wrong-length-source":
+                    point["plain_text_length_source"] = "text search"
+                elif failure == "false-collapse":
+                    point["prefix_structurally_collapsed"] = True
+                elif failure == "false-legacy-collapse":
+                    point["null_bstr_collapsed_prefix"] = True
+                elif failure == "missing-measurement":
+                    point.pop("plain_text_utf16_length")
+                    point.pop("plain_text_length_source")
+                elif failure == "wrong-get-text-hresult":
+                    point["get_text_hresult"] = 1
+                with self.assertRaises(EvidenceError):
+                    observed_prefix(point, com, text_bytes(owner(source)["owner_text_before"]),
+                                    "visible_ranges[0].start", 0)
+
+    def test_equal_plaintext_offset_does_not_make_different_structural_range_geometry_equivalent(self):
+        source = fixture(before_capture_wrapper=True)
+        # Synthetic counterexample: all old owner/frame/category/rectangle/span
+        # receipts remain equal, but this endpoint has two reserved positions.
+        # No cross-channel structural CompareEndpoints exists in the fixture.
+        point = owner(source)["com"]["document_range"]["start"]
+        point["prefix_start_to_end_compare"] = -2
+        point["null_bstr_collapsed_prefix"] = False
+        modeled_plaintext_length(point)
+        before = copy.deepcopy(source)
+        result = select(source)
+        self.assertEqual(source, before)
+        self.assertNotIn("document_range", [item["path"] for item in result["audit"]["selections"]])
+        self.assertTrue(any(item.get("path") == "document_range" and "structural endpoint identity" in item["reason"]
+                            for item in result["audit"]["unavailable_ranges"]))
+        self.assertFalse(result["all_original_failures_resolved"])
+        self.assertEqual(result["effective_uia"]["raw_nodes"][0]["text_pattern"]["document"],
+                         source["uia"]["raw_nodes"][0]["text_pattern"]["document"])
 
     def test_foreign_owner_runtime_id_observer_or_ambiguous_owner_cannot_resolve(self):
         def change_runtime(source):
