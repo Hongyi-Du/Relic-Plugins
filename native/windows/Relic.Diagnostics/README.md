@@ -52,6 +52,18 @@ responsiveness. It is only a diagnostic signal, never acceptance evidence.
 The shared driver samples only its own synthetic CI application and retains
 separate `native-stack-*` and `managed-stack-*` files.
 
+For post-processing, each frame additionally retains the actual loaded image
+path, base, size, timestamp, checksum and symbol/export type. A separate mode,
+`--resolve <image> <local-symbol-dir> <offsets...>`, requires `GITHUB_ACTIONS=true`
+but never opens or suspends the target process. It loads the supplied image and
+local PDB with `SYMOPT_EXACT_SYMBOLS`; unresolved or unmatched symbols remain
+explicit failures, with no export fallback. `scripts/performance/resolve_symbols.py`
+downloads the exact RSDS GUID/age PDB from Microsoft's public server after the
+measurement has ended, then invokes this local-only mode. The raw snapshots
+and the original responsiveness result are unchanged. Downloaded PDB caches
+are excluded from artifacts; their exact identity, source and resolved frames
+are retained in `resolved-symbols.json`.
+
 SDK contracts used:
 
 - [GetThreadContext](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getthreadcontext)

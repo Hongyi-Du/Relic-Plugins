@@ -30,7 +30,8 @@ internal sealed class VirtualRows : Grid
     private bool bringQueued;
     private readonly record struct EndGeometry(int Index, FrameworkElement? Element, double Offset, double Extent,
         double ViewportWidth, double ViewportHeight, double RowTop, double RowWidth, double RowHeight);
-    private readonly record struct PreparedEnd(int Index, double ViewportWidth, double ViewportHeight, double RowWidth, double RowHeight);
+    private readonly record struct PreparedEnd(int Index, double ViewportWidth, double ViewportHeight,
+        double RowWidth, double RowHeight, double ContentBottom);
     private sealed class FollowRequest(int revision, ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {
         internal readonly int Revision = revision;
@@ -44,8 +45,11 @@ internal sealed class VirtualRows : Grid
     }
     private FollowRequest? followingLast;
     private bool followQueued;
+    private int readinessQueued;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue dispatcher;
     internal VirtualRows()
     {
+        dispatcher = DispatcherQueue;
         Children = new(() =>
         {
             revision++;
@@ -74,6 +78,7 @@ internal sealed class VirtualRows : Grid
         viewport.AnchorRequested += FollowAnchorRequested;
         viewport.ViewChanged += FollowViewChanged;
         viewport.SizeChanged += FollowViewportSizeChanged;
+        PresentationPreparation.Completed += FollowPreparationCompleted;
         BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent);
     }
     internal void StopFollowingLast()
@@ -84,6 +89,23 @@ internal sealed class VirtualRows : Grid
         follow.Viewport.AnchorRequested -= FollowAnchorRequested;
         follow.Viewport.ViewChanged -= FollowViewChanged;
         follow.Viewport.SizeChanged -= FollowViewportSizeChanged;
+        PresentationPreparation.Completed -= FollowPreparationCompleted;
+    }
+    private void FollowPreparationCompleted()
+    {
+        // Completion may arrive on a worker, including canceled requests whose
+        // old visual tree is gone. Coalesce onto the captured UI dispatcher.
+        if (Interlocked.Exchange(ref readinessQueued, 1) != 0) return;
+        if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            Interlocked.Exchange(ref readinessQueued, 0);
+            if (followingLast is not { } follow) return;
+            if (!IsCurrent(follow)) { StopFollowingLast(); return; }
+            if (!follow.IsContentReady()) return;
+            // A decrement alone need not invalidate this chat. Request exactly
+            // one real Arrange before checking its now-completed geometry.
+            InvalidateArrange();
+        })) Interlocked.Exchange(ref readinessQueued, 0);
     }
     private bool IsCurrent(FollowRequest follow) => ReferenceEquals(followingLast, follow)
         && follow.Revision == revision && follow.IsCurrent() && Children.Count > 0;
@@ -156,7 +178,11 @@ internal sealed class VirtualRows : Grid
             else
             {
                 var prepared = new PreparedEnd(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight,
-                    geometry.RowWidth, geometry.RowHeight);
+                    geometry.RowWidth, geometry.RowHeight,
+                    Math.Round((geometry.RowTop + geometry.RowHeight + geometry.Offset) * 64) / 64);
+                // Content-space position also changes when an earlier message
+                // finishes layout but this final row keeps the same size. Pure
+                // scrolling changes RowTop and Offset in opposite directions.
                 if (follow.LastCorrected == prepared) return;
                 follow.LastCorrected = prepared;
             }
@@ -288,7 +314,7 @@ internal sealed class VirtualRows : Grid
                     // in a native callback without a managed sync context.
                     work.Owner.BuildNow(work.Host);
                 }
-                finally { Interlocked.Decrement(ref PendingBuilds); }
+                finally { Interlocked.Decrement(ref PendingBuilds); PresentationPreparation.NotifyCompletion(); }
                 break;
             }
             if (pending.Count == 0) pumpTimer!.Stop();

@@ -116,12 +116,14 @@ public sealed partial class NativePathText : UserControl
                     body.InvalidateMeasure(); InvalidateMeasure();
                 }
                 Interlocked.Decrement(ref pendingPreparations);
+                PresentationPreparation.NotifyCompletion();
                 var restart = cancellation.IsCancellationRequested && IsLoaded;
                 cancellation.Dispose();
                 if (restart) PrepareBoundaries();
             }))
             {
                 Interlocked.Decrement(ref pendingPreparations); cancellation.Dispose();
+                PresentationPreparation.NotifyCompletion();
             }
         }
     }

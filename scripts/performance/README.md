@@ -2,6 +2,14 @@
 
 This harness runs only in GitHub Actions. It creates its own synthetic store;
 it never reads or copies `~/.relic`, and never launches a provider/member session.
+Diagnostic runs additionally resolve retained DWrite/Direct2D/WinUI native
+frames after the measured process has exited. `resolve_symbols.py` reads the
+actual DLL's CodeView GUID and age, downloads that exact PDB from Microsoft's
+public symbol server, and runs the helper in offline resolution mode. Original
+snapshots are retained unchanged; large downloaded PDBs are excluded from the
+artifact. Resolution failures are recorded, never guessed from nearby exports.
+Symbol work cannot change the measured responsiveness result or make a
+diagnostic run eligible for acceptance.
 Use `python scripts/performance/run.py --client windows|macos --exe ... --output ...`.
 The driver exports `RELIC_PERF_MANIFEST`, `RELIC_PERF_OUTPUT`, `RELIC_HOME`,
 `RELIC_ENGINE_ROOT`, `RELIC_PYTHON`, and isolated native-state/config directories.
@@ -34,6 +42,13 @@ Kinds and fields:
   the actual first historical message is reachable, then return to the latest.
   The result must include `pages_loaded`, `oldest_message_id`, and
   `history_complete`. Merely scrolling the first page is not completion.
+  On Windows, first passively verify the initial final row, send an actual
+  upward wheel, and drive the real scroll control to request earlier pages.
+  Layout while reading history must not enable automatic following. Return
+  with an actual End key on the focused conversation, require its routed key
+  event, then passively verify the final row. Every boundary must be realized,
+  visible and within 1 DIP; the driver never invokes paging/follow business
+  methods or repairs the bottom with repeated numeric offsets.
 
 Native monitoring starts as soon as the UI dispatcher/window exists, before
 initial organization rendering. A single background worker posts at most one UI

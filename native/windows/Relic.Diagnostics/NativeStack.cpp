@@ -1,6 +1,7 @@
 // CI-only x64 UI stack snapshot. No target code is injected or executed.
 #include <Windows.h>
 #include <DbgHelp.h>
+#include <Psapi.h>
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -67,6 +68,48 @@ std::string Quote(const std::string& value) {
     text << '"'; return text.str();
 }
 
+std::string Utf8(const std::wstring& value) {
+    if (value.empty()) return {};
+    const auto size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    if (!size) Fail("WideCharToMultiByte size");
+    std::string result(static_cast<size_t>(size), '\0');
+    if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+        result.data(), size, nullptr, nullptr)) Fail("WideCharToMultiByte");
+    return result;
+}
+
+std::string GuidText(const GUID& value) {
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(8) << value.Data1 << '-'
+         << std::setw(4) << value.Data2 << '-' << std::setw(4) << value.Data3 << '-';
+    for (size_t index = 0; index < 8; ++index) {
+        if (index == 2) text << '-';
+        text << std::setw(2) << static_cast<unsigned>(value.Data4[index]);
+    }
+    return text.str();
+}
+
+std::wstring LocalPath(const wchar_t* value, bool directory) {
+    const auto path = std::filesystem::absolute(value).lexically_normal();
+    const auto text = path.wstring();
+    if (text.size() < 3 || text[1] != L':' || (text[2] != L'\\' && text[2] != L'/')
+        || text.find_first_of(L"*;") != std::wstring::npos)
+        throw std::runtime_error("Expected one local drive path");
+    if (directory ? !std::filesystem::is_directory(path) : !std::filesystem::is_regular_file(path))
+        throw std::runtime_error("Local image or symbol directory does not exist");
+    return text;
+}
+
+void LocalSymbolOptions(bool exact) {
+    SetEnvironmentVariableW(L"_NT_SYMBOL_PATH", nullptr);
+    SetEnvironmentVariableW(L"_NT_ALTERNATE_SYMBOL_PATH", nullptr);
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_FAIL_CRITICAL_ERRORS
+        | SYMOPT_NO_PROMPTS | SYMOPT_IGNORE_NT_SYMPATH | SYMOPT_IGNORE_CVREC
+        | SYMOPT_IGNORE_IMAGEDIR | SYMOPT_NO_IMAGE_SEARCH | SYMOPT_DISABLE_SYMSRV_AUTODETECT
+        | (exact ? SYMOPT_EXACT_SYMBOLS : 0));
+}
+
 bool EnvTrue(const wchar_t* name) {
     std::array<wchar_t, 16> value{};
     return GetEnvironmentVariableW(name, value.data(), static_cast<DWORD>(value.size())) == 4
@@ -130,11 +173,7 @@ struct Symbols {
         if (localPath.size() < 3 || localPath[1] != L':' || localPath.find_first_of(L"*;") != std::wstring::npos)
             throw std::runtime_error("Symbol path must be one local drive directory");
         if (!CreateDirectoryW(localPath.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) Fail("Create local symbol directory");
-        SetEnvironmentVariableW(L"_NT_SYMBOL_PATH", nullptr);
-        SetEnvironmentVariableW(L"_NT_ALTERNATE_SYMBOL_PATH", nullptr);
-        SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_FAIL_CRITICAL_ERRORS
-            | SYMOPT_NO_PROMPTS | SYMOPT_IGNORE_NT_SYMPATH | SYMOPT_IGNORE_CVREC
-            | SYMOPT_IGNORE_IMAGEDIR | SYMOPT_NO_IMAGE_SEARCH | SYMOPT_DISABLE_SYMSRV_AUTODETECT);
+        LocalSymbolOptions(false);
         // Explicit local-only search; no SRV path, symbol server, or download.
         if (!SymInitializeW(process, localPath.c_str(), TRUE)) Fail("SymInitializeW");
         if (!SymRegisterCallback64(process, SymbolCallback, 0)) {
@@ -167,21 +206,93 @@ void EmitRejected(DWORD64 ip, DWORD64 sp, const std::string& reason) {
 
 void EmitFrame(HANDLE process, size_t index, DWORD64 ip, DWORD64 sp, bool resolve) {
     IMAGEHLP_MODULE64 module{}; module.SizeOfStruct = sizeof(module);
-    const bool hasModule = resolve && SymGetModuleInfo64(process, ip, &module) != FALSE;
+    bool hasModule = resolve && SymGetModuleInfo64(process, ip, &module) != FALSE;
     alignas(SYMBOL_INFO) std::array<unsigned char, sizeof(SYMBOL_INFO) + MAX_SYM_NAME> storage{};
     auto symbol = reinterpret_cast<PSYMBOL_INFO>(storage.data());
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO); symbol->MaxNameLen = MAX_SYM_NAME;
     DWORD64 displacement = 0;
     const bool hasSymbol = resolve && SymFromAddr(process, ip, &displacement, symbol) != FALSE;
+    // Symbol lookup can complete a deferred module load. Preserve the actual
+    // resulting symbol type, and the target's full image path for later exact
+    // PDB matching; neither operation happens while the UI is suspended.
+    if (resolve) hasModule = SymGetModuleInfo64(process, ip, &module) != FALSE;
+    std::array<wchar_t, 32768> image{};
+    const auto imageLength = hasModule ? K32GetModuleFileNameExW(process,
+        reinterpret_cast<HMODULE>(module.BaseOfImage), image.data(), static_cast<DWORD>(image.size())) : 0;
     std::cout << "{\"kind\":\"native_frame\",\"index\":" << index
         << ",\"ip\":" << Quote(Hex(ip)) << ",\"sp\":" << Quote(Hex(sp))
         << ",\"module\":" << Quote(hasModule ? module.ModuleName : "")
         << ",\"module_offset\":" << Quote(hasModule ? Hex(ip - module.BaseOfImage) : "")
+        << ",\"module_base\":" << Quote(hasModule ? Hex(module.BaseOfImage) : "")
+        << ",\"image_name\":" << Quote(imageLength && imageLength < image.size() ? Utf8(std::wstring(image.data(), imageLength)) : "")
+        << ",\"module_image_size\":" << (hasModule ? module.ImageSize : 0)
+        << ",\"module_timestamp\":" << (hasModule ? module.TimeDateStamp : 0)
+        << ",\"module_checksum\":" << (hasModule ? module.CheckSum : 0)
         << ",\"symbol\":" << Quote(hasSymbol ? std::string(symbol->Name, symbol->NameLen) : "")
         << ",\"symbol_displacement\":" << Quote(hasSymbol ? Hex(displacement) : "")
+        << ",\"symbol_type\":" << static_cast<int>(hasModule ? module.SymType : SymNone)
+        << ",\"symbol_flags\":" << (hasSymbol ? symbol->Flags : 0)
+        << ",\"symbol_is_export\":" << (hasSymbol && (module.SymType == SymExport || (symbol->Flags & SYMFLAG_EXPORT)) ? "true" : "false")
         << ",\"lookup_skipped\":" << (resolve ? "false" : "true")
         << ",\"validation\":\"executable PC and captured stack pointer\""
         << ",\"symbol_source\":\"local symbols or exports only\"}\n" << std::flush;
+}
+
+int ResolveOffline(const wchar_t* imageArgument, const wchar_t* symbolArgument, int count, wchar_t** offsets) {
+    const auto image = LocalPath(imageArgument, false);
+    const auto symbols = LocalPath(symbolArgument, true);
+    const HANDLE process = GetCurrentProcess();
+    // This separate mode never opens/suspends the app and never downloads.
+    // IGNORE_CVREC ignores the embedded original path, not its GUID/age.
+    // EXACT_SYMBOLS rejects unmatched PDBs and disables export fallback.
+    LocalSymbolOptions(true);
+    if (!SymInitializeW(process, symbols.c_str(), FALSE)) Fail("Offline SymInitializeW");
+    struct Cleanup { HANDLE process; ~Cleanup() { SymCleanup(process); } } cleanup{process};
+    const DWORD64 base = SymLoadModuleExW(process, nullptr, image.c_str(), nullptr, 0, 0, nullptr, 0);
+    if (!base) Fail("Offline SymLoadModuleExW");
+    bool allResolved = true;
+    for (int index = 0; index < count; ++index) {
+        const std::wstring text(offsets[index]);
+        size_t consumed = 0;
+        if (text.empty() || text[0] == L'-') throw std::runtime_error("Invalid image offset");
+        const auto offset = std::stoull(text, &consumed, 0);
+        if (consumed != text.size()) throw std::runtime_error("Invalid image offset");
+        IMAGEHLP_MODULEW64 module{}; module.SizeOfStruct = sizeof(module);
+        if (!SymGetModuleInfoW64(process, base, &module)) Fail("Offline module information");
+        if (offset >= module.ImageSize) throw std::runtime_error("Offset is outside the supplied image");
+        alignas(SYMBOL_INFO) std::array<unsigned char, sizeof(SYMBOL_INFO) + MAX_SYM_NAME> storage{};
+        auto symbol = reinterpret_cast<PSYMBOL_INFO>(storage.data());
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO); symbol->MaxNameLen = MAX_SYM_NAME;
+        DWORD64 displacement = 0;
+        SetLastError(ERROR_SUCCESS);
+        const bool found = SymFromAddr(process, base + offset, &displacement, symbol) != FALSE;
+        const DWORD lookupError = found ? ERROR_SUCCESS : GetLastError();
+        if (!SymGetModuleInfoW64(process, base, &module)) Fail("Offline resolved module information");
+        const bool matched = (module.SymType == SymPdb || module.SymType == SymDia)
+            && !module.PdbUnmatched && !module.DbgUnmatched && module.LoadedPdbName[0] != L'\0';
+        const bool resolved = found && matched && !(symbol->Flags & SYMFLAG_EXPORT);
+        allResolved = allResolved && resolved;
+        std::cout << "{\"kind\":\"offline_symbol\",\"image_name\":" << Quote(Utf8(image))
+            << ",\"module\":" << Quote(Utf8(module.ModuleName)) << ",\"module_offset\":" << Quote(Hex(offset))
+            << ",\"module_base\":" << Quote(Hex(base)) << ",\"module_image_size\":" << module.ImageSize
+            << ",\"module_timestamp\":" << module.TimeDateStamp << ",\"module_checksum\":" << module.CheckSum
+            << ",\"local_symbol_directory\":" << Quote(Utf8(symbols))
+            << ",\"loaded_pdb\":" << Quote(Utf8(module.LoadedPdbName))
+            << ",\"pdb_guid\":" << Quote(GuidText(module.PdbSig70)) << ",\"pdb_age\":" << module.PdbAge
+            << ",\"pdb_matched\":" << (matched ? "true" : "false")
+            << ",\"pdb_unmatched\":" << (module.PdbUnmatched ? "true" : "false")
+            << ",\"dbg_unmatched\":" << (module.DbgUnmatched ? "true" : "false")
+            << ",\"symbol_type\":" << static_cast<int>(module.SymType)
+            << ",\"resolved\":" << (resolved ? "true" : "false")
+            << ",\"symbol\":" << Quote(resolved ? std::string(symbol->Name, symbol->NameLen) : "")
+            << ",\"symbol_displacement\":" << Quote(resolved ? Hex(displacement) : "")
+            << ",\"symbol_address\":" << Quote(resolved ? Hex(symbol->Address) : "")
+            << ",\"symbol_size\":" << (resolved ? symbol->Size : 0)
+            << ",\"symbol_flags\":" << (resolved ? symbol->Flags : 0)
+            << ",\"symbol_tag\":" << (resolved ? symbol->Tag : 0)
+            << ",\"lookup_error\":" << lookupError << ",\"symbol_server\":false}\n" << std::flush;
+    }
+    return allResolved ? 0 : 3;
 }
 
 int Capture(DWORD pid) {
@@ -278,10 +389,14 @@ int Capture(DWORD pid) {
 
 int wmain(int argc, wchar_t** argv) {
     try {
-        if (!EnvTrue(L"GITHUB_ACTIONS") || !EnvTrue(L"RELIC_PERF_DIAGNOSTIC"))
+        if (!EnvTrue(L"GITHUB_ACTIONS"))
+            throw std::runtime_error("Native stack diagnostics are restricted to CI");
+        if (argc >= 5 && std::wstring(argv[1]) == L"--resolve")
+            return ResolveOffline(argv[2], argv[3], argc - 4, argv + 4);
+        if (!EnvTrue(L"RELIC_PERF_DIAGNOSTIC"))
             throw std::runtime_error("Native stack capture is restricted to explicit CI diagnostics");
         if (argc != 3 || std::wstring(argv[1]) != L"--pid")
-            throw std::runtime_error("Usage: Relic.NativeStack.exe --pid <owned native PID>");
+            throw std::runtime_error("Usage: --pid <owned native PID> or --resolve <image> <local-symbol-dir> <offsets...>");
         size_t consumed = 0;
         const auto value = std::stoul(argv[2], &consumed);
         if (!value || consumed != std::wstring(argv[2]).size()) throw std::runtime_error("Invalid target PID");

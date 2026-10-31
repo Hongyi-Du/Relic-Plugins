@@ -120,7 +120,7 @@ public sealed partial class MainWindow
         if (!PerformanceEnabled) throw new InvalidOperationException("History interaction is CI-only");
         await Select(step.Text("org"));
         await WaitForMarkdown(); await PerformanceYield();
-        var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0; var topWheelEvents = 0;
+        var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0; var topWheelEvents = 0; var endKeyEvents = 0;
         var diagnostics = new JsonObject(); var checkpoints = new JsonArray(); var inputEvents = new JsonArray();
         diagnostics["checkpoints"] = checkpoints; diagnostics["events"] = inputEvents;
         record["history_input_diagnostics"] = diagnostics;
@@ -128,7 +128,7 @@ public sealed partial class MainWindow
         {
             var state = new JsonObject { ["stage"] = stage, ["unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 ["wheel_events"] = wheelEvents, ["root_wheel_events"] = rootWheelEvents, ["view_events"] = viewEvents,
-                ["top_events"] = topEvents, ["top_wheel_events"] = topWheelEvents,
+                ["top_events"] = topEvents, ["top_wheel_events"] = topWheelEvents, ["end_key_events"] = endKeyEvents,
                 ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder,
                 ["chat_more"] = chatMore, ["chat_pages"] = chatPages, ["latest_request"] = latestRequest,
                 ["vertical_offset"] = chatScroll.VerticalOffset, ["scrollable_height"] = chatScroll.ScrollableHeight,
@@ -184,6 +184,14 @@ public sealed partial class MainWindow
             ObserveWheel("chatScroll", args);
         };
         Microsoft.UI.Xaml.Input.PointerEventHandler rootWheel = (_, args) => { rootWheelEvents++; ObserveWheel("root", args); };
+        Microsoft.UI.Xaml.Input.KeyEventHandler endKey = (_, args) =>
+        {
+            if (args.Key != Windows.System.VirtualKey.End) return;
+            endKeyEvents++;
+            diagnostics["end_key_event"] = new JsonObject { ["key"] = args.Key.ToString(), ["handled"] = args.Handled,
+                ["source_type"] = args.OriginalSource?.GetType().FullName,
+                ["source_is_chat_scroll"] = ReferenceEquals(args.OriginalSource, chatScroll) };
+        };
         EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) =>
         {
             if (args.IsIntermediate) return;
@@ -194,6 +202,7 @@ public sealed partial class MainWindow
         };
         chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, wheel, true);
         root.AddHandler(UIElement.PointerWheelChangedEvent, rootWheel, true);
+        chatScroll.AddHandler(UIElement.KeyDownEvent, endKey, true);
         chatScroll.ViewChanged += changed;
         var pages = new JsonArray();
         try
@@ -212,12 +221,32 @@ public sealed partial class MainWindow
                 .Select(row => long.TryParse(row.Text("id"), out var id) ? id : 0).Where(id => id > 0).Distinct().ToArray();
             async Task<JsonObject> Boundary(bool bottom)
             {
+                if (bottom)
+                {
+                    // End is actual user intent. Repeated numeric ChangeView(max)
+                    // cannot distinguish that intent from virtual extent repair.
+                    if (!chatScroll.Focus(FocusState.Programmatic))
+                        throw new InvalidOperationException("Could not focus the real conversation scroll control");
+                    await PerformanceYield();
+                    var beforeKeys = endKeyEvents;
+                    var inputs = new[] { false, true }.Select(up => new WholeWindowInput { type = 1,
+                        data = new WholeWindowInputData { keyboard = new WholeWindowKeyboardInput
+                            { virtualKey = 0x23, flags = 0x0001u | (up ? 0x0002u : 0u) } } }).ToArray();
+                    var inserted = WholeWindowSendInput((uint)inputs.Length, inputs,
+                        System.Runtime.InteropServices.Marshal.SizeOf<WholeWindowInput>());
+                    diagnostics["end_key_input"] = new JsonObject { ["operation"] = "SendInput End down/up to focused conversation",
+                        ["virtual_key"] = 0x23, ["inserted_events"] = inserted };
+                    if (inserted != inputs.Length) throw new System.ComponentModel.Win32Exception(
+                        System.Runtime.InteropServices.Marshal.GetLastWin32Error(), "Could not insert actual End input");
+                    await Until(() => endKeyEvents > beforeKeys && keepLatest,
+                        "Actual End input did not activate production follow-latest behavior");
+                }
                 var waiting = Stopwatch.StartNew(); var quiet = 0;
                 while (quiet < 2)
                 {
                     if (waiting.Elapsed > TimeSpan.FromSeconds(15))
                         throw new TimeoutException(bottom ? "Real history scroll did not reach the bottom" : "Real history scroll did not reach the top");
-                    chatScroll.ChangeView(null, bottom ? chatScroll.ScrollableHeight : 0, null, true);
+                    if (!bottom) chatScroll.ChangeView(null, 0, null, true);
                     await PerformanceYield(); await WaitForMarkdown();
                     var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
                     quiet = Math.Abs(gap) <= 1 ? quiet + 1 : 0;
@@ -296,6 +325,7 @@ public sealed partial class MainWindow
                 await Until(() => chatPages > beforePages && !loadingOlder,
                     "History did not page through the production ScrollViewer input handlers");
                 await WaitForMarkdown(); await PerformanceYield();
+                if (keepLatest) throw new InvalidOperationException("History layout reactivated follow-latest without user end input");
                 var afterIds = MessageIds();
                 if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min()
                     || (viewEvents <= beforeViews && wheelEvents <= beforeWheels))
@@ -320,7 +350,8 @@ public sealed partial class MainWindow
             record["upward_wheel_events"] = wheelEvents; record["top_view_changed_events"] = topEvents;
             record["top_upward_wheel_events"] = topWheelEvents;
             record["history_bottom"] = await Boundary(true);
-            record["history_scroll_source"] = "Actual upward pointer wheel and ScrollViewer.ViewChanged production handlers; no direct page load";
+            record["end_key_events"] = endKeyEvents;
+            record["history_scroll_source"] = "Actual upward pointer wheel, ScrollViewer top input and actual End key; no direct page load or bottom repair";
         }
         catch (Exception error)
         {
@@ -346,6 +377,7 @@ public sealed partial class MainWindow
         {
             chatScroll.RemoveHandler(UIElement.PointerWheelChangedEvent, wheel);
             root.RemoveHandler(UIElement.PointerWheelChangedEvent, rootWheel);
+            chatScroll.RemoveHandler(UIElement.KeyDownEvent, endKey);
             chatScroll.ViewChanged -= changed;
             diagnostics["pointer_input"] = capturePointerReceipts.DeepClone();
             Checkpoint("finished");

@@ -119,7 +119,7 @@ public sealed partial class MainWindow
                 content.Children.Clear(); content.Children.Add(OverviewText(markdown)); content.MinHeight = 0;
                 content.Tag = failure.ToString();
             }
-            finally { Interlocked.Decrement(ref pendingMarkdown); }
+            finally { Interlocked.Decrement(ref pendingMarkdown); PresentationPreparation.NotifyCompletion(); }
         };
         return content;
     }
@@ -274,7 +274,7 @@ public sealed partial class MainWindow
                     paragraph.Inlines.Clear(); paragraph.Inlines.Add(new Run { Text = value }); text.MinHeight = 0;
                     text.Tag = failure.ToString();
                 }
-                finally { Interlocked.Decrement(ref pendingMarkdown); }
+                finally { Interlocked.Decrement(ref pendingMarkdown); PresentationPreparation.NotifyCompletion(); }
             };
         }
         text.SelectionChanged += (_, _) => { if (text.SelectedText.Length > 0) selectedRich = text; };
