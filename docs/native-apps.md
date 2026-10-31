@@ -1,5 +1,23 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+fb820fa / 41252003658 still FAILS, now at End after actual complete history:
+all 5,500 messages, five preserved reading anchors and the visible row-0/top
+check pass; no FirstRow reset was needed in this particular fixed case.
+Maximum UI delay 76.227 ms, peak 501.473 MiB /38 threads; no random acceptance.
+The actual End key is handled and creates bring.request 5850, but the follow
+request is canceled before bring.arranged; keep_latest becomes false. The old
+receipt does not identify which LeaveLatest source fired. Do not attribute it
+to a touch/pan event without evidence. Source does identify a keyboard-routing
+bug: the ordinary KeyDown handler runs after ScrollViewer's class/default End
+processing. Handle End in PreviewKeyDown before that native numeric/inertia
+command, retaining the single content-ready row request. The same real KeyDown
+still reaches the harness's handled-events observer. Upward keys, touch/pen,
+wheel, scrollbar and child text caret behavior remain; cancellation sources
+are traced, not suppressed. Gates and production-input harness are unchanged.
+Changes for the clients: consume Mac 8087b5c's retained native conversation
+controls, narrower menu observation and single-pass unread/preview work. Its
+mounted navigation/unread/menu regressions remain; no shared API is requested.
+
 Amendment 8 resumes the same required hang fix after reboot. 4b55926 /
 41194618738 confirms a product history-restoration failure, not absent input
 or an API paging failure: the last request already advanced chat_pages to 6,

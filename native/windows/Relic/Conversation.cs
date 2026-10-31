@@ -170,8 +170,9 @@ public sealed partial class MainWindow
     private void WireComposer()
     {
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
-        void LeaveLatest()
+        void LeaveLatest(string source)
         {
+            PerformanceTrace.Count("conversation.latest.leave." + source, latestRequest);
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
             stream.StopFollowingLast();
         }
@@ -202,7 +203,7 @@ public sealed partial class MainWindow
             if (args.ScrollEventType is ScrollEventType.First or ScrollEventType.SmallDecrement or ScrollEventType.LargeDecrement
                 || (args.ScrollEventType is ScrollEventType.ThumbTrack or ScrollEventType.ThumbPosition
                     && args.NewValue < bar.Maximum - 1))
-                LeaveLatest();
+                LeaveLatest("scrollbar");
             else if (args.ScrollEventType == ScrollEventType.Last || args.NewValue >= bar.Maximum - 1)
                 FollowLatestIntent("scrollbar", explicitEnd: true);
         }
@@ -226,7 +227,7 @@ public sealed partial class MainWindow
             if (pointer.IsHorizontalMouseWheel) return;
             if (pointer.MouseWheelDelta > 0)
             {
-                LeaveLatest();
+                LeaveLatest("wheel_up");
                 // At the top, native scrolling cannot change the offset and
                 // therefore emits no ViewChanged. The real upward input must
                 // still be able to request the preceding page.
@@ -234,28 +235,35 @@ public sealed partial class MainWindow
             }
             else if (pointer.MouseWheelDelta < 0)
             {
-                if (stream.ReadingAnchorRestorePending) LeaveLatest();
+                if (stream.ReadingAnchorRestorePending) LeaveLatest("wheel_down");
                 downwardRequest = latestRequest; downwardOrg = org; downwardMember = member;
                 if (chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
                     FollowLatestIntent("wheel_end");
             }
         }), true);
-        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
+        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest("pointer")), true);
+        chatScroll.PreviewKeyDown += (_, e) =>
+        {
+            // Intercept before ScrollViewer's class KeyDown handler submits
+            // its own numeric End/inertia command. One key must have one
+            // scroll owner: the content-ready actual final-row request.
+            // Editable/selectable descendants retain their own caret End.
+            if (!ReferenceEquals(e.OriginalSource, chatScroll) || e.Key != VirtualKey.End) return;
+            e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true);
+        };
         chatScroll.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
-            // A focused conversation can navigate to its real end. Leave End
-            // on selectable/editable child text to that control's own caret.
+            // Observe upward navigation on the conversation itself, leaving
+            // selectable/editable descendants to their own caret navigation.
             if (!ReferenceEquals(e.OriginalSource, chatScroll)) return;
-            if (e.Key == VirtualKey.End)
-            { e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true); }
-            else if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest();
+            if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest("key_up");
         }), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
         var panRequest = -1; var panStartOffset = 0d;
         var panOrg = ""; var panMember = "";
         chatScroll.DirectManipulationStarted += (_, _) =>
         {
-            LeaveLatest(); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
+            LeaveLatest("pan"); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
             panOrg = org; panMember = member;
         };
         chatScroll.DirectManipulationCompleted += (_, _) =>
