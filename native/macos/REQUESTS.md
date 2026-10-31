@@ -1,3 +1,14 @@
+8087b5c Native apps41252118990 passes 306 tests, including actual retained
+scroll/composer navigation (13.308 s) and 5850-row Home/End (8.560 s). Python
+41252118958 passes all jobs. Strict41252118966 still FAILS267.238 ms at
+private action0027/member26,187.141 MiB,8threads; no random acceptance.
+Trace confirms exactly one viewport/composer mount across 27 switches, but
+message-column measurement peaks230.673 ms. Its nested FlowLayout/Markdown
+layouts still repeatedly measure their unchanged children for the same width.
+Add bounded16-width layout caches, invalidated with subviews/content, including
+flow spacing/alignment in the key. New native tests exercise wrapping at230/700,
+long author replacement and Markdown text/width replacement. Existing complete
+history/content/performance assertions remain unchanged. Further CI required.
 Amendment 8 after reboot: merged shared 4b55926. cbb82d6 passes all 303
 native tests/build/package plus Python, chrome, responsive windows and visual.
 Strict 41194528654 still FAILS at action-0155/menu: 288.553 ms,209.813 MiB,8

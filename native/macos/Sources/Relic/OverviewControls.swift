@@ -15,7 +15,15 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 6
     var centerRows = false
     var rowAlignment: HorizontalAlignment = .leading
-    private func positions(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], sizes: [CGSize], size: CGSize) {
+    struct Arrangement { let points: [CGPoint], sizes: [CGSize], size: CGSize }
+    struct Key: Hashable { let width: CGFloat, spacing: CGFloat; let centered: Bool, trailing: Bool }
+    struct Cache { var values: [Key: Arrangement] = [:] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.values.removeAll(keepingCapacity: true) }
+    private func positions(_ subviews: Subviews, width: CGFloat, cache: inout Cache) -> Arrangement {
+        let key = Key(width: width, spacing: spacing, centered: centerRows, trailing: rowAlignment == .trailing)
+        if let stored = cache.values[key] { return stored }
+        let trace = UIWorkTrace.begin("layout.flow"); defer { UIWorkTrace.end(trace) }
         var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, maxX: CGFloat = 0
         var sizes: [CGSize] = [], rowStart = 0
         var rows: [(Range<Int>, CGFloat)] = []
@@ -35,13 +43,16 @@ struct FlowLayout: Layout {
         if rowAlignment == .trailing {
             for (range, rowWidth) in rows { for index in range { points[index].x += maxX - rowWidth } }
         }
-        return (points, sizes, CGSize(width: maxX, height: y + line))
+        let result = Arrangement(points: points, sizes: sizes, size: CGSize(width: maxX, height: y + line))
+        if cache.values.count >= 16 { cache.values.removeAll(keepingCapacity: true) }
+        cache.values[key] = result
+        return result
     }
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        positions(subviews, width: proposal.width ?? .infinity).size
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        positions(subviews, width: proposal.width ?? .infinity, cache: &cache).size
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = positions(subviews, width: bounds.width)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let result = positions(subviews, width: bounds.width, cache: &cache)
         for (index, view) in subviews.enumerated() { view.place(at: CGPoint(x: bounds.minX + result.points[index].x, y: bounds.minY + result.points[index].y), proposal: ProposedViewSize(result.sizes[index])) }
     }
 }

@@ -208,12 +208,19 @@ struct RichText: View {
 
 struct IntrinsicMarkdownLayout: Layout {
     let preferredWidth: CGFloat
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    struct Cache { var sizes: [CGFloat: CGSize] = [:] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.sizes.removeAll(keepingCapacity: true) }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let width = max(1, min(proposal.width ?? preferredWidth, preferredWidth))
+        if let size = cache.sizes[width] { return size }
         let trace = UIWorkTrace.begin("layout.markdown"); defer { UIWorkTrace.end(trace) }
-        let width = min(proposal.width ?? preferredWidth, preferredWidth)
-        return subviews.first?.sizeThatFits(ProposedViewSize(width: max(1, width), height: nil)) ?? .zero
+        let size = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero
+        if cache.sizes.count >= 16 { cache.sizes.removeAll(keepingCapacity: true) }
+        cache.sizes[width] = size
+        return size
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
