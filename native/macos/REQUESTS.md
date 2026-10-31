@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+149dfa8 / 41180797049 exposes a real long-Markdown regression: after appending
+a new message, the actual mounted native text is absent. Its stronger pressure
+readiness also fails at startup (41180797022, max 203.643 ms, no visible-row
+acceptance); e7af7eb has a separate 255.084 ms startup failure. Earlier partial
+latency results do not prove complete visible content. End now targets the
+actual last message identity, with the trailing 24 pt inside that row, instead
+of an independently realized empty footer. The strict visibility and endpoint
+assertions stay. 868e7d0 retains functional-failure window/probe evidence before
+teardown; current fixes still await CI and must not be called accepted.
+
 2b5f3f1 / 41180176219 completes the first 5,500-message history through real
 scrolling: 23 pages, oldest ID 1, top and bottom gaps both 0 pt. It then FAILS
 the second history's End-position assertion. No 250 ms violation: max 199.357 ms,

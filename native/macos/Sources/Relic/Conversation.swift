@@ -286,9 +286,10 @@ struct ConversationStream: View {
     @State private var presentedRowCount = 0
     @State private var mountedViewport = false
     @State private var mountedComposer = false
-    @State private var visibleRow: String? = "end"
+    @State private var visibleRow: String?
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
+    private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -318,13 +319,13 @@ struct ConversationStream: View {
                                 }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row") } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
-                                }
+                                }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
                             }
-                            if !m.displayLiveItems.isEmpty { LiveTurnView() }
-                            // Include the reference's 24px trailing space in
-                            // the scroll target. Padding outside the target is
-                            // scrolled offscreen by scrollTo(anchor: .bottom).
-                            Color.clear.frame(height: 24).id("end")
+                            if !m.displayLiveItems.isEmpty { LiveTurnView().padding(.bottom, 24).id("live-end") }
+                            else if rows.isEmpty { Color.clear.frame(height: 24) }
+                            // Target the actual newest row, including its 24px
+                            // trailing space. A separate footer can be realized
+                            // while the preceding lazy message is still absent.
                         }.scrollTargetLayout()
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
@@ -362,7 +363,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { following.followsBottom = true; m.run { try await m.send(); visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                    ComposerView { following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -399,17 +400,18 @@ struct ConversationStream: View {
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if !initialLoad && following.followsBottom { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
+                        if (initialLoad || following.followsBottom), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                         initialLoad = false
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = m.streamRows.isEmpty
+                    if let id = latestRowID { visibleRow = id }
                     keyboard.scrollToEdge = { top in
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
-                        else { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
+                        else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil }
