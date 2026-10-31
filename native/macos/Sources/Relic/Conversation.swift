@@ -220,7 +220,7 @@ struct ChatView: View {
                 header
                 if m.member.isEmpty && m.digestOpen { DigestCard() }
                 if !m.member.isEmpty { ConversationBanner() }
-                ConversationStream()
+                ConversationStream().id(m.selection)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region"))
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.chat"))
@@ -323,12 +323,12 @@ struct ConversationStream: View {
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
-                            // Resolve lazy/Markdown height estimates through one
-                            // coalesced native clip adjustment, without asking
-                            // SwiftUI to materialize a scrollTo target on every
-                            // layout pass. A no-op offset creates no new layout.
-                            let settleBottom = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
-                            if settleBottom && olderAnchor == nil { keyboard.settleBottom() }
+                            // defaultScrollAnchor(.bottom) already owns initial
+                            // placement and content-size anchoring. Scrolling to
+                            // the estimated document maximum here feeds every
+                            // lazy height correction back into another layout.
+                            // Observe the real position without moving it.
+                            _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
                                !initialLoad, !following.followsBottom, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {
@@ -347,7 +347,10 @@ struct ConversationStream: View {
                     keyboard.discardDisclosurePosition()
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
-                    else if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { keyboard.settleBottom(); initialLoad = false }
+                    else if !m.streamRows.isEmpty {
+                        if !initialLoad && following.followsBottom { keyboard.settleBottom() }
+                        initialLoad = false
+                    }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
