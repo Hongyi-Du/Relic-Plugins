@@ -8,13 +8,33 @@ import Observation
     var size = CGSize(width: 1440, height: 900)
 }
 
+@Observable @MainActor final class ConversationData {
+    var messages: [Node] = []
+    var rows: [ConversationRow] = []
+    var version = 0
+    var more = false
+    var loadingOlder = false
+}
+
 @MainActor final class Model: ObservableObject {
     @Published var organizations: [Node] = []
-    @Published var messages: [Node] = [] { didSet { messageGeneration += 1; prepareConversation() } }
+    private let conversationData = ConversationData()
+    // History paging changes the conversation, not the organization tree,
+    // toolbar, inspector and every already-mounted message's environment.
+    var messages: [Node] {
+        get { conversationData.messages }
+        set { conversationData.messages = newValue; messageGeneration += 1; prepareConversation() }
+    }
     @Published var liveItems: [Node] = [] { didSet { liveGeneration += 1; prepareConversation() } }
     @Published var liveStatus = Node() { didSet { liveGeneration += 1; prepareConversation() } }
-    @Published var streamRows: [ConversationRow] = []
-    @Published var streamVersion = 0
+    var streamRows: [ConversationRow] {
+        get { conversationData.rows }
+        set { conversationData.rows = newValue; UIWorkTrace.gauge("conversation_rows", newValue.count) }
+    }
+    var streamVersion: Int {
+        get { conversationData.version }
+        set { conversationData.version = newValue }
+    }
     @Published var inputSuggestions: InputSuggestionsState?
     @Published var conversation = Node() { didSet { prepareConversation() } }
     @Published var copies: [Node] = []
@@ -50,8 +70,14 @@ import Observation
     @Published var sending = false
     @Published var threadSending = false
     weak var activeSpeech: SpeechInput?
-    @Published var moreChat = false
-    @Published var loadingOlder = false
+    var moreChat: Bool {
+        get { conversationData.more }
+        set { conversationData.more = newValue }
+    }
+    var loadingOlder: Bool {
+        get { conversationData.loadingOlder }
+        set { conversationData.loadingOlder = newValue }
+    }
     private(set) var historyPagesLoaded = 0
     private let windowMetrics = WindowMetrics()
     // SwiftUI tracks this nested observable only in bodies that read geometry.
@@ -402,6 +428,7 @@ import Observation
         guard selected == selection else { return }
         guard await mergeMessages(result["items"].rows, selected: selected, prepend: true) else { return }
         historyPagesLoaded += 1
+        UIWorkTrace.gauge("history_pages_loaded", historyPagesLoaded)
         moreChat = result["more"].flag
     }
     private func mergeMessages(_ incoming: [Node], selected: ChatSelection, prepend: Bool = false) async -> Bool {

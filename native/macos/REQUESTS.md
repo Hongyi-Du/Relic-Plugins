@@ -1,5 +1,7 @@
 ## Shared request: restore the full-matrix contract test after diagnostic selection refactor
 
+Resolved upstream by 8395e17; merging 959744e includes that correction.
+
 At shared 2090f5c, Native element extraction contracts 41177925958 fails
 `MatrixReportTests.test_full_matrix_requires_exact_672_cases`:
 `scripts/visual/test_element_parity.py:640`, `StopIteration`. Its AST check
@@ -12,6 +14,13 @@ macOS 6027644 passes its 294 tests and all four adaptive-window captures, with
 actual bottom gap 0 pt in each; wide dark and narrow light images were inspected.
 
 ## A7 update: 0771470 native tests pass; resize still fails
+
+Follow-up 6027644 / 41177719485 passes startup and every resize, then fails
+action-0171 history scrolling: 401.188 ms maximum, 217.453 MiB RSS, 11 threads.
+Current fix scopes history/messages/row projection to an Observable conversation
+value rather than invalidating the complete Model on each 200-message page.
+The real mounted conversation test now also checks a newly appended message
+appears and remains at the bottom. CI still required; no full pressure pass.
 
 Native apps 41176708889 is green at 0771470 (294 macOS tests). Strict pressure
 41176708932 reaches action-0167 (1440 to 1180 width), then FAILS: 346.257 ms,

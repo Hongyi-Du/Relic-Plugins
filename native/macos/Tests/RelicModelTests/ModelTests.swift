@@ -430,14 +430,12 @@ final class ModelTransport: URLProtocol {
         await Task.yield()
         model.setSelection(ChatSelection("b"))
         model.messages = [Node(["id": 9000, "type": "message", "from": "member", "at": 20000])]
-        let prepared = expectation(description: "latest selection projected off main actor")
-        let subscription = model.$streamRows.sink { rows in
-            if rows.map(\.id) == ["id:9000#0"] { prepared.fulfill() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while model.isPreparingConversation && ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(10))
         }
-        await fulfillment(of: [prepared], timeout: 5)
         XCTAssertEqual(model.streamRows.map(\.id), ["id:9000#0"])
         XCTAssertFalse(model.isPreparingConversation)
-        subscription.cancel()
     }
     func testEventBurstDuringSlowRefreshProducesOneFollowupWithoutAQueuedTimer() async throws {
         let model = try model(); defer { model.stop() }
@@ -497,10 +495,13 @@ final class ModelTransport: URLProtocol {
         let subscription = model.objectWillChange.sink { publications += 1 }
         try await model.refresh()
         XCTAssertEqual(publications, 0, "unchanged SSE refresh must not invalidate all view trees")
+        let changed = expectation(description: "Conversation readers receive the real new message")
+        withObservationTracking { _ = model.messages.count } onChange: { changed.fulfill() }
         newMessage = true; try await model.refresh()
         while model.isPreparingConversation { await Task.yield() }
+        await fulfillment(of: [changed], timeout: 1)
         XCTAssertEqual(model.messages.map { $0["id"].integer }, [1, 2])
-        XCTAssertGreaterThan(publications, 0)
+        XCTAssertEqual(publications, 0, "A new message must notify conversation readers without rebuilding the whole organization")
         subscription.cancel()
     }
 }
