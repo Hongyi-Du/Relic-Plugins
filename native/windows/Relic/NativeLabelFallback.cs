@@ -45,6 +45,7 @@ internal static class NativeLabelFallback
             Check(Method<InterfaceResult>(builder, 5)(builder, out fallback));
             // TextLayout finishes at 66, Layout1 at 70; Layout2 fallback is 78/79.
             var setResult = Method<SetInterface>(layout2, 78)(layout2, fallback); Check(setResult);
+            if (!CaptureDiagnostics) return new JsonObject();
             Check(Method<InterfaceResult>(layout2, 79)(layout2, out readback));
             fallbackIdentity = Query(fallback, Unknown); readbackIdentity = Query(readback, Unknown);
             if (fallbackIdentity != readbackIdentity) throw new InvalidOperationException("The production layout did not return the fallback object just applied to it");

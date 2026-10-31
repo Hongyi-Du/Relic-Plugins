@@ -13,6 +13,20 @@ namespace Relic;
 
 public sealed partial class MainWindow
 {
+    private int pendingMarkdown;
+    internal int PendingMarkdown => Volatile.Read(ref pendingMarkdown);
+    private async Task WaitForMarkdown()
+    {
+        var timeout = System.Diagnostics.Stopwatch.StartNew(); var quiet = 0;
+        while (quiet < 2)
+        {
+            if (timeout.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Visible Markdown did not finish rendering");
+            var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
+            await yield.Task; await Task.Delay(16);
+            quiet = PendingMarkdown == 0 ? quiet + 1 : 0;
+        }
+    }
     private RichTextBlock? selectedRich;
     private DateTimeOffset ViewNow => VisualCaptureEnabled && DateTimeOffset.TryParse(Environment.GetEnvironmentVariable("RELIC_VISUAL_NOW"), out var captured) ? captured : DateTimeOffset.Now;
     private DateTime ViewToday => ViewNow.LocalDateTime.Date;
@@ -56,100 +70,130 @@ public sealed partial class MainWindow
     }
     private UIElement Rich(string markdown, bool documentStyle = false)
     {
-        var baseSize = documentStyle ? 13.5 : preferences.Text("font") == "large" ? 15.5 : preferences.Text("font") == "small" ? 13 : 14;
-        var lineRatio = documentStyle ? 1.7 : 1.65; var content = new StackPanel();
-        var blocks = new List<(FrameworkElement Element, double Before, double After, bool Paragraph)>();
-        void Add(FrameworkElement element, double before = 0, double after = 8, bool paragraph = false) { blocks.Add((element, before, after, paragraph)); content.Children.Add(element); }
-        RichTextBlock Inline(string value, double ratio = 1) => InlineText(value, baseSize * ratio, lineRatio, false);
-        var lines = markdown.Replace("\r\n", "\n").Split('\n');
-        for (var i = 0; i < lines.Length; i++)
+        // A nonzero estimate prevents a virtualizing list from realizing its
+        // entire data source while deferred text waits for the single parser.
+        var content = new StackPanel { MinHeight = Math.Min(300, 24 + markdown.Length / 80 * 20) };
+        CancellationTokenSource? pending = null; var revision = 0;
+        content.Unloaded += (_, _) => { revision++; pending?.Cancel(); pending?.Dispose(); pending = null; };
+        content.Loaded += async (_, _) =>
         {
-            var line = lines[i];
-            if (line.TrimStart().StartsWith("```"))
+            pending?.Cancel(); pending?.Dispose(); pending = new CancellationTokenSource();
+            var token = pending.Token; var current = ++revision;
+            Interlocked.Increment(ref pendingMarkdown);
+            try
             {
-                var code = new List<string>(); while (++i < lines.Length && !lines[i].TrimStart().StartsWith("```")) code.Add(lines[i]);
-                // Both .bubble pre code and .md pre code inherit .9em from
-                // the code rule, while the pre owns the 1.55 line spacing.
-                var source = string.Join("\n", code); var codeSize = documentStyle ? 12 : 12.5; var codeText = OverviewText(source, codeSize * .9, lineHeight: codeSize * 1.55); codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
+                var document = await MarkdownPreparation.Shared.Document(markdown, token);
+                if (token.IsCancellationRequested || revision != current || !content.IsLoaded) return;
+                content.Children.Clear();
+                var baseSize = documentStyle ? 13.5 : preferences.Text("font") == "large" ? 15.5 : preferences.Text("font") == "small" ? 13 : 14;
+                var lineRatio = documentStyle ? 1.7 : 1.65;
+                var rendered = new List<(FrameworkElement Element, double Before, double After, bool Paragraph)>();
+                var slice = System.Diagnostics.Stopwatch.StartNew();
+                foreach (var block in document.Blocks)
+                {
+                    if (token.IsCancellationRequested || revision != current || !content.IsLoaded) return;
+                    var element = await RenderMarkdownBlock(block, baseSize, lineRatio, documentStyle, token);
+                    if (token.IsCancellationRequested || revision != current || !content.IsLoaded) return;
+                    var top = rendered.Count == 0 ? element.Before : Math.Max(rendered[^1].After, element.Before);
+                    element.Element.Margin = new Thickness(0, top, 0, 0);
+                    rendered.Add(element); content.Children.Add(element.Element); content.MinHeight = 0;
+                    if (slice.ElapsedMilliseconds >= 4)
+                    {
+                        var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
+                        await yield.Task; slice.Restart();
+                    }
+                }
+                if (rendered.Count > 0 && !rendered[^1].Paragraph)
+                {
+                    var last = rendered[^1]; var margin = last.Element.Margin;
+                    last.Element.Margin = new Thickness(margin.Left, margin.Top, margin.Right, last.After);
+                }
+                content.MinHeight = 0;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception failure)
+            {
+                if (revision != current || !content.IsLoaded) return;
+                content.Children.Clear(); content.Children.Add(OverviewText(markdown)); content.MinHeight = 0;
+                content.Tag = failure.ToString();
+            }
+            finally { Interlocked.Decrement(ref pendingMarkdown); }
+        };
+        return content;
+    }
+    private async Task<(FrameworkElement Element, double Before, double After, bool Paragraph)> RenderMarkdownBlock(MarkdownBlock block, double baseSize, double lineRatio, bool documentStyle, CancellationToken token)
+    {
+        RichTextBlock Inline(PreparedText text, double ratio = 1) => InlineText(text.Text, baseSize * ratio, lineRatio, false, text.Parts);
+        var slice = System.Diagnostics.Stopwatch.StartNew();
+        async Task YieldLongBlock()
+        {
+            token.ThrowIfCancellationRequested();
+            if (slice.ElapsedMilliseconds < 4) return;
+            var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
+            await yield.Task; slice.Restart(); token.ThrowIfCancellationRequested();
+        }
+        switch (block.Kind)
+        {
+            case "code":
+                var codeSize = documentStyle ? 12 : 12.5;
+                var codeText = OverviewText(block.Source, codeSize * .9, lineHeight: codeSize * 1.55);
+                codeText.FontFamily = new FontFamily("Cascadia Code"); codeText.TextWrapping = TextWrapping.NoWrap;
                 var codeScroll = new ScrollViewer { Content = codeText, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
                 var codeBlock = new Border { Child = codeScroll, Background = Paint("F6F5F2", "232321"), Padding = new Thickness(11, 9, 11, 9), BorderThickness = new Thickness(1), BorderBrush = Line, CornerRadius = new CornerRadius(8) };
                 MarkdownSemantic.RegisterFencedCode(codeBlock, codeScroll, codeText);
-                Add(codeBlock, documentStyle ? 12 : 6, documentStyle ? 12 : 6); continue;
-            }
-            if (Regex.IsMatch(line, @"^\s*\|.*\|\s*$"))
-            {
-                var tableLines = new List<string> { line }; while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s*\|.*\|\s*$")) tableLines.Add(lines[++i]);
-                bool Rule(string text) => Regex.IsMatch(text, @"^\s*\|?\s*:?-{2,}"); var hasHeading = tableLines.Count > 1 && Rule(tableLines[1]);
-                // The reference table's vertical margins stay inside .table-wrap,
-                // whose overflow establishes a separate block formatting context.
-                // They must not collapse with the surrounding Markdown blocks.
+                return (codeBlock, documentStyle ? 12 : 6, documentStyle ? 12 : 6, false);
+            case "table":
                 const double tableBorder = 1;
-                // Collapsed borders are centered on the cell grid lines. Each
-                // cell contributes half a border at either edge; adjacent full
-                // borders overlap, while the outer half-borders stay in the table.
-                // Column width = text + 16px padding + 1px shared border.
-                var rows = tableLines.Where(text => !Rule(text)).Select(text => text.Trim().Trim('|').Split('|')).ToArray();
+                var rows = block.Rows!;
                 var table = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 6), Padding = new Thickness(tableBorder / 2), UseLayoutRounding = false };
-                for (var col = 0; col < rows.Select(row => row.Length).DefaultIfEmpty().Max(); col++) table.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-                for (var row = 0; row < rows.Length; row++)
+                for (var col = 0; col < rows.Select(row => row.Count).DefaultIfEmpty().Max(); col++) table.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                for (var row = 0; row < rows.Count; row++)
                 {
                     table.RowDefinitions.Add(new() { Height = GridLength.Auto });
-                    for (var col = 0; col < rows[row].Length; col++)
+                    for (var col = 0; col < rows[row].Count; col++)
                     {
-                        var label = Inline(rows[row][col].Trim(), .93); label.FontWeight = row == 0 && hasHeading ? FontWeights.SemiBold : FontWeights.Normal;
+                        var label = Inline(rows[row][col], .93); label.FontWeight = row == 0 && block.TableHeading ? FontWeights.SemiBold : FontWeights.Normal;
                         var cell = new Border { Padding = new Thickness(8, 3, 8, 3), BorderThickness = new Thickness(tableBorder), Margin = new Thickness(-tableBorder / 2), UseLayoutRounding = false,
-                            BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 && hasHeading ? OverviewAlpha(Ink, .04) : new SolidColorBrush(Colors.Transparent) };
+                            BorderBrush = Paint("DEDBD4", "3A3936"), Child = label, Background = row == 0 && block.TableHeading ? OverviewAlpha(Ink, .04) : new SolidColorBrush(Colors.Transparent) };
                         Grid.SetRow(cell, row); Grid.SetColumn(cell, col); table.Children.Add(cell);
+                        await YieldLongBlock();
                     }
                 }
-                Add(new ScrollViewer { Content = table, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, 0, 0); continue;
-            }
-            var heading = Regex.Match(line, @"^(#{1,6})\s+(.+)");
-            if (heading.Success) { var title = Inline(heading.Groups[2].Value, documentStyle ? 1.02 : 1); title.FontWeight = FontWeights.Bold; Add(title, documentStyle ? 10 : 8, 4); continue; }
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            if (Regex.IsMatch(line, @"^\s*>"))
-            {
-                var quoteLines = new List<string> { Regex.Replace(line, @"^\s*>\s?", "") }; while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s*>")) quoteLines.Add(Regex.Replace(lines[++i], @"^\s*>\s?", ""));
-                var quote = string.Join("\n", quoteLines); var author = Regex.Match(quote, @"^([^\n：:]{1,40})[：:]\s?([\s\S]*)$");
-                var text = OverviewText("", baseSize * .92, lineHeight: baseSize * .92 * lineRatio); text.Foreground = Paint("5A5853", "B8B5AE");
-                if (author.Success) { text.Inlines.Add(new Run { Text = T("chat.quote_from", ("name", author.Groups[1].Value)), FontWeight = FontWeights.SemiBold, Foreground = Ink }); text.Inlines.Add(new Run { Text = author.Groups[2].Value }); } else text.Text = quote;
-                Add(new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(10, 2, 0, 2), Child = text }); continue;
-            }
-            var list = Regex.Match(line, @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$");
-            if (list.Success)
-            {
-                var ordered = char.IsDigit(list.Groups[2].Value[0]); var count = ordered && int.TryParse(list.Groups[2].Value.TrimEnd('.', ')'), out var startAt) ? startAt : 1; var items = new StackPanel();
-                do
+                return (new ScrollViewer { Content = table, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, 0, 0, false);
+            case "heading":
+                var title = Inline(block.Text!, documentStyle ? 1.02 : 1); title.FontWeight = FontWeights.Bold;
+                return (title, documentStyle ? 10 : 8, 4, false);
+            case "quote":
+                var quote = OverviewText("", baseSize * .92, lineHeight: baseSize * .92 * lineRatio); quote.Foreground = Paint("5A5853", "B8B5AE");
+                if (block.Author.Length > 0)
                 {
-                    var itemText = list.Groups[3].Value; var sub = list.Groups[1].Value.Length >= 2;
-                    while (i + 1 < lines.Length && Regex.IsMatch(lines[i + 1], @"^\s{2,}\S") && !Regex.IsMatch(lines[i + 1], @"^\s*(?:>|\|.*\|\s*$|(?:[-*•+]|\d+[.)])\s+)")) itemText += "\n" + lines[++i].Trim();
-                    var item = Inline(itemText); FrameworkElement row;
-                    if (ordered)
+                    quote.Inlines.Add(new Run { Text = T("chat.quote_from", ("name", block.Author)), FontWeight = FontWeights.SemiBold, Foreground = Ink });
+                    quote.Inlines.Add(new Run { Text = block.Source });
+                }
+                else quote.Text = block.Source;
+                return (new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(10, 2, 0, 2), Child = quote }, 0, 8, false);
+            case "list":
+                var items = new StackPanel(); var count = block.Start;
+                foreach (var entry in block.Items!)
+                {
+                    var item = Inline(entry.Text); FrameworkElement row;
+                    if (block.Ordered)
                     {
                         var numbered = new Grid(); numbered.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); numbered.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
                         var bullet = OverviewText(count++ + ".", baseSize, lineHeight: baseSize * lineRatio); bullet.TextAlignment = TextAlignment.Right; bullet.Margin = new Thickness(0, 0, 6, 0); numbered.Children.Add(bullet);
                         Grid.SetColumn(item, 1); numbered.Children.Add(item); row = numbered;
                     }
-                    else row = new NativeListItemPanel(new NativeListMarker(FontFamilies.UI, baseSize, words.Language, Ink), item, baseSize * lineRatio, itemText.Length == 0);
-                    row.Margin = new Thickness(sub ? 18 : 0, 0, 0, 0); items.Children.Add(row);
-                    if (i + 1 >= lines.Length) break; list = Regex.Match(lines[i + 1], @"^(\s*)([-*•+]|\d+[.)])\s+(.*)$"); if (!list.Success) break; i++;
-                } while (true);
-                Add(items, 2, 8); continue;
-            }
-            var paragraphLines = new List<string> { line };
-            while (i + 1 < lines.Length && !string.IsNullOrWhiteSpace(lines[i + 1]) && !Regex.IsMatch(lines[i + 1], @"^\s*(?:```|>|#{1,6}\s|[-*•+]\s|\d+[.)]\s|\|.*\|\s*$)")) paragraphLines.Add(lines[++i]);
-            Add(Inline(string.Join("\n", paragraphLines)), paragraph: true);
+                    else row = new NativeListItemPanel(new NativeListMarker(FontFamilies.UI, baseSize, words.Language, Ink), item, baseSize * lineRatio, entry.Text.Text.Length == 0);
+                    row.Margin = new Thickness(entry.Indented ? 18 : 0, 0, 0, 0); items.Children.Add(row);
+                    await YieldLongBlock();
+                }
+                return (items, 2, 8, false);
+            default: return (Inline(block.Text!), 0, 8, true);
         }
-        // Normal HTML block margins collapse between adjacent runs. Express
-        // that measured spacing through native layout margins, not blank rows.
-        for (var index = 0; index < blocks.Count; index++)
-        {
-            var block = blocks[index]; var top = index == 0 ? block.Before : Math.Max(blocks[index - 1].After, block.Before);
-            var bottom = index == blocks.Count - 1 && !block.Paragraph ? block.After : 0; block.Element.Margin = new Thickness(0, top, 0, bottom);
-        }
-        return content;
     }
-    private RichTextBlock InlineText(string value, double size = 14, double lineRatio = 1.65, bool useFontPreference = true)
+    private RichTextBlock InlineText(string value, double size = 14, double lineRatio = 1.65, bool useFontPreference = true, IReadOnlyList<PreparedInline>? prepared = null)
     {
         var fontSize = size * (useFontPreference ? preferences.Text("font") == "large" ? 15.5 / 14 : preferences.Text("font") == "small" ? 13d / 14 : 1 : 1);
         var text = new RichTextBlock { IsTextSelectionEnabled = true, Foreground = Ink, FontFamily = new FontFamily(FontFamilies.UI), FontSize = fontSize, TextWrapping = TextWrapping.Wrap,
@@ -166,8 +210,13 @@ public sealed partial class MainWindow
             });
             return link;
         }
-        foreach (var part in InlineParts.Parse(value))
+        async Task ApplyParts(IReadOnlyList<PreparedInline> parts, CancellationToken token)
         {
+        paragraph.Inlines.Clear();
+        var slice = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var part in parts)
+        {
+            token.ThrowIfCancellationRequested();
             switch (part.Kind)
             {
                 case "path": paragraph.Inlines.Add(Link(part.Text, true)); break;
@@ -179,7 +228,7 @@ public sealed partial class MainWindow
                     var code = new TextBlock { FontSize = fontSize * .9, FontFamily = new FontFamily("Cascadia Code"), Foreground = Ink,
                         IsTextSelectionEnabled = true };
                     UIElement codeContent = code;
-                    if (InlineParts.IsAbsolute(part.Text))
+                    if (part.CodePath)
                     {
                         code.Inlines.Add(Link(part.Text, true, true));
                         var decorated = new Grid(); decorated.Children.Add(code);
@@ -193,8 +242,40 @@ public sealed partial class MainWindow
                 case "bold": var bold = new Bold(); bold.Inlines.Add(new Run { Text = part.Text }); paragraph.Inlines.Add(bold); break;
                 default: paragraph.Inlines.Add(new Run { Text = part.Text }); break;
             }
+            if (slice.ElapsedMilliseconds >= 4)
+            {
+                var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
+                await yield.Task; slice.Restart();
+            }
+        }
+        text.MinHeight = 0;
         }
         text.Blocks.Add(paragraph);
+        {
+            text.MinHeight = fontSize * lineRatio;
+            CancellationTokenSource? pending = null; var revision = 0;
+            text.Unloaded += (_, _) => { revision++; pending?.Cancel(); pending?.Dispose(); pending = null; };
+            text.Loaded += async (_, _) =>
+            {
+                pending?.Cancel(); pending?.Dispose(); pending = new CancellationTokenSource();
+                var token = pending.Token; var current = ++revision;
+                Interlocked.Increment(ref pendingMarkdown);
+                try
+                {
+                    var parts = prepared ?? (await MarkdownPreparation.Shared.Inline(value, token)).Parts;
+                    if (!token.IsCancellationRequested && revision == current && text.IsLoaded) await ApplyParts(parts, token);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception failure)
+                {
+                    if (revision != current || !text.IsLoaded) return;
+                    paragraph.Inlines.Clear(); paragraph.Inlines.Add(new Run { Text = value }); text.MinHeight = 0;
+                    text.Tag = failure.ToString();
+                }
+                finally { Interlocked.Decrement(ref pendingMarkdown); }
+            };
+        }
         text.SelectionChanged += (_, _) => { if (text.SelectedText.Length > 0) selectedRich = text; };
         var menu = new MenuFlyout();
         var copy = new MenuFlyoutItem { Text = T("common.copy") }; copy.Click += (_, _) => Copy(text.SelectedText.Length > 0 ? text.SelectedText : value); menu.Items.Add(copy);

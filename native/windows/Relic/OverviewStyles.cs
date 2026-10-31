@@ -29,6 +29,23 @@ public sealed partial class MainWindow
         return content;
     }
 
+    // A section's rows must belong to the inspector's viewport repeater. A
+    // nested StackPanel would still build and measure every member/protocol.
+    // Split the section padding across its rows to retain the same spacing.
+    private void OverviewLazyBlock(IReadOnlyList<Func<UIElement>> rows)
+    {
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var build = rows[index]; var first = index == 0; var last = index == rows.Count - 1;
+            detail.Children.Add(() => new Border
+            {
+                Padding = new Thickness(16, first ? 14 : 8, 16, last ? 14 : 0),
+                BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, last ? 1 : 0),
+                Child = build()
+            });
+        }
+    }
+
     private Grid OverviewHeading(UIElement label, UIElement? action = null)
     {
         var row = new Grid { ColumnSpacing = 8 };

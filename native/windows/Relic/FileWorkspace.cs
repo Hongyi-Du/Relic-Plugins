@@ -171,6 +171,11 @@ public sealed partial class MainWindow
         catch (Exception ex) { Note(ex.Message); }
     }
 
+    private void WorkspaceEmptyBlock(VirtualRows target, string message)
+    {
+        target.Children.Add(() => { var row = new StackPanel(); WorkspaceEmptyBlock(row, message); return row; });
+    }
+
     private void DrawFile()
     {
         detail.Padding = new Thickness(0); detail.Spacing = 0;

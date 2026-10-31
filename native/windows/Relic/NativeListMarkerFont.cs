@@ -30,7 +30,7 @@ internal static class NativeListMarkerFont
             {
                 if (candidate.Length == 0) continue;
                 var hr = Method<FindFamily>(collection, 5)(collection, candidate, out var index, out var exists);
-                lookups.Add(new JsonObject { ["family"] = candidate, ["hresult"] = hr, ["exists"] = exists != 0, ["index"] = index });
+                if (CaptureDiagnostics) lookups.Add(new JsonObject { ["family"] = candidate, ["hresult"] = hr, ["exists"] = exists != 0, ["index"] = index });
                 Check(hr); if (exists == 0) continue;
                 Check(Method<GetFamily>(collection, 4)(collection, index, out family)); selected = candidate; break;
             }
@@ -42,6 +42,7 @@ internal static class NativeListMarkerFont
             Check(Method<InterfaceResult>(font, 13)(font, out face));
             Method<GetFontMetrics>(face, 8)(face, out var raw);
             var metrics = NativeListMarkerMetrics.FromDesignUnits(raw.DesignUnitsPerEm, raw.Ascent, raw.Descent, size);
+            if (!CaptureDiagnostics) return (metrics, new JsonObject());
             Check(Method<InterfaceResult>(family, 6)(family, out var names));
             var evidence = new JsonObject
             {

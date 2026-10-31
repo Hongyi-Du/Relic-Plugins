@@ -136,7 +136,7 @@ public sealed partial class MainWindow
                         default: throw new InvalidOperationException("Unimplemented visual scene: " + scene);
                     }
                     if (dialog != null) for (var waiting = 0; visibleDialog == null && !dialog.IsCompleted && waiting < 100; waiting++) await Task.Delay(100);
-                    await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
+                    await WaitForMarkdown(); await Task.Delay(800); if (dialog?.IsFaulted == true) await dialog;
                     if (scene == "settings-navigation-hover") await BeginSettingsNavigationCapture();
                     if (scene is "panel-resize-hover" or "panel-resized")
                     {
@@ -405,7 +405,7 @@ public sealed partial class MainWindow
     {
         // Drive the production control through actual CI desktop input. Capture
         // never opens a substitute flyout or manufactures an automation peer.
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        if (!VisualCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("CI capture input only");
         await CaptureHover(element);
         CapturePointerButton(true);
         try { await Task.Delay(40); }
@@ -426,7 +426,7 @@ public sealed partial class MainWindow
     }
     private async Task CaptureHover(FrameworkElement element)
     {
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        if (!VisualCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("CI capture input only");
         var point = element.TransformToVisual(root).TransformPoint(new(element.ActualWidth / 2, element.ActualHeight / 2));
         await CaptureMovePointer(point);
     }

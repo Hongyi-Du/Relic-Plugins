@@ -44,7 +44,7 @@ internal sealed class NativeLabelRenderer : IDisposable
     internal NativeLabelRenderer(IntPtr context, IntPtr brush, float pixelsPerDip, Matrix transform, IntPtr trimmingSign = default)
     {
         this.context = context; this.brush = brush; this.pixelsPerDip = pixelsPerDip; this.transform = transform;
-        trimmingSignIdentity = trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
+        trimmingSignIdentity = !CaptureDiagnostics || trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
         Pointer = Marshal.AllocHGlobal(2 * IntPtr.Size);
         Marshal.WriteIntPtr(Pointer, Vtable);
         Marshal.WriteIntPtr(Pointer, IntPtr.Size, GCHandle.ToIntPtr(GCHandle.Alloc(this)));
@@ -90,6 +90,16 @@ internal sealed class NativeLabelRenderer : IDisposable
     private static int Inline(IntPtr self, IntPtr context, float x, float y, IntPtr inline, int sideways, int rightToLeft, IntPtr effect)
     {
         var owner = Owner(self);
+        if (!CaptureDiagnostics)
+        {
+            try
+            {
+                var result = Method<DrawInline>(inline, 3)(inline, context, self, x, y, sideways, rightToLeft, effect);
+                if (result < 0) owner.CallbackFailure ??= "Actual IDWriteInlineObject.Draw failed: 0x" + result.ToString("x8");
+                return result;
+            }
+            catch (Exception ex) { owner.CallbackFailure = ex.ToString(); return Marshal.GetHRForException(ex); }
+        }
         var ordinal = owner.InlineDraws.Count;
         var record = new JsonObject
         {
@@ -142,6 +152,13 @@ internal sealed class NativeLabelRenderer : IDisposable
         if (effect != IntPtr.Zero) throw new NotSupportedException("NativeLabel does not paint custom drawing effects");
         var run = Marshal.PtrToStructure<GlyphRun>(originalRun);
         if (run.IsSideways != 0) throw new NotSupportedException("NativeLabel only implements horizontal, non-sideways text");
+        if (!CaptureDiagnostics)
+        {
+            // Paint the same original callback pointer with the same context,
+            // brush and baseline. Only diagnostic observation is omitted.
+            Method<NativeLabelInterop.DrawGlyph>(context, 29)(context, new PointF(x, y), originalRun, brush, mode);
+            return 0;
+        }
         var glyphs = new JsonArray(); var advances = new JsonArray(); var offsets = new JsonArray();
         for (uint i = 0; i < run.GlyphCount; i++)
         {

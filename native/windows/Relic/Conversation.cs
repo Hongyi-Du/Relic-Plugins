@@ -27,6 +27,9 @@ public sealed partial class MainWindow
     private bool pickingMention;
     private const int chatLimit = 1000;
     private bool chatMore, olderHistory;
+    private bool loadingOlder, keepLatest = true;
+    private int chatPages = 1;
+    private int latestRequest;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<ComposerInput> composing = new();
@@ -166,7 +169,14 @@ public sealed partial class MainWindow
     private void WireComposer()
     {
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
-        chatScroll.ViewChanged += (_, _) => { if (plainMode && !plainTimer.IsEnabled) plainTimer.Start(); };
+        chatScroll.PointerWheelChanged += (_, e) => { if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) { keepLatest = false; latestRequest++; } };
+        chatScroll.PointerPressed += (_, _) => { keepLatest = false; latestRequest++; };
+        chatScroll.ViewChanged += async (_, e) =>
+        {
+            if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
+            if (!e.IsIntermediate && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32)
+                await Run(LoadOlderMessages);
+        };
         foreach (var text in new[] { editor, threadEditor })
         {
             text.TextCompositionStarted += (_, _) => composing.Add(text);
@@ -223,6 +233,7 @@ public sealed partial class MainWindow
         emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
+            stream.Commit();
             chatHead.ColumnDefinitions.Clear();
             var header = Heading(T("common.app_name"), 15); header.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 };
             header.LineHeight = 19.5; header.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; header.VerticalAlignment = VerticalAlignment.Center;
@@ -320,7 +331,7 @@ public sealed partial class MainWindow
             conversationBanner.Visibility = Visibility.Visible;
         }
         var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
-        if (chatMore) stream.Children.Add(Button(T("trace.load_older"), LoadOlderMessages));
+        if (chatMore) stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages));
         var items = ConversationItems().ToArray();
         if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
         string day = ""; JsonNode? previous = null;
@@ -339,38 +350,35 @@ public sealed partial class MainWindow
                 separator.TextWrapping = TextWrapping.WrapWholeWords;
                 separator.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(separator);
             }
-            var rendered = Message(item!, false, Transcript.SameMessageGroup(previous, item!));
-            if (separator != null && rendered is FrameworkElement next)
-            {
-                // Adjacent block margins collapse in .stream-inner, whereas a
-                // StackPanel adds them. Retain only the separator's remainder;
-                // this also preserves the larger 8px gap in compact density.
-                var margin = separator.Margin;
-                separator.Margin = new Thickness(margin.Left, margin.Top, margin.Right,
-                    Math.Max(0, margin.Bottom - Math.Max(0, next.Margin.Top)));
-            }
-            try { stream.Children.Add(rendered); }
-            catch (System.Runtime.InteropServices.COMException ex)
-            {
-                throw new InvalidOperationException($"Could not attach rendered conversation item: type={item.Text("type")}, id={item.Text("id")}, control={rendered.GetType().Name}, parent={Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(rendered)?.GetType().Name ?? "none"}, dialogOpen={visibleDialog != null}", ex);
-            }
+            var continued = Transcript.SameMessageGroup(previous, item!);
+            stream.Children.Add(() => Message(item!, false, continued));
             if (item.Text("type") != "acts") previous = item;
         }
-        if (member.Length > 0) DrawLive(stream);
+        if (member.Length > 0) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });
+        stream.Commit();
         if (atBottom) ScrollToLatest();
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
     private async Task LoadOlderMessages()
     {
+        if (loadingOlder) return;
+        loadingOlder = true; keepLatest = false; latestRequest++;
+        try
+        {
         var selectedOrg = org; var selectedMember = member;
         var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
         if (before.Length == 0) { chatMore = false; return; }
         var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=1000&before=" + Client.Segment(before)));
         if (org != selectedOrg || member != selectedMember) return;
         var height = chatScroll.ScrollableHeight; var offset = chatScroll.VerticalOffset;
-        olderHistory = true; messages = Transcript.MergeMessages(page.Rows("items"), messages); chatMore = page.Flag("more"); DrawConversation();
+        var current = messages;
+        var merged = await Task.Run(() => Transcript.MergeMessages(page.Rows("items"), current), lifetime.Token);
+        if (org != selectedOrg || member != selectedMember) return;
+        olderHistory = true; messages = merged; chatMore = page.Flag("more"); chatPages++; DrawConversation();
         DispatcherQueue.TryEnqueue(() => { stream.UpdateLayout(); chatScroll.ChangeView(null, offset + chatScroll.ScrollableHeight - height, null); });
+        }
+        finally { loadingOlder = false; }
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
@@ -431,7 +439,11 @@ public sealed partial class MainWindow
             if (explainable && (plainMode && member.Length == 0 && !inThread || plainOne.Contains(key)))
             {
                 pendingAfter = PlainStatus(key, item.Text("id"));
-                if (!plainPending.Contains(key) && !plainFailed.Contains(key) && !inThread && member.Length == 0) plainTargets[item.Text("id")] = box;
+                if (!plainPending.Contains(key) && !plainFailed.Contains(key) && !inThread && member.Length == 0)
+                {
+                    var messageId = item.Text("id"); plainTargets[messageId] = box;
+                    box.Unloaded += (_, _) => { if (plainTargets.TryGetValue(messageId, out var current) && ReferenceEquals(current, box)) plainTargets.Remove(messageId); };
+                }
             }
         }
         var after = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };

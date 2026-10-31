@@ -10,6 +10,10 @@ namespace Relic;
 // No second text layout is created for capture or font prediction.
 internal static class NativeLabelInterop
 {
+    // Detailed glyph attribution belongs to the explicit visual-capture path.
+    // It must not enumerate fonts, glyphs and hit-test rectangles while the
+    // person scrolls a production conversation.
+    internal static bool CaptureDiagnostics { get; } = NativeLabelReadback.Enabled;
     internal static readonly Guid SurfaceWithD2D = new("cb833102-d5d1-448b-a31a-52a9509f24e6");
     internal static readonly Guid DeviceContext = new("e8f7fe7a-191c-466d-ad95-975678bda998");
     internal static readonly Guid Bitmap1 = new("a898a84c-3873-4588-b08b-ebbf978df041");

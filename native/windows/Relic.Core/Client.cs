@@ -83,7 +83,8 @@ public sealed class Client : IDisposable
     }
     private static async Task<JsonNode> Decode(HttpResponseMessage response, CancellationToken ct)
     {
-        var value = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) ?? new JsonObject();
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var value = await Task.Run(() => JsonNode.Parse(json) ?? new JsonObject(), ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(value.Text("error"), null, response.StatusCode);
         return value;
     }

@@ -51,13 +51,14 @@ internal static class NativePathIcu
                     }
                     if (result.Count == 0 || result[0] != 0 || result[^1] != text.Length)
                         throw new InvalidOperationException("System ICU did not cover the complete source");
-                    receipts.Add(new JsonObject { ["type"] = type, ["open_status"] = error, ["actual_locale"] = actualLocale,
+                    if (NativeLabelInterop.CaptureDiagnostics) receipts.Add(new JsonObject { ["type"] = type, ["open_status"] = error, ["actual_locale"] = actualLocale,
                         ["actual_locale_status"] = localeError, ["boundaries_utf16"] = new JsonArray(result.Select(n => JsonValue.Create(n)).ToArray()) });
                     return result.ToArray();
                 }
                 finally { close(iterator); }
             }
             var lines = Boundaries(2); var characters = Boundaries(0); var words = Boundaries(1);
+            if (!NativeLabelInterop.CaptureDiagnostics) return new NativePathBoundaries(lines, characters, words, new JsonObject());
             return new NativePathBoundaries(lines, characters, words, new JsonObject
             {
                 ["source"] = "Actual system ICU ubrk iterators over the unchanged production source",

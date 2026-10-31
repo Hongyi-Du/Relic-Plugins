@@ -21,6 +21,25 @@ page size and use viewport virtualization to avoid constructing that many visual
 trees. History uses the server's existing `before` cursor. The observed hang has
 no surviving dump, so production thread-growth causes are not yet established.
 
+Changes for the clients (shared requests resolved): the macOS proposed alternate
+performance environment names are superseded by `scripts/performance/README.md`:
+use `RELIC_PERF_MANIFEST` / `RELIC_PERF_OUTPUT`, never the visual manifest for
+performance (visual diagnostics intentionally have extra cost). Keep the current
+1000-message API page on both platforms; viewport virtualization handles the
+page without eager view construction. Existing `before` responses expose all
+older messages. The shared driver now includes the common exhaustive action IDs,
+real first-message history checks, 180-second seeded deck, 10 Hz SSE hints and
+one stored message every two seconds during the monkey phase. Both clients use
+the same fixed 250 ms, memory plateau and thread-growth gates.
+
+Baseline evidence: CI 41161899958 at instrumented 3099eb1 reproduces initial-load
+UI blockage: native probe 926.5201 ms maximum, WM_NULL timeout, 311.64 MiB peak
+RSS and 35 threads in the short failure sample. This run deliberately retains
+pre-fix eager rendering and product diagnostics. The watchdog stopped it after
+the first failure plus two seconds; it is not a full-duration resource peak.
+The 1e1fc14 report-only visual run 41159591873 completed successfully; native
+responsiveness is a separate required check, not hidden by that report policy.
+
 # Previous delivery policy — Amendments 5 and 6
 
 Changes for the clients (2026-10-31, adaptive window placement): Windows stores

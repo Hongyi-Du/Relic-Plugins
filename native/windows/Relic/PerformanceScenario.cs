@@ -70,78 +70,83 @@ public sealed partial class MainWindow
 
     private async Task RunPerformanceScenario()
     {
-        var actions = new List<object>(); var errors = new List<string>();
+        var actions = new List<JsonObject>(); var errors = new List<string>();
         var randomActions = 0; double randomSeconds = 0;
-        async Task Action(string kind, string target, Func<Task> operation)
+        async Task Execute(JsonNode step, bool random)
         {
-            Volatile.Write(ref performanceAction, kind + ": " + target);
-            var clock = Stopwatch.StartNew();
-            await operation(); await PerformanceYield();
+            var kind = step.Text("kind");
+            var target = step.Text("org") + step.Text("member") + step.Text("pane") + step.Text("name");
+            Volatile.Write(ref performanceAction, (random ? "monkey " : "") + kind + ": " + target);
+            var clock = Stopwatch.StartNew(); var record = new JsonObject {
+                ["id"] = random ? "monkey-" + randomActions : step.Text("id"), ["kind"] = kind, ["target"] = target };
+            switch (kind)
+            {
+                case "group": await Select(step.Text("org")); break;
+                case "private": await Select(step.Text("org"), step.Text("member")); break;
+                case "pane": await SetPane(step.Text("pane")); break;
+                case "resize":
+                    var monitor = CurrentWindowMonitor();
+                    AppWindow.Resize(new(WindowSizing.Pixels(int.Parse(step.Text("width")), monitor.Scale),
+                        WindowSizing.Pixels(int.Parse(step.Text("height")), monitor.Scale))); break;
+                case "menu":
+                    var index = Array.IndexOf(new[] { "file", "edit", "view", "help" }, step.Text("name"));
+                    var menu = nativeMenus[index];
+                    SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+                    capturePointerReceipts.Clear(); await CaptureClick(menu.Anchor);
+                    await PerformanceYield();
+                    if (!menu.Flyout.IsOpen) throw new InvalidOperationException("Production menu did not open");
+                    menu.Flyout.Hide(); break;
+                case "dialog":
+                    var dialog = step.Text("name") switch { "settings" => Settings(), "about" => SettingsScreen("about"),
+                        "neworg" => CreateOrg(), "member" => AddMember(), _ => throw new InvalidOperationException("Unknown dialog") };
+                    for (var attempt = 0; visibleDialog == null && !dialog.IsCompleted && attempt < 100; attempt++) await Task.Delay(20);
+                    if (visibleDialog == null) { await dialog; throw new InvalidOperationException("Production dialog did not open"); }
+                    await WaitForMarkdown(); await PerformanceYield(); visibleDialog.Hide(); await dialog; break;
+                case "scroll-history":
+                    await Select(step.Text("org"));
+                    while (chatMore)
+                    {
+                        var before = messages.Count;
+                        chatScroll.ChangeView(null, 0, null, true);
+                        await PerformanceYield();
+                        while (loadingOlder) await Task.Delay(20);
+                        if (messages.Count == before && chatMore) await LoadOlderMessages();
+                        await WaitForMarkdown();
+                        if (messages.Count <= before && chatMore) throw new InvalidOperationException("History pagination did not progress");
+                    }
+                    record["pages_loaded"] = chatPages; record["history_complete"] = !chatMore;
+                    record["oldest_message_id"] = messages.Where(row => row.Text("type") == "message")
+                        .Select(row => long.TryParse(row.Text("id"), out var id) ? id : long.MaxValue).DefaultIfEmpty(0).Min();
+                    ScrollToLatest(); break;
+                default: throw new InvalidOperationException("Unknown performance action: " + kind);
+            }
+            await PerformanceYield(); await WaitForMarkdown();
+            if (random)
+            {
+                // Exercise actual pointer/hover/routed click paths as well as
+                // the seeded production command deck, without destructive acts.
+                SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+                var wasOpen = sideOpen; capturePointerReceipts.Clear();
+                await CaptureClick((FrameworkElement)navigationButtons.Children[1]); await PerformanceYield();
+                if (sideOpen == wasOpen) throw new InvalidOperationException("Real sidebar click was not handled");
+                await CaptureClick((FrameworkElement)navigationButtons.Children[1]); await PerformanceYield();
+                if (sideOpen != wasOpen) throw new InvalidOperationException("Real sidebar second click was not handled");
+                record["pointer_events"] = capturePointerReceipts.DeepClone();
+            }
             if (error.IsOpen) throw new InvalidOperationException(error.Message);
-            actions.Add(new { kind, target, elapsed_ms = clock.Elapsed.TotalMilliseconds, passed = true });
-        }
-        Task Menu()
-        {
-            var entry = nativeMenus.First();
-            entry.Flyout.ShowAt(entry.Anchor);
-            return Task.Delay(80).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => entry.Flyout.Hide()));
-        }
-        async Task Dialog()
-        {
-            var task = Settings(); await Task.Delay(100);
-            if (visibleDialog == null) throw new InvalidOperationException("Settings dialog did not open");
-            visibleDialog.Hide(); await task;
-        }
-        async Task Resize(int width)
-        {
-            var monitor = CurrentWindowMonitor();
-            AppWindow.Resize(new(WindowSizing.Pixels(width, monitor.Scale), WindowSizing.Pixels(700, monitor.Scale)));
-            await PerformanceYield();
-        }
-        async Task ScrollTop()
-        {
-            chatScroll.ChangeView(null, 0, null, true); await PerformanceYield();
-            if (chatMore) await LoadOlderMessages();
+            record["elapsed_ms"] = clock.Elapsed.TotalMilliseconds; record["passed"] = true;
+            record["realized_chat_rows"] = stream.Realized;
+            actions.Add(record);
         }
         try
         {
-            var organizations = performanceManifest!["fixture"].Rows("orgs");
-            foreach (var organization in organizations)
-            {
-                var id = organization.Text("id");
-                await Action("organization", id, () => Select(id));
-                foreach (var person in organization.Rows("members"))
-                {
-                    var name = person.Text();
-                    await Action("private-chat", id + "/" + name, () => Select(id, name));
-                }
-                await Action("group-chat", id, () => Select(id));
-                foreach (var tab in new[] { "overview", "workspace", "files" }) await Action("pane", tab, () => SetPane(tab));
-                await Action("pane", "overview", () => SetPane("overview"));
-                await Action("menu", "File", Menu);
-                await Action("dialog", "Settings", Dialog);
-                foreach (var width in new[] { 1440, 1180, 1024, 960, 1440 }) await Action("resize", width.ToString(), () => Resize(width));
-                await Action("scroll-history", id, ScrollTop);
-            }
-            var random = new Random(int.Parse(performanceManifest.Text("seed")));
-            var seconds = int.Parse(performanceManifest.Text("seconds"));
+            await WaitForMarkdown();
+            foreach (var step in performanceManifest!.Rows("plan")) await Execute(step!, false);
+            var deck = performanceManifest.Rows("monkey");
             var timer = Stopwatch.StartNew();
-            while (timer.Elapsed.TotalSeconds < seconds)
+            while (timer.Elapsed.TotalSeconds < int.Parse(performanceManifest.Text("seconds")))
             {
-                var organization = organizations[random.Next(organizations.Count)]!;
-                switch (random.Next(8))
-                {
-                    case 0: await Action("random-group", organization.Text("id"), () => Select(organization.Text("id"))); break;
-                    case 1:
-                        var people = organization.Rows("members"); var name = people[random.Next(people.Count)].Text();
-                        await Action("random-private", name, () => Select(organization.Text("id"), name)); break;
-                    case 2: await Action("random-pane", "overview", () => SetPane("overview")); break;
-                    case 3: await Action("random-sidebar", "toggle", ToggleSide); break;
-                    case 4: await Action("random-inspector", "toggle", TogglePanel); break;
-                    case 5: await Action("random-menu", "File", Menu); break;
-                    case 6: await Action("random-resize", "breakpoints", () => Resize(new[] { 960, 1024, 1180, 1440 }[random.Next(4)])); break;
-                    case 7: await Action("random-scroll", "history", ScrollTop); break;
-                }
+                await Execute(deck[randomActions % deck.Count]!, true);
                 randomActions++; await Task.Delay(100);
             }
             randomSeconds = timer.Elapsed.TotalSeconds;

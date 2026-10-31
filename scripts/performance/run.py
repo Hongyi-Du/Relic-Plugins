@@ -217,6 +217,10 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
                 heartbeat = read_json(output / "heartbeat.json")
                 native_receipt = read_json(output / "performance-complete.json")
                 if heartbeat:
+                    if str(heartbeat.get("action", "")).lower().startswith(("random", "monkey")):
+                        # This marker controls only the owned synthetic server;
+                        # it cannot mutate a human store or run a provider.
+                        Path(fixture["monkey_trigger"]).touch(exist_ok=True)
                     if heartbeat.get("sequence") != previous_sequence:
                         heartbeats.append(heartbeat)
                         previous_sequence = heartbeat.get("sequence")
@@ -272,6 +276,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
         except Exception as error:
             errors.append(str(error))
         finally:
+            Path(fixture["monkey_trigger"]).unlink(missing_ok=True)
             stop_owned(process)
     resources = resource_summary(samples)
     errors.extend(resources["errors"])
@@ -289,7 +294,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
               "passed": not errors, "errors": list(dict.fromkeys(errors)), "worst_ui_stall_ms": worst,
               "resources": resources, "native_receipt": native_receipt, "limits": {
                   "ui_stall_ms": UI_LIMIT_MS, "peak_rss_bytes": RSS_LIMIT, "peak_threads": THREAD_LIMIT},
-              "samples": samples, "heartbeats": heartbeats, "window_probes": windows}
+              "samples": samples, "heartbeats": heartbeats, "window_probes": windows,
+              "live_updates": read_json(fixture["live_report"])}
     atomic_json(output / "responsiveness-report.json", report)
     print(json.dumps({k: report[k] for k in ("client", "mode", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)
     return report
