@@ -39,7 +39,9 @@ import RelicCore
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
             watchdog.begin()
+            current.startupStage = { watchdog.action("startup:" + $0) }
             await current.start()
+            current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             for action in manifest["plan"].rows {
                 watchdog.action(action["id"].text + ":" + action["kind"].text)
@@ -83,6 +85,7 @@ import RelicCore
             case "about": m.settingsSection = "about"; m.sheet = .settings
             case "neworg": m.sheet = .create
             case "member": m.openMemberForm()
+            case "tasks", "protocols": m.openDetails(action["name"].text)
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
             await settle(); m.sheet = nil; await settle()

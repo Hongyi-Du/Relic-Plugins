@@ -380,6 +380,31 @@ final class ModelTransport: URLProtocol {
         XCTAssertEqual(model.streamRows.map(\.id), ["id:9000#0"])
         subscription.cancel()
     }
+    func testEventBurstDuringSlowRefreshProducesOneFollowupWithoutAQueuedTimer() async throws {
+        let model = try model(); defer { model.stop() }
+        model.setSelection(ChatSelection("a"))
+        let loading = expectation(description: "snapshot request in flight")
+        var snapshots = 0
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, #"[{"id":"a"}]"#)
+            case "/api/cc": return (200, #"{"items":[],"unread":0}"#)
+            case "/api/org/a":
+                snapshots += 1
+                if snapshots == 1 { loading.fulfill() }
+                Thread.sleep(forTimeInterval: 0.15)
+                return (200, #"{"members":[]}"#)
+            case "/api/org/a/chat": return (200, #"{"items":[],"more":false}"#)
+            default: XCTFail("Unexpected request"); return (500, "{}")
+            }
+        }
+        let refresh = Task { try await model.refresh() }
+        await fulfillment(of: [loading], timeout: 2)
+        for _ in 0..<1000 { await model.receive(Node(["type": "org", "org": "a"])) }
+        try await refresh.value
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(snapshots, 2)
+    }
 }
 
 private extension InputStream {
