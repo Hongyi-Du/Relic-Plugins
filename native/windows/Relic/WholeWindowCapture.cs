@@ -91,15 +91,22 @@ public sealed partial class MainWindow
             ?? throw new InvalidOperationException("Title-bar actions require the production overlapped presenter");
         if (presenter.State != OverlappedPresenterState.Restored) throw new InvalidOperationException("Initial window is not restored");
         var entry = nativeMenus.FirstOrDefault() ?? throw new InvalidOperationException("Production File menu is missing");
-        var menuAction = new JsonObject { ["action"] = "real pointer click File menu twice", ["before_open"] = entry.Flyout.IsOpen };
+        var menuAction = new JsonObject { ["action"] = "real pointer click File menu, then keyboard Escape", ["before_open"] = entry.Flyout.IsOpen };
         actions.Add(menuAction);
         await CaptureClick(entry.Anchor); await Task.Delay(150);
         menuAction["after_first_open"] = entry.Flyout.IsOpen;
         menuAction["same_open_menu"] = ReferenceEquals(openNativeMenu, entry);
         if (!entry.Flyout.IsOpen || !ReferenceEquals(openNativeMenu, entry)) throw new InvalidOperationException("Real menu click did not open its production flyout");
-        await CaptureClick(entry.Anchor); await Task.Delay(150);
-        menuAction["after_second_open"] = entry.Flyout.IsOpen;
-        if (entry.Flyout.IsOpen || openNativeMenu != null) throw new InvalidOperationException("Real second menu click did not close its production flyout");
+        // The menu anchor receives pass-through pointer input. Re-clicking it
+        // can light-dismiss the flyout before the same click opens it again.
+        // Verify the production Escape interaction instead of assuming a toggle.
+        WholeWindowEscapeKey(true);
+        try { await Task.Delay(10); }
+        finally { WholeWindowEscapeKey(false); }
+        await Task.Delay(150);
+        menuAction["after_escape_open"] = entry.Flyout.IsOpen;
+        menuAction["after_escape_active_menu"] = openNativeMenu != null;
+        if (entry.Flyout.IsOpen || openNativeMenu != null) throw new InvalidOperationException("Real Escape key did not close its production flyout");
         menuAction["passed"] = true;
 
         var originalSide = sideOpen; var originalVisibility = sidebarSurface.Visibility;
@@ -127,6 +134,18 @@ public sealed partial class MainWindow
         actions.Add(restoration);
         if (!original.Equals(restored)) throw new InvalidOperationException("Double-click restore did not return the original window rectangle");
         return restored;
+    }
+
+    private void WholeWindowEscapeKey(bool down)
+    {
+        if (!WholeWindowCaptureEnabled) throw new InvalidOperationException("Whole-window input is CI-only");
+        var input = new WholeWindowInput { type = 1, data = new WholeWindowInputData
+            { keyboard = new WholeWindowKeyboardInput { virtualKey = 0x1B, flags = down ? 0u : 0x0002u } } };
+        var inserted = WholeWindowSendInput(1, [input], Marshal.SizeOf<WholeWindowInput>());
+        var errorCode = Marshal.GetLastWin32Error();
+        capturePointerReceipts.Add(new JsonObject { ["operation"] = down ? "SendInput Escape down" : "SendInput Escape up",
+            ["virtual_key"] = 0x1B, ["inserted_events"] = inserted });
+        if (inserted != 1) throw new Win32Exception(errorCode, "Could not insert real Escape keyboard input");
     }
 
     private async Task DoubleClickWholeWindowTitle(JsonArray actions, string action, OverlappedPresenter presenter, OverlappedPresenterState expected)
@@ -249,6 +268,15 @@ public sealed partial class MainWindow
     private static JsonObject WholeWindowBox(WholeWindowRect box) => new()
     { ["x"] = box.left, ["y"] = box.top, ["width"] = box.right - box.left, ["height"] = box.bottom - box.top };
     [StructLayout(LayoutKind.Sequential)] private struct WholeWindowRect { public int left, top, right, bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct WholeWindowKeyboardInput
+    { public ushort virtualKey, scanCode; public uint flags, time; public nuint extraInfo; }
+    [StructLayout(LayoutKind.Explicit)] private struct WholeWindowInputData
+    {
+        [FieldOffset(0)] public CaptureMouseInput mouse;
+        [FieldOffset(0)] public WholeWindowKeyboardInput keyboard;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct WholeWindowInput { public uint type; public WholeWindowInputData data; }
+    [DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)] private static extern uint WholeWindowSendInput(uint count, [In] WholeWindowInput[] inputs, int size);
     [DllImport("user32.dll", EntryPoint = "GetWindowRect", SetLastError = true)] private static extern bool WholeWindowGetRect(nint window, out WholeWindowRect rect);
     [DllImport("user32.dll", EntryPoint = "GetClientRect", SetLastError = true)] private static extern bool WholeWindowGetClientRect(nint window, out WholeWindowRect rect);
     [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")] private static extern nint WholeWindowForeground();
