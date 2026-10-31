@@ -12,6 +12,12 @@ broadcasts invalidation to unrelated message/tree views. A mounted native view
 test counts actual body evaluations while these dialogs change, then verifies
 that a real new message still updates it. This is not yet a pressure pass.
 
+The macOS history scenario now relies exclusively on the production scroll
+observer to fetch earlier pages. The previous harness also called loadOlder
+directly after Home, which could mask a broken UI pager and overlap its real
+request. All history cases, first-message IDs, page sizes and watchdog limits
+remain unchanged; final actual top and bottom gaps must now also be <= 2 pt.
+
 ## Shared request: restore the full-matrix contract test after diagnostic selection refactor
 
 Resolved upstream by 8395e17; merging 959744e includes that correction.

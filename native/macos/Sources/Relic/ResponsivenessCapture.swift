@@ -105,18 +105,36 @@ import RelicCore
             while m.moreChat {
                 while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
                 guard m.moreChat else { break }
-                try scroll(window, toTop: true)
                 let before = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
-                try await m.loadOlder(); try await settleConversation(m)
+                try scroll(window, toTop: true)
+                // Exercise the production scroll-triggered pager. Directly
+                // calling loadOlder here could pass while the visible history
+                // never advanced, and race the real scroll observer's request.
+                let deadline = ProcessInfo.processInfo.systemUptime + 15
+                while m.moreChat && m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text == before {
+                    guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        throw RelicError.message("Scrolling to the first row did not load the earlier page")
+                    }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
                 while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
+                try await settleConversation(m)
                 let after = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
                 if m.moreChat && after == before { throw RelicError.message("Older page did not advance") }
             }
             try scroll(window, toTop: true); try await settleConversation(m)
+            guard let topGap = ConversationKeyboardMount.edgeGap(in: window, atTop: true), topGap <= 2 else {
+                throw RelicError.message("History data loaded but its first row is not at the visible top")
+            }
+            result["visible_top_gap_pt"] = topGap
             result["pages_loaded"] = m.historyPagesLoaded
             result["oldest_message_id"] = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].integer ?? 0
             result["history_complete"] = !m.moreChat
             try scroll(window, toTop: false); try await settleConversation(m)
+            guard let bottomGap = ConversationKeyboardMount.bottomGap(in: window), bottomGap <= 2 else {
+                throw RelicError.message("End did not restore the visible latest history row")
+            }
+            result["visible_bottom_gap_pt"] = bottomGap
         default: throw RelicError.message("Unknown performance action: " + kind)
         }
         result["passed"] = true
