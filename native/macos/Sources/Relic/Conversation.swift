@@ -284,11 +284,14 @@ struct ConversationStream: View {
     @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
     @State private var presentedRowCount = 0
+    @State private var mountedViewport = false
+    @State private var mountedComposer = false
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
+                if mountedViewport {
                 GeometryReader { viewport in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -346,10 +349,26 @@ struct ConversationStream: View {
                             }
                         }
                 }
-                ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                }
+                else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
+                if mountedComposer {
+                    ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
                 defer { PerformanceRendering.endSurface(ticket) }
+                // Native scroll/focus setup and the editable composer are cold
+                // AppKit work too. Keep them out of the chat-header transaction.
+                for stage in 0..<2 {
+                    if stage == 0 ? mountedViewport : mountedComposer { continue }
+                    let turn = UUID()
+                    guard await RowMountQueue.shared.acquire(turn) else { return }
+                    guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                    if stage == 0 { mountedViewport = true } else { mountedComposer = true }
+                    do { try await Task.sleep(for: .milliseconds(32)) }
+                    catch { RowMountQueue.shared.release(turn); return }
+                    RowMountQueue.shared.release(turn)
+                }
                 // The API page remains 1,000 messages. Even a lazy SwiftUI
                 // stack creates identity/state bookkeeping for every item in
                 // one transaction. Admit that full page in bounded batches,
