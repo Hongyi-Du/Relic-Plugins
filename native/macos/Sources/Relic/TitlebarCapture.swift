@@ -45,7 +45,7 @@ import RelicCore
                 try await current.select(fixture["org"].text)
                 current.sheet = nil; current.appMenu = nil; current.recipientPicker = false
                 current.sidebarOpen = true; current.panelOpen = item["width"].integer > 1180; current.pane = "overview"
-                let size = NSSize(width: item["width"].integer, height: item["height"].integer)
+                let size = NSSize(width: CGFloat(item["width"].integer), height: CGFloat(item["height"].integer))
                 window.setFrame(NSRect(x: 40, y: 60, width: size.width, height: size.height), display: true)
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); WindowChrome.positionButtons(in: window)
