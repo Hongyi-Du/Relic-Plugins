@@ -443,7 +443,7 @@ struct ConversationStream: View {
                     let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    let next = max(0, firstPresentedIndex - 50)
+                    let next = max(0, firstPresentedIndex - 25)
                     guard m.streamRows.indices.contains(next) else { RowMountQueue.shared.release(turn); return }
                     firstPresentedID = m.streamRows[next].id
                     do { try await Task.sleep(for: .milliseconds(32)) }

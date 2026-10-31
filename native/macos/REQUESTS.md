@@ -1,5 +1,13 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+dedf7bd / 41185011763 clears startup but FAILS at action-0052:group;
+maximum 280.410 ms, peak 197.141 MiB and 8 threads. The first failed work
+snapshot has message-identities active and only two message rows mounted.
+Its 50 composer mounts peak at 146.209 ms, while identity admission peaks
+at 312.977 ms (scope durations include the yield). Reduce each identity batch
+from 50 to 25, keeping the full API page, all history, and actual readiness
+checks. This needs strict measurement; no timing/resource limit is changed.
+
 0b23163 / 41184737749 finishes 299 tests with two failures in the actual
 long-Markdown viewport regression: appending message 51 leaves it invisible
 with a 1322 pt bottom gap. Initial latest content and the subsequent Home / new
