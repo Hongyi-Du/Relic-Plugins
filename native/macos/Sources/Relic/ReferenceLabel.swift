@@ -21,11 +21,10 @@ struct ReferenceLabel: NSViewRepresentable {
     var textGlyphIcon = false
     var truncates = true
     var ownedLayer = true
-    var navigationID: String? = nil
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = true, navigationID: String? = nil) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = true) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -37,7 +36,6 @@ struct ReferenceLabel: NSViewRepresentable {
         self.textGlyphIcon = textGlyphIcon
         self.truncates = truncates
         self.ownedLayer = ownedLayer
-        self.navigationID = navigationID
     }
     private var containerBreakMode: NSLineBreakMode { lines > 0 ? (truncates ? .byTruncatingTail : .byClipping) : .byWordWrapping }
     func makeNSView(context: Context) -> ReferenceLabelView {
@@ -69,7 +67,6 @@ struct ReferenceLabel: NSViewRepresentable {
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
-        view.setAccessibilityIdentifier(navigationID)
         if ownedLayer {
             view.usesOwnedBackingImage = true
             view.canDrawSubviewsIntoLayer = false
@@ -105,7 +102,6 @@ struct ReferenceLabel: NSViewRepresentable {
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
-        view.setAccessibilityIdentifier(navigationID)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
         let width = (proposal.width?.isFinite == true ? proposal.width : nil) ?? 100_000
