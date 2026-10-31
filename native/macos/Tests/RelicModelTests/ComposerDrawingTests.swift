@@ -35,6 +35,7 @@ import SwiftUI
             XCTAssertGreaterThanOrEqual(placeholder.convert(placeholder.bounds, to: clip).intersection(clip.bounds).height, 20)
             XCTAssertEqual(placeholder.string, "Write a message"); XCTAssertFalse(placeholder.isHidden)
             let manager = try XCTUnwrap(placeholder.layoutManager as? NativeGlyphLayoutManager); manager.recordDraws = true
+            placeholder.needsDisplay = true
             let bitmap = try XCTUnwrap(CaptureRaster.forView(host)); host.cacheDisplay(in: host.bounds, to: bitmap)
             XCTAssertEqual(manager.fontEvidence(for: NSRange(location: 0, length: 15), in: placeholder)["status"] as? String, "measured-current-draw")
         }
