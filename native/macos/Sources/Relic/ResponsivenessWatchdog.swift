@@ -105,7 +105,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private func sample(_ name: String, seconds: Int) {
         let sampler = Process()
         sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), "1", "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
+        // A long 1 ms startup sample can spend the entire diagnostic retention
+        // interval symbolicating millions of recursive SwiftUI frames and leave
+        // no file. A 10 ms interval covers the same eight seconds with bounded
+        // diagnostic overhead. The acceptance probes are completely separate.
+        let interval = name == "startup-diagnostic" ? "10" : "1"
+        sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
         sampler.standardOutput = try? FileHandle(forWritingTo: log); sampler.standardError = sampler.standardOutput

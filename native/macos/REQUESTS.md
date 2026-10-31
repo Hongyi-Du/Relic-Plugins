@@ -1,5 +1,13 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+9a2ebda Native apps 41186594058 passes all jobs and 299 Mac tests, including
+the actual long-Markdown append/Home/End and original shadow pixel assertions.
+Its pressure failure still stands. Latest native-apps 6648e83 is merged,
+including the Windows whole-window correction. The diagnostic-only eight-second
+startup sample now uses a 10 ms sampling interval because the 1 ms dump did not
+finish symbolicating before diagnostic cleanup; neither acceptance timing nor
+coverage changes. No diagnostic result can satisfy the strict gate.
+
 9a2ebda / 41186594017 FAILS startup at max 352.220 ms, 169.938 MiB, 8 threads.
 Cold row construction is now bounded in that run (118.369 ms peak), and the new
 layout scopes peak at 10.935 ms (columns) /8.996 ms (Markdown). Admission after
