@@ -130,6 +130,11 @@ final class ComposerScrollView: NSScrollView {
         if abs(editor.frame.width - width) > 0.01 {
             editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
         }
+          // An empty vertically-resizable NSTextView can shrink its document
+          // below the clipping viewport during a resize or enable transition.
+          // Its real placeholder is a child of that document and would then
+          // disappear even though the surrounding input still has full height.
+          editor.fitViewport(height: contentView.bounds.height)
     }
 }
 
@@ -155,7 +160,7 @@ final class ComposerTextView: NSTextView {
         }
     }
     func fitViewport(height: CGFloat) {
-        minSize.height = height
+        if abs(minSize.height - height) > 0.01 { minSize.height = height }
         guard let layoutManager, let textContainer else { return }
         layoutManager.ensureLayout(for: textContainer)
         let textHeight = layoutManager.usedRect(for: textContainer).height + textContainerInset.height * 2
