@@ -108,15 +108,45 @@ import RelicCore
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")
+        model.messages.append(Node(["id": 52, "type": "message", "from": "human", "to": ["all"], "text": "Arrived while reading history", "at": "2026-10-30T12:02:00Z"] as [String: Any]))
+        try await settled()
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "New messages must not override a person's explicit history navigation")
         XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
         try await settled()
         let bottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, bottom, accuracy: 2, "End must reach the real last row including its trailing space")
-        XCTAssertTrue(visibleText("Arrived after the view mounted", in: host), "End must restore the actual latest text, not an empty offset")
+        XCTAssertTrue(visibleText("Arrived while reading history", in: host), "End must restore the actual latest text, not an empty offset")
     }
     private final class Document: NSView {
         var documentCoordinatesFlipped = true
         override var isFlipped: Bool { documentCoordinatesFlipped }
+    }
+
+    func testOnlyThisScrollViewsUserInputChangesFollowIntent() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
+        scroll.documentView = document; window.contentView = scroll; scroll.tile()
+        defer { window.contentView = nil; window.close() }
+        let keyboard = ConversationKeyboard()
+        // Retain the controller used by the actual mounted observer.
+        let actual = ConversationKeyboardMount.Mount(keyboard: keyboard)
+        document.addSubview(actual); actual.resolveScroll()
+        var positions: [Bool] = []
+        keyboard.didUserScroll = { positions.append($0) }
+        scroll.contentView.scroll(to: .zero)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: NSScrollView())
+        XCTAssertTrue(positions.isEmpty, "Layout corrections and another pane's input are not conversation scroll intent")
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(positions, [false])
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(positions, [false, true])
+        actual.removeFromSuperview()
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(positions, [false, true], "Detaching the native mount must remove its user-scroll observer")
     }
 
     func testEdgeNavigationUsesTheLazyFrameworkOwner() {

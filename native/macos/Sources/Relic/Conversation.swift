@@ -298,6 +298,8 @@ struct ConversationStream: View {
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
     @State private var following = ConversationScrollFollowing()
+    @State private var userFollowsLatest = true
+    @State private var preservingDisclosure = false
     @State private var initialLoad = true
     @State private var presentedRowCount = 0
     @State private var mountedViewport = false
@@ -354,7 +356,7 @@ struct ConversationStream: View {
                             // while the preceding lazy message is still absent.
                         }.scrollTargetLayout()
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
-                            .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
+                            .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.defaultScrollAnchor(.bottom)
@@ -368,8 +370,8 @@ struct ConversationStream: View {
                             // document's estimated height. Markdown prepares in
                             // stages after scrollTo's first layout; preserve the
                             // bottom while that row acquires its real height.
-                            guard !latest.id.isEmpty, latest.size.height > 0,
-                                  initialLoad || following.followsBottom else { return }
+                            guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
+                                  initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
                             visibleRow = latest.id; proxy.scrollTo(latest.id, anchor: .bottom)
                             initialLoad = false
@@ -400,7 +402,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
+                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -425,33 +427,43 @@ struct ConversationStream: View {
                     let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    presentedRowCount = min(m.streamRows.count, presentedRowCount + 200)
+                    presentedRowCount = min(m.streamRows.count, presentedRowCount + 50)
                     do { try await Task.sleep(for: .milliseconds(32)) }
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
+                    if preservingDisclosure { userFollowsLatest = following.followsBottom }
+                    preservingDisclosure = false
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if (initialLoad || following.followsBottom), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
+                        if (initialLoad || userFollowsLatest), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = true
                     if let id = latestRowID { visibleRow = id }
+                    // A lazy height correction is not a user scroll. Only
+                    // native live scrolling or scoped keyboard input changes
+                    // the person's follow-latest intent.
+                    keyboard.didUserScroll = { nearBottom in
+                        initialLoad = false; userFollowsLatest = nearBottom
+                        following.followsBottom = nearBottom; preservingDisclosure = false
+                    }
                     keyboard.scrollToEdge = { top in
                         initialLoad = false
+                        userFollowsLatest = !top; preservingDisclosure = false
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
                         else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
-                .onDisappear { keyboard.scrollToEdge = nil }
+                .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil }
         }
     }
 }

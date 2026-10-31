@@ -1,5 +1,19 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+7b3dbca / 41183087326 moves the cold composer below the threshold (183.980 ms
+mount scope) but still FAILS during message identity admission (353.158 ms UI
+max; 158.375 MiB, 9 threads). Per-turn identity admission is reduced from 200
+to 50; the API pages and total retained messages are unchanged. Its mounted
+test now passes initial final-paragraph visibility but fails append-following:
+geometry corrections can falsely clear followsBottom. Conversation follow
+intent now changes only for scoped keyboard commands and this NSScrollView's
+didLiveScrollNotification (documented by Apple as user-initiated, including
+legacy wheels), not lazy layout estimates. A native notification/viewport test
+checks sender isolation, detachment and actual bottom distance; the mounted
+long-conversation test also appends while reading history and requires no jump.
+The diagnostic composer.measure identifier is renamed editor-measure so it
+cannot be mistaken for a user-facing vocabulary key; word-list tests stay intact.
+
 392c658 / 41182594829 remains a strict FAIL at 251.645 ms (143.172 MiB,
 9 threads); no rounding exemption. Its composer measure cache performs four
 actual measurements totaling 0.246 ms, but the enclosing cold composer mount
