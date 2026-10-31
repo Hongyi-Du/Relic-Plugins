@@ -26,7 +26,13 @@ public sealed partial class MainWindow
         if (!SetWindowSubclass(handle, placementSubclass, 0x52454c49, 0))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not register window size handling");
         var current = CurrentWindowMonitor();
-        var monitors = DisplayArea.FindAll().Select(area => DescribeMonitor(area)).ToArray();
+        // This Windows App SDK vector view supports Count/GetAt but its
+        // IReadOnlyList projection does not expose IEnumerable on all builds.
+        // Index it directly; LINQ enumeration otherwise aborts startup with
+        // E_NOINTERFACE before any window is shown (CI d67957a).
+        var displays = DisplayArea.FindAll();
+        var monitors = new List<WindowMonitor>();
+        for (var index = 0; index < displays.Count; index++) monitors.Add(DescribeMonitor(displays[index]));
         SavedWindowPlacement? saved = null;
         try
         {
