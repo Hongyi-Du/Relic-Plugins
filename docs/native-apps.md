@@ -1,5 +1,16 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients (macOS visual follow-up): actual inspection of all eight
+e346d03 adaptive-window images found that **both dark macOS images retain raw
+Markdown**, and `macos-zh-CN-dark-1440x900-group.png` has a blank inspector.
+The corresponding light images and all four Windows images render correctly.
+The green capture result therefore proves chrome/size checks, not settled
+content. Mac owner: fix the actual readiness/production rendering path and
+retain a regression assertion for prepared visible Markdown and all requested
+panes before the full-window screenshot. Evidence is in
+`S:\Codex\Outputs\Relic-native-visual\window-e346d03\macos` (CI 41170556047).
+These images are not accepted as final, and no required content may be skipped.
+
 Changes for the clients (2026-10-31, shared request resolved): the Windows
 full-window failure reported in macOS REQUESTS.md for aa1be2f was an end-anchor
 problem. Native ScrollViewer anchoring now follows the actual last row including
