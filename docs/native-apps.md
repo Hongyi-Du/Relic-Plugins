@@ -1,5 +1,34 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Windows/shared delivery evidence at **7c0ff4298b04dec8b09fed402cb8fce1a4290d6f**:
+normal responsiveness CI **41174728524** passes Windows: **114.259 ms** maximum
+UI dispatch, **401.941 MiB** peak RSS, **39** peak threads, all 175 fixed actions
+plus 125 observed random clicks over **181.082 seconds**. Error, coverage,
+window-probe and growth lists are empty. Steady RSS medians are 325273600 /
+308193280 / 316246016 bytes, threads 34 / 33 / 34. The independent diagnostic
+repeat **41174728418** completes the same fixed plan and 155 random actions over
+180.258 seconds, max 81.218 ms, with no stack trigger; it remains explicitly
+ineligible for acceptance. Both actual DirectWrite preparation tests and all
+335 Windows tests pass. Native builds/tests/packages **41174728702** and all
+four Python validations **41174732279** are green. The 250 ms gate is unchanged.
+
+The same commit's macOS normal run still fails at startup (374.048 ms maximum,
+137.063 MiB, 9 threads), so the whole responsiveness workflow is correctly red
+and PR #4 remains draft/unmerged. This is not a completed macOS pressure result.
+Reports, test receipts and all three unsigned packages are retained under
+`S:\Codex\Outputs\Relic-native-performance\candidate-7c0ff42`.
+Adaptive-window **41174728519** and whole-window chrome **41174728491** pass both
+systems. All eight actual light/dark, 1440x900/1024x700 adaptive-window PNGs were
+inspected under `S:\Codex\Outputs\Relic-native-visual\window-7c0ff42`; prepared
+Markdown, composer, title-bar controls, wide inspectors and bottom messages are
+present. Nothing was installed or launched locally.
+
+Changes for the clients (2026-10-31): merging macOS 76d842f keeps its additional
+Markdown block virtualization and actual dialog/scroll completion assertions.
+The current REQUESTS.md was read; the earlier shared capture request is resolved
+above, and the remaining work is the macOS-owned cold-layout performance fix.
+These additional macOS changes require their own integrated CI results.
+
 Cold-font follow-up: normal 39c15ee passes again in CI 41173632395 (111.980 ms,
 426.465 MiB, 38 threads; 175 exhaustive + 155 random actions over 180.657 s).
 However diagnostic 41173632429 captures a real 429.177 ms first
