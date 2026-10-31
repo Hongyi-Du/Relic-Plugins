@@ -12,18 +12,21 @@ import AppKit
         let view = Probe(); Self.live.add(view); updateNSView(view, context: context); return view
     }
     func updateNSView(_ view: Probe, context: Context) { view.kind = kind; view.ready = ready }
-    static func observation(in window: NSWindow, expectInspector: Bool) -> Observation {
+    static func observation(in window: NSWindow, expectInspector: Bool, expectDialog: Bool = false) -> Observation {
         let views = live.allObjects.filter { $0.window === window && $0.visibleInViewport }
         let markdown = views.filter { $0.kind == "markdown" }
         return Observation(markdown: markdown.count, pendingMarkdown: markdown.filter { !$0.ready }.count,
-            inspectors: views.filter { $0.kind == "inspector" }.count, expectInspector: expectInspector)
+            inspectors: views.filter { $0.kind == "inspector" }.count, expectInspector: expectInspector,
+            dialogs: views.filter { $0.kind == "dialog" }.count, expectDialog: expectDialog)
     }
     struct Observation {
         let markdown: Int, pendingMarkdown: Int, inspectors: Int
         let expectInspector: Bool
-        var ready: Bool { pendingMarkdown == 0 && (!expectInspector || inspectors == 1) }
+        var dialogs = 0, expectDialog = false
+        var ready: Bool { pendingMarkdown == 0 && (!expectInspector || inspectors == 1) && dialogs == (expectDialog ? 1 : 0) }
         var record: [String: Any] { ["visible_markdown": markdown, "unprepared_visible_markdown": pendingMarkdown,
-            "visible_inspectors": inspectors, "inspector_expected": expectInspector, "ready": ready] }
+            "visible_inspectors": inspectors, "inspector_expected": expectInspector,
+            "visible_dialogs": dialogs, "dialog_expected": expectDialog, "ready": ready] }
     }
     final class Probe: NSView {
         var kind = "", ready = false

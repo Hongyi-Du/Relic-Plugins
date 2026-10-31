@@ -61,7 +61,7 @@ struct RichText: View {
         Group {
         if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
                 }

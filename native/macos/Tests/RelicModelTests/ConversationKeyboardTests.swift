@@ -1,9 +1,52 @@
 import XCTest
 import AppKit
 import SwiftUI
+import RelicCore
 @testable import Relic
 
 @MainActor final class ConversationKeyboardTests: XCTestCase {
+    func testRealConversationHomeAndEndMoveTheLazyNativeViewport() async throws {
+        _ = NSApplication.shared
+        let suite = "Relic.KeyboardViewport." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = Model(defaults: defaults)
+        model.organization = "test"
+        model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
+        model.messages = (1...50).map { Node(["id": $0, "type": "message", "from": "human", "to": ["all"], "text": "Message \($0)", "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
+        let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
+        host.sizingOptions = []; host.autoresizingMask = [.width, .height]
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { model.stop(); window.orderOut(nil); window.contentView = nil; window.close() }
+        func find(_ root: NSView) -> NSScrollView? {
+            if let scroll = root as? NSScrollView, scroll.accessibilityIdentifier() == ConversationKeyboard.identifier { return scroll }
+            for child in root.subviews { if let scroll = find(child) { return scroll } }
+            return nil
+        }
+        func settled() async throws {
+            let deadline = ProcessInfo.processInfo.systemUptime + 5
+            var quiet = 0
+            repeat {
+                try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+                if !model.isPreparingConversation, RowMountQueue.shared.isIdle,
+                   let scroll = find(host), (scroll.documentView?.bounds.height ?? 0) > 1000 { quiet += 1 }
+                else { quiet = 0 }
+                if quiet >= 3 { return }
+            } while ProcessInfo.processInfo.systemUptime < deadline
+            XCTFail("The production lazy conversation did not settle")
+        }
+        try await settled()
+        let scroll = try XCTUnwrap(find(host))
+        let keyboard = try XCTUnwrap(ConversationKeyboardMount.controller(for: scroll))
+        XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
+        try await settled()
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")
+        XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
+        try await settled()
+        let bottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
+        XCTAssertEqual(scroll.contentView.bounds.minY, bottom, accuracy: 2, "End must reach the real last row including its trailing space")
+    }
     private final class Document: NSView {
         var documentCoordinatesFlipped = true
         override var isFlipped: Bool { documentCoordinatesFlipped }
