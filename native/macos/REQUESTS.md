@@ -1,3 +1,25 @@
+## 2026-10-31: Amendment 6 window placement and reflow
+
+macOS is replacing the fixed SwiftUI startup size with a point-based policy:
+`min(1440 x 900 pt, visibleFrame.size * 0.85)`, centred in the current screen,
+an adaptive minimum, and AppKit frame autosaving/restoration. Screen changes
+update constraints without converting points to physical pixels. Capture sizes
+remain isolated behind the existing explicit CI capture flags.
+
+Please retain the full-window capture driver (1440x900 and 1024x700, light/dark),
+and add the Windows 150% display-scale cases where the runner supports them.
+macOS continues to implement `RELIC_TITLEBAR_CAPTURE=1` with the same manifest
+and completion protocol. Its per-case `.window-chrome.json` will additionally
+report `initial_window_frame`, `visible_screen_frame`, `minimum_window_size`,
+`inspector_overlay`, and `sidebar_width_pt`; these come from the product window
+placement controller before the harness applies the requested capture size.
+Keep these fields in the downloaded receipts. Put final artifacts under
+`S:\Codex\Outputs\Relic-native-visual\window-<commit>\` and keep native builds,
+tests, Python validation and packaging required. No server API changes needed.
+
+At the person's 2560x1392 DIP work area, the specified fresh-launch default is
+1440x900 DIP = 2160x1350 px at 150%; the minimum is 960x640 DIP = 1440x960 px.
+
 ## 2026-10-31: Amendment 5 shared validation cleanup failure
 
 The native apps and whole-window capture pass at `f8f8704` (macOS: 248 tests,

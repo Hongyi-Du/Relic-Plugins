@@ -325,7 +325,8 @@ import RelicCore
     func openMemberForm(mode: String = "app", edit: String = "", secretary: Bool = false) { memberMode = mode; editMember = edit; newSecretary = secretary; sheet = .member }
     func openCard(_ name: String, anchor: CGRect? = nil) {
         cardMember = name
-        cardAnchor = anchor ?? CGRect(x: sidebarOpen ? 276 : 0, y: 40, width: max(0, windowSize.width - (sidebarOpen ? 276 : 0) - (panelOpen ? 340 : 0)), height: 56)
+        let sidebarWidth = sidebarOpen ? InspectorGeometry.sidebarWidth(window: windowSize.width) : 0
+        cardAnchor = anchor ?? CGRect(x: sidebarWidth, y: 40, width: max(0, windowSize.width - sidebarWidth - (panelOpen ? 340 : 0)), height: 56)
         sheet = .card
     }
     func openDetails(_ tab: String, member: String = "", task: String = "", filter: String = "open") { detailTab = tab; detailDocument = ""; detailMember = member.isEmpty ? self.member : member; detailTask = task; detailFilter = task.isEmpty ? filter : "all"; sheet = .details }

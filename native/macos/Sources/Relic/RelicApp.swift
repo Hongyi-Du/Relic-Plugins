@@ -32,9 +32,8 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
         Window("Relic", id: "main") {
             MainView().environmentObject(model)
                 .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if !VisualCapture.enabled && !TitlebarCapture.enabled { await model.start() } }
-                .frame(minWidth: 920, minHeight: 620)
+                .background(WindowPlacementMount { model.prepareInitialWindow(size: $0) }.frame(width: 0, height: 0))
         }
-        .defaultSize(width: 1440, height: 900)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
