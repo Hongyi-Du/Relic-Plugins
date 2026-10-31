@@ -61,7 +61,12 @@ struct RichText: View {
         Group {
         if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // The outer conversation virtualizes messages. Inside one message
+            // the layout needs the actual paragraph height: a second vertical
+            // lazy stack supplies estimates that change the outer row's height
+            // and can strand its scroll target beyond any mounted content.
+            // Paragraph creation still advances two blocks per display turn.
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
                 }
@@ -286,9 +291,10 @@ struct ConversationStream: View {
     @State private var presentedRowCount = 0
     @State private var mountedViewport = false
     @State private var mountedComposer = false
-    @State private var visibleRow: String? = "end"
+    @State private var visibleRow: String?
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
+    private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -315,16 +321,16 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row") } }
+                                }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
-                                }
+                                }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
                             }
-                            if !m.displayLiveItems.isEmpty { LiveTurnView() }
-                            // Include the reference's 24px trailing space in
-                            // the scroll target. Padding outside the target is
-                            // scrolled offscreen by scrollTo(anchor: .bottom).
-                            Color.clear.frame(height: 24).id("end")
+                            if !m.displayLiveItems.isEmpty { LiveTurnView().padding(.bottom, 24).id("live-end") }
+                            else if rows.isEmpty { Color.clear.frame(height: 24) }
+                            // Target the actual newest row, including its 24px
+                            // trailing space. A separate footer can be realized
+                            // while the preceding lazy message is still absent.
                         }.scrollTargetLayout()
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
@@ -362,7 +368,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { following.followsBottom = true; m.run { try await m.send(); visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                    ComposerView { following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -399,17 +405,18 @@ struct ConversationStream: View {
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if !initialLoad && following.followsBottom { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
+                        if (initialLoad || following.followsBottom), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                         initialLoad = false
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = m.streamRows.isEmpty
+                    if let id = latestRowID { visibleRow = id }
                     keyboard.scrollToEdge = { top in
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
-                        else { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
+                        else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil }

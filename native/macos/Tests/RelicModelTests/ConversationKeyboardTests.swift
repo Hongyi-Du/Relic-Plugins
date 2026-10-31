@@ -91,15 +91,19 @@ import RelicCore
         try await settled()
         let scroll = try XCTUnwrap(find(host))
         let keyboard = try XCTUnwrap(ConversationKeyboardMount.controller(for: scroll))
+        func visibleText(_ expected: String, in view: NSView) -> Bool {
+            if let text = view as? QuoteTextView, text.string == expected {
+                let frame = text.convert(text.bounds, to: scroll.contentView)
+                if frame.intersects(scroll.contentView.bounds) { return true }
+            }
+            return view.subviews.contains { visibleText(expected, in: $0) }
+        }
         let initialBottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, initialBottom, accuracy: 2, "Initial presentation must show the newest row completely")
+        XCTAssertTrue(visibleText("Final paragraph.", in: host), "The latest Markdown paragraph must be inside the actual viewport")
         model.messages.append(Node(["id": 51, "type": "message", "from": "human", "to": ["all"], "text": "Arrived after the view mounted", "at": "2026-10-30T12:01:00Z"] as [String: Any]))
         try await settled()
-        func hasNewMessage(_ view: NSView) -> Bool {
-            if let text = view as? QuoteTextView, text.string == "Arrived after the view mounted" { return true }
-            return view.subviews.contains(where: hasNewMessage)
-        }
-        XCTAssertTrue(hasNewMessage(host), "Scoped conversation observation must update actual mounted native text")
+        XCTAssertTrue(visibleText("Arrived after the view mounted", in: host), "Scoped conversation observation must update actual visible native text")
         XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
         try await settled()
@@ -108,6 +112,7 @@ import RelicCore
         try await settled()
         let bottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, bottom, accuracy: 2, "End must reach the real last row including its trailing space")
+        XCTAssertTrue(visibleText("Arrived after the view mounted", in: host), "End must restore the actual latest text, not an empty offset")
     }
     private final class Document: NSView {
         var documentCoordinatesFlipped = true
