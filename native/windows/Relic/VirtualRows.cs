@@ -217,6 +217,20 @@ internal sealed class VirtualRows : Grid
         viewport.ViewChanged += ReadingViewChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
         PerformanceTrace.Count(TraceName + (firstRow ? ".start.request" : ".reading.request"), index);
+        if (firstRow)
+        {
+            // This explicit top intent has no drawn message anchor to retain.
+            // ItemsSource replacement preserves StackLayout's old origin and
+            // ViewportManager's estimated shifts. GetOrCreateElement masks that
+            // origin until its bring is rendered; releasing the suggested anchor
+            // can then leave offset zero with no realized rows. Changing Layout
+            // uninitializes that layout state and resets the native extent/shifts.
+            // Do it once, before realization, rather than retrying a blank range.
+            var spacing = Spacing;
+            repeater.Layout = new StackLayout { Spacing = spacing };
+            hasSuggestedAnchor = false;
+            PerformanceTrace.Count(TraceName + ".start.layout_reset", committed);
+        }
         // Prepending changes virtual extent estimates. Address the retained
         // message itself, after real Arrange and its deferred text preparation,
         // instead of forcing UpdateLayout and subtracting two estimated extents.
