@@ -179,6 +179,7 @@ public sealed partial class MainWindow
         chatScroll.PointerPressed += (_, _) => { keepLatest = false; latestRequest++; };
         chatScroll.ViewChanged += async (_, e) =>
         {
+            if (!e.IsIntermediate && keepLatest) FollowLatestAfterLayout();
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
             if (!e.IsIntermediate && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32)
                 await Run(LoadOlderMessages);
