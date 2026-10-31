@@ -273,11 +273,13 @@ public sealed partial class MainWindow : Window
             var viewChanged = renderedView != org + "/" + member;
             using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
             using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
+            await YieldPresentation();
+            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawSide")) if (changes.Side || viewChanged) DrawSide();
-            await Task.Delay(1, lifetime.Token);
+            await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || changes.Side || viewChanged) DrawChat();
-            await Task.Delay(1, lifetime.Token);
+            await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || viewChanged) DrawDetail();
             renderedView = org + "/" + member;
@@ -306,6 +308,17 @@ public sealed partial class MainWindow : Window
         ScrollToLatest();
     }
     private void DrawMenu() => BuildMenus();
+    private async Task YieldPresentation()
+    {
+        // A 1 ms normal-priority continuation still batches all three panes
+        // into one native layout frame. Let pending presentation work run
+        // before constructing the next pane, while input remains dispatchable.
+        var presented = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => presented.TrySetResult())) return;
+        await presented.Task;
+        await Task.Delay(16, lifetime.Token);
+    }
     private async Task LoadPreferences()
     {
         preferences = await api!.Get("/api/prefs");

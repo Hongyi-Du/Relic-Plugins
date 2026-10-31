@@ -342,6 +342,7 @@ public sealed class NativeLabel : Panel
     }
     private void Detach()
     {
+        using var timing = PerformanceTrace.Measure("NativeLabel.detach");
         DetachSubscriptions(); Release(ref surfaceInterop); surface = null; image.Source = null;
         Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;

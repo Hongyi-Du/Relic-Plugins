@@ -38,6 +38,7 @@ internal sealed class VirtualRows : Grid
     internal void Commit()
     {
         if (committed == revision) return;
+        using var timing = PerformanceTrace.Measure("rows.commit");
         committed = revision;
         repeater.ItemsSource = Children.ToArray();
     }
@@ -136,6 +137,7 @@ internal sealed class VirtualRows : Grid
         }
         public void RecycleElement(ElementFactoryRecycleArgs args)
         {
+            using var timing = PerformanceTrace.Measure("row.recycle");
             var host = (Border)args.Element;
             host.Tag = null; host.Child = null; Realized--;
             if (empty.Count < 32) empty.Push(host);
