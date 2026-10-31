@@ -28,7 +28,7 @@ import AppKit
                     // controls retention, not whether the animation is finite.
                     let timed = animation.beginTime.isFinite && animation.beginTime > 0 && localTime.isFinite
                     let elapsed = timed ? (localTime - animation.beginTime) * Double(animation.speed) + animation.timeOffset : nil
-                    let completedRetained = finite && !animation.isRemovedOnCompletion
+                    let completedRetained = finite
                         && elapsed.map { $0 >= animation.duration * (animation.autoreverses ? 2 : 1) } == true
                     return ["key": key, "current_animation_available": true,
                         "class": String(describing: type(of: animation)),
