@@ -16,9 +16,6 @@ on:
       - '.github/workflows/native-responsiveness.yml'
 permissions:
   contents: read
-concurrency:
-  group: native-responsiveness-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
-  cancel-in-progress: false
 jobs:
   contracts:
     runs-on: ubuntu-latest
@@ -32,6 +29,9 @@ jobs:
   windows:
     runs-on: windows-2025
     timeout-minutes: 25
+    concurrency:
+      group: native-responsiveness-windows-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -55,6 +55,9 @@ jobs:
   macos:
     runs-on: macos-15
     timeout-minutes: 25
+    concurrency:
+      group: native-responsiveness-macos-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

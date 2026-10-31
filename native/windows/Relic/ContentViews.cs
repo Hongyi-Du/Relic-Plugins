@@ -24,7 +24,7 @@ public sealed partial class MainWindow
             var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
             await yield.Task; await Task.Delay(16);
-            quiet = PendingMarkdown == 0 ? quiet + 1 : 0;
+            quiet = PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 ? quiet + 1 : 0;
         }
     }
     private RichTextBlock? selectedRich;
@@ -72,7 +72,7 @@ public sealed partial class MainWindow
     {
         // A nonzero estimate prevents a virtualizing list from realizing its
         // entire data source while deferred text waits for the single parser.
-        var content = new StackPanel { MinHeight = Math.Min(300, 24 + markdown.Length / 80 * 20) };
+        var content = new StackPanel { MinHeight = Math.Min(2000, 24 + markdown.Length / 80 * 20) };
         CancellationTokenSource? pending = null; var revision = 0;
         content.Unloaded += (_, _) => { revision++; pending?.Cancel(); pending?.Dispose(); pending = null; };
         content.Loaded += async (_, _) =>
@@ -96,7 +96,7 @@ public sealed partial class MainWindow
                     if (token.IsCancellationRequested || revision != current || !content.IsLoaded) return;
                     var top = rendered.Count == 0 ? element.Before : Math.Max(rendered[^1].After, element.Before);
                     element.Element.Margin = new Thickness(0, top, 0, 0);
-                    rendered.Add(element); content.Children.Add(element.Element); content.MinHeight = 0;
+                    rendered.Add(element); content.Children.Add(element.Element);
                     if (slice.ElapsedMilliseconds >= 4)
                     {
                         var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -300,7 +300,7 @@ public sealed partial class MainWindow
             var twoColumns = key is "trace" or "docs";
             if (twoColumns) content.ColumnDefinitions.Add(new() { Width = new GridLength(250) });
             content.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            var right = new StackPanel { Spacing = 0, Padding = new Thickness(20, 16, 20, 16) }; var rightScroll = Scroll(right); if (twoColumns) Grid.SetColumn(rightScroll, 1); content.Children.Add(rightScroll);
+            var right = new VirtualRows { TraceName = "details", Spacing = 0, Padding = new Thickness(20, 16, 20, 16) }; var rightScroll = Scroll(right); if (twoColumns) Grid.SetColumn(rightScroll, 1); content.Children.Add(rightScroll);
             ListView LeftList(string tag)
             {
                 var list = new ListView { Tag = tag, Padding = new Thickness(8), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 0), Background = Paint("F8F7F5", "191918"), SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -324,16 +324,19 @@ public sealed partial class MainWindow
                 case "tasks": DrawTasks(right, taskId); break;
                 case "protocols":
                     if (snap.Rows("protocols").Count + snap.Rows("inherited_protocols").Count + snap.Rows("replaced_protocols").Count == 0) right.Children.Add(DetailsEmpty(T("details.no_protocols")));
-                    foreach (var p in snap.Rows("protocols").Reverse()) right.Children.Add(Protocol(p!, false));
+                    foreach (var p in snap.Rows("protocols").Reverse()) right.Children.Add(() => Protocol(p!, false));
                     void Section(string label) { var heading = OverviewText(T(label), 13, weight: 650); heading.Foreground = Paint("5A5853", "B8B5AE"); heading.Margin = new Thickness(0, 18, 0, 8); right.Children.Add(heading); }
                     if (snap.Rows("inherited_protocols").Count > 0) Section("details.inherited_title");
-                    foreach (var p in snap.Rows("inherited_protocols")) right.Children.Add(Protocol(p!, true));
+                    foreach (var p in snap.Rows("inherited_protocols")) right.Children.Add(() => Protocol(p!, true));
                     if (snap.Rows("replaced_protocols").Count > 0) Section("details.replaced_title");
                     foreach (var p in snap.Rows("replaced_protocols"))
                     {
+                        right.Children.Add(() =>
+                        {
                         var name = OverviewText(p.Text("id") + " " + p.Text("title"), 13, weight: 700); name.TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough;
                         var inner = new StackPanel { Spacing = 8, Padding = new Thickness(14, 10, 14, 12) }; inner.Children.Add(name); inner.Children.Add(OverviewText(T(p.Text("how") == "retired" ? "org.protocol_retired" : "org.protocol_overridden", ("from", p.Text("from")), ("at", p.Text("at")), ("by", p.Text("by"))), 13, true));
-                        var card = DetailsCard(inner); card.Opacity = .6; right.Children.Add(card);
+                        var card = DetailsCard(inner); card.Opacity = .6; return card;
+                        });
                     }
                     break;
                 case "docs":
@@ -371,9 +374,9 @@ public sealed partial class MainWindow
         // Apply zero template padding before realization so it is not shifted or clipped.
         try { await Draw(tab); await Dialog(dialog, contentOwnsPadding: true); } finally { root.SizeChanged -= Resize; }
     }
-    private void DrawTasks(StackPanel box, string? focus)
+    private void DrawTasks(VirtualRows box, string? focus)
     {
-        var selected = focus == "done" ? "done" : focus == null ? "open" : "all"; var list = new StackPanel();
+        var selected = focus == "done" ? "done" : focus == null ? "open" : "all"; var list = new VirtualRows { TraceName = "task-cards" };
         var choices = new[] { ("open", "task.working"), ("blocked", "task.blocked"), ("done", "details.filter_done"), ("all", "common.all") }.Select(pair => (pair.Item1, T(pair.Item2) + " " + snap.Rows("tasks").Count(task => pair.Item1 == "all" || (pair.Item1 == "open" ? task.Text("status") is not ("done" or "dropped") : task.Text("status") == pair.Item1))));
         void Draw()
         {
@@ -381,6 +384,8 @@ public sealed partial class MainWindow
             if (tasks.Length == 0) list.Children.Add(DetailsEmpty(T("details.no_tasks")));
             foreach (var task in tasks)
             {
+                list.Children.Add(() =>
+                {
                 var inner = new StackPanel { Spacing = 8, Padding = new Thickness(14, 10, 14, 12) }; inner.Children.Add(DetailsLabeled(T("details.label_title"), task.Text("title")));
                 if (task.Text("created_by").Length > 0) inner.Children.Add(DetailsLabeled(T("details.label_created_by"), Display(task.Text("created_by"))));
                 if (task.Text("status") == "done" && task.Text("report").Length > 0) inner.Children.Add(DetailsReport(task!));
@@ -399,8 +404,21 @@ public sealed partial class MainWindow
                 if (task.Text("status") == "done" && task.Text("report").Length > 0) { var reportChip = OverviewChip(T("details.has_report")); reportChip.Foreground = Accent; reportChip.Background = OverviewAlpha(Accent, .12); if (reportChip.Content is TextBlock text) text.Foreground = Accent; chips.Children.Add(reportChip); }
                 var state = task.Text("status"); var stateText = state is "open" or "working" or "blocked" or "done" or "dropped" ? T("task." + state) : state; chips.Children.Add(OverviewChip(stateText, state switch { "done" => "ok", "blocked" => "bad", "working" => "warn", _ => "" })); Grid.SetColumn(chips, 2); header.Children.Add(chips);
                 var headerFrame = new Border { Child = header, Padding = new Thickness(12, 10, 12, 10), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, task.Text("id") == focus ? 1 : 0) };
-                var disclosure = DetailsDisclosure(headerFrame, inner, task.Text("id") == focus); disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => headerFrame.BorderThickness = new Thickness(0, 0, 0, disclosure.IsExpanded ? 1 : 0)); list.Children.Add(DetailsCard(disclosure));
-                if (task.Text("id") == focus) disclosure.Loaded += (_, _) => disclosure.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = .5, AnimationDesired = false });
+                var disclosure = DetailsDisclosure(headerFrame, inner, task.Text("id") == focus); disclosure.RegisterPropertyChangedCallback(Expander.IsExpandedProperty, (_, _) => headerFrame.BorderThickness = new Thickness(0, 0, 0, disclosure.IsExpanded ? 1 : 0));
+                return DetailsCard(disclosure);
+                });
+            }
+            var focused = Array.FindIndex(tasks, task => task.Text("id") == focus);
+            if (focused >= 0)
+            {
+                void Reveal() { list.Commit(); list.BringIndexIntoView(focused); }
+                if (list.IsLoaded) DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Reveal);
+                else
+                {
+                    RoutedEventHandler? loaded = null;
+                    loaded = (_, _) => { list.Loaded -= loaded; DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Reveal); };
+                    list.Loaded += loaded;
+                }
             }
         }
         var filters = DetailsTabs(choices, selected, value => { selected = value; Draw(); return Task.CompletedTask; }); filters.Margin = new Thickness(0, 0, 0, 12); box.Children.Add(filters); box.Children.Add(list); Draw();
@@ -538,11 +556,14 @@ public sealed partial class MainWindow
         void Draw()
         {
             list.Children.Clear(); if (data.Flag("missing")) { list.Children.Add(DetailsEmpty(T("trace.no_session"))); return; }
-            var selected = steps.Where(step => (selectedRole == "all" || (selectedRole == "talk" ? step.Text("role") is "user" or "assistant" : step.Text("role") is "tool_call" or "tool_result")) && step.Text("text").ToLowerInvariant().Contains(query.Text.ToLowerInvariant(), StringComparison.Ordinal)).ToArray();
+            var searchText = query.Text.ToLowerInvariant();
+            var selected = steps.Where(step => (selectedRole == "all" || (selectedRole == "talk" ? step.Text("role") is "user" or "assistant" : step.Text("role") is "tool_call" or "tool_result")) && (searchText.Length == 0 || step.Text("text").ToLowerInvariant().Contains(searchText, StringComparison.Ordinal))).ToArray();
             if (selected.Length == 0) list.Children.Add(DetailsEmpty(T(data == null ? "common.loading" : "trace.no_steps")));
-            var actions = new StackPanel { Padding = new Thickness(0, 4, 0, 4) };
+            var actions = new VirtualRows { TraceName = "trace-steps", Padding = new Thickness(0, 4, 0, 4) };
             foreach (var step in selected)
             {
+                actions.Children.Add(() =>
+                {
                 var label = step.Text("role") switch { "user" => T("trace.user"), "assistant" => T("common.reply"), "tool_call" => TraceToolLabel(step.Text("tool")), "tool_result" => T("common.result"), "thinking" => T("trace.thinking"), "context" => T("trace.injected"), _ => step.Text("role") };
                 var header = new Grid { ColumnSpacing = 8, Padding = new Thickness(12, 3, 10, 3) };
                 header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -564,7 +585,8 @@ public sealed partial class MainWindow
                     try { await Run(async () => { var exact = await api!.Get(Client.Org(targetOrg, "/step?member=" + Client.Segment(who) + "&i=" + step.Text("i"))); source.Text = exact.Text("text"); fullLoaded = true; }); }
                     finally { loading = false; }
                 };
-                actions.Children.Add(expand);
+                return expand;
+                });
             }
             if (selected.Length > 0) list.Children.Add(new Border { Child = actions, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Background = Paint("FFFFFF", "1F1F1E") });
             if (data.Text("total") is not ("" or "0")) { var total = OverviewText(T("trace.total", ("n", data.Text("total"))) + (data.Text("path").Length > 0 ? " · " + data.Text("path") : ""), 12, true); total.Margin = new Thickness(0, 8, 0, 0); list.Children.Add(total); }

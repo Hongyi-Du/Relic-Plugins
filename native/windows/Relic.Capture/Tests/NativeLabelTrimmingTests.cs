@@ -74,7 +74,7 @@ public sealed class NativeLabelTrimmingTests
             // and glyph submission, not ink bounds or screenshot presentation.
             using var target = new RecordingGlyphSink();
             using var renderer = new NativeLabelRenderer(target.Pointer, new IntPtr(1), 1,
-                new Matrix { M11 = 1, M22 = 1 }, sign);
+                new Matrix { M11 = 1, M22 = 1 }, sign, captureDiagnostics: true);
             var drawHr = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
             var diagnostic = JsonSerializer.Serialize(new
             {
@@ -124,6 +124,52 @@ public sealed class NativeLabelTrimmingTests
         }
     }
 
+    [Theory]
+    [InlineData(80f)]
+    [InlineData(2000f)]
+    public void NormalModeForwardsTheSameTerminalGlyphsWithoutDiagnosticCollections(float width)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        const string text = "A long preview still paints its text and omission glyph when diagnostics are disabled.";
+        IntPtr factory = IntPtr.Zero, format = IntPtr.Zero, layout = IntPtr.Zero, sign = IntPtr.Zero;
+        try
+        {
+            var factoryId = new Guid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48");
+            Check(DWriteCreateFactory(0, ref factoryId, out factory));
+            Check(Method<CreateFormat>(factory, 15)(factory, "Segoe UI", IntPtr.Zero, 400, 0, 5, 12, "en-US", out format));
+            Check(Method<SetUInt>(format, 5)(format, 1));
+            Check(Method<CreateLayout>(factory, 18)(factory, text, (uint)text.Length, format, width, 30, out layout));
+            sign = ApplyCharacterEllipsis(factory, layout);
+            using var diagnosticTarget = new RecordingGlyphSink();
+            using var normalTarget = new RecordingGlyphSink();
+            using var diagnostic = new NativeLabelRenderer(diagnosticTarget.Pointer, new IntPtr(1), 1,
+                new Matrix { M11 = 1, M22 = 1 }, sign, captureDiagnostics: true);
+            using var normal = new NativeLabelRenderer(normalTarget.Pointer, new IntPtr(1), 1,
+                new Matrix { M11 = 1, M22 = 1 }, sign, captureDiagnostics: false);
+            Check(Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, diagnostic.Pointer, 0, 0));
+            Check(Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, normal.Pointer, 0, 0));
+            Assert.Null(diagnostic.CallbackFailure);
+            Assert.Null(normal.CallbackFailure);
+            Assert.NotEmpty(diagnosticTarget.Submissions);
+            Assert.Equal(diagnosticTarget.Submissions, normalTarget.Submissions);
+            Assert.True(normalTarget.GlyphCalls > 0);
+            Assert.Empty(normal.Runs);
+            Assert.Empty(normal.InlineDraws);
+            Assert.Empty(normal.Limitations);
+            if (width == 80)
+            {
+                var omission = Assert.Single(diagnostic.InlineDraws);
+                Assert.True(omission!["is_configured_trimming_sign"]!.GetValue<bool>());
+                Assert.True(omission["glyph_run_count"]!.GetValue<int>() > 0);
+            }
+            else Assert.Empty(diagnostic.InlineDraws);
+        }
+        finally { Release(ref sign); Release(ref layout); Release(ref format); Release(ref factory); }
+    }
+
+    private sealed record GlyphSubmission(float X, float Y, uint Mode, IntPtr Brush,
+        float EmSize, int Sideways, uint BidiLevel, string? Indices, string? Advances, string? Offsets);
+
     private sealed class RecordingGlyphSink : IDisposable
     {
         private readonly IntPtr vtable;
@@ -134,11 +180,27 @@ public sealed class NativeLabelTrimmingTests
         private readonly GetUInt unitMode;
         internal IntPtr Pointer { get; }
         internal int GlyphCalls { get; private set; }
+        internal List<GlyphSubmission> Submissions { get; } = [];
         internal RecordingGlyphSink()
         {
             // Slots/ABI match the production context calls. The zero fixture
             // bounds are intentionally not treated as visible glyph geometry.
-            glyph = (_, _, run, _, _) => { if (Marshal.PtrToStructure<GlyphRun>(run).GlyphCount > 0) GlyphCalls++; };
+            glyph = (_, point, pointer, brush, mode) =>
+            {
+                var run = Marshal.PtrToStructure<GlyphRun>(pointer);
+                if (run.GlyphCount > 0) GlyphCalls++;
+                // Copy the actual terminal sink arguments while DirectWrite's
+                // callback pointers are valid; compare both production modes.
+                string? Bytes(IntPtr source, int stride)
+                {
+                    if (source == IntPtr.Zero) return null;
+                    var bytes = new byte[checked((int)run.GlyphCount * stride)];
+                    Marshal.Copy(source, bytes, 0, bytes.Length); return Convert.ToBase64String(bytes);
+                }
+                Submissions.Add(new(point.X, point.Y, mode, brush, run.FontEmSize, run.IsSideways, run.BidiLevel,
+                    Bytes(run.GlyphIndices, sizeof(ushort)), Bytes(run.GlyphAdvances, sizeof(float)),
+                    Bytes(run.GlyphOffsets, Marshal.SizeOf<GlyphOffset>())));
+            };
             bounds = (IntPtr self, PointF point, IntPtr run, uint mode, out RectF value) => { value = default; return 0; };
             transform = (IntPtr self, out Matrix value) => { value = new Matrix { M11 = 1, M22 = 1 }; };
             dpi = (IntPtr self, out float x, out float y) => { x = y = 96; };

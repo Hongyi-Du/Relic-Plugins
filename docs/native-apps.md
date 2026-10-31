@@ -37,8 +37,25 @@ UI blockage: native probe 926.5201 ms maximum, WM_NULL timeout, 311.64 MiB peak
 RSS and 35 threads in the short failure sample. This run deliberately retains
 pre-fix eager rendering and product diagnostics. The watchdog stopped it after
 the first failure plus two seconds; it is not a full-duration resource peak.
-The 1e1fc14 report-only visual run 41159591873 completed successfully; native
-responsiveness is a separate required check, not hidden by that report policy.
+The 1e1fc14 visual run 41159591873 had an overall success conclusion but both
+native capture jobs retained failure checks. The report-only workflow now uses
+step-level continuation and always writes original step outcomes to its artifact
+and job summary. Appearance errors remain errors in those reports. Native builds,
+Python validation and responsiveness remain separate required checks.
+
+Mac baseline 41162500465 at 6a92a00 failed during startup: retained maximum
+1986.742 ms, 133.281 MiB RSS, 8 threads. Like the Windows baseline this is an
+early-failure sample, not a three-minute steady-state peak. Windows candidate
+0572f10 still fails first-load latency (705.177 ms); it is not a deliverable.
+The next diagnostic candidate records CI-only per-operation timings in
+`timings.jsonl`, including realized row counts, text layout and actual drawing.
+No startup interval, tolerance, or failing action is excluded from the gate.
+
+Changes for the clients (large-list dialog coverage): the shared action deck
+now returns to the largest organization before dialogs, and adds two ordinary
+`kind:"dialog"` names, `tasks` and `protocols`, after the four existing names.
+Open and close the actual existing task/protocol dialog and await its content;
+do not substitute a sample view. This exercises the 180-task organization.
 
 # Previous delivery policy — Amendments 5 and 6
 
