@@ -19,6 +19,10 @@ PERSON_RUNTIME = "Microsoft.UI.Xaml.Controls.PersonPicture"
 PERSON_CONTRACT = "native-personpicture-control-template-children-only"
 PERSON_SOURCE = "actual exact PersonPicture runtime, Control.Template and current visual children"
 PERSON_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
+SELECTOR_ITEM_RUNTIME = "Microsoft.UI.Xaml.Controls.SelectorBarItem"
+SELECTOR_ITEM_CONTRACT = "native-selectorbaritem-template-children-only"
+SELECTOR_ITEM_SOURCE = "actual exact SelectorBarItem runtime, base chain, Control.Template and current visual children"
+SELECTOR_ITEM_SDK_SOURCE = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/SelectorBar/SelectorBarItem.cpp"
 TOKEN_RUNTIMES = {"Relic.OverviewChipView", "Relic.OverviewBadgeView"}
 TOKEN_CONTRACT = "relic-overview-token-template-content"
 TOKEN_SOURCE = "actual sealed OverviewTokenView leaf runtime, template and ContentPresenter/Content object identities"
@@ -178,6 +182,7 @@ def native_outline(node, by_id):
     token_runtime = isinstance(runtime, str) and runtime in TOKEN_RUNTIMES
     contract = (VECTOR_CONTRACT if runtime == VECTOR_RUNTIME else LABEL_CONTRACT if runtime == LABEL_RUNTIME
                 else PERSON_CONTRACT if runtime == PERSON_RUNTIME else TOKEN_CONTRACT if token_runtime
+                else SELECTOR_ITEM_CONTRACT if runtime == SELECTOR_ITEM_RUNTIME
                 else DOT_CONTRACT if runtime == DOT_RUNTIME else SCROLL_PRESENTER_CONTRACT if runtime == SCROLL_PRESENTER_RUNTIME
                 else TOGGLE_CONTRACT if runtime == TOGGLE_RUNTIME
                 else SIDEBAR_CONTRACT if runtime == SIDEBAR_RUNTIME
@@ -342,6 +347,31 @@ def native_outline(node, by_id):
         else:
             evidence["scope"] = ("Exact SDK PersonPicture Control container only; current template descendants "
                                  "and their paint/focus/Composition retain independent obligations")
+    if runtime == SELECTOR_ITEM_RUNTIME:
+        # Pinned SelectorBarItem.cpp only changes template icon/text visibility;
+        # ItemContainer.cpp owns template child/VisualState/input updates. Its
+        # Control base has no pre/post-child renderer in the pinned HWWalk.
+        # This exact unsealed class does not grant that proof to its subclasses.
+        item = raw.get("selector_item_template")
+        render_type = node.get("render_type_evidence")
+        actual_children = [child for child in by_id.values()
+                           if child.get("parent") == node["id"] and not child.get("text_run_source")]
+        valid_item = (isinstance(item, dict) and item.get("source") == SELECTOR_ITEM_SOURCE
+                      and item.get("status") == "measured" and item.get("owner_id") == node["id"]
+                      and item.get("base_type") == "Microsoft.UI.Xaml.Controls.ItemContainer"
+                      and item.get("base_base_type") == "Microsoft.UI.Xaml.Controls.Control"
+                      and item.get("is_sealed") is False and item.get("audited_sdk_source") == SELECTOR_ITEM_SDK_SOURCE
+                      and item.get("template_present") is True
+                      and item.get("template_type") == "Microsoft.UI.Xaml.Controls.ControlTemplate"
+                      and type(item.get("visual_child_count")) is int
+                      and item["visual_child_count"] == len(actual_children) > 0
+                      and isinstance(render_type, dict) and render_type.get("source") == "Actual runtime XAML base types"
+                      and render_type.get("is_control") is True and render_type.get("control_template_present") is True)
+        if not valid_item:
+            gap("Exact SelectorBarItem lacks its actual base chain, present ControlTemplate and nonempty current-child receipt")
+        else:
+            evidence["scope"] = ("Exact SDK SelectorBarItem parent only; template descendants and their paint, "
+                                 "current focus and hand-in Composition retain independent obligations")
     if runtime == LABEL_RUNTIME:
         label = raw.get("native_label_content")
         valid_label = (isinstance(label, dict) and label.get("source") == LABEL_SOURCE
