@@ -1204,7 +1204,7 @@ def record_caret_coverage(elements, evidence):
     elements.setdefault("extraction_errors", []).append({"type": "ua_caret_measurement_unavailable", "node": owner, "reason": reason})
 
 
-def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None, image_resources=None, cc_capture=None):
+def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=None, datalist=None, image_resources=None, cc_capture=None, capture_pointer=None):
     output = Path(manifest["output"])
     message = MessageSceneCapture(page, cdp, case["scene"], manifest["fixture"], manifest["lang"],
         output / (case["id"] + ".scene-action.json")) if case["scene"] in MESSAGE_SCENES else None
@@ -1282,6 +1282,13 @@ def capture_reference_evidence(page, cdp, browser, manifest, case, member_card=N
             # Embed the full raw responses as well as saving the standalone
             # sidecar, so report copies of .elements.json retain every byte.
             elements.setdefault("capture_evidence", {})["cc_readiness"] = cc_capture.evidence
+        # Post-capture diagnostic only: every original action/source checkpoint
+        # above is complete. Its hover events never enter that measurement span,
+        # and it does not fill canonical scrollbar boxes or clear gate errors.
+        from scrollbar_hover import capture_scrollbar_hover
+        elements.setdefault("capture_evidence", {})["scrollbar_hover_diagnostic"] = capture_scrollbar_hover(
+            page, cdp, elements, output / case["file"], output / (case["id"] + ".scrollbar-hover.json"),
+            known_pointer=capture_pointer if not actions and member_card is None and datalist is None else None)
         (output / (case["id"] + ".elements.json")).write_text(json.dumps(elements, ensure_ascii=False), encoding="utf-8")
     except Exception as error:
         if cc_capture is not None:
@@ -1376,6 +1383,9 @@ def reference_browser(manifest):
                 (Path(manifest["output"]) / (case["id"] + ".scene-action.json")).write_text(json.dumps(action, ensure_ascii=False), encoding="utf-8")
             cdp = page.context.new_cdp_session(page)
             page.mouse.move(case["width"] + 20, case["height"] + 20)
+            capture_pointer = ({"source": "Actual completed Playwright Mouse.move before the group capture",
+                "x": case["width"] + 20, "y": case["height"] + 20, "returned_normally": True,
+                "scope": "group-without-subsequent-pointer-actions"} if case["scene"] == "group" else None)
             member_card = open_member_card_scene(page, case["scene"]) if case["scene"] in MEMBER_CARD_SCENES else None
             if member_card is not None:
                 (Path(manifest["output"]) / (case["id"] + ".scene-action.json")).write_text(json.dumps(member_card, ensure_ascii=False), encoding="utf-8")
@@ -1386,7 +1396,7 @@ def reference_browser(manifest):
             if animation is not None:
                 (Path(manifest["output"]) / (case["id"] + ".animations.json")).write_text(json.dumps(animation, ensure_ascii=False), encoding="utf-8")
             progress("capturing actual actions, PNG and source evidence")
-            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist, image_resources, cc_capture)
+            capture_reference_evidence(page, cdp, browser, manifest, case, member_card, datalist, image_resources, cc_capture, capture_pointer)
             if errors:
                 raise RuntimeError(f"{case['id']}: {errors}")
         progress("closing browser context and runtime")

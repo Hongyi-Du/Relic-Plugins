@@ -1,5 +1,20 @@
 # Native Relic App contract
 
+Changes for the clients (post-capture scrollbar evidence): reference capture now
+records a bounded diagnostic of actual pointer hover and gutter PNG responses
+after the original scene checkpoints. It retains the exact browser revision,
+DOM owner, input calls, geometry/scroll/focus observations and restoration receipt.
+The original PNG and canonical elements are unchanged; observed hit bounds stay
+diagnostic until real CI evidence is reviewed. Unsupported and failed observations
+remain explicit and do not remove any extraction error or parity requirement.
+
+CI status at b611b4f: Windows, shared extraction contracts and package validation
+pass. The macOS build/test job fails in MessageReadingOrderTests and
+NativeCaretReadinessTests; subsequent native-macos changes address those tests
+and require another actual CI run. The obsolete c8d6311 smoke capture is retained
+under S:\Codex\Outputs\Relic-native-visual\parity-c8d6311\windows-root.
+No scene is accepted by the strict element gate.
+
 Changes for the clients (final Windows frame publication): the actual text-range
 observer now ends and publishes its final sidecar atomically before the native
 probes receipt reports success. Previously that file was only written later in
