@@ -2672,3 +2672,20 @@ Reference file-code extraction currently emits a line's text before its `::befor
 line number (e.g. 4e18fc3 en-US/light/1440x900 file-code). Please audit that against the
 required reading order: painted number is to the left, then source text. Keep both
 actual elements and bounds, with no exclusions; do not simply waive the order error.
+## 2026-10-31: Amendment 5 shared validation cleanup failure
+
+The native apps and whole-window capture pass at `f8f8704` (macOS: 248 tests,
+4/4 real window captures). Shared Python validation is not yet consistently green:
+[Windows Python 3.11 job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41155754934/job/124402065105)
+fails `test_runner.Runner.test_claude_session_created_then_resumed` in
+`plugins/relic/tests/test_runner.py:103`, `tearDown -> self.tmp.cleanup()`.
+The remaining `relic.sqlite3-wal` is held open, producing `WinError 32` then
+`WinError 5`; the run ends `Ran 497 tests ... FAILED (errors=1, skipped=38)`.
+Please fix the shared runner/test lifetime so outstanding background database
+work has released its handles before temporary state cleanup. Investigate the
+gap between `runner.is_running()` becoming false and the runner actually
+finishing; do not suppress the test or treat a retry as the fix. The test already
+uses `TemporaryDirectory(ignore_cleanup_errors=True)`, which did not prevent
+this failure on Python 3.11. No client API change is needed. macOS cannot edit
+the shared engine/tests under the agreed ownership split.
+
