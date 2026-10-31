@@ -25,7 +25,7 @@ public sealed partial class MainWindow : Window
     private string org = "", member = "", pane = "overview";
     private readonly HashSet<string> folded = new();
     private readonly Dictionary<string, string> drafts = new();
-    private readonly Grid root = new();
+    private readonly NativeWindowLayout root = new();
     private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();
     private readonly NativeRegionGrid composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
     private readonly VirtualRows side = new() { TraceName = "sidebar", Spacing = 2, Padding = new Thickness(8) };

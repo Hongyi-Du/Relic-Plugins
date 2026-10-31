@@ -24,6 +24,7 @@ public sealed partial class MainWindow
     private VirtualRows? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private readonly Dictionary<(bool Selected, bool Alert), ControlTemplate> toolbarButtonTemplates = [];
+    private ControlTemplate? sidebarListTemplate;
     private ControlTemplate? sidebarItemTemplate;
     private ItemsPanelTemplate? sidebarItemsPanel;
     private bool sidebarKeyboardBound;
@@ -193,11 +194,18 @@ public sealed partial class MainWindow
         // controls, selection, bindings, and ThemeResources remain per row.
         var template = sidebarItemTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
         var itemsPanel = sidebarItemsPanel ??= (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>");
+        // The outer VirtualRows viewport owns scrolling. The default ListView
+        // template otherwise creates a ScrollViewer for every single tree row,
+        // even with both scroll bars disabled. Keep the real selection/invoke
+        // control and item peers, but only instantiate its item presenter.
+        var listTemplate = sidebarListTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ListView'>" +
+            "<Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' UseLayoutRounding='False'>" +
+            "<ItemsPresenter x:Name='ItemsPresenter' Padding='{TemplateBinding Padding}' UseLayoutRounding='False'/></Border></ControlTemplate>");
         ListView Rows()
         {
             var list = new ListView { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0), BorderThickness = new Thickness(0), UseLayoutRounding = false,
-                ItemsPanel = itemsPanel };
-            ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+                Template = listTemplate, ItemsPanel = itemsPanel };
             list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); }; return list;
         }
         void Add(ListView list, UIElement content, Func<Task> action, bool selected, int indent = 0, bool chat = false,

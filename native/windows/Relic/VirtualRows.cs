@@ -81,8 +81,8 @@ internal sealed class VirtualRows : Grid
     private sealed class RowFactory : IElementFactory
     {
         private readonly Stack<Border> empty = new();
-        private readonly Queue<(Border Host, Row Row)> pending = new();
-        private bool pumping;
+        private static readonly Queue<(RowFactory Owner, Border Host, Row Row)> pending = new();
+        private static bool pumping;
         internal static int PendingBuilds;
         internal int Realized { get; private set; }
         public UIElement GetElement(ElementFactoryGetArgs args)
@@ -90,22 +90,25 @@ internal sealed class VirtualRows : Grid
             var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
             var row = (Row)args.Data;
             host.Tag = row; host.MinHeight = row.Estimate; Realized++;
-            pending.Enqueue((host, row)); Interlocked.Increment(ref PendingBuilds);
+            pending.Enqueue((this, host, row)); Interlocked.Increment(ref PendingBuilds);
             if (!pumping) { pumping = true; Pump(); }
             return host;
         }
-        private async void Pump()
+        private static async void Pump()
         {
             // A cold row can create many native controls. Build one per UI
             // turn, outside MeasureOverride, instead of concentrating the
             // entire viewport in one uninterruptible layout pass.
             while (pending.TryDequeue(out var work))
             {
-                await Task.Delay(1);
                 try
                 {
                     if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
-                    BuildNow(work.Host);
+                    // One shared budget across sidebar, conversation, inspector
+                    // and dialogs leaves a frame for input and native layout.
+                    await Task.Delay(16);
+                    if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
+                    work.Owner.BuildNow(work.Host);
                 }
                 finally { Interlocked.Decrement(ref PendingBuilds); }
             }
