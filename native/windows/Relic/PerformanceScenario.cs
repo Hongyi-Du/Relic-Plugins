@@ -285,6 +285,7 @@ public sealed partial class MainWindow
                     var visible = realized && bounds.Bottom > 0 && bounds.Top < chatScroll.ViewportHeight;
                     observation = new JsonObject { ["vertical_offset"] = chatScroll.VerticalOffset,
                         ["scrollable_height"] = chatScroll.ScrollableHeight, ["viewport_height"] = chatScroll.ViewportHeight,
+                        ["native_positioning"] = System.Text.Json.JsonSerializer.SerializeToNode(stream.ReadScrollState(chatScroll)),
                         ["gap_dip"] = gap, ["realized_row_index"] = index, ["row_realized"] = realized,
                         ["row_top"] = realized ? bounds.Top : null, ["row_bottom"] = realized ? bounds.Bottom : null,
                         ["row_visible"] = visible, ["elapsed_ms"] = waiting.Elapsed.TotalMilliseconds };

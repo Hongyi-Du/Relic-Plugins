@@ -27,8 +27,19 @@ internal sealed class VirtualRows : Grid
     private int revision, committed = -1;
     private bool commitQueued;
     private sealed record BringRequest(int Revision, int Index, FrameworkElement Element,
-        double Alignment, double Offset, Func<bool>? IsCurrent, long AfterArrange, Func<bool>? IsReady = null);
+        double Alignment, double Offset, Func<bool>? IsCurrent, long AfterArrange, Func<bool>? IsReady = null, bool Created = false);
     private BringRequest? pendingBring;
+    private sealed class NativeBring(BringRequest request, ScrollViewer viewport)
+    {
+        internal readonly BringRequest Request = request;
+        internal readonly ScrollViewer Viewport = viewport;
+        internal bool Routed, Rendered;
+        internal long AfterRenderArrange;
+    }
+    private NativeBring? nativeBring;
+    private readonly Windows.Foundation.TypedEventHandler<UIElement, BringIntoViewRequestedEventArgs> bringRouted;
+    private bool bringRendering;
+    private bool hasSuggestedAnchor;
     private long arrangeRevision;
     private bool bringQueued;
     private readonly record struct EndGeometry(int Index, FrameworkElement? Element, double Offset, double Extent,
@@ -42,6 +53,8 @@ internal sealed class VirtualRows : Grid
         internal readonly Func<bool> IsCurrent = isCurrent;
         internal readonly Func<bool> IsContentReady = isContentReady;
         internal PreparedEnd? LastCorrected;
+        internal PreparedEnd? SubmittedGeometry;
+        internal long SubmittedArrange;
         internal double ViewportWidth = viewport.ViewportWidth, ViewportHeight = viewport.ViewportHeight;
         internal UIElement? LastAnchor;
         internal bool Settled, IsScrolling, RecoveryRequested;
@@ -67,6 +80,7 @@ internal sealed class VirtualRows : Grid
     internal VirtualRows()
     {
         dispatcher = DispatcherQueue;
+        bringRouted = OnNativeBringRequested;
         Children = new(() =>
         {
             revision++;
@@ -82,6 +96,7 @@ internal sealed class VirtualRows : Grid
     {
         if (committed == revision) return;
         using var timing = PerformanceTrace.Measure("rows.commit");
+        CancelNativeBring();
         var reading = restoringReading is { } candidate && candidate.IsCurrent()
             && ReadingIndex(candidate) >= 0 ? candidate : null;
         committed = revision;
@@ -98,6 +113,7 @@ internal sealed class VirtualRows : Grid
         }
         ItemsReplacing?.Invoke();
         repeater.ItemsSource = Children.ToArray();
+        hasSuggestedAnchor = false;
         if (reading != null)
         {
             reading.Viewport.AnchorRequested += ReadingAnchorRequested;
@@ -123,6 +139,7 @@ internal sealed class VirtualRows : Grid
     internal void StopFollowingLast()
     {
         pendingBring = null;
+        CancelNativeBring();
         StopRestoringReading(false);
         if (followingLast is not { } follow) return;
         followingLast = null;
@@ -237,7 +254,7 @@ internal sealed class VirtualRows : Grid
             readingCheckQueued = false;
             if (restoringReading is not { } reading) return;
             if (!IsCurrent(reading)) { StopRestoringReading(false); return; }
-            if (pendingBring != null || !reading.IsContentReady()) return;
+            if (pendingBring != null || !NativeBringArranged() || !reading.IsContentReady()) return;
             if (reading.FirstRow)
             {
                 if (repeater.TryGetElement(0) is not Border { IsLoaded: true, Child: not null, ActualHeight: > 0 } first) return;
@@ -292,6 +309,9 @@ internal sealed class VirtualRows : Grid
         return new(index, last, viewport.VerticalOffset, viewport.ScrollableHeight, viewport.ViewportWidth,
             viewport.ViewportHeight, bounds?.Top ?? 0, bounds?.Width ?? 0, bounds?.Height ?? 0);
     }
+    private static PreparedEnd? PreparedGeometry(EndGeometry geometry) => geometry.Element == null || geometry.RowHeight <= 0
+        ? null : new(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight, geometry.RowWidth, geometry.RowHeight,
+            Math.Round((geometry.RowTop + geometry.RowHeight + geometry.Offset) * 64) / 64);
     private void QueueFollowCheck()
     {
         if (followingLast == null || followQueued) return;
@@ -301,7 +321,7 @@ internal sealed class VirtualRows : Grid
             followQueued = false;
             if (followingLast is not { } follow) return;
             if (!IsCurrent(follow)) { StopFollowingLast(); return; }
-            if (pendingBring != null || !follow.IsContentReady()) return;
+            if (pendingBring != null || !NativeBringArranged() || !follow.IsContentReady()) return;
             var geometry = ReadEndGeometry(follow);
             if (follow.ViewportWidth != geometry.ViewportWidth || follow.ViewportHeight != geometry.ViewportHeight)
             {
@@ -318,7 +338,14 @@ internal sealed class VirtualRows : Grid
                 follow.Settled = true;
                 return;
             }
-            if (follow.IsScrolling) return;
+            if (follow.IsScrolling)
+            {
+                // A completed preparation can change content geometry without
+                // changing the scroll offset, hence without ViewChanged.
+                var prepared = PreparedGeometry(geometry);
+                if (arrangeRevision <= follow.SubmittedArrange || prepared == null || prepared == follow.SubmittedGeometry) return;
+                follow.IsScrolling = false;
+            }
             // Only completed content/viewport geometry permits a correction.
             // Offset, estimated extent and recycled host identity are NOT new
             // content: scrolling changes those values itself, so using them as
@@ -330,9 +357,7 @@ internal sealed class VirtualRows : Grid
             }
             else
             {
-                var prepared = new PreparedEnd(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight,
-                    geometry.RowWidth, geometry.RowHeight,
-                    Math.Round((geometry.RowTop + geometry.RowHeight + geometry.Offset) * 64) / 64);
+                var prepared = PreparedGeometry(geometry);
                 // Content-space position also changes when an earlier message
                 // finishes layout but this final row keeps the same size. Pure
                 // scrolling changes RowTop and Offset in opposite directions.
@@ -370,12 +395,14 @@ internal sealed class VirtualRows : Grid
         // GetOrCreateElement also resets the layout's suggested anchor even
         // when a row already exists. Reuse the real row for a size correction;
         // only a genuinely missing row needs new realization.
-        var element = (FrameworkElement)(repeater.TryGetElement(index) ?? repeater.GetOrCreateElement(index));
+        var existing = repeater.TryGetElement(index);
+        var element = (FrameworkElement)(existing ?? repeater.GetOrCreateElement(index));
+        if (existing == null) hasSuggestedAnchor = true;
         // GetOrCreateElement only suggests an anchor for the NEXT layout pass.
         // A dispatcher callback (even Low priority) can run before that pass,
         // when a distant row still has no position. Wait for actual Arrange,
         // without forcing the whole window through synchronous UpdateLayout.
-        pendingBring = new(committed, index, element, alignment, offset, isCurrent, arrangeRevision, isReady);
+        pendingBring = new(committed, index, element, alignment, offset, isCurrent, arrangeRevision, isReady, hasSuggestedAnchor);
         PerformanceTrace.Count(TraceName + ".bring.request", index);
         InvalidateArrange();
     }
@@ -400,15 +427,104 @@ internal sealed class VirtualRows : Grid
             if (request.IsReady?.Invoke() == false) return;
             pendingBring = null;
             PerformanceTrace.Count(TraceName + ".bring.arranged", request.Index);
+            var viewport = followingLast?.Viewport ?? restoringReading?.Viewport;
+            if (viewport != null && !request.Created && AtRequestedPosition(request, viewport))
+            {
+                PerformanceTrace.Count(TraceName + ".bring.already_positioned", request.Index);
+                QueueReadingCheck(); QueueFollowCheck();
+                return;
+            }
+            if (viewport != null)
+            {
+                CancelNativeBring(); nativeBring = new(request, viewport);
+                viewport.AddHandler(UIElement.BringIntoViewRequestedEvent, bringRouted, true);
+            }
             // The request is asynchronous: ViewChanged reports the actual
             // completed move. Do not let the already-queued follow check read
             // the previous offset and issue another bring in this same turn.
             if (followingLast is { } follow && request.Index == Children.Count - 1 && IsCurrent(follow))
+            {
                 follow.IsScrolling = true;
+                follow.SubmittedArrange = arrangeRevision;
+                follow.SubmittedGeometry = PreparedGeometry(ReadEndGeometry(follow));
+            }
             request.Element.StartBringIntoView(new BringIntoViewOptions
             { AnimationDesired = false, VerticalAlignmentRatio = request.Alignment, VerticalOffset = request.Offset });
             QueueReadingCheck();
         })) bringQueued = false;
+    }
+    private bool AtRequestedPosition(BringRequest request, ScrollViewer viewport)
+    {
+        var bounds = request.Element.TransformToVisual(viewport).TransformBounds(new(0, 0, request.Element.ActualWidth, request.Element.ActualHeight));
+        var top = (viewport.ViewportHeight - bounds.Height) * request.Alignment + request.Offset;
+        if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight || Math.Abs(bounds.Top - top) > 1) return false;
+        if (followingLast != null) return Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1;
+        return restoringReading?.FirstRow != true || Math.Abs(viewport.VerticalOffset) <= 1;
+    }
+    private void OnNativeBringRequested(UIElement sender, BringIntoViewRequestedEventArgs args)
+    {
+        if (nativeBring is not { } bring || !ReferenceEquals(sender, bring.Viewport)
+            || !ReferenceEquals(args.OriginalSource, bring.Request.Element)) return;
+        bring.Routed = true;
+        bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+        PerformanceTrace.Count(TraceName + ".bring.routed", bring.Request.Index);
+        // ItemsRepeater releases its suggested anchor on this request's first
+        // Rendering event, and can then invalidate Measure. Observe that real
+        // frame once, then verify the resulting layout; no frame polling.
+        if (!bringRendering)
+        {
+            bringRendering = true;
+            Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnNativeBringRendering;
+        }
+    }
+    private void OnNativeBringRendering(object? sender, object args)
+    {
+        Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnNativeBringRendering;
+        bringRendering = false;
+        if (nativeBring is not { } bring) return;
+        dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            if (!ReferenceEquals(nativeBring, bring)) return;
+            hasSuggestedAnchor = false;
+            bring.Rendered = true; bring.AfterRenderArrange = arrangeRevision;
+            PerformanceTrace.Count(TraceName + ".bring.rendered", bring.Request.Index);
+            InvalidateArrange();
+        });
+    }
+    private bool NativeBringArranged()
+    {
+        if (nativeBring is not { } bring) return true;
+        if (!bring.Rendered || arrangeRevision <= bring.AfterRenderArrange) return false;
+        PerformanceTrace.Count(TraceName + ".bring.completed", bring.Request.Index);
+        CancelNativeBring();
+        if (followingLast is { } follow) follow.IsScrolling = false;
+        return true;
+    }
+    private void CancelNativeBring()
+    {
+        if (nativeBring is { } bring) bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+        nativeBring = null;
+        if (bringRendering) Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnNativeBringRendering;
+        bringRendering = false;
+    }
+    internal object ReadScrollState(ScrollViewer viewport)
+    {
+        var index = Children.Count - 1;
+        var last = index >= 0 ? repeater.TryGetElement(index) as FrameworkElement : null;
+        var bounds = last is { IsLoaded: true } ? last.TransformToVisual(viewport)
+            .TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight)) : (Windows.Foundation.Rect?)null;
+        return new {
+            revision, committed, arrange_revision = arrangeRevision, realized = Realized, pending_builds = PendingBuilds,
+            suggested_anchor_pending = hasSuggestedAnchor,
+            offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
+            pending_bring = pendingBring == null ? null : new { pendingBring.Index, pendingBring.AfterArrange, pendingBring.Created },
+            native_bring = nativeBring == null ? null : new { nativeBring.Request.Index, nativeBring.Routed, nativeBring.Rendered, nativeBring.AfterRenderArrange },
+            follow = followingLast == null ? null : new { in_flight = followingLast.IsScrolling, followingLast.Settled,
+                followingLast.RecoveryRequested, followingLast.SubmittedArrange, followingLast.SubmittedGeometry, followingLast.LastCorrected },
+            reading = restoringReading == null ? null : new { restoringReading.FirstRow, restoringReading.Anchor, completed = restoringReading.Completion.Task.IsCompleted },
+            last_row = new { index, loaded = last?.IsLoaded ?? false, child_ready = last is Border { Child: not null },
+                top = bounds?.Top, bottom = bounds?.Bottom, height = bounds?.Height }
+        };
     }
     internal bool MoveFocus(UIElement source, int delta, Func<UIElement, Control?> focusTarget)
     {

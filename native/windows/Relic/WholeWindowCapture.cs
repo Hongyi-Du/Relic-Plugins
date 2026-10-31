@@ -74,7 +74,8 @@ public sealed partial class MainWindow
                     var endGap = Math.Max(0, chatScroll.ScrollableHeight - chatScroll.VerticalOffset);
                     receipt["conversation_scroll"] = new JsonObject { ["offset"] = chatScroll.VerticalOffset,
                         ["maximum"] = chatScroll.ScrollableHeight, ["end_gap"] = endGap,
-                        ["pending_text"] = NativePathText.PendingPreparations };
+                        ["pending_text"] = NativePathText.PendingPreparations,
+                        ["native_positioning"] = JsonSerializer.SerializeToNode(stream.ReadScrollState(chatScroll)) };
                     if (endGap > 2) throw new InvalidOperationException("Selected group did not remain at its latest messages after deferred layout: " + endGap);
                     receipt["language"] = words.Language;
                     receipt["theme"] = root.ActualTheme.ToString().ToLowerInvariant();

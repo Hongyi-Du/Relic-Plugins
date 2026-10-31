@@ -1,5 +1,32 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+9d65781 / 41193620578 still FAILS: 92.871 ms maximum UI delay,
+449.988 MiB /38 threads. All five real history page insertions complete,
+including four preserved visible-message anchors, but the first 5,500-message
+history later has no realized first row at offset zero for the full 15-second
+limit. The trace records start.restored and bring.arranged in the same
+millisecond (1793443531860), then zero realized rows 18 ms later. These are
+not passing responsiveness results. The wide/light adaptive capture also
+retains a 27.800 DIP end gap. Native Windows build/tests/package and all four
+Python validation jobs pass; the Mac native content tests and pressure fail.
+The next change must establish native request completion before declaring a
+position restored; read-only positioning state is now included in both window
+and history-boundary receipts. No timeout, content assertion or gate changes.
+
+The request now observes its actual routed BringIntoViewRequested, one native
+Rendering callback and the subsequent real Arrange before completing reading
+restoration or correcting follow-latest. Existing rows already at their actual
+target avoid no-op requests; a row obtained through GetOrCreateElement still
+finishes the native lifecycle so the framework releases its suggested anchor.
+All handlers are removed on completion, cancellation or model replacement.
+This follows Microsoft's ItemsRepeater viewport lifecycle, not a timer retry:
+[ViewportManager source](https://github.com/microsoft/microsoft-ui-xaml/blob/main/controls/dev/Repeater/ViewportManager.cpp).
+Changes for the clients: Mac e60e073 binds scrolling to stable row containers;
+cbb82d6 reverts the failing scrollPosition binding and mounts replacement
+conversations only after enabled data is prepared.
+Their existing actual-text and pressure assertions remain; no shared API change
+is requested. Integration still needs the complete strict CI run on both systems.
+
 6754fb6 / 41192201808 still FAILS. FirstRow restores successfully at
 1793442612498 (actual top 8), but the following End path issues another repair
 in the same turn as an asynchronous BringIntoView submission, while the old
