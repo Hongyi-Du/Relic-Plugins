@@ -14,14 +14,12 @@ struct MainView: View {
     @State private var resizingPanel: CGFloat?
     @State private var resizeStart: CGFloat?
     @State private var inspectorHandleHovered = false
-    @State private var displayedOrganization: String?
     @State private var revealPhase = 0
     @StateObject private var panelResizeTrace = PanelResizeTrace()
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
     private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
     private var loadingOrganization: Bool { !m.ready || !m.organization.isEmpty && m.snapshot["org"].isNull }
     private var organizationKey: String? { loadingOrganization ? nil : m.organization }
-    private var contentPhase: Int { displayedOrganization == organizationKey ? revealPhase : 0 }
     private var panelWidth: CGFloat {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
@@ -32,30 +30,42 @@ struct MainView: View {
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar(revealMembers: contentPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
-                if loadingOrganization || contentPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                if m.sidebarOpen { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
                     ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
+                        .disabled(loadingOrganization)
+                        .overlay {
+                            if loadingOrganization {
+                                ZStack { RelicStyle.background; ProgressView(m.t("common.loading")) }
+                            }
+                        }
                 }
-                if !loadingOrganization && m.panelOpen && !floatingPanel {
+                if m.panelOpen && !floatingPanel {
                     // Reserve inline space, but keep the inspector itself at
                     // one structural location across responsive breakpoints.
                     // Moving it between HStack and overlay destroys its native
                     // controls and rebuilds them inside the resize transaction.
                     Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
                 }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen { inspector } }
+            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
+                if revealPhase >= 3 && m.panelOpen {
+                    inspector.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
+                }
+            }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
         .task(id: organizationKey) {
+            // Materialize the window regions once. A different organization's
+            // pending snapshot must not synchronously destroy all three panes
+            // and recreate their native controls after its HTTP reply.
+            guard organizationKey != nil, revealPhase < 3 else { return }
             let ticket = PerformanceRendering.beginSurface()
             defer { PerformanceRendering.endSurface(ticket) }
-            displayedOrganization = organizationKey; revealPhase = 0
-            guard organizationKey != nil else { return }
             // Give the native run loop a frame between materializing each pane.
             // All panes retain their final space, so the chat does not wrap
             // twice. The same progressive mounting runs in the shipped app.
-            for phase in 1...3 {
+            for phase in (revealPhase + 1)...3 {
                 let turn = UUID()
                 guard await RowMountQueue.shared.acquire(turn, label: "pane-\(phase)") else { return }
                 guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }

@@ -1,5 +1,17 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+7409e6e / 41187797577 advances to action-0119:group (org_perf000010), then
+FAILS at 251.418 ms, 202.188 MiB, 9 threads. No rounding exemption: this is
+not a pass. The first failed snapshot has all region row counts zero and no
+active mount turn. MainView explicitly removed the chat/inspector/member
+regions together when the new org snapshot was pending, then rebuilt them.
+Keep initialized regions mounted through org loading; cover/disable pending
+conversation content and hide the retained inspector until its new data arrives.
+The native-control identity regression now exercises the actual setSelection,
+empty snapshot, and replacement snapshot as well as responsive resizing.
+7409e6e whole-window and adaptive jobs pass both systems, all four Mac bottom
+gaps are 0, and Python validation passes. Full pressure remains incomplete.
+
 7008a0b diagnostic 41187257750 now retains both real stack files. Its first-
 stall sample has 308/677 main-thread samples in ForEachChild.updateValue;
 installObservationSlow appears with 128 and 117 samples, including repeated

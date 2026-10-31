@@ -33,7 +33,7 @@ import RelicCore
         try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(counter.reads, before, "Actual message changes must still update the mounted view")
     }
-    func testInspectorKeepsItsNativeControlsAcrossResponsiveBreakpoints() async throws {
+    func testInspectorKeepsItsNativeControlsAcrossResizingAndOrganizationLoading() async throws {
         _ = NSApplication.shared
         let suite = "Relic.InspectorPersistence." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
@@ -65,6 +65,15 @@ import RelicCore
             if let identity { XCTAssertEqual(current, identity, "Resizing must reuse the native inspector, not recreate its controls") }
             else { identity = current }
         }
+        model.setSelection(ChatSelection("next"))
+        try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(model.snapshot["org"].isNull, "Exercise the real pending-snapshot state")
+        XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(tab(host))), identity,
+            "Loading another organization must retain the actual inspector controls")
+        model.snapshot = Node(["org": ["id": "next", "name": "Next"], "members": []] as [String: Any])
+        try await Task.sleep(for: .milliseconds(300)); host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(tab(host))), identity,
+            "Publishing the new snapshot must update the retained window regions")
     }
     private struct GeometryLabel: View {
         @EnvironmentObject var model: Model
