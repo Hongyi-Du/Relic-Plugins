@@ -31,6 +31,7 @@ public sealed partial class MainWindow
             if (visibleDialogTask != null) await visibleDialogTask;
         }
         visibleDialog = dialog;
+        var configuration = PerformanceTrace.Measure("dialog.configure");
         dialog.RequestedTheme = root.ActualTheme;
         foreach (var resource in root.Resources) dialog.Resources[resource.Key] = resource.Value;
         dialog.Background = Paint("FFFFFF", "252523"); dialog.Foreground = Ink;
@@ -50,9 +51,13 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogTopOverlay"] = singleSurfaceBackground
             ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : dialog.Background;
         dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 14, 12)) { Opacity = .32 };
-        dialog.Opened += (_, _) => { openedDialog = dialog; StyleDialogParts(dialog); };
-        dialog.Closed += (_, _) => { if (openedDialog == dialog) openedDialog = null; };
-        visibleDialogTask = dialog.ShowAsync().AsTask();
+        dialog.Loaded += (_, _) => PerformanceTrace.Count("dialog.loaded", 1);
+        dialog.Opened += (_, _) => { using var timing = PerformanceTrace.Measure("dialog.opened.style"); PerformanceTrace.Count("dialog.opened", 1); openedDialog = dialog; StyleDialogParts(dialog); };
+        dialog.Closed += (_, _) => { PerformanceTrace.Count("dialog.closed", 1); if (openedDialog == dialog) openedDialog = null; };
+        configuration.Dispose();
+        Windows.Foundation.IAsyncOperation<ContentDialogResult> opening;
+        using (PerformanceTrace.Measure("dialog.show.start")) opening = dialog.ShowAsync();
+        using (PerformanceTrace.Measure("dialog.show.task")) visibleDialogTask = opening.AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
         if (visibleDialog == dialog) { visibleDialog = null; visibleDialogTask = null; }
         await StopVoice();
@@ -66,6 +71,7 @@ public sealed partial class MainWindow
     }
     private void StyleDialogParts(ContentDialog dialog)
     {
+        using var timing = PerformanceTrace.Measure("dialog.style.parts");
         if (dialog is NativeContentDialog native) native.ApplySurfaceBrushes();
         // Retain ContentDialog's native modal focus, validation deferrals and
         // button commands; restyle the actual template parts after realization.
@@ -237,6 +243,7 @@ public sealed partial class MainWindow
     }
     private async Task SettingsScreen(string section = "profile")
     {
+        var preparation = PerformanceTrace.Measure("settings.construct");
         var current = section;
         // A transparent brush keeps the layout surface hit-testable without
         // painting a second overall fill above the ContentDialog surface.
@@ -383,6 +390,7 @@ public sealed partial class MainWindow
         };
         dialog.Opened += (_, _) =>
         {
+            using var timing = PerformanceTrace.Measure("settings.opened.style");
             PaintNavigation();
             dialog.Resources["ContentDialogPadding"] = new Thickness(0); dialog.Resources["ContentDialogTitleMargin"] = new Thickness(0);
             if (DialogPart<ContentPresenter>(dialog, "Content") is { } presenter) { presenter.Margin = new Thickness(0); presenter.Padding = new Thickness(0); }
@@ -396,7 +404,14 @@ public sealed partial class MainWindow
             body.Height = Math.Min(640, Math.Max(0, args.NewSize.Height - 48));
         }
         root.SizeChanged += Resize;
-        try { await Draw(section); await Dialog(dialog, contentOwnsPadding: true, singleSurfaceBackground: true); }
+        preparation.Dispose();
+        try
+        {
+            Task drawing;
+            using (PerformanceTrace.Measure("settings.draw.start")) drawing = Draw(section);
+            await drawing;
+            await Dialog(dialog, contentOwnsPadding: true, singleSurfaceBackground: true);
+        }
         finally { root.SizeChanged -= Resize; }
     }
     private async Task HarnessSettings(StackPanel content)

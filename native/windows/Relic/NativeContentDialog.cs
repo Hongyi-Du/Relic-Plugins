@@ -16,9 +16,21 @@ internal sealed class NativeContentDialog : ContentDialog
     internal ControlTemplate? AppliedTemplate { get; private set; }
     internal long TemplateRevision { get; private set; }
 
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        using var timing = PerformanceTrace.Measure("dialog.measure");
+        return base.MeasureOverride(availableSize);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        using var timing = PerformanceTrace.Measure("dialog.arrange");
+        return base.ArrangeOverride(finalSize);
+    }
+
     protected override void OnApplyTemplate()
     {
-        base.OnApplyTemplate();
+        using var timing = PerformanceTrace.Measure("dialog.apply.template");
+        using (PerformanceTrace.Measure("dialog.apply.template.base")) base.OnApplyTemplate();
         TemplateRevision++;
         AppliedTemplate = Template;
         AppliedParts.Clear();

@@ -26,6 +26,116 @@ def observation_policy(diagnostic=False):
             "failure_observation_seconds": 30 if diagnostic else 2}
 
 
+class DiagnosticStacks:
+    """Nonblocking, bounded managed stacks after a failed Windows CI UI probe."""
+    MAX_REPORTS = 3
+    REPORT_SECONDS = 5
+    TOTAL_SECONDS = 15
+
+    def __init__(self, client, diagnostic, output, pid):
+        self.enabled = bool(diagnostic and client == "windows" and sys.platform == "win32"
+                            and os.environ.get("GITHUB_ACTIONS") == "true")
+        self.output = Path(output) / "stacks"
+        self.tool = os.environ.get("RELIC_DOTNET_STACK", str(ROOT / "native-build/diagnostics/dotnet-stack.exe"))
+        self.pid = pid
+        self.started = None
+        self.reason = None
+        self.reports = []
+        self.process = None
+        self.files = []
+        self.next_at = 0
+        self.closed = False
+
+    def summary(self):
+        return {"enabled": self.enabled, "trigger": self.reason, "target_pid": self.pid,
+                "max_reports": self.MAX_REPORTS, "per_report_seconds": self.REPORT_SECONDS,
+                "total_seconds": self.TOTAL_SECONDS, "reports": self.reports}
+
+    def _save(self):
+        if self.started is not None:
+            atomic_json(self.output / "sampling.json", self.summary())
+
+    def trigger(self, reason):
+        if not self.enabled or self.closed or self.started is not None:
+            return
+        self.started = time.monotonic()
+        self.reason = reason
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.tick()
+
+    def _finish(self, now, returncode):
+        self.reports[-1].update(returncode=returncode, ended_seconds=now - self.started)
+        for stream in self.files:
+            stream.close()
+        self.files = []
+        self.process = None
+        self.next_at = now + 1
+        self._save()
+
+    def _kill(self, reason):
+        row = self.reports[-1]
+        if row.get("stop_reason"):
+            return
+        row["stop_reason"] = reason
+        try:
+            self.process.kill()
+        except OSError as error:
+            row["kill_error"] = str(error)
+        self._save()
+
+    def tick(self):
+        if not self.enabled or self.closed or self.started is None:
+            return
+        now = time.monotonic()
+        elapsed = now - self.started
+        if self.process is not None:
+            code = self.process.poll()
+            if code is not None:
+                self._finish(now, code)
+            else:
+                row = self.reports[-1]
+                if elapsed >= self.TOTAL_SECONDS:
+                    self._kill("total sampling time limit")
+                elif elapsed - row["started_seconds"] >= self.REPORT_SECONDS:
+                    self._kill("per-report time limit")
+                return
+        if elapsed >= self.TOTAL_SECONDS or len(self.reports) >= self.MAX_REPORTS or now < self.next_at:
+            return
+        index = len(self.reports) + 1
+        row = {"index": index, "started_seconds": elapsed, "started_unix_ms": time.time() * 1000,
+               "stdout": f"stack-{index:02}.stdout.txt", "stderr": f"stack-{index:02}.stderr.txt"}
+        self.reports.append(row)
+        command = [self.tool, "report", "-p", str(self.pid)]
+        row["command"] = command
+        try:
+            self.files.append((self.output / row["stdout"]).open("w", encoding="utf-8"))
+            self.files.append((self.output / row["stderr"]).open("w", encoding="utf-8"))
+            # File output cannot fill a PIPE. Polling below never waits for a
+            # report, so the ordinary watchdog continues observing the app.
+            self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                                            stdout=self.files[0], stderr=self.files[1],
+                                            creationflags=creation_flags())
+            row["sampler_pid"] = self.process.pid
+            self._save()
+        except OSError as error:
+            row["start_error"] = str(error)
+            self._finish(now, None)
+
+    def close(self):
+        self.closed = True
+        if self.process is not None:
+            code = self.process.poll()
+            if code is None:
+                self._kill("measurement cleanup")
+                # This bounded wait happens only after the watchdog loop ends.
+                try:
+                    code = self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.reports[-1]["cleanup_error"] = "Sampler did not exit within one second after kill"
+            self._finish(time.monotonic(), code)
+        self._save()
+
+
 def atomic_json(path, value):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -273,6 +383,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
         previous_sequence = None
         native = psutil.Process(process.pid)
         window_probe = WindowsProbe(process.pid) if client == "windows" else None
+        stacks = DiagnosticStacks(client, diagnostic, output, process.pid)
         try:
             ready = wait_json(output / "performance-ready.json", process)
             if ready.get("pid") != process.pid:
@@ -292,6 +403,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                     maximum = float(heartbeat.get("max_ui_stall_ms") or 0)
                     if maximum > UI_LIMIT_MS and not any("UI thread" in e for e in errors):
                         errors.append(f"UI thread probe exceeded {UI_LIMIT_MS} ms: {maximum:.3f} ms during {heartbeat.get('action')}")
+                        stacks.trigger(errors[-1])
                     if time.time() * 1000 - float(heartbeat.get("unix_ms") or 0) > 2000 and native_receipt is None:
                         if "Native heartbeat stopped for more than 2 seconds" not in errors:
                             errors.append("Native heartbeat stopped for more than 2 seconds")
@@ -326,6 +438,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                     if observed.get("not_responding") or observed.get("wm_null_responded") is False:
                         if "Native window stopped responding" not in errors:
                             errors.append("Native window stopped responding")
+                            stacks.trigger(errors[-1])
+                stacks.tick()
                 if native_receipt is not None:
                     break
                 if process.poll() is not None:
@@ -341,6 +455,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
         except Exception as error:
             errors.append(str(error))
         finally:
+            stacks.close()
             Path(fixture["monkey_trigger"]).unlink(missing_ok=True)
             stop_owned(process)
     resources = resource_summary(samples)
@@ -362,6 +477,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
               "resources": resources, "native_receipt": native_receipt, "limits": {
                   "ui_stall_ms": UI_LIMIT_MS, "peak_rss_bytes": RSS_LIMIT, "peak_threads": THREAD_LIMIT},
               "samples": samples, "heartbeats": heartbeats, "window_probes": windows,
+              "diagnostic_stacks": stacks.summary(),
               "live_updates": read_json(fixture["live_report"])}
     atomic_json(output / "responsiveness-report.json", report)
     print(json.dumps({k: report[k] for k in ("client", "mode", "diagnostic", "acceptance_eligible", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)

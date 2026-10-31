@@ -131,3 +131,23 @@ are marked diagnostic. A diagnostic result is never acceptance evidence and its
 longer-window memory/thread peaks cannot be compared directly with the normal
 two-second failure baseline. Ordinary candidate and baseline measurements keep
 `diagnostic: false`, a two-second failure window, and all original strict gates.
+
+Only explicit Windows diagnostic runs install Microsoft's `dotnet-stack` 8.x
+tool into the CI workspace's `native-build/diagnostics` directory. Nothing is
+installed or run on the person's machine. The first failed UI probe or Windows
+window-response probe triggers `dotnet-stack report -p <owned native pid>` in a
+windowless background process. At most one report is in flight, with at most
+three reports, a five-second deadline per report, and a fifteen-second total
+sampling window. The watchdog continues polling and never waits for a stack
+report while its measurement loop runs; timed-out collectors are killed and
+the owned collector is cleaned up when measurement ends.
+
+Each report's stdout/stderr is retained as `stacks/stack-NN.stdout.txt` and
+`stacks/stack-NN.stderr.txt`. `stacks/sampling.json` and the final report's
+`diagnostic_stacks` retain the trigger, process IDs, command, timings, exit code,
+and any collector errors. A collector can suspend or otherwise perturb the
+target while inspecting managed stacks, so these captures are diagnostic-only
+and can never count toward acceptance. Ordinary runs never install or start
+the collector; their scope, observation window and thresholds are unchanged.
+See Microsoft's [dotnet-stack report documentation](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-stack)
+and [tool-path installation documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-tool-install).

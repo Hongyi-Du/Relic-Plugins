@@ -41,6 +41,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Install Microsoft managed stack tool for diagnostic runs only
+        if: ${{ inputs.diagnostic == true }}
+        run: dotnet tool install dotnet-stack --tool-path native-build/diagnostics --version '8.*'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -52,6 +55,7 @@ jobs:
       - name: Measure exhaustive and seeded interaction against synthetic large data
         env:
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+          RELIC_DOTNET_STACK: ${{ github.workspace }}/native-build/diagnostics/dotnet-stack.exe
         run: |
           $diagnosticArgs = @()
           if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }

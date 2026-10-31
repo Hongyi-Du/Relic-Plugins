@@ -1,5 +1,16 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+**Current Windows acceptance is not complete.** The final integration repeat
+at 8d5f1ef (CI 41171258624) failed while opening Settings: maximum UI dispatch
+1425.178 ms, WM_NULL timeout, 325.180 MiB peak RSS, 38 threads, early stop.
+Its Windows source is identical to the passing e346d03 source below; the pass
+must not hide this failure. No settings-page synchronous HTTP/wait or measured
+long glyph/GC operation explains that interval yet. Add actual modal template,
+measure/arrange and ShowAsync invocation timing and explicit diagnostic-only
+managed thread stacks before choosing a fix. The 250 ms gate is unchanged.
+The same integration passes builds/tests/packages and all four Python jobs;
+those packages remain unaccepted. Mac pressure also fails (420.005 ms startup).
+
 Windows/shared acceptance update (2026-10-31): normal CI **41170556043** at
 **e346d033e6ef4aea74c30f9c8ce28c9d7e175354** passes all 175 exhaustive actions
 and 130 observed random-click actions over 180.621 seconds, with no scenario,

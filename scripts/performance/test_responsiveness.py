@@ -22,6 +22,105 @@ fixture = module("performance_fixture_tests", "fixture.py")
 driver = module("performance_driver_tests", "run.py")
 
 
+class DiagnosticStackSampling(unittest.TestCase):
+    def sampler(self, output, *, diagnostic=True, client="windows", ci="true", platform="win32"):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "RELIC_DOTNET_STACK": "dotnet-stack.exe"}), \
+             patch.object(driver.sys, "platform", platform):
+            return driver.DiagnosticStacks(client, diagnostic, output, 123)
+
+    def test_normal_nonwindows_and_nonci_never_start_sampler(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(driver.subprocess, "Popen") as start:
+            for options in ({"diagnostic": False}, {"client": "macos"}, {"ci": "false"}, {"platform": "linux"}):
+                with self.subTest(options=options):
+                    sampler = self.sampler(folder, **options)
+                    sampler.trigger("UI failed")
+                    sampler.tick()
+                    sampler.close()
+                    self.assertFalse(sampler.summary()["enabled"])
+            start.assert_not_called()
+            self.assertFalse((Path(folder) / "stacks").exists())
+
+    def test_diagnostic_has_one_inflight_sampler_and_cleans_it_up(self):
+        child = Mock(pid=456)
+        child.poll.return_value = None
+        child.wait.return_value = -1
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(driver.subprocess, "Popen", return_value=child) as start, \
+             patch.object(driver.time, "monotonic", return_value=100), \
+             patch.object(driver, "creation_flags", return_value=0x08000000):
+            sampler = self.sampler(folder)
+            sampler.tick()
+            start.assert_not_called()
+            sampler.trigger("UI failed")
+            streams = list(sampler.files)
+            for _ in range(5):
+                sampler.trigger("another failed probe")
+                sampler.tick()
+            start.assert_called_once()
+            self.assertEqual(start.call_args.args[0], ["dotnet-stack.exe", "report", "-p", "123"])
+            self.assertEqual(start.call_args.kwargs["creationflags"], 0x08000000)
+            self.assertEqual(start.call_args.kwargs["stdin"], driver.subprocess.DEVNULL)
+            child.wait.assert_not_called()
+            sampler.close()
+            child.kill.assert_called_once()
+            child.wait.assert_called_once_with(timeout=1)
+            self.assertTrue(all(stream.closed for stream in streams))
+            self.assertIsNone(sampler.process)
+            self.assertEqual(sampler.summary()["reports"][0]["stop_reason"], "measurement cleanup")
+            self.assertTrue((Path(folder) / "stacks/sampling.json").exists())
+
+    def test_report_deadline_kills_without_blocking_or_starting_another(self):
+        child = Mock(pid=456)
+        child.poll.return_value = None
+        child.wait.return_value = -1
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(driver.subprocess, "Popen", return_value=child) as start, \
+             patch.object(driver.time, "monotonic", return_value=100) as clock:
+            sampler = self.sampler(folder)
+            sampler.trigger("UI failed")
+            clock.return_value = 105
+            sampler.tick()
+            clock.return_value = 115
+            sampler.tick()
+            child.kill.assert_called_once()
+            child.wait.assert_not_called()
+            start.assert_called_once()
+            self.assertEqual(sampler.summary()["reports"][0]["stop_reason"], "per-report time limit")
+            sampler.close()
+
+    def test_report_count_and_total_capture_window_are_bounded(self):
+        children = [Mock(pid=450 + index) for index in range(3)]
+        for child in children:
+            child.poll.return_value = 0
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(driver.subprocess, "Popen", side_effect=children) as start, \
+             patch.object(driver.time, "monotonic", return_value=100) as clock:
+            sampler = self.sampler(folder)
+            sampler.trigger("UI failed")
+            for second in range(101, 130):
+                clock.return_value = second
+                sampler.tick()
+            sampler.close()
+            self.assertEqual(start.call_count, 3)
+            self.assertEqual(len(sampler.summary()["reports"]), 3)
+            self.assertTrue(all(row["returncode"] == 0 for row in sampler.summary()["reports"]))
+
+    def test_total_sampling_deadline_prevents_later_reports(self):
+        child = Mock(pid=456)
+        child.poll.return_value = 0
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(driver.subprocess, "Popen", return_value=child) as start, \
+             patch.object(driver.time, "monotonic", return_value=100) as clock:
+            sampler = self.sampler(folder)
+            sampler.trigger("UI failed")
+            clock.return_value = 115
+            sampler.tick()
+            clock.return_value = 120
+            sampler.tick()
+            sampler.close()
+            start.assert_called_once()
+
+
 class SnapshotReads(unittest.TestCase):
     def test_windows_reader_shares_read_write_and_delete(self):
         kernel = Mock()
