@@ -144,7 +144,8 @@ import Combine
     var newSecretary = false
     var settingsSection = "profile"
     var threadID = ""
-    var threadData = Node()
+    var threadData = Node() { didSet { if threadData["root"].isNull { threadRows = [] } } }
+    var threadRows: [ConversationRow] = []
     var threadDraft = ""
     @ObservationIgnored private var threadPreviousPane = "overview"
     var file = Node()
@@ -514,12 +515,19 @@ import Combine
         quote = lines.map { "> " + $0 }.joined(separator: "\n")
         quoteAuthor = name(from); quoteText = preview; persistDraft()
     }
-    func openThread(_ id: String) async throws { if pane != "thread" { threadPreviousPane = pane }; threadID = id; threadDraft = defaults.string(forKey: "thread." + organization + "/" + id) ?? ""; setPane("thread"); try await loadThread() }
+    func openThread(_ id: String) async throws {
+        if pane != "thread" { threadPreviousPane = pane }
+        if threadID != id { threadData = Node() }
+        threadID = id; threadDraft = defaults.string(forKey: "thread." + organization + "/" + id) ?? ""
+        setPane("thread"); try await loadThread()
+    }
     func closeThread() { threadID = ""; threadData = Node(); setPane(threadPreviousPane) }
     func loadThread() async throws {
         let selected = selection, id = threadID; guard !id.isEmpty else { return }
         let result = try await get(selected.path("/thread?root=" + Client.segment(id)))
-        if selected == selection, id == threadID { threadData = result }
+        guard selected == selection, id == threadID else { return }
+        let rows = await ConversationRow.prepareReplies(result["replies"].rows, words: words, now: displayNow)
+        if selected == selection, id == threadID { threadRows = rows; threadData = result }
     }
     func sendThread() async throws {
         guard !threadSending, !threadID.isEmpty else { return }

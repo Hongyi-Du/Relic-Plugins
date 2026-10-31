@@ -59,7 +59,7 @@ struct RichText: View {
     private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
     var body: some View {
         Group {
-        if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
+        if parsed == nil { Color.clear.frame(height: textLineHeight).accessibilityHidden(true) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
             // The outer conversation virtualizes messages. Inside one message
             // the layout needs the actual paragraph height: a second vertical
@@ -71,10 +71,12 @@ struct RichText: View {
                     blockView(block).padding(.top, blockGap(index))
                 }
                 if presentedBlocks < blocks.count {
-                    // Keep the remaining text readable while native paragraph
-                    // views are materialized over subsequent UI frames.
-                    SelectableText(value: AttributedString(blocks.dropFirst(presentedBlocks).map(\.text).joined(separator: "\n\n")),
-                        pointSize: baseSize, lineHeight: textLineHeight).padding(.top, 8)
+                    // Do not lay out the entire unprepared remainder as a
+                    // second text document on every two-block admission. Each
+                    // paragraph enters the native tree once, after background
+                    // parsing, rather than plain text followed by formatted
+                    // text with a different height.
+                    Color.clear.frame(height: textLineHeight).padding(.top, 8).accessibilityHidden(true)
                 }
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         } }
@@ -276,18 +278,6 @@ struct ChatView: View {
     }
 }
 
-private struct LatestMessageBounds: Equatable {
-    var id = ""
-    var size = CGSize.zero
-    var bottom: CGFloat = 0
-}
-private struct LatestMessageSize: PreferenceKey {
-    static var defaultValue = LatestMessageBounds()
-    static func reduce(value: inout LatestMessageBounds, nextValue: () -> LatestMessageBounds) {
-        let next = nextValue()
-        if !next.id.isEmpty { value = next }
-    }
-}
 private struct StreamMetrics: Equatable {
     var bottom: CGFloat = 0
     var height: CGFloat = 0
@@ -311,13 +301,17 @@ struct ConversationStream: View {
     @State private var userFollowsLatest = true
     @State private var preservingDisclosure = false
     @State private var initialLoad = true
+    @State private var scrollID: String?
+    @State private var scrollAnchor = UnitPoint.bottom
     @State private var mountedViewport = false
     @State private var mountedComposer = false
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
+    private func position(_ id: String, at anchor: UnitPoint) {
+        scrollAnchor = anchor; scrollID = id
+    }
     var body: some View {
-        ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 if mountedViewport {
                 GeometryReader { viewport in
@@ -353,48 +347,29 @@ struct ConversationStream: View {
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }.padding(.bottom, row.id == lastID && !hasLive ? 24 : 0)
-                                    .background {
-                                        if row.id == lastID { GeometryReader { geometry in
-                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
-                                        } }
-                                    }
                             }
                             if hasLive {
                                 LiveTurnView().padding(.bottom, 24).id("live-end")
-                                    .background(GeometryReader { geometry in
-                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
-                                    })
                             }
                             else if rows.isEmpty { Color.clear.frame(height: 24) }
                             // Target the actual newest row, including its 24px
                             // trailing space. A separate footer can be realized
                             // while the preceding lazy message is still absent.
-                        }
+                        }.scrollTargetLayout()
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }.defaultScrollAnchor(.bottom)
-                        // Start at the latest page before lazy row creation.
-                        // Otherwise a cold mount first constructs the oldest
-                        // visible rows and then discards them on the tail seek.
+                    }
+                        // One native ID binding owns realization and placement
+                        // together as lazy row heights change. A one-shot
+                        // ScrollViewReader seek could reach an estimated offset
+                        // without realizing its distant target at all.
+                        .scrollPosition(id: $scrollID, anchor: scrollAnchor)
                         .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
-                        .onPreferenceChange(LatestMessageSize.self) { latest in
-                            // Observe the actual newest row, including where
-                            // native layout places it. Appending after a long
-                            // message can change the preceding row's height
-                            // without changing this new row's own size. Restore
-                            // this real target only while following is intended
-                            // and its lower edge is not already at the viewport.
-                            guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
-                                  initialLoad || userFollowsLatest else { return }
-                            following.followsBottom = true
-                            if abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
-                            initialLoad = false
-                        }
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
                             // Explicit row targets own initial placement and
@@ -424,7 +399,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
+                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { position(id, at: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -441,23 +416,8 @@ struct ConversationStream: View {
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
-                // API pages are already bounded (1,000 latest /200 earlier).
-                // Each server revision updates the stable ForEach IDs once.
-                // Repeatedly inserting 25 IDs re-diffed the entire growing
-                // collection and sought the tail on every batch. Only visible
-                // native content needs staged construction, handled by the
-                // ProgressiveRows and Markdown queue above.
-                // New targets must enter native layout before the one deferred
-                // request; onChange alone runs before that happens.
-                // User navigation cancels following, and task cancellation
-                // cancels obsolete revisions. This is not an extent/offset loop.
-                let anchorTurn = UUID()
-                guard await RowMountQueue.shared.acquire(anchorTurn, label: "conversation-anchor") else { return }
-                defer { RowMountQueue.shared.release(anchorTurn) }
-                do { try await Task.sleep(for: .milliseconds(32)) }
-                catch { return }
-                if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
-                else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                // The native binding retains the requested row while its view
+                // prepares; do not issue deferred offset/geometry repairs.
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
                 olderAnchor = nil
@@ -468,15 +428,15 @@ struct ConversationStream: View {
                     if preservingDisclosure { userFollowsLatest = following.followsBottom }
                     preservingDisclosure = false
                     following.contentChanged()
-                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
+                    if let anchor = olderAnchor { position(anchor, at: .top) }
                     else if !m.streamRows.isEmpty {
-                        if (initialLoad || userFollowsLatest), let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                        if userFollowsLatest, let id = latestRowID { position(id, at: .bottom) }
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = true
-                    if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                    if let id = latestRowID { position(id, at: .bottom) }
                     // A lazy height correction is not a user scroll. Only
                     // native live scrolling or scoped keyboard input changes
                     // the person's follow-latest intent.
@@ -488,12 +448,11 @@ struct ConversationStream: View {
                         initialLoad = false
                         userFollowsLatest = !top; preservingDisclosure = false; olderAnchor = nil
                         following.followsBottom = !top
-                        if top { proxy.scrollTo("start", anchor: .top) }
-                        else if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                        if top { position("start", at: .top) }
+                        else if let id = latestRowID { position(id, at: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil }
-        }
     }
 }
 
@@ -811,22 +770,27 @@ struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if !m.threadData["error"].text.isEmpty || m.threadData["root"].isNull {
                     OverviewBlock { ReferenceLabel(m.threadData["error"].text.isEmpty ? m.t("common.loading") : m.t("common.load_failed", ["error": m.threadData["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) }
                 } else {
-                    let rows = m.conversationRows(m.threadData["replies"].rows, separators: false)
+                    let rows = m.threadRows
+                    let compact = m.preferences["density"].text == "compact"
                     MessageView(item: m.threadData["root"], inThread: true).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
                         .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
                         .accessibilitySortPriority(Double(rows.count * 2 + 4))
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            MessageView(item: row.item, inThread: true, continued: row.continued).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
-                                .accessibilitySortPriority(Double((rows.count - index) * 2))
-                        }
-                    }.padding(.horizontal, 16).padding(.bottom, 16)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply") {
+                            MessageView(item: row.item, inThread: true, continued: row.continued)
+                                .onAppear { PerformanceRendering.rowAppeared("thread") }
+                                .onDisappear { PerformanceRendering.rowDisappeared("thread") }
+                        }.padding(.top, row.continued ? 4 : compact ? 7 : 14)
+                            .padding(.horizontal, 16).padding(.bottom, index == rows.count - 1 ? 16 : 0)
+                            .accessibilitySortPriority(Double((rows.count - index) * 2))
+                    }
+                    if rows.isEmpty { Color.clear.frame(height: 16).accessibilityHidden(true) }
                     ThreadComposer().padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 14)
                 }
             }
