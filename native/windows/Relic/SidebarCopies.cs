@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
 using System.Numerics;
@@ -22,6 +23,10 @@ public sealed partial class MainWindow
     private long toolbarLogoClipRevision;
     private VirtualRows? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
+    private readonly Dictionary<(bool Selected, bool Alert), ControlTemplate> toolbarButtonTemplates = [];
+    private ControlTemplate? sidebarItemTemplate;
+    private ItemsPanelTemplate? sidebarItemsPanel;
+    private bool sidebarKeyboardBound;
     private void DrawToolbar()
     {
         toolbar.PrimaryCommands.Clear();
@@ -92,16 +97,7 @@ public sealed partial class MainWindow
         button.VerticalAlignment = VerticalAlignment.Center; button.UseLayoutRounding = false;
         button.Foreground = alert ? Paint("B7791F", "E2B15A") : selected ? Ink : Paint("5A5853", "B8B5AE");
         if (selected) button.Background = Paint("E7E5DF", "2F2E2B");
-        var hoverBackground = selected ? "RelicControlPressed" : "RelicControlHover";
-        var hoverForeground = alert ? "" : "<Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlInk}'/>";
-        button.Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
-            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
-            "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'>" +
-            "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
-            "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
-            "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
-            "<VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlDisabled}'/></VisualState.Setters></VisualState>" +
-            "</VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter></ControlTemplate>");
+        button.Template = ToolbarButtonTemplate(selected, alert);
         // The badge is positioned in the complete 30x28 button, not in the
         // icon's 16x16 desired size. It remains an actual, separate badge view.
         var content = new Grid { Width = 30, Height = 28, UseLayoutRounding = false };
@@ -120,8 +116,58 @@ public sealed partial class MainWindow
         button.Content = content; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip); ToolTipService.SetToolTip(button, tip);
         return button;
     }
+    private ControlTemplate ToolbarButtonTemplate(bool selected, bool alert)
+    {
+        var key = (selected, alert);
+        if (toolbarButtonTemplates.TryGetValue(key, out var cached)) return cached;
+        using var timing = PerformanceTrace.Measure("sidebar.template.toolbar");
+        var hoverBackground = selected ? "RelicControlPressed" : "RelicControlHover";
+        var hoverForeground = alert ? "" : "<Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlInk}'/>";
+        var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+            "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'>" +
+            "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
+            "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlDisabled}'/></VisualState.Setters></VisualState>" +
+            "</VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter></ControlTemplate>");
+        toolbarButtonTemplates.Add(key, template);
+        return template;
+    }
+    private void SidebarArrowKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key is not (Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down)) return;
+        if ((Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
+             & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0) return;
+        var focused = FocusManager.GetFocusedElement(side.XamlRoot) as UIElement ?? args.OriginalSource as UIElement;
+        if (focused != null && side.MoveFocus(focused, args.Key == Windows.System.VirtualKey.Up ? -1 : 1, SidebarFocusTarget))
+            args.Handled = true;
+    }
+    private static Control? SidebarFocusTarget(UIElement element)
+    {
+        if (element.Visibility != Visibility.Visible) return null;
+        if (element is NativeSidebarRow row) return row.IsEnabled ? row : null;
+        if (element is Button button) return button.IsEnabled ? button : null;
+        // Rows have one real item each. It may not have an applied template yet
+        // when ItemsRepeater realizes it for keyboard navigation.
+        if (element is ListView list && list.Items.Count > 0 && list.Items[0] is NativeSidebarRow item)
+            return item.IsEnabled ? item : null;
+        if (element is Border border && border.Child != null) return SidebarFocusTarget(border.Child);
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+            if (VisualTreeHelper.GetChild(element, index) is UIElement child && SidebarFocusTarget(child) is { } target)
+                return target;
+        return null;
+    }
     private void DrawSidebar()
     {
+        if (!sidebarKeyboardBound)
+        {
+            // Each virtual row owns a one-item ListView. Its default Up/Down
+            // handling cannot reach the next row; continue through the same
+            // repeater so keyboard focus also realizes offscreen neighbors.
+            side.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(SidebarArrowKeyDown), true);
+            sidebarKeyboardBound = true;
+        }
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sidebarSurface, T("page.side"));
         // Keep the reference's fractional line boxes through the whole tree.
         // Rounding each 17.955px/16.2px line separately added almost one pixel
@@ -143,11 +189,14 @@ public sealed partial class MainWindow
         // Keep every organization/chat as a separate lazy row in the scrolling
         // viewport. A nested StackPanel of all members defeats virtualization.
         var tree = side;
-        var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
+        // Framework templates are reusable factories; their instantiated
+        // controls, selection, bindings, and ThemeResources remain per row.
+        var template = sidebarItemTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
+        var itemsPanel = sidebarItemsPanel ??= (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>");
         ListView Rows()
         {
             var list = new ListView { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0), BorderThickness = new Thickness(0), UseLayoutRounding = false,
-                ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>") };
+                ItemsPanel = itemsPanel };
             ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
             list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); }; return list;
         }

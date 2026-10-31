@@ -271,7 +271,11 @@ public sealed partial class MainWindow : Window
             using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
             using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
             using (PerformanceTrace.Measure("DrawSide")) if (changes.Side || viewChanged) DrawSide();
+            await Task.Delay(1, lifetime.Token);
+            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || changes.Side || viewChanged) DrawChat();
+            await Task.Delay(1, lifetime.Token);
+            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || viewChanged) DrawDetail();
             renderedView = org + "/" + member;
             if (pane == "workspace" && changes.Detail) await Workspace();

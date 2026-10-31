@@ -100,7 +100,8 @@ public sealed partial class MainWindow
                     menu.Flyout.Hide(); break;
                 case "dialog":
                     var dialog = step.Text("name") switch { "settings" => Settings(), "about" => SettingsScreen("about"),
-                        "neworg" => CreateOrg(), "member" => AddMember(), _ => throw new InvalidOperationException("Unknown dialog") };
+                        "neworg" => CreateOrg(), "member" => AddMember(), "tasks" => Details("tasks"),
+                        "protocols" => Details("protocols"), _ => throw new InvalidOperationException("Unknown dialog") };
                     for (var attempt = 0; visibleDialog == null && !dialog.IsCompleted && attempt < 100; attempt++) await Task.Delay(20);
                     if (visibleDialog == null) { await dialog; throw new InvalidOperationException("Production dialog did not open"); }
                     await WaitForMarkdown(); await PerformanceYield(); visibleDialog.Hide(); await dialog; break;

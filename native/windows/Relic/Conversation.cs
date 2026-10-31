@@ -663,11 +663,17 @@ public sealed partial class MainWindow
     {
         detail.Padding = new Thickness(0); detail.Spacing = 0;
         if (threadData["root"] == null) { detail.Children.Add(new Border { Padding = new Thickness(16, 14, 16, 14), Child = OverviewText(threadData.Text("error").Length > 0 ? T("common.load_failed", ("error", threadData.Text("error"))) : T("common.loading"), 14, true) }); return; }
-        detail.Children.Add(new Border { Child = Message(threadData["root"]!, true), Padding = new Thickness(16, 4, 16, 10), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1) });
+        var rootMessage = threadData["root"]!;
+        detail.Children.Add(() => new Border { Child = Message(rootMessage, true), Padding = new Thickness(16, 4, 16, 10), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1) });
         detail.Children.Add(new Border { Padding = new Thickness(16, 10, 16, 0), Child = OverviewText(threadData.Rows("replies").Count > 0 ? T("thread.replies", ("n", threadData.Rows("replies").Count)) : T("thread.no_replies"), 12, true) });
-        var replies = new StackPanel { Padding = new Thickness(16, 0, 16, 16) }; JsonNode? previous = null;
-        foreach (var reply in threadData.Rows("replies")) { replies.Children.Add(Message(reply!, true, Transcript.SameMessageGroup(previous, reply!))); previous = reply; }
-        detail.Children.Add(replies);
+        var replies = threadData.Rows("replies"); JsonNode? previous = null;
+        for (var index = 0; index < replies.Count; index++)
+        {
+            var reply = replies[index]!; var continued = Transcript.SameMessageGroup(previous, reply); var last = index == replies.Count - 1;
+            detail.Children.Add(() => new Border { Child = Message(reply, true, continued), Padding = new Thickness(16, 0, 16, last ? 16 : 0) });
+            previous = reply;
+        }
+        if (replies.Count == 0) detail.Children.Add(new Border { Height = 16 });
         var replyComposer = new StackPanel { Spacing = 6 };
         if (quoteText.Length > 0)
         {
