@@ -3,6 +3,26 @@ import AppKit
 @testable import Relic
 
 @MainActor final class TextMeasurementCacheTests: XCTestCase {
+    func testPreferredWidthsReuseIdenticalSourceButRecomputeChangedFontAndText() {
+        let cache = PreferredTextWidthCache()
+        var calls = 0
+        let source = NSMutableAttributedString(attributedString: NativeTextStyle.render(AttributedString("A passage"), size: 13))
+        func measured(_ value: NSAttributedString) -> CGFloat {
+            cache.width(value) { calls += 1; return NativeTextStyle.preferredWidth(value) }
+        }
+        let first = measured(source)
+        XCTAssertEqual(measured(NSAttributedString(attributedString: source)), first)
+        XCTAssertEqual(calls, 1)
+        source.setAttributedString(NativeTextStyle.render(AttributedString("A passage"), size: 20))
+        XCTAssertGreaterThan(measured(source), first)
+        XCTAssertEqual(calls, 2)
+        source.setAttributedString(NativeTextStyle.render(AttributedString("B passage"), size: 20))
+        _ = measured(source)
+        XCTAssertEqual(calls, 3)
+        source.setAttributedString(NativeTextStyle.render(AttributedString("A passage"), size: 13))
+        XCTAssertEqual(measured(source), first)
+        XCTAssertEqual(calls, 3, "A mutable caller must not alter a retained cache key")
+    }
     func testRepeatedProposalsAndChangedSourceMatchIndependentTextKitLayouts() {
         let cache = TextMeasurementCache(), paths = PathLineBreaks()
         let source = NSMutableAttributedString(string: "")

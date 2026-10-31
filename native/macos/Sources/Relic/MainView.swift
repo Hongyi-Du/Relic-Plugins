@@ -53,8 +53,15 @@ struct MainView: View {
             // All panes retain their final space, so the chat does not wrap
             // twice. The same progressive mounting runs in the shipped app.
             for phase in 1...3 {
-                do { try await Task.sleep(for: .milliseconds(32)) } catch { return }
+                let turn = UUID()
+                guard await RowMountQueue.shared.acquire(turn) else { return }
+                guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
                 revealPhase = phase
+                // Use the same turn queue as the lazy rows. Independent 32 ms
+                // timers otherwise mount a new pane and a cold row together.
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { RowMountQueue.shared.release(turn); return }
+                RowMountQueue.shared.release(turn)
             }
         }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }

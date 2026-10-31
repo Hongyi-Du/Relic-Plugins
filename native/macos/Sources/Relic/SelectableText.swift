@@ -173,9 +173,12 @@ enum NativeTextStyle {
         return rendered
     }
     static func preferredWidth(_ value: NSAttributedString) -> CGFloat {
-        let storage = NSTextStorage(attributedString: value), layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
-        return ceil(layout.usedRect(for: container).width)
+        PreferredTextWidthCache.shared.width(value) {
+            let trace = UIWorkTrace.begin("text.preferred-width"); defer { UIWorkTrace.end(trace) }
+            let storage = NSTextStorage(attributedString: value), layout = NSLayoutManager()
+            let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
+            container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
+            return ceil(layout.usedRect(for: container).width)
+        }
     }
 }
