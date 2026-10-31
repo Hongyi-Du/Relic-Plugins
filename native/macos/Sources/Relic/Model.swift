@@ -166,10 +166,13 @@ import Combine
     var client: Client?
     var startupStage: ((String) -> Void)?
     private let host = ServerHost()
-    @ObservationIgnored private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var plainTask: Task<Void, Never>?
     @ObservationIgnored private var plainQueue: Set<String> = []
-    @ObservationIgnored private var refreshing = false, pending = false, starting = false
+    @ObservationIgnored private var refreshing = false
+    @ObservationIgnored private var pending = false
+    @ObservationIgnored private var starting = false
     @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     @ObservationIgnored private var conversationTask: Task<Void, Never>?
     var isPreparingConversation: Bool { conversationTask != nil }
