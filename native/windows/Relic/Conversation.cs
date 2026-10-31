@@ -176,9 +176,16 @@ public sealed partial class MainWindow
         // ScrollViewer and selectable message children can handle these routed
         // events before application handlers. Still observe the user's intent
         // without consuming the event or replacing native scrolling/selection.
-        chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, e) =>
+        chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(async (_, e) =>
         {
-            if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) LeaveLatest();
+            if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0)
+            {
+                LeaveLatest();
+                // At the top, native scrolling cannot change the offset and
+                // therefore emits no ViewChanged. The real upward input must
+                // still be able to request the preceding page.
+                await LoadOlderAtTop();
+            }
         }), true);
         chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
@@ -186,8 +193,7 @@ public sealed partial class MainWindow
         chatScroll.ViewChanged += async (_, e) =>
         {
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
-            if (!e.IsIntermediate && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32)
-                await Run(LoadOlderMessages);
+            if (!e.IsIntermediate) await LoadOlderAtTop();
         };
         foreach (var text in new[] { editor, threadEditor })
         {
@@ -342,7 +348,7 @@ public sealed partial class MainWindow
                 BorderBrush = amberBanner ? OverviewAlpha(Paint("B7791F", "E2B15A"), .3) : Line };
             conversationBanner.Visibility = Visibility.Visible;
         }
-        var atBottom = chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120;
+        var atBottom = !loadingOlder && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
         if (chatMore) stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages));
         var items = ConversationItems().ToArray();
         if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
@@ -378,9 +384,12 @@ public sealed partial class MainWindow
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
+    private Task LoadOlderAtTop() => !closing && org.Length > 0 && api != null
+        && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32
+        ? Run(LoadOlderMessages) : Task.CompletedTask;
     private async Task LoadOlderMessages()
     {
-        if (loadingOlder) return;
+        if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;
         loadingOlder = true; keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
         try
         {

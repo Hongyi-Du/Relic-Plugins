@@ -1,5 +1,34 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+6e72578 / 41181207962 retains the next real Windows failure. UI max is
+142.625 ms, peak 383.758 MiB /39 threads, but history is incomplete. Its actual
+`history-action-0171.json` proves the handled wheel now arrives with delta 120
+and changes keepLatest to false. Before that input, however, the large chat
+already has offset 0 and extent 299673 with keepLatest=true; no ViewChanged
+occurs when it is asked to scroll to its existing top. The production latest-row
+request ran before actual Arrange. Microsoft's
+[GetOrCreateElement contract](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater.getorcreateelement)
+places its suggested anchor on the next layout pass; merely posting a dispatcher
+callback does not establish that pass. The correction binds the request to the
+actual arranged row, source revision and still-current user intent, without
+synchronous UpdateLayout. Continued upward input while already at the top also
+uses the production pager rather than requiring a position-change event.
+
+Changes for the clients: Windows pressure passively verifies initial latest-row
+position before any injected scroll; it cannot repair it through a test-only
+scroll command. History failure captures now use the existing full-window pixel
+capture with its guard extended solely to the explicit CI performance mode.
+No normal product launch enables capture. Failed screenshots and native input
+receipts remain diagnostic evidence, with all acceptance limits unchanged.
+macOS 6e72578 stops on actual visible-row/Markdown readiness at action-0047
+(248.030 ms, 184.688 MiB, 9 threads), and its mounted-text test also fails.
+REQUESTS.md/newest macOS work corrects initial/end anchoring to the actual final
+message instead of an empty footer; this needs fresh validation. REQUESTS.md
+at 00df02b additionally records an actual blank conversation despite zero
+bottom gap, and replaces nested lazy Markdown with staged paragraph layout
+inside virtualized message rows. Its actual-size CI display verification is
+included too. The Windows integrated headless build passes 0/0 in 15.11 s.
+
 The stronger 6b3e990 history test (41180304294) exposes a Windows input-state
 failure: real upward scroll never leaves follow-latest, so history is incomplete
 despite a 92.961 ms maximum UI delay (380.602 MiB, 39 threads). The previous
