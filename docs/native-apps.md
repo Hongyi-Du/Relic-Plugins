@@ -1,3 +1,19 @@
+Changes for the clients (native semantic and template observations): Windows now
+separates the Raw-only organization avatar container's provider Name from an
+independently exposed accessible name. This requires the actual current avatar,
+sealed organization row content, both full RuntimeId bindings and UIA parent
+relationship; the actual initial, child providers and named parent row remain.
+The original provider Name and all identity/exposure observations are retained.
+The reader also accepts the exact SDK SelectorBarItem's measured base chain,
+current ControlTemplate and complete children as template-only parent paint;
+focus, child paint and Composition still require their independent observations.
+Neither change rewrites historical missing receipts or changes gate tolerances.
+
+CI status at 81cb4d2: Windows build/tests, shared extraction contracts (970 Python
+and 125 JS tests), route/string parity and package validation pass. macOS tests
+still fail in complete-message reading order and finite caret readiness; newer
+native-macos fixes are being merged for CI. The full 672-case visual run
+41151254453 is still running, so no new passing scene count is claimed.
 # Native Relic App contract
 
 Changes for the clients (Windows Composition observation): each scene now has an

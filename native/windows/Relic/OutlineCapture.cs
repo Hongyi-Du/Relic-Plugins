@@ -248,6 +248,27 @@ public sealed partial class MainWindow
                         ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/PersonPicture/PersonPicture.cpp"
                     };
                 }
+                if (actual == typeof(SelectorBarItem))
+                {
+                    var item = (SelectorBarItem)value;
+                    // The exact pinned SelectorBarItem/ItemContainer implementations
+                    // update template children and VisualState only. Neither adds
+                    // a renderer to its native Control base. This does not cover
+                    // arbitrary ItemContainer/Control subclasses or child/focus paint.
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/SelectorBar/SelectorBar.idl#L14
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/ItemContainer/ItemContainer.cpp
+                    // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/hw/hwwalk.cpp#L1335
+                    receipt["selector_item_template"] = new JsonObject
+                    {
+                        ["source"] = "actual exact SelectorBarItem runtime, base chain, Control.Template and current visual children",
+                        ["status"] = "measured", ["owner_id"] = ids[value],
+                        ["base_type"] = actual.BaseType?.FullName, ["base_base_type"] = actual.BaseType?.BaseType?.FullName,
+                        ["is_sealed"] = actual.IsSealed,
+                        ["template_present"] = item.Template != null, ["template_type"] = item.Template?.GetType().FullName,
+                        ["visual_child_count"] = count,
+                        ["audited_sdk_source"] = "https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/controls/dev/SelectorBar/SelectorBarItem.cpp"
+                    };
+                }
                 if (actual == typeof(NativeLabel))
                 {
                     var label = (NativeLabel)value;
@@ -345,6 +366,7 @@ public sealed partial class MainWindow
         // This unsealed SDK class is accepted only by exact runtime equality,
         // with its actual present template and complete nonempty child set.
         : actual == typeof(PersonPicture) ? "native-personpicture-control-template-children-only"
+        : actual == typeof(SelectorBarItem) ? "native-selectorbaritem-template-children-only"
         : actual == typeof(OverviewChipView) || actual == typeof(OverviewBadgeView) ? "relic-overview-token-template-content"
         : actual == typeof(NativeStateDotView) ? "relic-state-dot-grid-owned-ellipses"
         // Exact sealed app renderer: native Panel paint plus an independently

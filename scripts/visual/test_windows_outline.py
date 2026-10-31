@@ -8,7 +8,9 @@ from windows_outline import (CONTRACTS, LOCAL_LAYOUT_CONTRACTS, LOCAL_LAYOUT_SOU
                              RUN_SOURCE, SOURCE, VECTOR_CONTRACT, VECTOR_RUNTIME,
                              VECTOR_SOURCE, TEMPLATE_CONTROL_TYPES, LABEL_RUNTIME,
                              LABEL_CONTRACT, LABEL_SOURCE, LABEL_SURFACE_SOURCE,
-                             PERSON_RUNTIME, PERSON_CONTRACT, PERSON_SOURCE, PERSON_SDK_SOURCE, native_outline)
+                             PERSON_RUNTIME, PERSON_CONTRACT, PERSON_SOURCE, PERSON_SDK_SOURCE,
+                             SELECTOR_ITEM_RUNTIME, SELECTOR_ITEM_CONTRACT, SELECTOR_ITEM_SOURCE,
+                             SELECTOR_ITEM_SDK_SOURCE, native_outline)
 
 
 def primitive(eid="paint", typ="Border", parent=None):
@@ -104,6 +106,23 @@ def person_picture():
     return node, child
 
 
+def selector_item():
+    """Synthetic new exact-type receipt; historical missing receipts stay unknown."""
+    node = primitive("item", "SelectorBarItem")
+    child = primitive("template-root", "Grid", "item")
+    node["render_type_evidence"] = {"source": "Actual runtime XAML base types",
+                                    "is_control": True, "control_template_present": True}
+    node["outline_owner_evidence"].update(runtime_type=SELECTOR_ITEM_RUNTIME, own_paint_contract=SELECTOR_ITEM_CONTRACT,
+        selector_item_template={"source": SELECTOR_ITEM_SOURCE, "status": "measured", "owner_id": "item",
+                                "base_type": "Microsoft.UI.Xaml.Controls.ItemContainer",
+                                "base_base_type": "Microsoft.UI.Xaml.Controls.Control", "is_sealed": False,
+                                "template_present": True, "template_type": "Microsoft.UI.Xaml.Controls.ControlTemplate",
+                                "visual_child_count": 1, "audited_sdk_source": SELECTOR_ITEM_SDK_SOURCE})
+    node["outline_owner_evidence"]["children"]["items"] = [
+        {"id": child["id"], "index": 0, "same_parent_object": True}]
+    return node, child
+
+
 class WindowsOutlineTests(unittest.TestCase):
     def result(self, node, others=()):
         return native_outline(node, {n["id"]: n for n in [node, *others]})
@@ -184,6 +203,58 @@ class WindowsOutlineTests(unittest.TestCase):
             node = primitive(typ=typ)
             node["outline_owner_evidence"]["focus"].update(state="Keyboard", relationship="same-object")
             self.assertUnknown(node)
+
+    def test_exact_selector_item_parent_proof_preserves_raw_and_independent_child_paint(self):
+        node, child = selector_item()
+        child["outline_owner_evidence"]["composition"].update(
+            child_visual_present=True, child_visual_type="ActualChildVisual")
+        before = deepcopy([node, child])
+        value, proof, gaps = self.result(node, [child])
+        self.assertEqual(value, "none")
+        self.assertEqual(gaps, [])
+        self.assertEqual(proof["raw"], before[0]["outline_owner_evidence"])
+        self.assertUnknown(child, [node])
+        self.assertEqual([node, child], before)
+
+    def test_selector_item_requires_exact_runtime_base_template_and_child_receipts(self):
+        for key in selector_item()[0]["outline_owner_evidence"]["selector_item_template"]:
+            with self.subTest(missing=key):
+                node, child = selector_item()
+                node["outline_owner_evidence"]["selector_item_template"].pop(key)
+                self.assertUnknown(node, [child])
+        for updates in ({"base_type": "Microsoft.UI.Xaml.Controls.Control"},
+                        {"base_base_type": "Microsoft.UI.Xaml.Controls.ContentControl"},
+                        {"is_sealed": True}, {"owner_id": "other"}, {"template_present": False},
+                        {"visual_child_count": 0}, {"visual_child_count": True},
+                        {"audited_sdk_source": "unverified SDK"}):
+            with self.subTest(updates=updates):
+                node, child = selector_item()
+                node["outline_owner_evidence"]["selector_item_template"].update(updates)
+                self.assertUnknown(node, [child])
+        for runtime in ("Relic.CustomSelectorBarItem", "Microsoft.UI.Xaml.Controls.ItemContainer",
+                        "Microsoft.UI.Xaml.Controls.Control", "Microsoft.UI.Xaml.Controls.ContentControl"):
+            node, child = selector_item()
+            node["type"] = runtime.rsplit(".", 1)[-1]
+            node["outline_owner_evidence"]["runtime_type"] = runtime
+            self.assertUnknown(node, [child])
+
+    def test_selector_item_keeps_historical_unknown_and_focus_composition_child_obligations(self):
+        node, child = selector_item()
+        node["outline_owner_evidence"]["own_paint_contract"] = None
+        node["outline_owner_evidence"].pop("selector_item_template")
+        self.assertUnknown(node, [child])
+        for section, updates in (("focus", {"state": "Keyboard"}),
+                                 ("composition", {"child_visual_present": True, "child_visual_type": "ActualVisual"}),
+                                 ("composition", {"shadow_present": True, "shadow_type": "ActualShadow"}),
+                                 ("children", {"complete": False})):
+            with self.subTest(section=section):
+                node, child = selector_item()
+                node["outline_owner_evidence"][section].update(updates)
+                self.assertUnknown(node, [child])
+        node, child = selector_item()
+        self.assertUnknown(node)
+        node["render_type_evidence"]["control_template_present"] = False
+        self.assertUnknown(node, [child])
 
     def test_non_system_focus_does_not_prove_no_template_focus(self):
         node = primitive()

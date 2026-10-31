@@ -1256,6 +1256,87 @@ def interaction_applicability(node, kind, witness, by_id=None):
     return None, "Actual native interaction applicability is unavailable"
 
 
+def sidebar_organization_avatar_name(node, witness, by_id, uia_by_id, identity_bindings):
+    """Prove raw-only decoration inside one actual named organization row.
+
+    No names, bounds or reference state establish ownership. Both providers
+    must already have independently validated full RuntimeId bindings.
+    """
+    if (node.get("type") != "PersonPicture" or not isinstance(witness, dict)
+            or witness.get("is_control_element") is not False
+            or witness.get("is_content_element") is not False
+            or witness.get("state", {}).get("focusable") is not False
+            or witness.get("state", {}).get("focused") is not False
+            or witness.get("supported_patterns") != []):
+        return None
+    lifetime = node.get("native_avatar_lookup", {})
+    avatar_outline = node.get("outline_owner_evidence", {})
+    if (not isinstance(lifetime, dict) or not isinstance(avatar_outline, dict)
+            or lifetime.get("source") != "Actual PersonPicture private attached DependencyProperty lifetime holder"
+            or lifetime.get("status") != "bound" or lifetime.get("owner_id") != node.get("id")
+            or lifetime.get("composition_runtime_type") != "Relic.NativeAvatarPicture"
+            or lifetime.get("composition_picture_is_owner") is not True
+            or lifetime.get("current_paint_and_template") is not True
+            or lifetime.get("lookup_modified_metadata") is not False
+            or avatar_outline.get("runtime_type") != "Microsoft.UI.Xaml.Controls.PersonPicture"):
+        return None
+    content = by_id.get(node.get("parent"), {})
+    presenter = by_id.get(content.get("parent"), {})
+    row = by_id.get(presenter.get("parent"), {})
+    if (content.get("type") != "Grid" or presenter.get("type") != "ContentPresenter"
+            or row.get("type") != "NativeSidebarRow"):
+        return None
+    state = row.get("state_evidence", {})
+    outline = row.get("outline_owner_evidence", {})
+    if not isinstance(state, dict) or not isinstance(outline, dict):
+        return None
+    binding = outline.get("sidebar_row_content", {})
+    if (not isinstance(binding, dict)
+            or state.get("source") != "Actual NativeSidebarRow organization binding and retained unread badge object"
+            or state.get("row_kind") != "organization" or state.get("owner_id") != row.get("id")
+            or outline.get("runtime_type") != "Relic.NativeSidebarRow"
+            or binding.get("source") != "actual sealed NativeSidebarRow runtime, current template and ContentPresenter/Content object identities"
+            or binding.get("status") != "measured" or binding.get("owner_id") != row.get("id")
+            or binding.get("base_type") != "Microsoft.UI.Xaml.Controls.ListViewItem"
+            or binding.get("is_sealed") is not True
+            or binding.get("audited_source") != "native/windows/Relic/NativeSidebarRow.cs#NativeSidebarRow"
+            or binding.get("template_type") != "Microsoft.UI.Xaml.Controls.ControlTemplate"
+            or binding.get("presenter_runtime_type") != "Microsoft.UI.Xaml.Controls.ContentPresenter"
+            or binding.get("presenter_id") != presenter.get("id")
+            or binding.get("content_id") != content.get("id") or binding.get("content_type") != "Grid"
+            or type(binding.get("visual_child_count")) is not int or binding["visual_child_count"] != 1
+            or any(binding.get(key) is not True for key in (
+                "template_present", "same_template_after", "same_content_after", "presenter_is_current_only_child",
+                "presenter_content_same_object", "content_is_current_presenter_child"))
+            or [child.get("id") for child in by_id.values() if child.get("parent") == row.get("id")] != [presenter.get("id")]
+            or [child.get("id") for child in by_id.values() if child.get("parent") == presenter.get("id")] != [content.get("id")]):
+        return None
+    pairs = identity_bindings.get("pairs", [])
+    avatar_pairs = [pair for pair in pairs if pair.get("xaml_id") == node.get("id")]
+    row_pairs = [pair for pair in pairs if pair.get("xaml_id") == row.get("id")]
+    if len(avatar_pairs) != 1 or len(row_pairs) != 1 or avatar_pairs[0].get("uia_id") != witness.get("id"):
+        return None
+    row_provider = uia_by_id.get(row_pairs[0].get("uia_id"), {})
+    if (witness.get("parent") != row_provider.get("id")
+            or row_provider.get("control_type") != "ControlType.ListItem"
+            or row_provider.get("is_control_element") is not True
+            or row_provider.get("is_content_element") is not True
+            or not isinstance(row_provider.get("name"), str) or not row_provider["name"].strip()):
+        return None
+    return {
+        "applicable": False, "quantity": "independently exposed accessible name",
+        "reason": "Actual raw-only decorative PersonPicture inside its bound, independently named organization row; provider Name remains raw evidence",
+        "raw_provider_name": witness.get("name"), "raw_provider_id": witness["id"],
+        "provider_exposure": {key: copy.deepcopy(witness.get(key)) for key in ("is_control_element", "is_content_element", "supported_patterns")},
+        "provider_state": copy.deepcopy(witness.get("state")),
+        "avatar_identity": copy.deepcopy(avatar_pairs[0]), "row_identity": copy.deepcopy(row_pairs[0]),
+        "xaml_path": [node["id"], content["id"], presenter["id"], row["id"]],
+        "row_provider_name": row_provider["name"], "row_provider_id": row_provider["id"],
+        "production_binding": copy.deepcopy(binding), "avatar_lifetime": copy.deepcopy(lifetime),
+        "scope": "Organization-row avatar container only; visible initial, child providers, parent row name/actions and all other avatars remain independent",
+    }
+
+
 def host_container_ownership(uia, raw):
     """Own only the measured main HWND / WinUI content-host chain once."""
     roots = [node for node in raw if node.get("parent") is None and node.get("region") == "window"
@@ -2781,6 +2862,7 @@ def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
         region = node["region"]
         name_witness = witness or run_name_witness
         reported_name = name_witness.get("name") if name_witness else node.get("accessible_name")
+        name_applicability = sidebar_organization_avatar_name(node, witness, by_id, uia_by_id, identity_bindings)
         placeholder_style = textarea_placeholders["audits"].get(node["id"])
         placeholder_node = by_id.get(placeholder_style.get("source_id")) if placeholder_style else None
         placeholder_visible = placeholder_node is not None and visible(placeholder_node)
@@ -2790,7 +2872,7 @@ def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
         apply_textarea_placeholder_style(style, placeholder_style,
                                         textarea_placeholders["styles"].get(node["id"]), placeholder_visible)
         element = {"id": node["id"], "parent": node.get("parent"), "region": region, "order": order[region], "kind": kind,
-                   "text": text, "name": reported_name if isinstance(reported_name, str) else "",
+                   "text": text, "name": reported_name if name_applicability is None and isinstance(reported_name, str) else "",
                    "bounds": bounds, "visible_bounds": submitted_label_text["visible_bounds"] if submitted_label_text is not None else avatar_surface["visible_bounds"] if avatar_surface is not None else scrollbar_visible_bounds or paint_node["visible_bounds"], "style": style, "state": state,
                    "layout": {k: layout.get(k) for k in ("wrap", "truncation", "line_count", "break_strategy_version", *BREAK_FIELDS)}, "icon": icon,
                    "evidence": {"source": "XAML render tree + independent UIA", "type": typ, "uia_id": witness["id"] if witness else None,
@@ -2835,7 +2917,10 @@ def project(xaml_path, uia_path, png_path, *, geometry_selection=None):
                                                              "uia_id": name_witness["id"] if name_witness else None,
                                                              "ownership": "whole text owner represented by one measured Run" if run_name_witness and not witness else "direct element",
                                                              "status": "reported" if isinstance(reported_name, str) else "not-provided",
-                                                             "note": "No reported accessible name is represented by an empty string; visible text is retained separately"},
+                                                             "note": ("Canonical empty string represents an inapplicable independent accessible name; reported retains the raw provider Name and visible text is unchanged"
+                                                                      if name_applicability is not None else
+                                                                      "No reported accessible name is represented by an empty string; visible text is retained separately")},
+                                "accessible_name_applicability": name_applicability,
                                 "stroke_evidence": copy.deepcopy(node.get("stroke_evidence")),
                                 "resize_handle_evidence": copy.deepcopy(node.get("resize_handle_evidence")),
                                 "region_container_evidence": copy.deepcopy(node.get("region_container_evidence")),
