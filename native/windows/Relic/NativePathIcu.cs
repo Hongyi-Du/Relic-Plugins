@@ -15,6 +15,7 @@ internal static class NativePathIcu
 
     internal static NativePathBoundaries Read(string text, string locale)
     {
+        using var timing = PerformanceTrace.Measure("NativePath.ICU.boundaries");
         IntPtr common = IntPtr.Zero, international = IntPtr.Zero, input = IntPtr.Zero, language = IntPtr.Zero;
         try
         {

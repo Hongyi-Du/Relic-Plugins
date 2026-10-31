@@ -17,6 +17,7 @@ internal sealed class VirtualRows : Grid
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
     internal int Realized => factory.Realized;
+    internal string TraceName { get; set; } = "rows";
     private readonly RowFactory factory = new();
     private int revision, committed = -1;
     private bool commitQueued;
@@ -46,12 +47,36 @@ internal sealed class VirtualRows : Grid
         UpdateLayout();
         last?.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false, VerticalAlignmentRatio = 1 });
     }
+    internal bool MoveFocus(UIElement source, int delta, Func<UIElement, Control?> focusTarget)
+    {
+        DependencyObject? container = source;
+        while (container != null && !ReferenceEquals(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(container), repeater))
+            container = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(container);
+        if (container is not UIElement current || delta == 0) return false;
+        var index = repeater.GetElementIndex(current);
+        for (index += Math.Sign(delta); index >= 0 && index < Children.Count; index += Math.Sign(delta))
+        {
+            var element = repeater.GetOrCreateElement(index);
+            if (focusTarget(element) is not { IsEnabled: true } target) continue;
+            target.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+            return target.Focus(FocusState.Keyboard);
+        }
+        return false;
+    }
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        using var timing = PerformanceTrace.Measure(TraceName + ".measure");
+        var result = base.MeasureOverride(availableSize);
+        PerformanceTrace.Count(TraceName + ".realized", Realized);
+        return result;
+    }
     private sealed class RowFactory : IElementFactory
     {
         private readonly Stack<Border> empty = new();
         internal int Realized { get; private set; }
         public UIElement GetElement(ElementFactoryGetArgs args)
         {
+            using var timing = PerformanceTrace.Measure("row.build");
             var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
             host.Child = ((Row)args.Data).Build(); Realized++;
             return host;
