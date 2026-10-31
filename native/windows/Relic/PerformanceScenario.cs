@@ -36,7 +36,7 @@ public sealed partial class MainWindow
                 for (var attempt = 0; ; attempt++)
                 {
                     try { System.IO.File.Move(path + ".tmp", path, true); break; }
-                    catch (System.IO.IOException) when (attempt < 10)
+                    catch (Exception error) when (attempt < 10 && error is System.IO.IOException or UnauthorizedAccessException)
                     {
                         // The external reader may momentarily hold the old
                         // Windows file without FILE_SHARE_DELETE. Retry this
