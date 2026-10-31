@@ -60,6 +60,13 @@ import Observation
         get { windowMetrics.size }
         set { if windowMetrics.size != newValue { windowMetrics.size = newValue } }
     }
+    func updateWindowGeometry(_ size: CGSize) {
+        windowSize = size
+        mentionEditor?.closeMentions()
+        if inputSuggestions != nil { inputSuggestions = nil }
+        if recipientPicker { recipientPicker = false }
+        if appMenu != nil { appMenu = nil }
+    }
     @Published var expandRules = false
     @Published var recipientPicker = false
     @Published var mentionItems: [Node] = []

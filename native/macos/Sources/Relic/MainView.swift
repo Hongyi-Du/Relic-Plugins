@@ -43,7 +43,7 @@ struct MainView: View {
                 }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
-        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
+        .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
         .task(id: organizationKey) {
             let ticket = PerformanceRendering.beginSurface()
             defer { PerformanceRendering.endSurface(ticket) }
