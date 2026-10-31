@@ -1,5 +1,33 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients: native-macos d4ca408 reports a real End blank-content
+failure despite a numeric bottom gap of zero, removes the competing default
+SwiftUI bottom anchor and adds a 5,850-row mounted-content regression. It asks
+for no shared changes. The shared large-data scenarios continue requiring actual
+visible content as well as offsets on both systems; no assertion is relaxed.
+
+d9dc3bf / 41189868876 fails a genuine history position check (72.709 ms,
+384.309 MiB, 38 threads). The first two anchors retain their positions within
+0 /0.015625 DIP. The third reading request at 1793440124441 is canceled by
+DrawChat at 1793440124643 before its row is prepared; the actual conversation
+is blank in the failure PNG. Commit previously called StopFollowingLast,
+canceling the same conversation's valid reading task whenever a refresh replaced
+ItemsSource. The fix carries that same key, intent and completion task across
+the new revision. Normal redraws while reading also preserve the visible key;
+input/navigation still cancels it. Refreshes are applied immediately, not dropped
+or delayed, and restoration-generated events cannot recursively load history.
+
+0e799cc diagnostic 41189982148 independently completes all 5,500 messages,
+five position-preservation cases and actual End in the first chat. The next
+1,250-message chat preserves its historical row, then actual End fails with
+no visible conversation and a 35,525.5 DIP estimated gap. Its follow repair
+starts bringing at 1793440309522, but viewport row construction continues
+through 1793440309799 (the row-build trace has no individual row identity).
+End-follow requests now use the same real-content preparation
+guard as reading restores before native BringIntoView; the existing recovery
+bound is unchanged. This diagnostic has no native stack capture and remains
+ineligible for acceptance. All strict content, timing and resource limits stay.
+
 Changes for the clients: 336f85d fixes the narrow Mac composer's actual empty
 text-document minimum height and adds a mounted-editor draw regression; no
 shared request or contract changes. The Windows diagnostic at bb37cbf records

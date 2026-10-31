@@ -339,6 +339,12 @@ public sealed partial class MainWindow
     }
     private void DrawConversation()
     {
+        // Live data and presentation changes still redraw while browsing old
+        // messages. Preserve the actual visible message, while an in-flight
+        // history restore keeps its original anchor across Commit revisions.
+        var readingOrg = org; var readingMember = member; var readingRequest = latestRequest;
+        var readingAnchor = !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending
+            && renderedView == org + "/" + member ? stream.ReadVisibleAnchor(chatScroll) : null;
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
         conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed; conversationBanner.MaxWidth = double.PositiveInfinity;
         composerRegion.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -442,7 +448,8 @@ public sealed partial class MainWindow
                 BorderBrush = amberBanner ? OverviewAlpha(Paint("B7791F", "E2B15A"), .3) : Line };
             conversationBanner.Visibility = Visibility.Visible;
         }
-        var atBottom = !loadingOlder && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
+        var atBottom = !loadingOlder && !stream.ReadingAnchorRestorePending
+            && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
         if (chatMore) stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages));
         var items = ConversationItems().ToArray();
         if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
@@ -476,12 +483,18 @@ public sealed partial class MainWindow
         if (member.Length > 0 && hasLiveRows) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });
         stream.Commit();
         if (atBottom) ScrollToLatest();
+        else if (readingAnchor != null)
+            _ = stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
+                () => !closing && !keepLatest && readingRequest == latestRequest && org == readingOrg && member == readingMember,
+                ConversationContentReady);
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
     private Task LoadOlderAtTop() => !closing && org.Length > 0 && api != null
-        && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32
+        && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending && chatMore && chatScroll.VerticalOffset < 32
         ? Run(LoadOlderMessages) : Task.CompletedTask;
+    private bool ConversationContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
+        && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
     private async Task LoadOlderMessages()
     {
         if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;
@@ -504,8 +517,7 @@ public sealed partial class MainWindow
         if (readingAnchor != null)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
-                () => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
-                    && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0);
+                ConversationContentReady);
         }
         finally { loadingOlder = false; }
     }

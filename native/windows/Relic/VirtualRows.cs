@@ -51,7 +51,7 @@ internal sealed class VirtualRows : Grid
     private sealed class ReadingRestore(int revision, ReadingAnchor anchor, ScrollViewer viewport,
         Func<bool> isCurrent, Func<bool> isContentReady)
     {
-        internal readonly int Revision = revision;
+        internal int Revision = revision;
         internal readonly ReadingAnchor Anchor = anchor;
         internal readonly ScrollViewer Viewport = viewport;
         internal readonly Func<bool> IsCurrent = isCurrent, IsContentReady = isContentReady;
@@ -81,10 +81,31 @@ internal sealed class VirtualRows : Grid
     {
         if (committed == revision) return;
         using var timing = PerformanceTrace.Measure("rows.commit");
+        var reading = restoringReading is { } candidate && candidate.IsCurrent()
+            && Children.Any(row => row.Key == candidate.Anchor.Key) ? candidate : null;
         committed = revision;
-        StopFollowingLast();
+        if (reading == null) StopFollowingLast();
+        else
+        {
+            // A normal refresh can replace the model while the real reading
+            // row is still preparing. Keep its intent and completion task;
+            // only the old realization request belongs to the old revision.
+            pendingBring = null;
+            reading.Viewport.AnchorRequested -= ReadingAnchorRequested;
+            reading.Viewport.ViewChanged -= ReadingViewChanged;
+            reading.Revision = committed;
+        }
         ItemsReplacing?.Invoke();
         repeater.ItemsSource = Children.ToArray();
+        if (reading != null)
+        {
+            reading.Viewport.AnchorRequested += ReadingAnchorRequested;
+            reading.Viewport.ViewChanged += ReadingViewChanged;
+            var index = Children.FindIndex(row => row.Key == reading.Anchor.Key);
+            PerformanceTrace.Count(TraceName + ".reading.rebased", index);
+            BringIndexIntoViewCore(index, 0, reading.Anchor.ViewportTop,
+                () => IsCurrent(reading), reading.IsContentReady);
+        }
     }
     internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {
@@ -96,7 +117,7 @@ internal sealed class VirtualRows : Grid
         viewport.ViewChanged += FollowViewChanged;
         viewport.SizeChanged += FollowViewportSizeChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
-        BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent);
+        BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent, isContentReady);
     }
     internal void StopFollowingLast()
     {
@@ -293,7 +314,12 @@ internal sealed class VirtualRows : Grid
             follow.Settled = false;
             PerformanceTrace.Count(TraceName + ".follow.repair", geometry.Index);
             PerformanceTrace.Count(TraceName + ".follow.gap", geometry.Extent - geometry.Offset);
-            BringIndexIntoViewCore(geometry.Index, 1, -Padding.Bottom, follow.IsCurrent);
+            // A missing row starts new deferred construction below, even when
+            // the old viewport was ready at this check. Wait for the requested
+            // row's actual content and its next Arrange before submitting the
+            // bring; aligning its temporary estimate can lose it again as soon
+            // as Markdown/font preparation changes the virtual extent.
+            BringIndexIntoViewCore(geometry.Index, 1, -Padding.Bottom, follow.IsCurrent, follow.IsContentReady);
         })) followQueued = false;
     }
     internal void BringLastIntoView(Func<bool>? isCurrent = null)
