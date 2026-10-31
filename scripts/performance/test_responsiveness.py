@@ -143,14 +143,15 @@ class DiagnosticStackSampling(unittest.TestCase):
             start.assert_called_once()
             self.assertEqual(sampler.summary()["trigger_details"], {
                 "source": "pending_ui_probe", "action": "dialog: settings", "observed_pending_ms": 100,
-                "sampling_threshold_ms": 100, "acceptance_ui_limit_ms": 250, "early_modal_sample": True})
+                "sampling_threshold_ms": 100, "acceptance_ui_limit_ms": 250, "early_modal_sample": True,
+                "early_presentation_sample": True})
             self.assertEqual(driver.UI_LIMIT_MS, 250)
             self.assertFalse(driver.observation_policy(True)["acceptance_eligible"])
             sampler.close()
 
     def test_diagnostic_other_actions_keep_250ms_sampling_threshold(self):
         with tempfile.TemporaryDirectory() as folder:
-            for action in ("group: synthetic", "monkey dialog: settings", "initial organization load"):
+            for action in ("group: synthetic", "monkey dialog: settings", "pane: workspace"):
                 with self.subTest(action=action):
                     sampler = self.sampler(folder)
                     with patch.object(sampler, "trigger") as trigger:
@@ -162,12 +163,30 @@ class DiagnosticStackSampling(unittest.TestCase):
                     self.assertEqual(trigger.call_args.args[1]["sampling_threshold_ms"], 250)
                     self.assertFalse(trigger.call_args.args[1]["early_modal_sample"])
 
+    def test_diagnostic_startup_and_overview_capture_pending_work_before_it_ends(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for action in ("initial organization load", "pane: overview"):
+                with self.subTest(action=action):
+                    sampler = self.sampler(folder)
+                    with patch.object(sampler, "trigger") as trigger:
+                        sampler.observe_pending({"unix_ms": 1099, "pending_since_unix_ms": 1000, "action": action})
+                        trigger.assert_not_called()
+                        sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": action})
+                    trigger.assert_called_once()
+                    details = trigger.call_args.args[1]
+                    self.assertEqual(details["sampling_threshold_ms"], 100)
+                    self.assertEqual(details["acceptance_ui_limit_ms"], 250)
+                    self.assertTrue(details["early_presentation_sample"])
+                    self.assertFalse(details["early_modal_sample"])
+                    self.assertFalse(driver.observation_policy(True)["acceptance_eligible"])
+
     def test_normal_nonci_and_nonwindows_never_sample_early_dialogs(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(driver.subprocess, "Popen") as start:
             for options in ({"diagnostic": False}, {"ci": "false"}, {"client": "macos"}, {"platform": "linux"}):
                 with self.subTest(options=options):
                     sampler = self.sampler(folder, **options)
-                    sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": "dialog: settings"})
+                    for action in ("dialog: settings", "initial organization load", "pane: overview"):
+                        sampler.observe_pending({"unix_ms": 1100, "pending_since_unix_ms": 1000, "action": action})
                     self.assertIsNone(sampler.summary()["trigger_details"])
                     sampler.close()
             start.assert_not_called()

@@ -1,5 +1,17 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+c2ec6ba / 41187848376 fails during initial organization loading at 264.591 ms
+(225.508 MiB, 36 threads), before the new history restoration is exercised.
+It does not validate or invalidate that later path. Changes for the clients:
+explicit diagnostic mode now samples pending startup and overview work at
+100 ms, as it already did for dialogs, so short cold stalls can be sampled
+before returning. Raw records label this as early presentation sampling;
+normal acceptance remains 250 ms, diagnostics remain ineligible, and all
+three-report /5-second /15-second sampling bounds are unchanged. Tests cover
+both early capture and absence of sampling outside explicit Windows CI.
+Mac REQUESTS at 7409e6e identifies per-row observation-registration work from
+actual native samples; its immutable shared row metadata fix is integrated.
+
 6648e83 strict run 41186777750 completes all six pages /5,500 messages and
 shows the actual first historical row at gap 0, but End input reaches a
 NativePathText descendant rather than the ScrollViewer. The inherited default

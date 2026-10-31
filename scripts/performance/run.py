@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "plugins" / "relic"))
 from relic_core.process import creation_flags
 
 UI_LIMIT_MS = 250
-DIAGNOSTIC_DIALOG_SAMPLE_MS = 100
+DIAGNOSTIC_PRESENTATION_SAMPLE_MS = 100
 RSS_LIMIT = 1024 * 1024 * 1024
 THREAD_LIMIT = 160
 
@@ -28,7 +28,7 @@ def observation_policy(diagnostic=False):
 
 
 class DiagnosticStacks:
-    """Bounded diagnostic stacks, with an early sample during modal UI work."""
+    """Bounded diagnostic stacks, with early samples in observed UI hotspots."""
     CAPTURE_ORDER = ("native", "native", "managed")
     MAX_REPORTS = 3
     REPORT_SECONDS = 5
@@ -67,13 +67,15 @@ class DiagnosticStacks:
         if not self.enabled:
             return
         action = str(heartbeat.get("action", ""))
-        threshold = DIAGNOSTIC_DIALOG_SAMPLE_MS if action.startswith("dialog:") else UI_LIMIT_MS
+        early = action.startswith("dialog:") or action in ("initial organization load", "pane: overview")
+        threshold = DIAGNOSTIC_PRESENTATION_SAMPLE_MS if early else UI_LIMIT_MS
         pending = pending_probe_ms(heartbeat)
         if pending >= threshold:
             self.trigger(f"Diagnostic pending UI sample at {pending:.3f} ms during {action}", {
                 "source": "pending_ui_probe", "action": action, "observed_pending_ms": pending,
                 "sampling_threshold_ms": threshold, "acceptance_ui_limit_ms": UI_LIMIT_MS,
-                "early_modal_sample": threshold < UI_LIMIT_MS,
+                "early_modal_sample": early and action.startswith("dialog:"),
+                "early_presentation_sample": early,
             })
 
     def trigger(self, reason, details=None):
