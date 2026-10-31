@@ -78,6 +78,12 @@ struct MessageInteractionAnchor: NSViewRepresentable {
                 // replace the scroll area's accessible child inventory.
                 self.navigationAttempts += 1
                 self.navigationSucceeded = RelicAXPlaceChildBefore(scroll, avatar, metadata)
+                if self.navigationSucceeded == false {
+                    // SwiftUI can flatten the actual avatar container to its
+                    // native initials label. That label carries a distinct
+                    // source ID and remains a text element, not a second avatar.
+                    self.navigationSucceeded = RelicAXPlaceChildBefore(scroll, "relic-avatar-text/" + avatar, metadata)
+                }
                 // SwiftUI may materialize its virtual children on the first AX
                 // query after layout. Give that real tree another main-loop
                 // turn; never retry indefinitely or reorder capture output.
