@@ -286,6 +286,7 @@ struct ConversationStream: View {
     @State private var presentedRowCount = 0
     @State private var mountedViewport = false
     @State private var mountedComposer = false
+    @State private var visibleRow: String? = "end"
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     var body: some View {
@@ -323,18 +324,21 @@ struct ConversationStream: View {
                             // the scroll target. Padding outside the target is
                             // scrolled offscreen by scrollTo(anchor: .bottom).
                             Color.clear.frame(height: 24).id("end")
-                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
+                        }.scrollTargetLayout()
+                            .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }.defaultScrollAnchor(.bottom).modifier(RecordedSurface(background: .clear, kind: "region"))
+                    }.defaultScrollAnchor(.bottom)
+                        .scrollPosition(id: $visibleRow, anchor: .bottom)
+                        .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
-                            // defaultScrollAnchor(.bottom) already owns initial
-                            // placement and content-size anchoring. Scrolling to
+                            // The bound row identity owns initial placement and
+                            // content-size anchoring. Scrolling to
                             // the estimated document maximum here feeds every
                             // lazy height correction back into another layout.
                             // Observe the real position without moving it.

@@ -1,3 +1,19 @@
+## A7 update: 0771470 native tests pass; resize still fails
+
+Native apps 41176708889 is green at 0771470 (294 macOS tests). Strict pressure
+41176708932 reaches action-0167 (1440 to 1180 width), then FAILS: 346.257 ms,
+188.656 MiB peak RSS, 9 threads. No monkey phase or resource plateau was reached.
+Its full-window job 41176708887 passes existing checks, but inspection found
+the newest Markdown/code block clipped in the wide dark screenshot. The new
+capture assertion checks the actual conversation's bottom gap, and the real
+Home/End test now checks initial placement with asynchronous Markdown as well.
+
+Current changes preserve the inspector's structural identity when it changes
+between inline and overlay layout, and bind the conversation's native scroll
+position to its row identity. These require fresh CI; no passing pressure
+result is claimed. Shared native-apps 062dcba is included. Raw evidence remains
+under `S:\Codex\Outputs\Relic-native-visual\responsiveness-0771470\macos`.
+
 ## A7 update: pressure now reaches resize; geometry invalidation fix
 
 7d45b97 passes native builds/packages (289 macOS tests), all four Python jobs,

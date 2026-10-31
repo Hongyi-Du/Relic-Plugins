@@ -80,6 +80,12 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     static func controller(for scroll: NSScrollView) -> ConversationKeyboard? {
         live.allObjects.first { $0.attachedScroll === scroll && $0.window === scroll.window }?.keyboard
     }
+    static func bottomGap(in window: NSWindow) -> CGFloat? {
+        guard let scroll = live.allObjects.first(where: { $0.window === window })?.attachedScroll,
+              let document = scroll.documentView else { return nil }
+        let clip = scroll.contentView.bounds
+        return max(0, document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY)
+    }
     func makeNSView(context: Context) -> Mount {
         let view = Mount(keyboard: keyboard); Self.live.add(view)
         view.update(enabled: enabled, focused: focused); return view
