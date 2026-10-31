@@ -5,9 +5,11 @@ import SwiftUI
 /// spoken alternative while drawing the actual circle with CoreGraphics.
 struct NativeListMarker: NSViewRepresentable {
     let size: CGFloat
+    var ownedLayer = true
     @Environment(\.captureRegion) private var region
     func makeNSView(context: Context) -> NativeListMarkerView {
         let view = NativeListMarkerView()
+        if ownedLayer { view.enableOwnedBackingImage() }
         updateNSView(view, context: context)
         return view
     }
@@ -40,6 +42,29 @@ struct NativeListMarkerMetrics {
     private var sequence = 0
     private(set) var lastDraw: [String: Any]?
     var recordDraws = VisualCapture.enabled
+    private(set) var usesOwnedBackingImage = false
+    private var backingImage: CGImage?, backingDraw: [String: Any]?
+    private var backingBounds = NSRect.zero, backingFrame = NSRect.zero
+    private var backingWindow: ObjectIdentifier?
+    private var backingScale: CGFloat = 1
+    override var wantsUpdateLayer: Bool { usesOwnedBackingImage }
+    override func makeBackingLayer() -> CALayer {
+        usesOwnedBackingImage ? NativeMarkerBackingLayer(owner: self) : super.makeBackingLayer()
+    }
+    func enableOwnedBackingImage() {
+        usesOwnedBackingImage = true; canDrawSubviewsIntoLayer = false; wantsLayer = true
+        invalidatePaint()
+    }
+    private func invalidatePaint() {
+        needsDisplay = true
+        if usesOwnedBackingImage { layer?.setNeedsDisplay() }
+    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); invalidatePaint() }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); invalidatePaint() }
+    override func setFrameSize(_ value: NSSize) {
+        let changed = frame.size != value; super.setFrameSize(value)
+        if changed { invalidatePaint() }
+    }
     override var isFlipped: Bool { true }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -52,12 +77,52 @@ struct NativeListMarkerMetrics {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        revision += 1; needsDisplay = true
+        revision += 1; invalidatePaint()
     }
     func configure(font: NSFont, color: NSColor, region: String) {
         self.region = region
         guard self.font != font || self.color != color else { return }
-        self.font = font; self.color = color; revision += 1; needsDisplay = true
+        self.font = font; self.color = color; revision += 1; invalidatePaint()
+    }
+    override func updateLayer() {
+        guard let layer else { return }
+        let scale = window?.backingScaleFactor ?? 1
+        guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: Int(ceil(bounds.width * scale)), height: Int(ceil(bounds.height * scale)),
+                bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
+            layer.contents = nil; backingImage = nil; backingDraw = nil; return
+        }
+        context.translateBy(x: 0, y: CGFloat(context.height)); context.scaleBy(x: scale, y: -scale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        effectiveAppearance.performAsCurrentDrawingAppearance { draw(bounds) }
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = context.makeImage() else { return }
+        layer.contentsScale = scale; layer.contentsGravity = .topLeft; layer.contents = image
+        backingImage = image; backingDraw = lastDraw; backingBounds = bounds; backingFrame = frame
+        backingWindow = window.map(ObjectIdentifier.init); backingScale = scale
+    }
+    func backingPaintObservation() -> [String: Any] {
+        let contents = layer?.contents as AnyObject?, presentation = layer?.presentation()
+        let matches = backingImage.map { contents === $0 } ?? false
+        let presented = backingImage.map { (presentation?.contents as AnyObject?) === $0 } ?? false
+        let current = matches && backingDraw?["revision"] as? Int == revision
+            && backingBounds == bounds && backingFrame == frame && backingWindow == window.map(ObjectIdentifier.init)
+            && layer?.contentsScale == backingScale && layer?.contentsGravity == .topLeft
+        return ["source": "production NativeListMarkerView.updateLayer native sRGB image",
+            "current": current, "view_identity": String(describing: ObjectIdentifier(self)),
+            "window_identity": window.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "image_identity": backingImage.map { String(describing: ObjectIdentifier($0)) } as Any? ?? NSNull(),
+            "layer_contents_is_same_image": matches, "presentation_contents_is_same_image": presented,
+            "scale": backingScale, "image_width": backingImage?.width as Any? ?? NSNull(),
+            "image_height": backingImage?.height as Any? ?? NSNull(),
+            "bounds": ElementCapture.box(backingBounds), "native_frame": ElementCapture.box(backingFrame),
+            "disc_draw": backingDraw as Any? ?? NSNull(), "final_png_attribution_proven": false,
+            "model_layer": layer.map { NativeLayerOrder.observation($0) } as Any? ?? NSNull(),
+            "presentation_layer": presentation.map { NativeLayerOrder.observation($0) } as Any? ?? NSNull()]
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext,
@@ -106,10 +171,19 @@ struct NativeListMarkerMetrics {
         let screen = window.convertToScreen(convert(bounds, to: nil))
         let ink = window.convertToScreen(convert(ElementCapture.rect(draw["local_ellipse"]), to: nil))
         return ["source": "production native disc observation", "current_draw": draw,
+            "native_backing_image": usesOwnedBackingImage ? backingPaintObservation() as Any : NSNull(),
             "screen_bounds": ElementCapture.box(screen), "screen_ellipse": ElementCapture.box(ink),
             "content_screen_frame": ["source": "actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen",
                 "coordinate_space": "AppKit screen coordinates (bottom-left)",
                 "window_identity": String(describing: ObjectIdentifier(window)), "bounds": ElementCapture.box(contentFrame)],
             "native_structure": NativeElementStructure.evidence(self, parent: nil), "errors": []]
     }
+}
+
+private final class NativeMarkerBackingLayer: CALayer {
+    private weak var owner: NativeListMarkerView?
+    init(owner: NativeListMarkerView) { self.owner = owner; super.init(); needsDisplayOnBoundsChange = true }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func display() { MainActor.assumeIsolated { owner?.updateLayer() } }
 }
