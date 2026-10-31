@@ -47,7 +47,7 @@ class MockSurface:
         self.mode = None
         self.release = []
 
-    def send(self, method, params):
+    def send(self, method, params=None):
         if method == "Browser.getVersion":
             return {"product": "HeadlessChrome/" + hover.VERSION, "revision": "@" + hover.REVISION}
         if method == "DOM.resolveNode":
