@@ -1,3 +1,16 @@
+## Shared request: restore the full-matrix contract test after diagnostic selection refactor
+
+At shared 2090f5c, Native element extraction contracts 41177925958 fails
+`MatrixReportTests.test_full_matrix_requires_exact_672_cases`:
+`scripts/visual/test_element_parity.py:640`, `StopIteration`. Its AST check
+expects a direct assignment to `scenes` in capture.main; 69e4205 moved selection
+behind the diagnostic helper. The other 982 tests pass. Please update the
+structural assertion to inspect the actual default call/helper and still prove
+exactly 672 full cases and the unchanged smoke matrix. Do not relax the matrix
+or mark this contract non-blocking. This also blocks Native apps 41177925769.
+macOS 6027644 passes its 294 tests and all four adaptive-window captures, with
+actual bottom gap 0 pt in each; wide dark and narrow light images were inspected.
+
 ## A7 update: 0771470 native tests pass; resize still fails
 
 Native apps 41176708889 is green at 0771470 (294 macOS tests). Strict pressure
