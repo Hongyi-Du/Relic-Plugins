@@ -37,6 +37,10 @@ retain their native text-scale behavior; the root layout is never bitmap-scaled.
 macOS uses AppKit point frames and autosaving, and caps its minimum to the
 85% default on unusually small screens. Its startup/frame receipts requested in
 `native/macos/REQUESTS.md` are preserved by the shared driver.
+The macOS session's Windows startup request at d67957a is fixed in 9a9cdc9:
+enumerate the actual DisplayArea vector with Count/index access, avoiding the
+unsupported IEnumerable projection that produced E_NOINTERFACE. CI full-window
+captures exercise this product startup path before applying capture dimensions.
 
 The person accepted the current native appearance and ended element-parity
 iteration. The historical requirements and measurements below remain evidence,
