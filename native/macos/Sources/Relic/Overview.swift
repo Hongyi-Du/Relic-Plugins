@@ -8,7 +8,26 @@ struct Overview: View {
     private func roleName(_ id: String, _ key: String) -> String { m.roleName(id, key) }
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            OverviewBlock {
+            ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison")) { entry in
+                VStack(alignment: .leading, spacing: 0) {
+                    if entry.kind == "introduction" { introduction }
+                    else if entry.kind == "hierarchy" { HierarchyView() }
+                    else {
+                        entryView(entry).frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16).padding(.top, entry.first ? 14 : 8)
+                            .padding(.bottom, entry.last ? 15 : 0)
+                            .overlay(alignment: .bottom) {
+                                if entry.last { Rectangle().fill(RelicStyle.line).frame(height: 1).allowsHitTesting(false).accessibilityHidden(true) }
+                            }
+                    }
+                }.onAppear { PerformanceRendering.rowAppeared("overview") }
+                    .onDisappear { PerformanceRendering.rowDisappeared("overview") }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
+    }
+    private var introduction: some View {
+        OverviewBlock {
                 HStack(spacing: 8) {
                     ReferenceLabel(m.t("org.heading"), size: 12, color: RelicStyle.muted).fixedSize(); Spacer(minLength: 0)
                     HStack(spacing: 2) {
@@ -36,34 +55,32 @@ struct Overview: View {
                 }
                 if !["", "active"].contains(org["status"].text) { ReferenceLabel(m.t(org["status"].text == "closed" ? "org.ended_closed" : "org.ended_dissolved"), size: 12, color: RelicStyle.muted, lineHeight: 18.6, lines: 0) }
                 ReferenceSwitchRow(m.t("org.auto_wake"), isOn: Binding(get: { org["auto_wake"].flag }, set: { value in m.run { try await m.post(m.path("/auto_wake"), ["on": value]); try await m.refresh() } }))
-            }
-            OverviewBlock {
-                HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { NativeCountBadge(text: String(m.snapshot["decisions"].rows.count)) } }
-                if m.snapshot["decisions"].rows.isEmpty { empty("decision.none") }
-                Rows(m.snapshot["decisions"].rows) { DecisionView(decision: $0) }
-            }
-            HierarchyView()
-            currentWork
-            if m.overviewMode != "liaison" { people; protocols; episodes }
-            OverviewBlock {
-                if m.overviewMode == "liaison" { empty("org.liaison_note") }
-                Button { m.openDetails("trace") } label: { HStack(spacing: 6) { ReferenceIcon(name: "trace", size: 16); Text(m.t("org.details")).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle())
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-            .onChange(of: m.overviewMode) { m.defaults.set(m.overviewMode, forKey: "overview.mode"); if m.overviewMode == "liaison" && !m.secretary.isEmpty && m.member != m.secretary { m.run { try await m.select(m.organization, m.secretary) } } }
+        }
     }
     private func sectionTitle(_ key: String) -> some View { ReferenceLabel(m.t(key), size: 12, color: RelicStyle.muted, lineHeight: 19.2, lines: 0) }
     private func empty(_ key: String) -> some View { ReferenceLabel(m.t(key), size: 12.5, color: RelicStyle.muted, lines: 0).fixedSize(horizontal: false, vertical: true) }
-    private var currentWork: some View {
+    @ViewBuilder private func entryView(_ entry: OverviewEntry) -> some View {
         let tasks = m.snapshot["tasks"].rows, open = tasks.filter { !["done", "dropped"].contains($0["status"].text) }, done = tasks.filter { $0["status"].text == "done" }
-        return OverviewBlock {
+        switch entry.kind {
+        case "empty": empty(entry.source)
+        case "decisions-heading":
+            HStack { sectionTitle("decision.title"); Spacer(); if !m.snapshot["decisions"].rows.isEmpty { NativeCountBadge(text: String(m.snapshot["decisions"].rows.count)) } }
+        case "decision": DecisionView(decision: entry.node)
+        case "work-heading":
             HStack { OverviewLink(text: m.t("org.current_work")) { m.openDetails("tasks", filter: "open") }; Spacer(); OverviewLink(text: m.t("org.done_count", ["n": String(done.count)])) { m.openDetails("tasks", filter: "done") } }
-            if tasks.isEmpty { empty("org.no_tasks") }
-            else if open.isEmpty { ReferenceLabel(m.t("org.nothing_open", ["n": String(done.count)]), size: 12.5, color: RelicStyle.muted, lines: 0) }
-            Rows(Array(open.prefix(8))) { overviewTask($0, report: false) }
-            if open.count > 8 { OverviewLink(text: m.t("common.more_items", ["n": String(open.count - 8)]), icon: "") { m.openDetails("tasks", filter: "open") } }
-            let reports = done.filter { !$0["report"].text.isEmpty }.sorted { $0["done_at"].text > $1["done_at"].text }
-            if !reports.isEmpty { sectionTitle("org.recently_done").padding(.top, 4); Rows(Array(reports.prefix(3))) { overviewTask($0, report: true) } }
+        case "nothing-open": ReferenceLabel(m.t("org.nothing_open", ["n": String(done.count)]), size: 12.5, color: RelicStyle.muted, lines: 0)
+        case "task": overviewTask(entry.node, report: entry.source == "report")
+        case "more-tasks": OverviewLink(text: m.t("common.more_items", ["n": String(open.count - 8)]), icon: "") { m.openDetails("tasks", filter: "open") }
+        case "reports-heading": sectionTitle("org.recently_done").padding(.top, 4)
+        case "people-heading": HStack { sectionTitle("org.members"); Spacer(); OverviewLink(text: m.t("org.add"), icon: "plus", leading: true) { m.openMemberForm() } }
+        case "member": overviewMember(entry.node)
+        case "protocols-heading":
+            HStack { OverviewLink(text: m.t("org.protocols")) { m.openDetails("protocols") }; Spacer(); Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
+        case "protocol": overviewProtocol(entry.node, source: entry.source)
+        case "episodes-heading": sectionTitle("native.episodes")
+        case "episode": overviewEpisode(entry.node)
+        case "details": Button { m.openDetails("trace") } label: { HStack(spacing: 6) { ReferenceIcon(name: "trace", size: 16); Text(m.t("org.details")).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity) }.buttonStyle(ReferenceButtonStyle())
+        default: EmptyView()
         }
     }
     private func overviewTask(_ task: Node, report: Bool) -> some View {
@@ -73,46 +90,24 @@ struct Overview: View {
             } trailing: { OverviewChip(text: report ? m.t("org.report") : m.taskLabel(task["status"].text), tone: report ? "ok" : task["status"].text == "blocked" ? "bad" : task["status"].text == "working" ? "warn" : "") }
         }.buttonStyle(QuietButtonStyle())
     }
-    private var people: some View {
-        OverviewBlock {
-            HStack { sectionTitle("org.members"); Spacer(); OverviewLink(text: m.t("org.add"), icon: "plus", leading: true) { m.openMemberForm() } }
-            Rows(m.members) { member in
+    private func overviewMember(_ member: Node) -> some View {
                 MemberCardButton(member: member["name"].text) {
                     OverviewRow(title: member["secretary"].flag ? m.t("org.member_secretary", ["name": roleName(member["name"].text, "common.secretary")]) : member.display, subtitle: m.overviewMemberDetail(member)) {
                         Avatar(member: member["name"].text, size: 28, showState: true)
                     } trailing: { OverviewChip(text: m.stateLabel(member["state"].text), tone: ["running", "working"].contains(member["state"].text) ? "ok" : member["state"].text == "waiting" ? "warn" : member["state"].text == "error" ? "bad" : "") }
                 }.buttonStyle(QuietButtonStyle())
-            }
-        }
     }
-    private var protocols: some View {
-        let live = m.snapshot["protocols"].rows.filter { ["active", "proposed"].contains($0["status"].text) }
-        return OverviewBlock {
-            HStack { OverviewLink(text: m.t("org.protocols")) { m.openDetails("protocols") }; Spacer(); Text(m.t("org.protocols_active", ["n": String(m.snapshot["protocols"].rows.filter { $0["status"].text == "active" }.count)])).font(RelicStyle.font(12, weight: 400)).foregroundStyle(RelicStyle.muted) }
-            if live.isEmpty && m.snapshot["inherited_protocols"].rows.isEmpty && m.snapshot["replaced_protocols"].rows.isEmpty { empty("org.no_protocols") }
-            ForEach(["protocols", "inherited_protocols", "replaced_protocols"], id: \.self) { kind in
-                Rows(kind == "protocols" ? live : m.snapshot[kind].rows) { p in
+    private func overviewProtocol(_ p: Node, source: String) -> some View {
                     Button { m.openDetails("protocols") } label: {
-                        OverviewRow(title: p["id"].text + " " + p["title"].text, subtitle: m.overviewProtocolDetail(p, source: kind), struck: kind == "replaced_protocols") {
-                            OverviewChip(text: m.t(p["strength"].text == "strong" ? "common.strong" : "common.weak"), tone: p["strength"].text == "strong" && kind != "replaced_protocols" ? "bad" : "")
+                        OverviewRow(title: p["id"].text + " " + p["title"].text, subtitle: m.overviewProtocolDetail(p, source: source), struck: source == "replaced_protocols") {
+                            OverviewChip(text: m.t(p["strength"].text == "strong" ? "common.strong" : "common.weak"), tone: p["strength"].text == "strong" && source != "replaced_protocols" ? "bad" : "")
                         } trailing: { Color.clear.frame(width: 0, height: 0) }
-                    }.buttonStyle(QuietButtonStyle()).recordedOpacity(kind == "replaced_protocols" ? 0.6 : 1)
-                }
-            }
-        }
+                    }.buttonStyle(QuietButtonStyle()).recordedOpacity(source == "replaced_protocols" ? 0.6 : 1)
     }
-    private var episodes: some View {
-        let all = m.snapshot["episodes"].rows
-        let visible = all.filter { $0["status"].text == "open" } + all.filter { $0["status"].text == "closed" }.suffix(3).reversed()
-        return OverviewBlock {
-            sectionTitle("native.episodes")
-            if all.isEmpty { empty("org.no_episodes") }
-            Rows(visible) { episode in
+    private func overviewEpisode(_ episode: Node) -> some View {
                 OverviewRow(title: episode["id"].text + " " + episode["title"].text, subtitle: m.t("org.episode_reflections", ["reflections": episode["reflections"].text, "participants": episode["participants"].text])) {
                     OverviewChip(text: m.episodeLabel(episode), tone: episode["status"].text == "open" ? "warn" : episode["outcome"].text == "success" ? "ok" : "")
                 } trailing: { Color.clear.frame(width: 0, height: 0) }
-            }
-        }
     }
 }
 
