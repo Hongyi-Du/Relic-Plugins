@@ -456,6 +456,22 @@ struct ConversationStream: View {
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
+                // An append may leave the admitted range unchanged. Its new
+                // ForEach target still has to enter the native layout before
+                // ScrollViewReader can resolve it; onChange alone runs before
+                // that happens. Finish every source revision with one deferred
+                // request, even when there were no identity batches to admit.
+                // User navigation cancels following, and task cancellation
+                // cancels obsolete revisions. This is not an extent/offset loop.
+                let anchorTurn = UUID()
+                guard await RowMountQueue.shared.acquire(anchorTurn, label: "conversation-anchor") else { return }
+                defer { RowMountQueue.shared.release(anchorTurn) }
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { return }
+                if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
+                else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                do { try await Task.sleep(for: .milliseconds(32)) }
+                catch { return }
                 olderAnchor = nil
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {

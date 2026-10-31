@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+0b23163 / 41184737749 finishes 299 tests with two failures in the actual
+long-Markdown viewport regression: appending message 51 leaves it invisible
+with a 1322 pt bottom gap. Initial latest content and the subsequent Home / new
+message while reading / End checks pass. A source revision that adds no older
+identity batches previously had no deferred scroll request after ForEach updated.
+It now issues one cancellable request after a layout turn, respecting current
+user-follow intent and the retained history anchor. The existing assertions and
+strict runtime checks remain unchanged and must validate this correction.
+Latest shared branch 63b688d is merged; no shared API change is requested.
+
 3ddf641 / 41184293168 independently fails startup at 380.810 ms (134.672 MiB,
 8 threads). The cold composer scope lasts 465.279 ms before any editor text or
 inline command label exists, so text-measure caching cannot explain this one.
