@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+3ddf641 / 41184293168 independently fails startup at 380.810 ms (134.672 MiB,
+8 threads). The cold composer scope lasts 465.279 ms before any editor text or
+inline command label exists, so text-measure caching cannot explain this one.
+Surface shadows no longer force a drawingGroup offscreen raster; they use native
+compositingGroup with the same shape, colors, radii, shadow offsets and extents.
+This is a performance hypothesis requiring fresh strict measurement and visual
+review; no style-test expectation or tolerance is changed. Diagnostic startup
+sampling is extended from 3 to 8 seconds to include the late composer mount.
+Diagnostic mode remains ineligible for acceptance and its 250 ms limit stays.
+
 a7698a6 / 41183942102 remains a functional FAIL, despite max 221.131 ms,
 201.547 MiB and 9 threads: after 61 completed actions the group viewport is
 blank, with 1016 data rows and zero mounted message probes. Its retained image
