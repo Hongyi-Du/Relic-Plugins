@@ -88,6 +88,7 @@ struct ReferenceLabel: NSViewRepresentable {
         return NSAttributedString(string: text, attributes: attributes)
     }
     func updateNSView(_ view: ReferenceLabelView, context: Context) {
+        let trace = UIWorkTrace.begin("label.update"); defer { UIWorkTrace.end(trace) }
         let value = attributedText
         view.pathLineBreaks.enabled = pathWrapping
         view.textContainer?.maximumNumberOfLines = lines
@@ -104,6 +105,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.setAccessibilityLabel(accessibleName ?? text)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
+        let trace = UIWorkTrace.begin("label.measure"); defer { UIWorkTrace.end(trace) }
         let width = (proposal.width?.isFinite == true ? proposal.width : nil) ?? 100_000
         let storage = NSTextStorage(attributedString: nsView.attributedString()), layout = NSLayoutManager()
         layout.delegate = nsView.pathLineBreaks
@@ -162,6 +164,7 @@ final class ReferenceLabelView: ReadOnlyTextView {
         if changed { invalidateLabelPaint() }
     }
     override func updateLayer() {
+        let trace = UIWorkTrace.begin("label.raster"); defer { UIWorkTrace.end(trace) }
         backingUpdateCount += 1
         guard let layer else { return }
         let scale = window?.backingScaleFactor ?? 1

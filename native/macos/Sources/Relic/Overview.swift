@@ -7,7 +7,7 @@ struct Overview: View {
     private var org: Node { m.snapshot["org"] }
     private func roleName(_ id: String, _ key: String) -> String { m.roleName(id, key) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             OverviewBlock {
                 HStack(spacing: 8) {
                     ReferenceLabel(m.t("org.heading"), size: 12, color: RelicStyle.muted).fixedSize(); Spacer(minLength: 0)

@@ -80,6 +80,7 @@ struct SelectableText: NSViewRepresentable {
 
 extension NativeTextStyle {
     static func contentSize(_ value: NSAttributedString, available: CGFloat, maximumLines: Int = 0) -> CGSize {
+        let trace = UIWorkTrace.begin("text.measure"); defer { UIWorkTrace.end(trace) }
         // Measure a separate TextKit layout. SwiftUI probes several widths before
         // assigning the final frame; mutating the live container here leaves the
         // last probe width behind and can draw a second line outside its height.
@@ -132,6 +133,7 @@ final class QuoteTextView: ReadOnlyTextView {
 // message's bubble to the whole available conversation column.
 enum NativeTextStyle {
     static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false, uniformSource: Bool = false) -> NSAttributedString {
+        let trace = UIWorkTrace.begin("text.style"); defer { UIWorkTrace.end(trace) }
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
         let paragraph = NSMutableParagraphStyle()

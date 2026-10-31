@@ -41,12 +41,15 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage]
         lock.unlock()
         if sampleStall {
+            write(UIWorkTrace.shared.snapshot(), "first-stall-work.json")
             // CI-only diagnosis after the unchanged limit has already failed.
             // Sampling our own process preserves the blocked native call stack.
             let sampler = Process()
             sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-            sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), "1", "1", "-file", output.appendingPathComponent("first-stall.sample.txt").path]
-            sampler.standardOutput = FileHandle.nullDevice; sampler.standardError = FileHandle.nullDevice
+            sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), "1", "1", "-mayDie", "-file", output.appendingPathComponent("first-stall.sample.txt").path]
+            let log = output.appendingPathComponent("sampler.log")
+            FileManager.default.createFile(atPath: log.path, contents: nil)
+            sampler.standardOutput = try? FileHandle(forWritingTo: log); sampler.standardError = sampler.standardOutput
             try? sampler.run()
         }
         if enqueue {
@@ -59,6 +62,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             }
         }
         write(receipt, "heartbeat.json")
+        if sampledStall { write(UIWorkTrace.shared.snapshot(), "ui-work.json") }
     }
     private func write(_ value: [String: Any], _ name: String) {
         do { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: output.appendingPathComponent(name), options: .atomic) }
