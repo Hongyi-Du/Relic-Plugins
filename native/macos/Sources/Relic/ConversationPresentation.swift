@@ -129,6 +129,24 @@ struct ConversationScrollFollowing {
     }
 }
 
+/// Scroll bookkeeping is used by event handlers, never by the view's layout.
+/// Keeping its mutable value directly in @State invalidated the entire lazy
+/// conversation on every geometry preference, including changes caused by the
+/// same staged insertion/scroll request. Retain its lifetime without publishing
+/// those observations as new view data.
+final class ConversationScrollTracking {
+    private var value = ConversationScrollFollowing()
+    var followsBottom: Bool {
+        get { value.followsBottom }
+        set { value.followsBottom = newValue }
+    }
+    func disclosureChanged() { value.disclosureChanged() }
+    func contentChanged() { value.contentChanged() }
+    func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
+        value.observe(content: content, bottom: bottom, viewport: viewport)
+    }
+}
+
 private struct ConversationDisclosureKey: EnvironmentKey { static let defaultValue: () -> Void = {} }
 extension EnvironmentValues {
     var conversationDisclosure: () -> Void {

@@ -307,7 +307,7 @@ struct ConversationStream: View {
     @EnvironmentObject var m: Model
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
-    @State private var following = ConversationScrollFollowing()
+    @State private var following = ConversationScrollTracking()
     @State private var userFollowsLatest = true
     @State private var preservingDisclosure = false
     @State private var initialLoad = true
@@ -477,7 +477,7 @@ struct ConversationStream: View {
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
                 olderAnchor = nil
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()

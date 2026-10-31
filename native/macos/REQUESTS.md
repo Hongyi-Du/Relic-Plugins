@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+9a2ebda / 41186594017 FAILS startup at max 352.220 ms, 169.938 MiB, 8 threads.
+Cold row construction is now bounded in that run (118.369 ms peak), and the new
+layout scopes peak at 10.935 ms (columns) /8.996 ms (Markdown). Admission after
+36 batches is still expensive. Source review finds scroll geometry bookkeeping
+stored as a mutable @State value: every observe call can invalidate the entire
+lazy conversation again, though no layout reads that value. Keep the existing
+pure scroll-following logic behind a retained non-observable reference instead.
+Geometry observations no longer publish list updates. The real row placement
+anchor, actual visible content, and all unchanged pressure limits still need CI.
+
 432e6d2 / 41186072127 restores all shadow pixel checks, but the real append
 regression still fails with a 692 pt bottom gap (299 tests, two assertions).
 Deferring the source revision alone is insufficient: the preceding long row
