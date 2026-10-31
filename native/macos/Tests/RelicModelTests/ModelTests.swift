@@ -363,9 +363,12 @@ final class ModelTransport: URLProtocol {
         }
         try await model.refresh(); XCTAssertTrue(model.moreChat)
         try await model.loadOlder(); XCTAssertTrue(requestedBefore); XCTAssertFalse(model.moreChat)
-        try await model.refresh()
+        model.draft = "unsent"; model.plainOne.insert("1")
+        try await model.select("a")
         XCTAssertFalse(model.moreChat)
         XCTAssertEqual(model.messages.map { $0["id"].integer }, [1, 1001])
+        XCTAssertEqual(model.historyPagesLoaded, 1)
+        XCTAssertEqual(model.draft, "unsent"); XCTAssertTrue(model.plainOne.contains("1"))
     }
     func testPreparedConversationDiscardsPreviousSelectionAndKeepsStableIDs() async throws {
         let model = try model(); defer { model.stop() }

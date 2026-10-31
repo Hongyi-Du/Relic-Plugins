@@ -324,16 +324,20 @@ struct ConversationStream: View {
                             }
                         }
                 }
-                ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                ComposerView { following.followsBottom = true; m.run { try await m.send(); keyboard.settleBottom() } }.measuredRegion("composer")
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
-                    else if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { proxy.scrollTo("end", anchor: .bottom); initialLoad = false }
+                    else if !m.streamRows.isEmpty && (initialLoad || following.followsBottom) { keyboard.settleBottom(); initialLoad = false }
                 }
-                .onAppear { PerformanceRendering.observed(streamVersion: m.streamVersion); proxy.scrollTo("end", anchor: .bottom) }
+                .onAppear {
+                    PerformanceRendering.observed(streamVersion: m.streamVersion)
+                    initialLoad = m.streamRows.isEmpty
+                    keyboard.settleBottom()
+                }
         }
     }
 }

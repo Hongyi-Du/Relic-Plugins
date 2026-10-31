@@ -345,7 +345,11 @@ import RelicCore
         defaults.set(Array(folded), forKey: "folded")
     }
     func select(_ org: String, _ member: String = "", record: Bool = true) async throws {
-        setSelection(ChatSelection(org, member), record: record); try await refresh()
+        let next = ChatSelection(org, member)
+        // Clicking the active chat refreshes it without throwing away loaded
+        // history, its view identities, the draft, or the current scroll offset.
+        if next != selection { setSelection(next, record: record) }
+        try await refresh()
         if digestOpen { try await loadDigest(false) }
     }
     func navigate(_ delta: Int) { guard let next = history.move(delta) else { return }; run { try await self.select(next.org, next.member, record: false) } }

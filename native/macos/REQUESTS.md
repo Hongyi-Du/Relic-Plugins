@@ -1,5 +1,25 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+Latest macOS evidence (04:01Z): strict `41166444498` at `a0cd274` still fails,
+first during `startup:publish` (323.614 ms), maximum retained **1150.567 ms**,
+**166.703 MiB / 9 threads**. Capture now waits for background row projection,
+the production conversation view observing that version, and visible Markdown
+preparation before navigating. This exposed more work than the older fixed
+300 ms wait. It is not a passing result or a steady-state resource comparison.
+Artifacts: `S:\Codex\Outputs\Relic-native-visual\responsiveness-a0cd274\macos`.
+Diagnostic-only run `41166451889` retains 30 seconds after failure for stacks;
+it is explicitly ineligible for acceptance. `0546118` adds background equality
+checks so unchanged SSE responses do not republish the whole view tree, and
+fixes the independent TextKit measurement regression; build/test CI is pending.
+The next change preserves loaded history when clicking the current chat and
+removes redundant SwiftUI end-anchor scrolls from the lazy conversation.
+
+`572616a` full-window chrome (`41165819664`) and adaptive windows (`41165819518`)
+are green on both platforms; Mac visual capture job in `41165819477` is green.
+Native apps `41165819574` failed only the new TextMeasurementCacheTests (5
+width assertions, out of 270 tests), so this is not a final package candidate.
+All regression assertions and the 250 ms responsiveness limit remain unchanged.
+
 The instrumented macOS **pre-optimization baseline is `6a92a00`**. It now uses
 the shared `RELIC_PERF_MANIFEST` / `RELIC_PERF_OUTPUT` contract from `3af30a1`,
 not the provisional visual-manifest proposal below. The baseline dispatch is
