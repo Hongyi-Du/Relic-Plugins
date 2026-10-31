@@ -27,8 +27,9 @@ Kinds and fields:
 - `resize`: `width`, `height` are logical DIP/point sizes; the normal minimum
   applies. Sizes cross the 1180 inspector breakpoint (1440, 1180, 1024, 960).
 - `menu`: `name` is `file`, `edit`, `view`, or `help`; open and dismiss it.
-- `dialog`: `name` is `settings`, `about`, `neworg`, or `member`; open and dismiss
-  it without committing changes or starting sessions.
+- `dialog`: `name` is `settings`, `about`, `neworg`, `member`, `tasks`, or
+  `protocols`; open and dismiss it without committing changes or starting
+  sessions. The deck returns to the largest organization for these dialogs.
 - `scroll-history`: `org`; repeatedly scroll upward and fetch older pages until
   the actual first historical message is reachable, then return to the latest.
   The result must include `pages_loaded`, `oldest_message_id`, and
