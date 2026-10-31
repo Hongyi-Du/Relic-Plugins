@@ -13,4 +13,6 @@ FOUNDATION_EXPORT NSDictionary<NSString *, id> *RelicAXChildSnapshot(id object);
 FOUNDATION_EXPORT id _Nullable RelicAXHitTest(id object, NSPoint screenPoint);
 FOUNDATION_EXPORT id _Nullable RelicAXParent(id object);
 FOUNDATION_EXPORT NSAttributedString * _Nullable RelicAXText(id object, NSRange range);
+/// Actual process counters for the CI responsiveness watchdog, without walking UI.
+FOUNDATION_EXPORT NSDictionary<NSString *, NSNumber *> *RelicProcessStats(void);
 NS_ASSUME_NONNULL_END

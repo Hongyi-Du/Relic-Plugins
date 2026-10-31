@@ -1,5 +1,18 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+The instrumented macOS **pre-optimization baseline is `6a92a00`**. It now uses
+the shared `RELIC_PERF_MANIFEST` / `RELIC_PERF_OUTPUT` contract from `3af30a1`,
+not the provisional visual-manifest proposal below. The baseline dispatch is
+https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41162500465 . It records
+all plan IDs and full earlier-history receipts, then repeats the shared seeded
+deck for at least 180 seconds. One background timer posts at most one main
+queue probe; the shared driver owns the unchanged 250 ms and resource limits.
+The original eager conversation, repeated Markdown/date work, and quadratic
+merge are deliberately unchanged in that baseline commit. Keep its actual
+failed result for before/after comparison; do not rerun it from a fixed head.
+Initial page size remains 1000, matching the current web client. Older pages
+use the already implemented `limit=200&before=...` endpoint.
+
 Confirmed macOS hot paths at `1e1fc14`: `ConversationStream` deliberately uses
 an eager VStack for the complete 1000-item response; `Timeline.merge` searches
 the accumulated array for every incoming item (quadratic); message Markdown

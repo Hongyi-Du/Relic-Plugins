@@ -7,6 +7,43 @@ struct ConversationRow: Identifiable {
     let item: Node
     let separator: String?
     let continued: Bool
+
+    // This async nonisolated entry runs CPU work on the cooperative executor,
+    // never on Model's main actor. Callers retain just one worker per model.
+    static func prepare(messages: [Node], steps: [Node], member: Node, live: [Node], status: Node,
+                        decisions: [Node], words: Words, now: Date, privateChat: Bool) async -> [ConversationRow] {
+        let active = Timeline.activeLive(live, status: status, decisions: decisions)
+        let items = privateChat ? Timeline.conversation(steps: steps, chat: messages, member: member, live: active, words: words) : messages
+        return build(items, words: words, now: now)
+    }
+    static func build(_ items: [Node], words: Words, now: Date, separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
+        var previous: Node?, previousDate: Date?, lastDay: Date?
+        let clock = DateFormatter(); clock.locale = Locale(identifier: "en_US_POSIX"); clock.timeZone = calendar.timeZone; clock.dateFormat = "HH:mm"
+        let day = DateFormatter(); day.locale = Locale(identifier: words.language); day.timeZone = calendar.timeZone
+        func dayLabel(_ date: Date) -> String {
+            if calendar.isDate(date, inSameDayAs: now) { return words.t("time.today") }
+            if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return words.t("time.yesterday") }
+            day.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
+            return day.string(from: date)
+        }
+        return NodeRow.identify(items).map { row in
+            let item = row.node, date = Timeline.date(item["at"])
+            var separator: String?
+            if separators, let date {
+                let start = calendar.startOfDay(for: date)
+                if lastDay != start { separator = dayLabel(date) + " " + clock.string(from: date); lastDay = start; previous = nil }
+                else if let earlier = previousDate, previous != nil, date.timeIntervalSince(earlier) > 20 * 60 { separator = clock.string(from: date); previous = nil }
+            }
+            let continued: Bool
+            if let previous, let date, let earlier = previousDate {
+                continued = previous["type"].text == "message" && previous["from"].text == item["from"].text &&
+                    previous["to"].rows.map(\.text) == item["to"].rows.map(\.text) &&
+                    date.timeIntervalSince(earlier) < 3 * 60 && previous["thread"].isNull
+            } else { continued = false }
+            if item["type"].text != "acts" { previous = item; previousDate = date }
+            return ConversationRow(id: row.id, item: item, separator: separator, continued: continued)
+        }
+    }
 }
 
 /// Keep the author's avatar first in the native hierarchy, including outgoing
@@ -92,24 +129,7 @@ extension EnvironmentValues {
 
 extension Model {
     func conversationRows(_ items: [Node], separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
-        var previous: Node?, lastDay: Date?
-        return NodeRow.identify(items).map { row in
-            let item = row.node, date = Timeline.date(item["at"])
-            var separator: String?
-            if separators, let date {
-                let start = calendar.startOfDay(for: date)
-                if lastDay != start { separator = day(item["at"]) + " " + clock(item["at"]); lastDay = start; previous = nil }
-                else if let earlier = previous.flatMap({ Timeline.date($0["at"]) }), date.timeIntervalSince(earlier) > 20 * 60 { separator = clock(item["at"]); previous = nil }
-            }
-            let continued: Bool
-            if let previous, let date, let earlier = Timeline.date(previous["at"]) {
-                continued = previous["type"].text == "message" && previous["from"].text == item["from"].text &&
-                    previous["to"].rows.map(\.text) == item["to"].rows.map(\.text) &&
-                    date.timeIntervalSince(earlier) < 3 * 60 && previous["thread"].isNull
-            } else { continued = false }
-            if item["type"].text != "acts" { previous = item }
-            return ConversationRow(id: row.id, item: item, separator: separator, continued: continued)
-        }
+        ConversationRow.build(items, words: words, now: displayNow, separators: separators, calendar: calendar)
     }
     func readReceipt(_ item: Node) -> String {
         let others = item["to"].rows.map(\.text).filter { $0 != "human" }

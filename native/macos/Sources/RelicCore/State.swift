@@ -112,11 +112,19 @@ public enum Tree {
 }
 
 public enum Timeline {
+    private final class DateParsers {
+        let fractional = ISO8601DateFormatter(), seconds = ISO8601DateFormatter()
+        init() { fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; seconds.formatOptions = [.withInternetDateTime] }
+    }
     public static func date(_ node: Node) -> Date? {
         if let numeric = node.raw as? NSNumber { return Date(timeIntervalSince1970: numeric.doubleValue) }
-        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: node.text) { return date }
-        iso.formatOptions = [.withInternetDateTime]; return iso.date(from: node.text)
+        // Formatters are expensive to initialize and are never shared across
+        // threads. Reuse one pair per worker instead of creating two per row.
+        let key = "Relic.Timeline.DateParsers"
+        let parsers: DateParsers
+        if let existing = Thread.current.threadDictionary[key] as? DateParsers { parsers = existing }
+        else { parsers = DateParsers(); Thread.current.threadDictionary[key] = parsers }
+        return parsers.fractional.date(from: node.text) ?? parsers.seconds.date(from: node.text)
     }
     public static func activeLive(_ items: [Node], status: Node, decisions: [Node]) -> [Node] {
         let sorted = items.sorted { $0["seq"].integer < $1["seq"].integer }
@@ -145,19 +153,32 @@ public enum Timeline {
         }
         flush()
         if !member["embedded"].flag || steps.isEmpty && live.isEmpty { items += chat }
-        return items.enumerated().sorted { a, b in
-            let first = date(a.element["at"]) ?? .distantPast, second = date(b.element["at"]) ?? .distantPast
-            return first == second ? a.offset < b.offset : first < second
-        }.map(\.element)
+        return items.enumerated().map { (index: $0.offset, item: $0.element, at: date($0.element["at"]) ?? .distantPast) }
+            .sorted { $0.at == $1.at ? $0.index < $1.index : $0.at < $1.at }.map(\.item)
     }
+    public static func mergeInBackground(_ current: [Node], _ incoming: [Node]) async -> [Node] { merge(current, incoming) }
     public static func merge(_ current: [Node], _ incoming: [Node]) -> [Node] {
         var result = current
+        var sequences: [String: Set<Int>] = [:], ids: [String: Set<Int>] = [:]
+        func index(_ node: Node, _ position: Int, remove: Bool = false) {
+            if !node["seq"].isNull {
+                if remove { sequences[node["seq"].text]?.remove(position) }
+                else { sequences[node["seq"].text, default: []].insert(position) }
+            }
+            if !node["id"].isNull {
+                if remove { ids[node["id"].text]?.remove(position) }
+                else { ids[node["id"].text, default: []].insert(position) }
+            }
+        }
+        for (position, node) in result.enumerated() { index(node, position) }
         for item in incoming {
-            if let index = result.firstIndex(where: { old in
-                (!item["seq"].isNull && item["seq"].text == old["seq"].text) ||
-                (!item["id"].isNull && item["id"].text == old["id"].text)
-            }) { result[index] = Node(result[index].object.merging(item.object) { _, new in new }) }
-            else { result.append(item) }
+            let bySequence = item["seq"].isNull ? nil : sequences[item["seq"].text]?.min()
+            let byID = item["id"].isNull ? nil : ids[item["id"].text]?.min()
+            if let position = [bySequence, byID].compactMap({ $0 }).min() {
+                index(result[position], position, remove: true)
+                result[position] = Node(result[position].object.merging(item.object) { _, new in new })
+                index(result[position], position)
+            } else { index(item, result.count); result.append(item) }
         }
         return result
     }

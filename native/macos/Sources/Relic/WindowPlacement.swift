@@ -67,7 +67,7 @@ struct WindowPlacementMount: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); attach() }
         func attach() {
-            guard !VisualCapture.enabled, !TitlebarCapture.enabled, let window, attachedWindow !== window else { return }
+            guard !VisualCapture.enabled, !TitlebarCapture.enabled, !ResponsivenessCapture.enabled, let window, attachedWindow !== window else { return }
             attachedWindow = window
             WindowChrome.apply(to: window)
             placement = ApplicationWindowPlacement(window: window)

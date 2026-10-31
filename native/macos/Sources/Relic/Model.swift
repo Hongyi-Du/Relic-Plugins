@@ -5,17 +5,19 @@ import RelicCore
 
 @MainActor final class Model: ObservableObject {
     @Published var organizations: [Node] = []
-    @Published var messages: [Node] = []
-    @Published var liveItems: [Node] = []
-    @Published var liveStatus = Node()
+    @Published var messages: [Node] = [] { didSet { prepareConversation() } }
+    @Published var liveItems: [Node] = [] { didSet { prepareConversation() } }
+    @Published var liveStatus = Node() { didSet { prepareConversation() } }
+    @Published var streamRows: [ConversationRow] = []
+    @Published var streamVersion = 0
     @Published var inputSuggestions: InputSuggestionsState?
-    @Published var conversation = Node()
+    @Published var conversation = Node() { didSet { prepareConversation() } }
     @Published var copies: [Node] = []
     @Published var unreadCopies = 0
     @Published var snapshot = Node()
     @Published var preferences = Node()
     @Published var platform = Node()
-    @Published var words = Words()
+    @Published var words = Words() { didSet { prepareConversation() } }
     @Published var organization = ""
     @Published var member = ""
     @Published var draft = ""
@@ -44,6 +46,7 @@ import RelicCore
     @Published var threadSending = false
     weak var activeSpeech: SpeechInput?
     @Published var moreChat = false
+    @Published var loadingOlder = false
     @Published var windowSize = CGSize(width: 1440, height: 900)
     @Published var expandRules = false
     @Published var recipientPicker = false
@@ -102,6 +105,8 @@ import RelicCore
     private var plainQueue: Set<String> = []
     private var refreshing = false, pending = false, starting = false
     private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
+    private var conversationTask: Task<Void, Never>?
+    private var conversationGeneration = 0
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
@@ -191,10 +196,32 @@ import RelicCore
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { inputSuggestions = nil; toasts = []; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); host.stop() }
+    func stop() { inputSuggestions = nil; toasts = []; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); conversationTask?.cancel(); host.stop() }
+    private func prepareConversation() {
+        conversationGeneration += 1
+        guard conversationTask == nil else { return }
+        conversationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.conversationTask = nil }
+            while !Task.isCancelled {
+                // Coalesce the fields of one response and bursts of live events.
+                await Task.yield()
+                let generation = self.conversationGeneration
+                let rows = await ConversationRow.prepare(messages: self.messages, steps: self.conversation["steps"].rows,
+                    member: self.selectedMember, live: self.liveItems, status: self.liveStatus,
+                    decisions: self.snapshot["decisions"].rows, words: self.words, now: self.displayNow, privateChat: !self.member.isEmpty)
+                guard !Task.isCancelled else { return }
+                if generation == self.conversationGeneration {
+                    self.streamRows = rows; self.streamVersion += 1; return
+                }
+            }
+        }
+    }
     func schedule() {
         pending = true
-        guard refreshTask == nil else { return }
+        // An active refresh already consumes the pending bit. Do not enqueue
+        // another waiting task for every SSE burst while the request is slow.
+        guard !refreshing, refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard let self, !Task.isCancelled else { return }
@@ -240,7 +267,11 @@ import RelicCore
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
         guard selected == selection else { return }
-        snapshot = snap; messages = Timeline.merge(messages, chat["items"].rows); moreChat = chat["more"].flag
+        let merged = await Timeline.mergeInBackground(messages, chat["items"].rows)
+        guard selected == selection else { return }
+        let hadHistory = !messages.isEmpty
+        snapshot = snap; messages = merged
+        if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
         liveItems = live["items"].rows; liveStatus = live["status"]; conversation = convo; revision += 1
@@ -262,7 +293,7 @@ import RelicCore
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         quoteAuthor = saved.quoteAuthor ?? ""; quoteText = saved.quoteText ?? ""
-        messages = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
+        messages = []; streamRows = []; snapshot = Node(); liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false
         selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
@@ -282,10 +313,15 @@ import RelicCore
     }
     func navigate(_ delta: Int) { guard let next = history.move(delta) else { return }; run { try await self.select(next.org, next.member, record: false) } }
     func loadOlder() async throws {
+        guard !loadingOlder else { return }
+        loadingOlder = true; defer { loadingOlder = false }
         let selected = selection, before = messages.first(where: { Int($0["id"].text) != nil })?["id"].text ?? ""
         guard !before.isEmpty else { moreChat = false; return }
         let result = try await get(selected.path("/chat?kind=" + (member.isEmpty ? "group" : "private") + "&member=" + Client.segment(member) + "&limit=200&before=" + Client.segment(before)))
-        guard selected == selection else { return }; messages = Timeline.merge(result["items"].rows, messages); moreChat = result["more"].flag
+        guard selected == selection else { return }
+        let merged = await Timeline.mergeInBackground(result["items"].rows, messages)
+        guard selected == selection else { return }
+        messages = merged; moreChat = result["more"].flag
     }
     func send() async throws {
         guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !quote.isEmpty else { return }
