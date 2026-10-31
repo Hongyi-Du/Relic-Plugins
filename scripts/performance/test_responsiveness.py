@@ -107,10 +107,51 @@ class WatchdogPolicy(unittest.TestCase):
 
     def test_short_monkey_or_fake_history_cannot_satisfy_coverage(self):
         manifest = {"seconds": 180, "seed": 1729, "plan": [{"id": "history", "kind": "scroll-history", "org": "synthetic", "first_message_id": 1}]}
-        receipt = {"actions": [{"id": "history", "passed": True, "history_complete": True, "oldest_message_id": 4501}],
-                   "random_seconds": 2, "random_actions": 1, "seed": 1729}
+        receipt = {"actions": [{"id": "history", "passed": True, "history_complete": True, "oldest_message_id": 4501},
+                               {"id": "monkey-0", "pointer_target": "sidebar", "click_events": 1},
+                               {"id": "monkey-1", "pointer_target": "files", "click_events": 1}],
+                   "random_seconds": 2, "random_actions": 2, "seed": 1729}
         errors = driver.coverage_errors(receipt, manifest)
         self.assertEqual(len(errors), 2)
+
+    def test_model_only_monkey_receipts_fail_real_click_coverage(self):
+        manifest = {"seconds": 180, "seed": 1729, "plan": []}
+        receipt = {"actions": [{"id": "monkey-0", "kind": "group", "passed": True},
+                               {"id": "monkey-1", "kind": "pane", "passed": True}],
+                   "random_seconds": 180, "random_actions": 2, "seed": 1729}
+        errors = driver.coverage_errors(receipt, manifest)
+        self.assertEqual(sum("no observed native pointer click" in error for error in errors), 2)
+        self.assertTrue(any("two distinct native targets" in error for error in errors))
+
+    def test_observed_clicks_on_two_native_targets_pass_coverage(self):
+        manifest = {"seconds": 180, "seed": 1729, "plan": []}
+        receipt = {"actions": [{"id": "monkey-0", "pointer_target": "sidebar", "click_events": 1},
+                               {"id": "monkey-1", "pointer_target": "files", "click_events": 2}],
+                   "random_seconds": 180, "random_actions": 2, "seed": 1729}
+        self.assertEqual(driver.coverage_errors(receipt, manifest), [])
+
+    def test_every_monkey_action_requires_observed_click_and_target(self):
+        for fields in ({"pointer_target": "", "click_events": 1},
+                       {"pointer_target": "files", "click_events": 0},
+                       {"pointer_target": "files", "click_events": True}):
+            with self.subTest(fields=fields):
+                receipt = {"actions": [{"id": "monkey-0", "pointer_target": "sidebar", "click_events": 1},
+                                       {"id": "monkey-1", "pointer_target": "files", "click_events": 1},
+                                       {"id": "monkey-2", **fields}], "random_actions": 3}
+                self.assertTrue(any("monkey-2" in error for error in driver.monkey_click_errors(receipt)))
+
+    def test_repeated_target_and_unbacked_monkey_count_fail(self):
+        receipt = {"actions": [{"id": f"monkey-{index}", "pointer_target": "sidebar", "click_events": 1}
+                               for index in range(2)], "random_actions": 3}
+        errors = driver.monkey_click_errors(receipt)
+        self.assertTrue(any("count does not match" in error for error in errors))
+        self.assertTrue(any("two distinct native targets" in error for error in errors))
+
+    def test_duplicate_monkey_receipt_cannot_count_twice(self):
+        receipt = {"actions": [{"id": "monkey-0", "pointer_target": "sidebar", "click_events": 1},
+                               {"id": "monkey-0", "pointer_target": "files", "click_events": 1}],
+                   "random_actions": 2}
+        self.assertTrue(any("reused" in error for error in driver.monkey_click_errors(receipt)))
 
     def test_action_plan_exercises_every_org_member_and_large_history(self):
         orgs = [{"id": f"org{index}", "members": ["one", "two"], "group_messages": 5500 if index == 0 else 50,

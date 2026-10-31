@@ -74,8 +74,30 @@ def coverage_errors(receipt, manifest):
         errors.append("The seeded monkey phase did not run for the full requested duration")
     if int(receipt.get("random_actions") or 0) < 1:
         errors.append("The seeded monkey phase did not execute an action")
+    errors.extend(monkey_click_errors(receipt))
     if receipt.get("seed") != manifest["seed"]:
         errors.append("The native interaction seed does not match its manifest")
+    return errors
+
+
+def monkey_click_errors(receipt):
+    """Require receipts from actual routed pointer actions, not model changes."""
+    actions = [action for action in (receipt.get("actions") or [])
+               if str(action.get("id", "")).startswith("monkey-")]
+    errors = []
+    if len(actions) != int(receipt.get("random_actions") or 0):
+        errors.append("The seeded monkey action count does not match its individual click receipts")
+    if len({action["id"] for action in actions}) != len(actions):
+        errors.append("The seeded monkey phase reused an individual click receipt id")
+    targets = set()
+    for action in actions:
+        target, clicks = action.get("pointer_target"), action.get("click_events")
+        if not isinstance(target, str) or not target.strip() or type(clicks) is not int or clicks < 1:
+            errors.append(f"Monkey action has no observed native pointer click: {action.get('id')}")
+        else:
+            targets.add(target.strip())
+    if len(targets) < 2:
+        errors.append("The seeded monkey phase did not click at least two distinct native targets")
     return errors
 
 
