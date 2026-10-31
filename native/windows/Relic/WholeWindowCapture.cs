@@ -63,7 +63,7 @@ public sealed partial class MainWindow
                     SetForegroundWindow(handle);
                     await CaptureMoveScreenPointer(monitor.WorkArea.X + monitor.WorkArea.Width - 10,
                         monitor.WorkArea.Y + monitor.WorkArea.Height - 10);
-                    await WaitForMarkdown(); await Task.Delay(350); root.UpdateLayout();
+                    var presentationSettled = await WaitForWholeWindowPresentation();
                     if (error.IsOpen) throw new InvalidOperationException("Production UI reported: " + error.Message);
                     if (!editor.IsDocumentReady) throw new InvalidOperationException("Native composer did not initialize: " + editor.InitializationFailure);
                     if (WholeWindowForeground() != handle) throw new InvalidOperationException("Relic is not the foreground window for desktop capture");
@@ -74,8 +74,10 @@ public sealed partial class MainWindow
                     var endGap = Math.Max(0, chatScroll.ScrollableHeight - chatScroll.VerticalOffset);
                     receipt["conversation_scroll"] = new JsonObject { ["offset"] = chatScroll.VerticalOffset,
                         ["maximum"] = chatScroll.ScrollableHeight, ["end_gap"] = endGap,
+                        ["presentation_settled"] = presentationSettled,
                         ["pending_text"] = NativePathText.PendingPreparations,
                         ["native_positioning"] = JsonSerializer.SerializeToNode(stream.ReadScrollState(chatScroll)) };
+                    if (!presentationSettled) throw new InvalidOperationException("Native conversation did not finish presenting its actual latest row within 15 seconds");
                     if (endGap > 2) throw new InvalidOperationException("Selected group did not remain at its latest messages after deferred layout: " + endGap);
                     receipt["language"] = words.Language;
                     receipt["theme"] = root.ActualTheme.ToString().ToLowerInvariant();
@@ -115,6 +117,23 @@ public sealed partial class MainWindow
         catch (Exception ex) { failures.Add(ex.ToString()); }
         await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifestDirectory, "complete.json"),
             JsonSerializer.Serialize(new { mode = "whole-window", errors = failures, count }));
+    }
+
+    private async Task<bool> WaitForWholeWindowPresentation()
+    {
+        // Observe the same real content and native positioning lifecycle as
+        // production. A fixed sleep followed by UpdateLayout can submit a new
+        // asynchronous bring immediately before the desktop pixels are read.
+        // This does not drive layout, scroll, load pages or repair an offset.
+        var waiting = System.Diagnostics.Stopwatch.StartNew();
+        var quiet = 0;
+        while (waiting.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            quiet = ConversationContentReady() && stream.IsLastPositionSettled ? quiet + 1 : 0;
+            if (quiet == 2) return true;
+            await Task.Delay(16);
+        }
+        return false;
     }
 
     private async Task<WholeWindowRect> VerifyWholeWindowActions(JsonArray actions)

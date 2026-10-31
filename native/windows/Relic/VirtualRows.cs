@@ -326,6 +326,18 @@ internal sealed class VirtualRows : Grid
     private static PreparedEnd? PreparedGeometry(EndGeometry geometry) => geometry.Element == null || geometry.RowHeight <= 0
         ? null : new(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight, geometry.RowWidth, geometry.RowHeight,
             Math.Round((geometry.RowTop + geometry.RowHeight + geometry.Offset) * 64) / 64);
+    internal bool IsLastPositionSettled
+    {
+        get
+        {
+            if (followingLast is not { Settled: true, IsScrolling: false } follow || !IsCurrent(follow)
+                || pendingBring != null || nativeBring != null || !follow.IsContentReady()) return false;
+            var geometry = ReadEndGeometry(follow);
+            return geometry.Element is Border { Child: not null } && geometry.RowHeight > 0
+                && geometry.RowTop < geometry.ViewportHeight && geometry.RowTop + geometry.RowHeight > 0
+                && Math.Abs(geometry.Extent - geometry.Offset) <= 1;
+        }
+    }
     private void QueueFollowCheck()
     {
         if (followingLast == null || followQueued) return;

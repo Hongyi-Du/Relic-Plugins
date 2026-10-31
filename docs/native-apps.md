@@ -1,5 +1,15 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The 0866447 adaptive-window failure is a capture race: the wide/dark receipt
+has a 27.800 DIP gap while native_bring.Routed=true, Rendered=false and
+follow.in_flight=true. The old fixed 350 ms sleep followed by forced UpdateLayout
+could submit a new asynchronous correction immediately before pixel capture.
+Whole-window capture now passively observes two ready/settled actual-tail states
+inside the existing 15-second presentation budget. It does not drive layout,
+scrolling or business methods; end-gap/content assertions remain. A timeout
+still retains the actual window pixels and state before reporting failure.
+The pressure scenario and its deadlines are unchanged. No shared API change.
+
 fb820fa / 41252003658 still FAILS, now at End after actual complete history:
 all 5,500 messages, five preserved reading anchors and the visible row-0/top
 check pass; no FirstRow reset was needed in this particular fixed case.
