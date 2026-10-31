@@ -33,6 +33,11 @@ public sealed partial class MainWindow
     private async Task CaptureVisuals()
     {
         visualCaptureStarted = true;
+        if (WholeWindowCaptureEnabled)
+        {
+            await CaptureWholeWindowVisuals();
+            return;
+        }
         var path = Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST")!;
         var failures = new List<string>(); var count = 0;
         try

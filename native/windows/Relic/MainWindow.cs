@@ -70,6 +70,7 @@ public sealed partial class MainWindow : Window
     {
         VisualStartup("constructing window");
         Title = "Relic";
+        ExtendsContentIntoTitleBar = true;
         // Global accelerators belong to the window. Their automatic tooltip
         // must not appear over unrelated controls; menus and buttons supply
         // their own localized shortcut labels/tooltips.
@@ -80,11 +81,13 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var top = titlebarRegion; top.Height = 40; top.BorderThickness = new Thickness(0, 0, 0, 1); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var top = titlebarRegion; top.Height = 40; top.BorderThickness = new Thickness(0, 0, 0, 1); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         void PaintToolbarSurface() { top.BorderBrush = Line; top.Background = Paint("F8F7F5", "191918"); }
         top.Loaded += (_, _) => PaintToolbarSurface(); root.ActualThemeChanged += (_, _) => PaintToolbarSurface();
-        top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 2); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
-        Grid.SetColumnSpan(appTitle, 3); top.Children.Add(appTitle);
+        top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 3); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        // Only the title gives up space as the window narrows. Navigation,
+        // menus and commands stay outside the system caption-button inset.
+        Grid.SetColumn(appTitle, 2); top.Children.Add(appTitle);
         root.Resources["ContentDialogMaxWidth"] = 1100d;
 
         columns.ColumnDefinitions.Add(new() { Width = new GridLength(276) });
@@ -120,6 +123,7 @@ public sealed partial class MainWindow : Window
         inspector.RowDefinitions.Add(new() { Height = GridLength.Auto }); inspector.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); inspector.Children.Add(paneHeader);
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Children.Add(inspector); inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
+        ConfigureNativeTitleBar();
         root.SizeChanged += (_, _) => { appTitle.MaxWidth = root.ActualWidth * .4; emptyConversation.Height = root.ActualHeight * .7; LayoutColumns(); };
         root.GotFocus += (_, e) =>
         {

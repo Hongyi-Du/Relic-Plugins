@@ -21,9 +21,11 @@ Changes for the clients (whole-window capture contract):
   window identity, scale and screenshot method. On macOS use the running app's
   `screencapture -l <window id>`, not ImageRenderer/cacheDisplay. The driver keeps
   actual PNG dimensions, including a native backing-scale factor if applicable.
-- Complete with the existing manifest-directory `complete.json` containing
+- Both clients complete with the existing manifest-directory `complete.json` containing
   `{errors: [], count: 1}`. This mode omits element extraction and its IPC;
   it must not wait for a UIA/extraction request. Normal parity capture remains.
+- macOS 031aa1a now implements the same manifest-directory completion and
+  `.window-chrome.json` protocol directly; no compatibility adaptation is needed.
 - The driver supplies language/theme preferences, isolated app state and the
   existing fixture clock. Native clients still use their production group
   selection, controls and title-bar setup. It never launches outside CI.

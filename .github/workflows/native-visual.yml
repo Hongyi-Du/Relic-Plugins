@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       matrix:
-        description: Appearance regression report: full matrix, smoke scenes, or paint diagnostics
+        description: 'Appearance regression report: full matrix, smoke scenes, or paint diagnostics'
         type: choice
         options: [smoke, full, paint]
         default: smoke
