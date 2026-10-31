@@ -46,7 +46,8 @@ struct MentionEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? ComposerTextView else { return }
         editor.isEditable = enabled; editor.isSelectable = enabled
-        if editor.string != text && !editor.hasMarkedText() { editor.closeMentions(); editor.string = text }
+        let textChanged = editor.string != text && !editor.hasMarkedText()
+        if textChanged { editor.closeMentions(); editor.string = text }
         editor.members = members; editor.onMention = onMention; editor.send = send
         editor.presentationModel = m; editor.composerID = contextID
         editor.placeholder = placeholder; editor.setAccessibilityLabel(accessibleName ?? placeholder); editor.focusChanged = focusChanged
@@ -54,27 +55,59 @@ struct MentionEditor: NSViewRepresentable {
         editor.textColor = NSColor(textColor)
         let size: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = size * 1.6; paragraph.maximumLineHeight = size * 1.6
-        editor.font = RelicStyle.nativeFont(size, weight: 400); editor.defaultParagraphStyle = paragraph
-        editor.typingAttributes[.tracking] = 0
-        editor.typingAttributes[.relicConfiguredFontWeight] = 400
-        editor.typingAttributes[.relicLabelSpan] = "uniform-production-label"
-        editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0, .relicConfiguredFontWeight: 400, .relicLabelSpan: "uniform-production-label"], range: NSRange(location: 0, length: (editor.string as NSString).length))
+        let font = RelicStyle.nativeFont(size, weight: 400)
+        let styleChanged = editor.font != font || editor.defaultParagraphStyle != paragraph
+            || editor.typingAttributes[.relicConfiguredFontWeight] as? Int != 400
+        if styleChanged {
+            editor.font = font; editor.defaultParagraphStyle = paragraph
+            editor.typingAttributes[.tracking] = 0
+            editor.typingAttributes[.relicConfiguredFontWeight] = 400
+            editor.typingAttributes[.relicLabelSpan] = "uniform-production-label"
+        }
+        if textChanged || styleChanged {
+            editor.textStorage?.addAttributes([.paragraphStyle: paragraph, .tracking: 0, .relicConfiguredFontWeight: 400, .relicLabelSpan: "uniform-production-label"], range: NSRange(location: 0, length: (editor.string as NSString).length))
+        }
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
         editor.updatePlaceholder(); editor.needsDisplay = true
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let editor = nsView.documentView as? ComposerTextView else { return nil }
         let width = max(1, proposal.width ?? 400), font = editor.font ?? RelicStyle.nativeFont(14, weight: 400)
-        let storage = NSTextStorage(string: editor.string.isEmpty ? " " : editor.string, attributes: [.font: font, .paragraphStyle: editor.defaultParagraphStyle ?? NSParagraphStyle.default, .tracking: 0])
-        let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
-        return CGSize(width: width, height: viewportHeight ?? min(260, max(26, layout.usedRect(for: container).height + 4)))
+        let height = context.coordinator.measurement.height(text: editor.string, font: font,
+            paragraph: editor.defaultParagraphStyle ?? .default, width: width)
+        return CGSize(width: width, height: viewportHeight ?? min(260, max(26, height + 4)))
     }
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { (scroll.documentView as? ComposerTextView)?.closeMentions() }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MentionEditor
+        let measurement = ComposerTextMeasurement()
         init(_ parent: MentionEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) { if let editor = notification.object as? NSTextView { parent.text = editor.string } }
+    }
+}
+
+/// SwiftUI probes several proposals during one layout. Reuse the measurement
+/// for unchanged editor content/style rather than creating a new TextKit graph
+/// on every probe. The cache belongs to this editor and holds at most 8 widths.
+final class ComposerTextMeasurement {
+    private var text = ""
+    private var font: NSFont?
+    private var paragraph: NSParagraphStyle?
+    private var heights: [CGFloat: CGFloat] = [:]
+    func height(text: String, font: NSFont, paragraph: NSParagraphStyle, width: CGFloat) -> CGFloat {
+        if self.text != text || self.font != font || self.paragraph != paragraph {
+            self.text = text; self.font = font; self.paragraph = paragraph.copy() as? NSParagraphStyle
+            heights.removeAll(keepingCapacity: true)
+        }
+        if let height = heights[width] { return height }
+        let trace = UIWorkTrace.begin("composer.measure"); defer { UIWorkTrace.end(trace) }
+        let storage = NSTextStorage(string: text.isEmpty ? " " : text, attributes: [.font: font, .paragraphStyle: paragraph, .tracking: 0])
+        let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
+        let height = layout.usedRect(for: container).height
+        if heights.count >= 8 { heights.removeAll(keepingCapacity: true) }
+        heights[width] = height
+        return height
     }
 }
 

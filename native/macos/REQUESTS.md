@@ -1,5 +1,16 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+00df02b / 41181961617 still fails the startup watchdog (completed maximum
+565.435 ms; 151.750 MiB, 9 threads). UI-work scopes include composer mounting
+and message identity admission. 41182272749 is an explicit diagnostic run to
+obtain its native stack and is never acceptance eligible. Source inspection
+also found MentionEditor allocating and laying out a fresh TextKit graph on
+every repeated size proposal, and resetting unchanged native text attributes.
+The editor now caches at most eight widths for its current text/font/paragraph
+and applies attributes only when content/style changes. Tests exercise changed
+drafts, resize, font scale and mutable paragraph styles. This does not establish
+that the startup issue is resolved; the unchanged strict run is still required.
+
 868e7d0's failure-window.png proves the conversation is actually blank, despite
 the measured bottom gap being zero (1063 rows, no mounted message probe).
 The nested vertical lazy Markdown stack is now replaced by a staged ordinary

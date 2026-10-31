@@ -5,6 +5,27 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class MentionTests: XCTestCase {
+    func testComposerMeasurementReflowsAfterEditingResizingAndTextScaleChanges() {
+        let measurement = ComposerTextMeasurement()
+        let font = NSFont.systemFont(ofSize: 14)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 22; paragraph.maximumLineHeight = 22
+        let short = measurement.height(text: "Draft", font: font, paragraph: paragraph, width: 240)
+        let draft = String(repeating: "Draft with long text and 中文. ", count: 24)
+        let narrow = measurement.height(text: draft, font: font, paragraph: paragraph, width: 240)
+        let wide = measurement.height(text: draft, font: font, paragraph: paragraph, width: 720)
+        XCTAssertGreaterThan(narrow, short * 5)
+        XCTAssertLessThan(wide, narrow)
+        XCTAssertEqual(measurement.height(text: draft, font: font, paragraph: paragraph, width: 240), narrow)
+        // Mutating the caller's paragraph style must invalidate measurements;
+        // retaining its mutable reference would incorrectly compare it to itself.
+        paragraph.minimumLineHeight = 32; paragraph.maximumLineHeight = 32
+        let scaled = measurement.height(text: draft, font: .systemFont(ofSize: 20), paragraph: paragraph, width: 240)
+        XCTAssertGreaterThan(scaled, narrow)
+        paragraph.minimumLineHeight = 22; paragraph.maximumLineHeight = 22
+        XCTAssertEqual(measurement.height(text: "Draft", font: font, paragraph: paragraph, width: 240), short)
+    }
+
     func testComposerDocumentTracksTheActualViewportAcrossWindowSizes() throws {
         let scroll = ComposerScrollView()
         scroll.hasHorizontalScroller = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
