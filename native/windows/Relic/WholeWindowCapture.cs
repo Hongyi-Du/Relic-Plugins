@@ -30,6 +30,7 @@ public sealed partial class MainWindow
             {
                 var id = shot.Text("id");
                 var actions = new JsonArray(); capturePointerReceipts = new JsonArray();
+                JsonObject? receipt = null;
                 await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifestDirectory, "current-case.txt"), id);
                 try
                 {
@@ -57,15 +58,20 @@ public sealed partial class MainWindow
                     if (error.IsOpen) throw new InvalidOperationException("Production UI reported: " + error.Message);
                     if (!editor.IsDocumentReady) throw new InvalidOperationException("Native composer did not initialize: " + editor.InitializationFailure);
                     if (WholeWindowForeground() != handle) throw new InvalidOperationException("Relic is not the foreground window for desktop capture");
-                    var restoredWindow = await VerifyWholeWindowActions(actions);
-                    await CaptureMoveScreenPointer(1900, 1040);
-                    await Task.Delay(150); root.UpdateLayout();
-                    var receipt = await CaptureWholeWindowPixels(System.IO.Path.Combine(output, shot.Text("file")), width, height);
+                    // Preserve the normal loaded window before interaction checks.
+                    // A later action failure must leave its original image available.
+                    receipt = await CaptureWholeWindowPixels(System.IO.Path.Combine(output, shot.Text("file")), width, height);
                     receipt["case_id"] = id;
                     receipt["language"] = words.Language;
                     receipt["theme"] = root.ActualTheme.ToString().ToLowerInvariant();
+                    receipt["image_before_actions"] = true;
+                    receipt["actions_passed"] = false;
+                    receipt["original_window_screen"] = receipt["window_screen"]!.DeepClone();
+                    await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, id + ".window-chrome.json"), receipt.ToJsonString());
+                    var restoredWindow = await VerifyWholeWindowActions(actions);
                     receipt["actual_actions"] = actions.DeepClone();
                     receipt["restored_window_screen"] = WholeWindowBox(restoredWindow);
+                    receipt["actions_passed"] = true;
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, id + ".window-chrome.json"), receipt.ToJsonString());
                     count++;
                     Console.WriteLine("Relic whole-window capture: " + shot.Text("file"));
@@ -73,6 +79,11 @@ public sealed partial class MainWindow
                 catch (Exception ex) { failures.Add(id + ": " + ex); }
                 finally
                 {
+                    if (receipt != null)
+                    {
+                        receipt["actual_actions"] = actions.DeepClone();
+                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, id + ".window-chrome.json"), receipt.ToJsonString());
+                    }
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, id + ".window-actions.json"),
                         new JsonObject { ["actual_actions"] = actions, ["pointer_input"] = capturePointerReceipts.DeepClone() }.ToJsonString());
                 }
@@ -162,23 +173,42 @@ public sealed partial class MainWindow
         if (titlebarInteractiveRects.Any(rect => clientX >= rect.X && clientX < rect.X + rect.Width && clientY >= rect.Y && clientY < rect.Y + rect.Height))
             throw new InvalidOperationException("Actual title center overlaps a production passthrough button");
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this); var origin = new CapturePoint();
-        if (!ClientToScreen(handle, ref origin) || !WholeWindowGetRect(handle, out var window))
+        if (!ClientToScreen(handle, ref origin) || !WholeWindowGetRect(handle, out var window)
+            || !WholeWindowGetClientRect(handle, out var client))
             throw new InvalidOperationException("Title gesture could not bind actual client/window coordinates");
         var captionResult = WholeWindowDwmRect(handle, 5, out var caption, Marshal.SizeOf<WholeWindowRect>());
         var screenX = origin.x + clientX; var screenY = origin.y + clientY;
         var windowX = screenX - window.left; var windowY = screenY - window.top;
-        if (captionResult < 0 || caption.right <= caption.left || caption.bottom <= caption.top
-            || windowX >= caption.left && windowX < caption.right && windowY >= caption.top && windowY < caption.bottom)
-            throw new InvalidOperationException("Title gesture could not exclude the actual system caption buttons");
+        var captionUsable = captionResult >= 0 && caption.right > caption.left && caption.bottom > caption.top;
+        var overlapsDwmCaption = captionUsable && windowX >= caption.left && windowX < caption.right
+            && windowY >= caption.top && windowY < caption.bottom;
+        // Insets are physical-pixel widths of the system-reserved title-bar areas.
+        // With extended content the DWM caption rectangle may be empty, so use
+        // the actual AppWindow reservation, not a guessed button width.
+        var leftInset = AppWindow.TitleBar.LeftInset; var rightInset = AppWindow.TitleBar.RightInset;
+        var titleHeight = AppWindow.TitleBar.Height; var clientWidth = client.right - client.left;
+        var validInsets = ExtendsContentIntoTitleBar && leftInset >= 0 && rightInset >= 0
+            && leftInset + rightInset > 0 && leftInset + rightInset < clientWidth && titleHeight > 0;
+        var outsideCaptionStrips = validInsets && clientX >= leftInset && clientX < clientWidth - rightInset;
         var doubleClickTime = WholeWindowDoubleClickTime();
         var interval = (int)Math.Clamp(doubleClickTime / 4, 1u, 50u);
         var record = new JsonObject { ["action"] = "real title-area double click " + action,
             ["before_state"] = presenter.State.ToString(), ["scale"] = scale,
             ["client_dip"] = new JsonObject { ["x"] = point.X, ["y"] = point.Y },
             ["screen_pixel"] = new JsonObject { ["x"] = screenX, ["y"] = screenY },
-            ["caption_buttons_window"] = WholeWindowBox(caption), ["system_double_click_time_ms"] = doubleClickTime,
-            ["inter_click_delay_ms"] = interval, ["outside_passthrough_and_caption"] = true };
+            ["caption_buttons_window"] = WholeWindowBox(caption), ["caption_buttons_hresult"] = captionResult,
+            ["caption_buttons_usable"] = captionUsable, ["overlaps_dwm_caption"] = overlapsDwmCaption,
+            ["caption_safety"] = new JsonObject { ["source"] = "actual AppWindow title-bar insets and GetClientRect",
+                ["client_width_pixel"] = clientWidth, ["titlebar_height_pixel"] = titleHeight,
+                ["left_inset_pixel"] = leftInset, ["right_inset_pixel"] = rightInset,
+                ["titlebar_client_dip"] = new JsonObject { ["x"] = title.X, ["y"] = title.Y,
+                    ["width"] = title.Width, ["height"] = title.Height },
+                ["valid_reserved_strips"] = validInsets, ["outside_reserved_strips"] = outsideCaptionStrips },
+            ["system_double_click_time_ms"] = doubleClickTime,
+            ["inter_click_delay_ms"] = interval, ["outside_passthrough_and_caption"] = outsideCaptionStrips && !overlapsDwmCaption };
         actions.Add(record);
+        if (!outsideCaptionStrips || overlapsDwmCaption)
+            throw new InvalidOperationException("Title gesture could not exclude the actual system caption-button reserved areas");
         await CaptureMoveScreenPointer(screenX, screenY);
         for (var click = 0; click < 2; click++)
         {
@@ -207,8 +237,6 @@ public sealed partial class MainWindow
         // are screen-relative. GetWindowRect intentionally retains resize borders.
         var captionResult = WholeWindowDwmRect(handle, 5, out var caption, Marshal.SizeOf<WholeWindowRect>());
         var frameResult = WholeWindowDwmRect(handle, 9, out var frame, Marshal.SizeOf<WholeWindowRect>());
-        if (captionResult < 0 || caption.right <= caption.left || caption.bottom <= caption.top)
-            throw new InvalidOperationException($"System caption-button bounds unavailable: HRESULT 0x{captionResult:X8}");
         var receipt = new JsonObject
         {
             ["source"] = "CI desktop BitBlt of actual GetWindowRect, including system caption buttons",
@@ -217,6 +245,7 @@ public sealed partial class MainWindow
             ["client_screen"] = WholeWindowBox(new() { left = origin.x, top = origin.y,
                 right = origin.x + client.right - client.left, bottom = origin.y + client.bottom - client.top }),
             ["caption_buttons_window"] = WholeWindowBox(caption), ["caption_buttons_hresult"] = captionResult,
+            ["caption_buttons_usable"] = captionResult >= 0 && caption.right > caption.left && caption.bottom > caption.top,
             ["extended_frame_screen"] = frameResult >= 0 ? WholeWindowBox(frame) : null,
             ["extended_frame_hresult"] = frameResult, ["dpi"] = WholeWindowDpi(handle),
             ["extends_content_into_title_bar"] = ExtendsContentIntoTitleBar,
