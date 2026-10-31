@@ -290,7 +290,8 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.id(row.id)
+                                }.id(row.id).onAppear { PerformanceRendering.rowAppeared() }
+                                    .onDisappear { PerformanceRendering.rowDisappeared() }
                             }
                             if !m.displayLiveItems.isEmpty { LiveTurnView() }
                             // Include the reference's 24px trailing space in

@@ -14,10 +14,14 @@ struct MainView: View {
     @State private var resizingPanel: CGFloat?
     @State private var resizeStart: CGFloat?
     @State private var inspectorHandleHovered = false
+    @State private var displayedOrganization: String?
+    @State private var revealPhase = 0
     @StateObject private var panelResizeTrace = PanelResizeTrace()
     private var panelKey: String { m.pane == "files" ? "width.files" : "width.panel" }
     private var floatingPanel: Bool { InspectorGeometry.overlaysConversation(window: m.windowSize.width) }
     private var loadingOrganization: Bool { !m.ready || !m.organization.isEmpty && m.snapshot["org"].isNull }
+    private var organizationKey: String? { loadingOrganization ? nil : m.organization }
+    private var contentPhase: Int { displayedOrganization == organizationKey ? revealPhase : 0 }
     private var panelWidth: CGFloat {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
@@ -28,15 +32,31 @@ struct MainView: View {
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar().frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
-                if loadingOrganization { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                if m.sidebarOpen { Sidebar(revealMembers: contentPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                if loadingOrganization || contentPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
                     ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
-                    if m.panelOpen && !floatingPanel { inspector }
                 }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && m.panelOpen && floatingPanel { inspector } }
+                if !loadingOrganization && m.panelOpen && !floatingPanel {
+                    if contentPhase >= 3 { inspector }
+                    else { Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48)) }
+                }
+            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if !loadingOrganization && contentPhase >= 3 && m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
+        .task(id: organizationKey) {
+            let ticket = PerformanceRendering.beginSurface()
+            defer { PerformanceRendering.endSurface(ticket) }
+            displayedOrganization = organizationKey; revealPhase = 0
+            guard organizationKey != nil else { return }
+            // Give the native run loop a frame between materializing each pane.
+            // All panes retain their final space, so the chat does not wrap
+            // twice. The same progressive mounting runs in the shipped app.
+            for phase in 1...3 {
+                do { try await Task.sleep(for: .milliseconds(32)) } catch { return }
+                revealPhase = phase
+            }
+        }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { if !floatingPanel { m.defaults.set(m.panelOpen, forKey: "panel") } }
         .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }

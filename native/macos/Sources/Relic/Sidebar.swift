@@ -3,6 +3,7 @@ import RelicCore
 
 struct Sidebar: View {
     @EnvironmentObject var m: Model
+    var revealMembers = true
     @State private var focused = false
     @State private var profileImageVisible = false
     private let newOrganizationOwner = "relic-text-button/sidebar-new-organization"
@@ -27,7 +28,7 @@ struct Sidebar: View {
                         ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
                         if !m.organizations.isEmpty { ReferenceLabel(String(m.organizations.count), size: 12, color: RelicStyle.muted, lines: 0) }
                     }.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
-                    Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: []) }
+                    Rows(m.organizations.filter { node in node["parent"].text.isEmpty || !m.organizations.contains { $0["id"].text == node["parent"].text } }) { OrgTree(node: $0, ancestors: [], revealMembers: revealMembers) }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
             }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
@@ -63,6 +64,7 @@ struct OrgTree: View {
     let node: Node
     let ancestors: Set<String>
     var depth = 0
+    var revealMembers = true
     private var id: String { node["id"].text }
     private var active: Bool { m.organization == id }
     private var owner: String { "relic-org/" + id }
@@ -94,7 +96,7 @@ struct OrgTree: View {
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
-                if active && !folded && !m.snapshot["org"].isNull {
+                if active && !folded && revealMembers && !m.snapshot["org"].isNull {
                     LazyVStack(spacing: 1) {
                         if query.isEmpty || orgHit || m.t("common.group_chat").localizedCaseInsensitiveContains(query) {
                             SidebarChatRow(who: nil, group: true)
@@ -112,7 +114,7 @@ struct OrgTree: View {
                         .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/org-children/" + id).accessibilityLabel("").padding(.leading, 10)
                 }
             }
-            if !folded { Rows(children) { child in AnyView(OrgTree(node: child, ancestors: ancestors.union([id]), depth: depth + 1)) } }
+            if !folded { Rows(children) { child in AnyView(OrgTree(node: child, ancestors: ancestors.union([id]), depth: depth + 1, revealMembers: revealMembers)) } }
         }
     }
 }

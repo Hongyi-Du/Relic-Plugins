@@ -134,6 +134,7 @@ import RelicCore
             await settle()
             if !model.isPreparingConversation,
                PerformanceRendering.streamVersion == model.streamVersion,
+               PerformanceRendering.pendingSurfaces == 0,
                PerformanceRendering.pendingMarkdown == 0 { return }
         } while ProcessInfo.processInfo.systemUptime < deadline
         throw RelicError.message("Conversation did not finish displaying its current rows and Markdown")
