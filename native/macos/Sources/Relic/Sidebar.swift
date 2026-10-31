@@ -146,10 +146,11 @@ struct SidebarChatRow: View {
     private var head: Node { m.snapshot["chats"][group ? "group" : "member:" + name]["last"] }
     private var title: String { group ? m.t("common.group_chat") : secretary ? m.t(name.isEmpty ? "side.set_secretary" : "common.secretary") : who?.display ?? "" }
     private var subtitle: String {
-        if group { return m.lastLine().isEmpty ? m.t("side.group_sub") : m.lastLine() }
+        if group { let preview = m.lastLine(); return preview.isEmpty ? m.t("side.group_sub") : preview }
         if name.isEmpty { return m.t("side.secretary_hint") }
         if !secretary, let doing = who?["doing"].text, !doing.isEmpty { return m.t("side.doing", ["doing": doing]) }
-        if !m.lastLine(name).isEmpty { return m.lastLine(name) }
+        let preview = m.lastLine(name)
+        if !preview.isEmpty { return preview }
         if secretary { return [who?["doing"].text ?? "", who?["detail"].text ?? ""].first { !$0.isEmpty } ?? "" }
         return (who?["role"].text).flatMap { $0.isEmpty ? nil : $0 } ?? m.stateLabel(who?["state"].text ?? "")
     }
@@ -159,12 +160,14 @@ struct SidebarChatRow: View {
         if secretary, let who { return who.display == m.t("common.secretary") ? who["name"].text : who.display }
         return who?["leader"].flag == true ? m.t("common.leader") : ""
     }
-    private var accessibilityName: String {
-        [group || secretary || avatarImageVisible ? "" : String(m.name(name).prefix(1)).uppercased(),
-         title, badgeText, subtitle, date.isNull ? "" : m.shortWhen(date), unread > 0 ? unread > 99 ? "99+" : String(unread) : ""]
-            .filter { !$0.isEmpty }.joined(separator: " ")
-    }
     var body: some View {
+        // One history scan and one preview/date formatting pass per row update.
+        // Badges, native text and accessibility share the same resolved values.
+        let subtitle = self.subtitle, unread = self.unread, date = self.date
+        let timestamp = date.isNull ? "" : m.shortWhen(date)
+        let accessibilityName = [group || secretary || avatarImageVisible ? "" : String(m.name(name).prefix(1)).uppercased(),
+            title, badgeText, subtitle, timestamp, unread > 0 ? unread > 99 ? "99+" : String(unread) : ""]
+            .filter { !$0.isEmpty }.joined(separator: " ")
         Button {
             if secretary && name.isEmpty { m.sheet = .secretary }
             else { m.run { try await m.select(m.organization, group ? "" : name) } }
@@ -180,7 +183,7 @@ struct SidebarChatRow: View {
                     if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 3) {
-                    if !date.isNull { ReferenceLabel(m.shortWhen(date), size: 11, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
+                    if !date.isNull { ReferenceLabel(timestamp, size: 11, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
                     if unread > 0 { NativeCountBadge(text: unread > 99 ? "99+" : String(unread)) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)

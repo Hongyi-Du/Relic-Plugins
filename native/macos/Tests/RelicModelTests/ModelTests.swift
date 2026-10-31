@@ -77,6 +77,26 @@ final class ModelTransport: URLProtocol {
         XCTAssertFalse(model.recipientPicker)
         XCTAssertEqual(model.sheet, .create)
     }
+    func testMenuOpeningDismissesRecipientPickerWithoutAWindowObserver() throws {
+        let model = try model(); defer { model.stop() }
+        model.recipientPicker = true
+        model.appMenu = "file"
+        XCTAssertFalse(model.recipientPicker)
+        XCTAssertEqual(model.appMenu, "file")
+        model.appMenu = nil
+        XCTAssertNil(model.appMenu)
+    }
+    func testUnreadCountsFullLargeHistoryWithSeenAndHumanMessagesExcluded() throws {
+        let model = try model(); defer { model.stop() }
+        model.organization = "a"
+        model.defaults.set(2_000, forKey: "seen.a/group")
+        var ids: [[Any]] = (1...5_500).map { [$0, $0.isMultiple(of: 2) ? "human" : "secretary"] }
+        ids.append([]); ids.append([9_999])
+        model.snapshot = Node(["chats": ["group": ["ids": ids]]])
+        XCTAssertEqual(model.unread(), 1_750)
+        model.defaults.set(5_500, forKey: "seen.a/group")
+        XCTAssertEqual(model.unread(), 0)
+    }
     func testConversationRefreshRequestsTheReferenceHistoryWindowForGroupAndPrivateChats() async throws {
         for member in ["", "analyst"] {
             let model = try model(); model.setSelection(ChatSelection("a", member))

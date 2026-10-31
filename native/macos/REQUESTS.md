@@ -1,3 +1,17 @@
+Amendment 8 after reboot: merged shared 4b55926. cbb82d6 passes all 303
+native tests/build/package plus Python, chrome, responsive windows and visual.
+Strict 41194528654 still FAILS at action-0155/menu: 288.553 ms,209.813 MiB,8
+threads; shared41194618738 FAILS group0065:373.186 ms,205.297 MiB,9threads.
+Run-loop probes also stall (286.011/362.733 ms); no acceptance claim.
+Product now retains ConversationStream native viewport/composer across chat
+selection instead of destroying them through .id(selection). Existing reading
+intent resets remain and the mount task also keys selection. Remove root
+window menu observation; perform picker dismissal in appMenu setter. Resolve
+sidebar preview/date/unread once per row and read each unread ID pair once.
+New mounted navigation test proves 1063-row group/private/org transitions draw
+the actual new tail while preserving scroll/editor identities. Add 5500-ID
+unread and menu-mutual-exclusion regressions. CI pending; no shared API request,
+no relaxation of strict completeness, paging, random phase or 250 ms gate.
 e60e073 strict 41193724696 FAILS action-0047 (first group in org_perf000002):
 145.829 ms, 187.625 MiB /9 threads; actual bound_id and last_row_id both
 id:7758#0, bottom gap 0, no real message rows. Native tests 41193724741 still

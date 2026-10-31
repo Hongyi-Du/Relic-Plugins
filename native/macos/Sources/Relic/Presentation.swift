@@ -108,7 +108,10 @@ extension Model {
     var displayLiveItems: [Node] { Timeline.activeLive(liveItems, status: liveStatus, decisions: snapshot["decisions"].rows) }
     func unread(_ member: String = "") -> Int {
         let key = member.isEmpty ? "group" : "member:" + member, since = defaults.integer(forKey: "seen." + organization + "/" + key)
-        return snapshot["chats"][key]["ids"].rows.filter { $0.rows.count > 1 && $0.rows[0].integer > since && $0.rows[1].text != "human" }.count
+        return snapshot["chats"][key]["ids"].rows.reduce(into: 0) { count, row in
+            let pair = row.rows
+            if pair.count > 1 && pair[0].integer > since && pair[1].text != "human" { count += 1 }
+        }
     }
     func lastLine(_ member: String = "") -> String {
         let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
