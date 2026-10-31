@@ -1,5 +1,28 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+e747b64 / 41182945486 completes every fixed action, including all four real
+history cases (5,500/1,250/1,250/1,250 messages, 6/2/2/2 pages). Each initial,
+top and bottom gap is 0 with actual boundary rows visible. It then FAILS on
+monkey-51 entering org_perf000004 again: keepLatest=true but the final row 1017
+is not realized and the remaining gap is 13205.719 DIP. UI max is 159.960 ms,
+peak 506.246 MiB /38 threads; 51 random actions precede the failure, so the
+180-second phase is incomplete. The last actual bring-arranged at 4190269 is
+followed by real layout/realization through 4191216 with no further bring.
+The current correction retains follow intent until user cancellation, explicitly
+offers the realized last row to ScrollViewer.AnchorRequested, and coalesces
+checks driven by that viewport/row's real layout changes. It never creates a
+row inside AnchorRequested, uses no global LayoutUpdated traversal or idle
+polling, and leaves input, coverage, endpoint and watchdog assertions intact.
+
+Changes for the clients: e747b64 Python validation 41182950220 exposes a
+static i18n-scan false positive for macOS UIWorkTrace.begin("composer.measure").
+The macOS owner fixes the diagnostic name to "editor-measure" in 09ec379.
+This is an internal timing label, not visible text. The original reverse key
+scanner, vocabulary checks and word lists remain unchanged; no key or namespace
+is allowlisted. REQUESTS.md also records staged cold composer mounts and
+anchoring initial latest position to the actual last row's changing height.
+These Mac changes still require fresh strict validation.
+
 ab4e484 / 41182092838 proves the initial-layout correction and actual history
 paging: the initial final row is visible at offset=max=257404.890625; all six
 pages load 5,500 distinct messages down to ID 1, and the actual first row is

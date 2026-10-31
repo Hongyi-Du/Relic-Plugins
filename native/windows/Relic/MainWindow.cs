@@ -336,27 +336,16 @@ public sealed partial class MainWindow : Window
     private void DrawChat() => DrawConversation();
     private void ScrollToLatest()
     {
-        // VirtualRows waits for the real anchor's Arrange before scrolling.
-        // Keep both that pending request and the post-Markdown correction tied
-        // to this action so neither can override a later user/history scroll.
+        // Retain the actual final-row anchor through deferred Markdown/font
+        // layout and virtual extent changes. VirtualRows reacts to real layout
+        // changes, and a later user/history scroll cancels this single intent.
         keepLatest = true;
         chatScroll.VerticalAnchorRatio = 1;
         var request = ++latestRequest;
-        bool IsCurrent() => !closing && keepLatest && request == latestRequest;
-        stream.BringLastIntoView(IsCurrent);
-        _ = SettleLatest();
-        async Task SettleLatest()
-        {
-            try
-            {
-                await WaitForMarkdown();
-                if (IsCurrent())
-                {
-                    stream.BringLastIntoView(IsCurrent);
-                }
-            }
-            catch (TimeoutException) { /* Loading continues; never override a later user scroll. */ }
-        }
+        var selectedOrg = org; var selectedMember = member;
+        bool IsCurrent() => !closing && keepLatest && request == latestRequest
+            && org == selectedOrg && member == selectedMember;
+        stream.FollowLastIntoView(chatScroll, IsCurrent);
     }
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
