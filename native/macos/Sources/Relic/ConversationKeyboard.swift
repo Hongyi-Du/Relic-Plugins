@@ -8,28 +8,10 @@ import SwiftUI
     static let identifier = "relic-conversation-scroll"
     weak var scroll: NSScrollView?
     var enabled = true
+    var scrollToEdge: ((Bool) -> Void)?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
-    private var bottomAdjustmentPending = false
-    private var bottomGeneration = 0
-
-    func settleBottom() {
-        guard !bottomAdjustmentPending else { return }
-        bottomAdjustmentPending = true
-        let generation = bottomGeneration
-        DispatchQueue.main.async { [weak self] in
-            guard let self, generation == self.bottomGeneration else { return }
-            self.bottomAdjustmentPending = false
-            guard let scroll = self.scroll, let document = scroll.documentView else { return }
-            let clip = scroll.contentView
-            var target = clip.bounds
-            target.origin.y = document.isFlipped ? document.frame.maxY - clip.bounds.height : document.frame.minY
-            let origin = clip.constrainBoundsRect(target).origin
-            guard abs(origin.y - clip.bounds.origin.y) > 1 else { return }
-            clip.scroll(to: origin); scroll.reflectScrolledClipView(clip)
-        }
-    }
 
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
@@ -40,7 +22,6 @@ import SwiftUI
 
     func discardDisclosurePosition() {
         disclosureGeneration += 1; disclosureOrigin = nil
-        bottomGeneration += 1; bottomAdjustmentPending = false
     }
 
     func finishDisclosureLayout() {
@@ -64,6 +45,9 @@ import SwiftUI
     func handle(_ key: KeyEquivalent, modifiers: EventModifiers) -> KeyPress.Result {
         guard enabled, modifiers.intersection([.command, .control, .option]).isEmpty,
               let scroll, let document = scroll.documentView else { return .ignored }
+        if let scrollToEdge, key == .home || key == .end {
+            discardDisclosurePosition(); scrollToEdge(key == .home); return .handled
+        }
         let clip = scroll.contentView
         let direction: CGFloat = document.isFlipped ? 1 : -1
         let page = max(0, clip.bounds.height - scroll.verticalPageScroll)
@@ -93,6 +77,9 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     var enabled = true
     var focused = false
     private static let live = NSHashTable<Mount>.weakObjects()
+    static func controller(for scroll: NSScrollView) -> ConversationKeyboard? {
+        live.allObjects.first { $0.attachedScroll === scroll && $0.window === scroll.window }?.keyboard
+    }
     func makeNSView(context: Context) -> Mount {
         let view = Mount(keyboard: keyboard); Self.live.add(view)
         view.update(enabled: enabled, focused: focused); return view

@@ -1,7 +1,9 @@
 import Foundation
+import RelicCore
 
 /// CI observation only. This never controls product rendering or bypasses work.
 @MainActor enum PerformanceRendering {
+    private static var observing: Bool { ResponsivenessCapture.enabled || VisualCapture.enabled || TitlebarCapture.enabled }
     private static var markdown: Set<UUID> = []
     private static var surfaces: Set<UUID> = []
     private static var mountedRows: [String: Int] = [:]
@@ -9,21 +11,21 @@ import Foundation
     static var pendingMarkdown: Int { markdown.count }
     static var pendingSurfaces: Int { surfaces.count }
     static func beginSurface() -> UUID? {
-        guard ResponsivenessCapture.enabled else { return nil }
+        guard observing else { return nil }
         let ticket = UUID(); surfaces.insert(ticket); return ticket
     }
     static func endSurface(_ ticket: UUID?) {
         if let ticket { surfaces.remove(ticket) }
     }
     static func beginMarkdown() -> UUID? {
-        guard ResponsivenessCapture.enabled else { return nil }
+        guard observing else { return nil }
         let ticket = UUID(); markdown.insert(ticket); return ticket
     }
     static func endMarkdown(_ ticket: UUID?) {
         if let ticket { markdown.remove(ticket) }
     }
     static func observed(streamVersion: Int) {
-        if ResponsivenessCapture.enabled { self.streamVersion = streamVersion }
+        if observing { self.streamVersion = streamVersion }
     }
     static func rowAppeared(_ kind: String = "message") {
         guard ResponsivenessCapture.enabled else { return }
@@ -32,5 +34,17 @@ import Foundation
     static func rowDisappeared(_ kind: String = "message") {
         guard ResponsivenessCapture.enabled else { return }
         mountedRows[kind, default: 0] -= 1; UIWorkTrace.gauge("mounted_\(kind)_rows", mountedRows[kind, default: 0])
+    }
+    static func waitForContent(_ model: Model) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 15
+        var quietPasses = 0
+        repeat {
+            try await Task.sleep(for: .milliseconds(100))
+            if !model.isPreparingConversation, (model.organization.isEmpty || streamVersion == model.streamVersion),
+               pendingSurfaces == 0, pendingMarkdown == 0 { quietPasses += 1 }
+            else { quietPasses = 0 }
+            if quietPasses >= 3 { return }
+        } while ProcessInfo.processInfo.systemUptime < deadline
+        throw RelicCore.RelicError.message("Native panes and visible Markdown did not finish preparing")
     }
 }

@@ -340,7 +340,7 @@ struct ConversationStream: View {
                             }
                         }
                 }
-                ComposerView { following.followsBottom = true; m.run { try await m.send(); keyboard.settleBottom() } }.measuredRegion("composer")
+                ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
@@ -348,15 +348,20 @@ struct ConversationStream: View {
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if !initialLoad && following.followsBottom { keyboard.settleBottom() }
+                        if !initialLoad && following.followsBottom { proxy.scrollTo("end", anchor: .bottom) }
                         initialLoad = false
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = m.streamRows.isEmpty
-                    keyboard.settleBottom()
+                    let model = m
+                    keyboard.scrollToEdge = { top in
+                        if top, let first = model.streamRows.first?.id { proxy.scrollTo(first, anchor: .top) }
+                        else if !top { proxy.scrollTo("end", anchor: .bottom) }
+                    }
                 }
+                .onDisappear { keyboard.scrollToEdge = nil }
         }
     }
 }

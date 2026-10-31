@@ -168,6 +168,9 @@ import RelicCore
         guard let root = window.contentView, let scroll = find(root), let document = scroll.documentView else {
             throw RelicError.message("Production conversation scroll view not found")
         }
+        if let controller = ConversationKeyboardMount.controller(for: scroll), controller.scrollToEdge != nil {
+            _ = controller.handle(toTop ? .home : .end, modifiers: []); return
+        }
         let upper: CGFloat = document.isFlipped ? 0 : max(0, document.frame.height - scroll.contentView.bounds.height)
         let lower: CGFloat = document.isFlipped ? max(0, document.frame.height - scroll.contentView.bounds.height) : 0
         scroll.contentView.scroll(to: NSPoint(x: 0, y: toTop ? upper : lower)); scroll.reflectScrolledClipView(scroll.contentView)

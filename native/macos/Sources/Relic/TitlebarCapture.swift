@@ -56,6 +56,7 @@ import RelicCore
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); WindowChrome.positionButtons(in: window)
                 try await Task.sleep(for: .milliseconds(750))
+                try await PerformanceRendering.waitForContent(current)
                 host.layoutSubtreeIfNeeded(); window.displayIfNeeded(); WindowChrome.positionButtons(in: window)
                 let file = output.appendingPathComponent(item["file"].text), number = window.windowNumber
                 try await Task.detached {
