@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private int historyIndex = -1;
     private readonly Dictionary<string, string> seenMessages = new();
     private JsonObject chatStates = new();
+    private readonly LatestStateWriter viewStateWriter = new();
     private string StatePath => PerformanceEnabled
         ? System.IO.Path.Combine(Environment.GetEnvironmentVariable("RELIC_PERF_OUTPUT")!, "state", "native-ui.json")
         : VisualCaptureEnabled
@@ -39,8 +40,7 @@ public sealed partial class MainWindow
             ["sideWidth"] = sideWidth, ["panelWidth"] = panelWidth, ["fileWidth"] = fileWidth, ["mode"] = viewMode, ["chartClosed"] = chartClosed, ["chartLinks"] = chartLinks,
             ["folded"] = JsonSerializer.SerializeToNode(folded), ["drafts"] = JsonSerializer.SerializeToNode(drafts),
             ["seen"] = JsonSerializer.SerializeToNode(seenMessages), ["chats"] = chatStates.DeepClone() };
-        try { System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(StatePath)!); System.IO.File.WriteAllText(StatePath + ".tmp", state.ToJsonString()); System.IO.File.Move(StatePath + ".tmp", StatePath, true); }
-        catch (System.IO.IOException) { } catch (UnauthorizedAccessException) { }
+        viewStateWriter.Queue(StatePath, state);
     }
     private void RememberChat()
     {

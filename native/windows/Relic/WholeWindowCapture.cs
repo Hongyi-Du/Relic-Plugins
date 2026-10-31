@@ -71,6 +71,11 @@ public sealed partial class MainWindow
                     // A later action failure must leave its original image available.
                     receipt = await CaptureWholeWindowPixels(System.IO.Path.Combine(output, shot.Text("file")), width, height);
                     receipt["case_id"] = id;
+                    var endGap = Math.Max(0, chatScroll.ScrollableHeight - chatScroll.VerticalOffset);
+                    receipt["conversation_scroll"] = new JsonObject { ["offset"] = chatScroll.VerticalOffset,
+                        ["maximum"] = chatScroll.ScrollableHeight, ["end_gap"] = endGap,
+                        ["pending_text"] = NativePathText.PendingPreparations };
+                    if (endGap > 2) throw new InvalidOperationException("Selected group did not remain at its latest messages after deferred layout: " + endGap);
                     receipt["language"] = words.Language;
                     receipt["theme"] = root.ActualTheme.ToString().ToLowerInvariant();
                     receipt["image_before_actions"] = true;

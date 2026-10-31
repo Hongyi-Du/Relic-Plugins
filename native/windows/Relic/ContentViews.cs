@@ -24,7 +24,7 @@ public sealed partial class MainWindow
             var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
             await yield.Task; await Task.Delay(16);
-            quiet = PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 ? quiet + 1 : 0;
+            quiet = PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativePathText.PendingPreparations == 0 ? quiet + 1 : 0;
         }
     }
     private RichTextBlock? selectedRich;

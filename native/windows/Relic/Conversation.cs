@@ -168,6 +168,12 @@ public sealed partial class MainWindow
     }
     private void WireComposer()
     {
+        // Deferred text preparation and virtual rows can change the extent
+        // after the initial end anchor was brought into view. Follow only when
+        // the reader was already following the latest messages; never force
+        // synchronous layout or override an upward/history scroll.
+        stream.SizeChanged += (_, _) => FollowLatestAfterLayout();
+        chatScroll.SizeChanged += (_, _) => FollowLatestAfterLayout();
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
         chatScroll.PointerWheelChanged += (_, e) => { if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) { keepLatest = false; latestRequest++; } };
         chatScroll.PointerPressed += (_, _) => { keepLatest = false; latestRequest++; };

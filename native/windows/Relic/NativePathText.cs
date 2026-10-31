@@ -35,6 +35,10 @@ public sealed partial class NativePathText : UserControl
     private readonly List<Rectangle> selectionPaint = [];
     private NativePathBoundaries? boundaries;
     private NativePathBoundaries? paintBoundaries;
+    private CancellationTokenSource? boundaryPreparation;
+    private Exception? boundaryPreparationError;
+    private static int pendingPreparations;
+    internal static int PendingPreparations => Volatile.Read(ref pendingPreparations);
     private NativePathMeasurement? measured, strut;
     private NativePathPeer? peer;
     private double measuredWidth = double.NaN, desiredWidth, desiredHeight;
@@ -63,15 +67,54 @@ public sealed partial class NativePathText : UserControl
 
     private void EnsureSourceMeasurement()
     {
-        boundaries ??= NativePathIcu.Read(SourceText, locale);
-        paintBoundaries ??= sourceMap.Paint == SourceText ? boundaries : NativePathIcu.Read(sourceMap.Paint, locale);
+        if (boundaryPreparationError != null) throw new InvalidOperationException("System ICU preparation failed", boundaryPreparationError);
+        if (boundaries == null || paintBoundaries == null) throw new InvalidOperationException("System ICU preparation is pending");
         measured ??= NativePathMeasure.Shape(sourceMap.Paint, textStyle.Family, textStyle.Size, textStyle.Weight, locale,
             measureIntrinsicWidths: textStyle.Kind == "banner");
+    }
+
+    private void PrepareBoundaries()
+    {
+        if (boundaries != null || boundaryPreparation != null || boundaryPreparationError != null) return;
+        var cancellation = boundaryPreparation = new CancellationTokenSource();
+        Interlocked.Increment(ref pendingPreparations);
+        _ = Prepare();
+        async Task Prepare()
+        {
+            NativePathBoundaries? source = null, paint = null;
+            Exception? error = null;
+            try
+            {
+                source = await NativePathIcu.ReadAsync(SourceText, locale, cancellation.Token).ConfigureAwait(false);
+                paint = sourceMap.Paint == SourceText ? source
+                    : await NativePathIcu.ReadAsync(sourceMap.Paint, locale, cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (Exception failure) { error = failure; }
+            if (!DispatcherQueue.TryEnqueue(() =>
+            {
+                boundaryPreparation = null;
+                if (!cancellation.IsCancellationRequested)
+                {
+                    boundaries = source; paintBoundaries = paint; boundaryPreparationError = error;
+                    measuredWidth = double.NaN; bannerIntrinsic = null; bannerIntrinsicFailure = null;
+                    body.InvalidateMeasure(); InvalidateMeasure();
+                }
+                Interlocked.Decrement(ref pendingPreparations);
+                var restart = cancellation.IsCancellationRequested && IsLoaded;
+                cancellation.Dispose();
+                if (restart) PrepareBoundaries();
+            }))
+            {
+                Interlocked.Decrement(ref pendingPreparations); cancellation.Dispose();
+            }
+        }
     }
 
     internal bool TryGetBannerIntrinsic(out NativeBannerFlex.Intrinsic intrinsic)
     {
         if (textStyle.Kind != "banner") throw new InvalidOperationException("Only a banner participates in this flex layout");
+        if (boundaries == null && boundaryPreparationError == null) { intrinsic = default; return false; }
         if (bannerIntrinsic is { } cached) { intrinsic = cached; return true; }
         if (bannerIntrinsicFailure != null) { intrinsic = default; return false; }
         try
@@ -149,8 +192,9 @@ public sealed partial class NativePathText : UserControl
         menu.Opening += (_, _) => copy.IsEnabled = SelectionEnd > SelectionStart;
         menu.Items.Add(copy); menu.Items.Add(all); ContextFlyout = menu;
         RefreshTextScale();
-        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); };
-        Unloaded += (_, _) => textSettings.TextScaleFactorChanged -= TextScaleChanged;
+        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); PrepareBoundaries(); };
+        Unloaded += (_, _) => { textSettings.TextScaleFactorChanged -= TextScaleChanged; boundaryPreparation?.Cancel(); };
+        PrepareBoundaries();
     }
 
     private void TextScaleChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>

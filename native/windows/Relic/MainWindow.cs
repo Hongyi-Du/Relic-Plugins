@@ -147,6 +147,7 @@ public sealed partial class MainWindow : Window
         {
             if (closing) return;
             e.Handled = true; SaveViewState(); SaveWindowPlacement(); placementTimer.Stop(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
+            await viewStateWriter.DisposeAsync(); await windowStateWriter.DisposeAsync();
             await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
         root.Loaded += async (_, _) =>
@@ -320,6 +321,19 @@ public sealed partial class MainWindow : Window
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
+    private bool followLatestQueued;
+    private void FollowLatestAfterLayout()
+    {
+        if (!keepLatest || loadingOlder || closing || followLatestQueued) return;
+        followLatestQueued = true;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            followLatestQueued = false;
+            if (keepLatest && !loadingOlder && !closing
+                && chatScroll.ScrollableHeight - chatScroll.VerticalOffset > 1)
+                chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true);
+        });
+    }
     private void ScrollToLatest()
     {
         // Finish this conversation's current layout before choosing its end.
@@ -336,7 +350,10 @@ public sealed partial class MainWindow : Window
             try
             {
                 await WaitForMarkdown();
-                if (!closing && keepLatest && request == latestRequest) stream.BringLastIntoView();
+                if (!closing && keepLatest && request == latestRequest)
+                {
+                    stream.BringLastIntoView(); FollowLatestAfterLayout();
+                }
             }
             catch (TimeoutException) { /* Loading continues; never override a later user scroll. */ }
         }
