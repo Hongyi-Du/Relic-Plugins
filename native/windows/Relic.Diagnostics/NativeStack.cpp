@@ -58,6 +58,13 @@ std::string Hex(DWORD64 value) {
     std::ostringstream text; text << "0x" << std::hex << value; return text.str();
 }
 
+double UnixMilliseconds() {
+    FILETIME now{};
+    GetSystemTimePreciseAsFileTime(&now);
+    ULARGE_INTEGER ticks{}; ticks.LowPart = now.dwLowDateTime; ticks.HighPart = now.dwHighDateTime;
+    return static_cast<double>(ticks.QuadPart - 116444736000000000ULL) / 10000.0;
+}
+
 std::string Quote(const std::string& value) {
     std::ostringstream text; text << '"';
     for (const unsigned char ch : value) {
@@ -241,13 +248,18 @@ void EmitFrame(HANDLE process, size_t index, DWORD64 ip, DWORD64 sp, bool resolv
 int ResolveOffline(const wchar_t* imageArgument, const wchar_t* symbolArgument, int count, wchar_t** offsets) {
     const auto image = LocalPath(imageArgument, false);
     const auto symbols = LocalPath(symbolArgument, true);
-    const HANDLE process = GetCurrentProcess();
+    // DbgHelp requires a unique session handle and explicitly warns against
+    // GetCurrentProcess's shared pseudo-handle. Own a real handle even though
+    // this offline mode only reads the supplied image and local PDB files.
+    Handle self(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, GetCurrentProcessId()));
+    const HANDLE process = self.value;
     // This separate mode never opens/suspends the app and never downloads.
     // IGNORE_CVREC ignores the embedded original path, not its GUID/age.
     // EXACT_SYMBOLS rejects unmatched PDBs and disables export fallback.
     LocalSymbolOptions(true);
     if (!SymInitializeW(process, symbols.c_str(), FALSE)) Fail("Offline SymInitializeW");
     struct Cleanup { HANDLE process; ~Cleanup() { SymCleanup(process); } } cleanup{process};
+    SetLastError(ERROR_SUCCESS);
     const DWORD64 base = SymLoadModuleExW(process, nullptr, image.c_str(), nullptr, 0, 0, nullptr, 0);
     if (!base) Fail("Offline SymLoadModuleExW");
     bool allResolved = true;
@@ -311,10 +323,13 @@ int Capture(DWORD pid) {
     snapshot.context.ContextFlags = CONTEXT_FULL;
     const auto captureStarted = GetTickCount64();
     DWORD priorSuspendCount = 0;
+    const auto suspendStartedUtc = UnixMilliseconds();
+    double contextCapturedUtc = 0;
     {
         SuspendedThread suspended(thread.value);
         priorSuspendCount = suspended.previous;
         if (!GetThreadContext(thread.value, &snapshot.context)) Fail("GetThreadContext");
+        contextCapturedUtc = UnixMilliseconds();
         snapshot.stackStart = snapshot.context.Rsp;
         MEMORY_BASIC_INFORMATION region{};
         if (!VirtualQueryEx(process.value, reinterpret_cast<LPCVOID>(snapshot.stackStart), &region, sizeof(region))) Fail("VirtualQueryEx");
@@ -331,10 +346,15 @@ int Capture(DWORD pid) {
         snapshot.truncated = available > snapshot.copied;
         suspended.Resume();
     }
+    const auto resumeCompletedUtc = UnixMilliseconds();
     const auto resumed = GetTickCount64();
     std::cout << "{\"kind\":\"native_snapshot\",\"pid\":" << pid << ",\"thread_id\":" << target.thread
         << ",\"window\":" << Quote(Hex(reinterpret_cast<DWORD64>(target.window)))
         << ",\"resumed_before_unwind\":true,\"suspended_ms\":" << resumed - captureStarted
+        << std::fixed << std::setprecision(4)
+        << ",\"suspend_started_unix_ms\":" << suspendStartedUtc
+        << ",\"context_captured_unix_ms\":" << contextCapturedUtc
+        << ",\"resume_completed_unix_ms\":" << resumeCompletedUtc << std::defaultfloat
         << ",\"prior_suspend_count\":" << priorSuspendCount << ",\"stack_bytes\":" << snapshot.copied
         << ",\"stack_truncated\":" << (snapshot.truncated ? "true" : "false")
         << ",\"ip\":" << Quote(Hex(snapshot.context.Rip)) << ",\"sp\":" << Quote(Hex(snapshot.context.Rsp))

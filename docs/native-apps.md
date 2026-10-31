@@ -1,5 +1,17 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients: 336f85d fixes the narrow Mac composer's actual empty
+text-document minimum height and adds a mounted-editor draw regression; no
+shared request or contract changes. The Windows diagnostic at bb37cbf records
+a 216.719 ms initial probe, but exact native symbols are absent: offline
+SymLoadModuleExW returns error 6 despite downloading the matching XAML PDB.
+The CI-only resolver now uses its own real process handle throughout DbgHelp,
+as required by SymInitialize, and the native snapshot records actual UTC
+suspend/context/resume boundaries. Product behavior, diagnostic budgets and
+strict acceptance limits are unchanged. Until successful resolution, these
+stacks identify native XAML work only, not a particular function or the cause
+of a different run's 257/264 ms failure.
+
 bb37cbf / 41188970901 records 99.191 ms, 378.723 MiB and 39 threads but
 fails the history observer: native virtual extent adjustment clamps the requested
 64 DIP approach to zero, triggering real paging before the asserted precondition.
