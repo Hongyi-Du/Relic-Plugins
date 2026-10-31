@@ -56,7 +56,11 @@ import RelicCore
         try await exerciseConversationEdges(messageCount: 5_850)
     }
 
-    private func exerciseConversationEdges(messageCount: Int) async throws {
+    func testLoadingConversationEnablesWithItsActualLatestContent() async throws {
+        try await exerciseConversationEdges(messageCount: 1_063, initiallyEnabled: false)
+    }
+
+    private func exerciseConversationEdges(messageCount: Int, initiallyEnabled: Bool = true) async throws {
         _ = NSApplication.shared
         let suite = "Relic.KeyboardViewport." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
@@ -73,7 +77,7 @@ import RelicCore
         model.messages[messageCount - 1] = Node(["id": messageCount, "type": "message", "from": "human", "to": ["all"],
             "text": longMarkdown,
             "at": "2026-10-30T12:00:00Z"] as [String: Any])
-        let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
+        let host = NSHostingView(rootView: ConversationStream().environmentObject(model).disabled(!initiallyEnabled))
         host.sizingOptions = []; host.autoresizingMask = [.width, .height]
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
@@ -82,6 +86,11 @@ import RelicCore
             if let scroll = root as? NSScrollView, scroll.accessibilityIdentifier() == ConversationKeyboard.identifier { return scroll }
             for child in root.subviews { if let scroll = find(child) { return scroll } }
             return nil
+        }
+        if !initiallyEnabled {
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertNil(find(host), "A loading replacement conversation must not mount a disabled native viewport")
+            host.rootView = ConversationStream().environmentObject(model).disabled(false)
         }
         func settled(_ phase: String) async throws {
             // This is a completion deadline for the actual native content,

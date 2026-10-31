@@ -1,3 +1,17 @@
+e60e073 strict 41193724696 FAILS action-0047 (first group in org_perf000002):
+145.829 ms, 187.625 MiB /9 threads; actual bound_id and last_row_id both
+id:7758#0, bottom gap 0, no real message rows. Native tests 41193724741 still
+fail long-row initial/append/End alignment (302 tests, 12 assertions), so the
+scrollPosition replacement is reverted. Retain the stable explicit row target
+and restore actual latest-row geometry positioning from 1b9d271.
+Source inspection finds new ConversationStream instances mounting under the
+organization loading cover while disabled, before the selected snapshot/page
+is ready. The mount task now waits for enabled state and completed current row
+preparation, and is keyed by both stream version and enabled state. Existing
+panes remain retained; only a replacement conversation's native viewport waits.
+A new 1063-row mounted regression starts disabled, verifies no premature native
+viewport, enables it, and exercises the unchanged initial/append/Home/End text
+and offset assertions. Strict limits and completeness requirements stay intact.
 9e60abb strict 41193206730 FAILS visible-content readiness at startup:
 42.954 ms, 141.531 MiB /7 threads, zero actions and zero conversation mount
 turns. The low timing is NOT progress or acceptance when no message is drawn.
