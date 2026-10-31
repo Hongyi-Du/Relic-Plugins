@@ -88,12 +88,14 @@ struct AppToolbar: View {
         ToolbarLayout {
             HStack(spacing: 2) {
                 RelicLogo().padding(.leading, 6).padding(.trailing, 8)
-                IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar", size: 16, height: 28) { m.sidebarOpen.toggle() }
+                IconButton(title: m.t(m.sidebarOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), icon: "sidebar", size: 16, height: 28) { PerformancePointer.observed("sidebar"); m.sidebarOpen.toggle() }
+                    .modifier(PerformancePointerTarget(identity: "sidebar"))
                 IconButton(title: m.t("appbar.back"), icon: "back", size: 16, height: 28) { m.navigate(-1) }.disabled(!m.history.canBack)
                 IconButton(title: m.t("appbar.forward"), icon: "fwd", size: 16, height: 28) { m.navigate(1) }.disabled(!m.history.canForward)
                 HStack(spacing: 0) {
                     ForEach(menus, id: \.0) { key, label in
-                        TextButton(m.t(label), size: 13, weight: 400, color: m.appMenu == key || hoveredMenu == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 9, lines: 0) { m.appMenu = m.appMenu == key ? nil : key }
+                        TextButton(m.t(label), size: 13, weight: 400, color: m.appMenu == key || hoveredMenu == key ? RelicStyle.ink : RelicStyle.secondary, height: 28, padding: 9, lines: 0) { PerformancePointer.observed("menu:" + key); m.appMenu = m.appMenu == key ? nil : key }
+                            .modifier(PerformancePointerTarget(identity: "menu:" + key))
                             .buttonStyle(QuietButtonStyle(selected: m.appMenu == key, selectionColor: RelicStyle.hover))
                             .background(GeometryReader { proxy in Color.clear.preference(key: MenuAnchors.self, value: [key: proxy.frame(in: .named("appbar"))]) })
                             .onHover { over in
@@ -117,8 +119,9 @@ struct AppToolbar: View {
                     .padding(.horizontal, 4)
                 ForEach(Array(Choices.panes.enumerated()), id: \.offset) { index, pane in
                     IconButton(title: m.t("appbar.pane_shortcut", ["pane": m.t(pane.1), "key": "Option+" + String(index + 1)]), icon: ["org", "work", "file"][index], selected: m.panelOpen && m.pane == pane.0, size: 16, height: 28) {
+                        PerformancePointer.observed("pane:" + pane.0)
                         if m.panelOpen && m.pane == pane.0 { m.panelOpen = false } else { m.setPane(pane.0) }
-                    }
+                    }.modifier(PerformancePointerTarget(identity: "pane:" + pane.0))
                 }
             }
             .background(GeometryReader { proxy in Color.clear.preference(key: ToolbarControlBounds.self, value: [proxy.frame(in: .named("appbar"))]) })

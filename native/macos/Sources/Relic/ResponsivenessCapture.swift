@@ -50,10 +50,20 @@ import RelicCore
             let deck = manifest["monkey"].rows
             guard !deck.isEmpty else { throw RelicError.message("Empty monkey action deck") }
             let start = ProcessInfo.processInfo.systemUptime
+            var random = UInt64(max(0, seed))
             repeat {
                 let action = deck[randomActions % deck.count]
                 watchdog.action("monkey:" + action["kind"].text)
                 var receipt = try await perform(action, model: current, window: window)
+                random = random &* 6364136223846793005 &+ 1442695040888963407
+                let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
+                let target = action["kind"].text == "menu" ? "menu:" + action["name"].text
+                    : action["kind"].text == "pane" ? "pane:" + action["pane"].text : targets[Int(random % UInt64(targets.count))]
+                current.appMenu = nil; current.sheet = nil; await settle()
+                receipt["pointer_target"] = target
+                let pointerStarted = ProcessInfo.processInfo.systemUptime
+                receipt["click_events"] = try await click(window, target: target)
+                receipt["elapsed_ms"] = (receipt["elapsed_ms"] as? Double ?? 0) + (ProcessInfo.processInfo.systemUptime - pointerStarted) * 1000
                 receipt["id"] = "monkey-\(randomActions)"; receipts.append(receipt)
                 randomActions += 1
                 randomSeconds = ProcessInfo.processInfo.systemUptime - start
@@ -111,6 +121,26 @@ import RelicCore
         return result
     }
     private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func click(_ window: NSWindow, target: String) async throws -> Int {
+        guard let root = window.contentView, let bounds = PerformancePointer.bounds[target], bounds.width > 0, bounds.height > 0 else {
+            throw RelicError.message("Native pointer target has no laid-out bounds: " + target)
+        }
+        let before = PerformancePointer.clicks[target, default: 0]
+        let point = root.convert(NSPoint(x: bounds.midX, y: root.isFlipped ? bounds.midY : root.bounds.height - bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
+                throw RelicError.message("Could not create native mouse event")
+            }
+            NSApp.postEvent(event, atStart: false)
+        }
+        for _ in 0..<100 {
+            try await Task.sleep(for: .milliseconds(20))
+            let handled = PerformancePointer.clicks[target, default: 0] - before
+            if handled > 0 { await settle(); return handled }
+        }
+        throw RelicError.message("Native control did not handle the pointer click: " + target)
+    }
     private static func scroll(_ window: NSWindow, toTop: Bool) throws {
         func find(_ view: NSView) -> NSScrollView? {
             if let scroll = view as? NSScrollView, scroll.accessibilityIdentifier() == ConversationKeyboard.identifier { return scroll }
