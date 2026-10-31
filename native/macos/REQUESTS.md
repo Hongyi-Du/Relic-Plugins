@@ -1,5 +1,14 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+b290303 passes native build/299 tests/package (41188795082), Python validation
+(41188795044), and both full-window jobs (41188795037 / 41188795059). Pressure
+is still running. Looking at the actual dark 1024 screenshot finds the composer
+placeholder absent, while wide captures show it. The empty resizable NSTextView
+document had no viewport minimum; its clipping scroll only pinned width. Pin
+the actual document's minimum height to the clip height as well, retaining long
+text overflow. A real mounted-editor test covers resizing, enable transitions,
+visible placeholder geometry, and glyph drawing from the complete host.
+
 7409e6e / 41187797577 advances to action-0119:group (org_perf000010), then
 FAILS at 251.418 ms, 202.188 MiB, 9 threads. No rounding exemption: this is
 not a pass. The first failed snapshot has all region row counts zero and no

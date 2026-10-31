@@ -1,8 +1,45 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Relic
 
 @MainActor final class ComposerDrawingTests: XCTestCase {
+    private struct Editor: View {
+        let enabled: Bool
+        var body: some View {
+            MentionEditor(text: .constant(""), placeholder: "Write a message", members: [], onMention: { _ in }, send: {})
+                .frame(height: 26.4).disabled(!enabled)
+        }
+    }
+    func testEmptyComposerPaintsItsPlaceholderAcrossResizingAndEnableChanges() async throws {
+        _ = NSApplication.shared
+        let model = Model()
+        let host = NSHostingView(rootView: Editor(enabled: true).environmentObject(model))
+        host.sizingOptions = []; host.autoresizingMask = [.width, .height]
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 70), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { model.stop(); window.orderOut(nil); window.contentView = nil; window.close() }
+        func find(_ root: NSView) -> ComposerTextView? {
+            if let editor = root as? ComposerTextView { return editor }
+            for child in root.subviews { if let editor = find(child) { return editor } }
+            return nil
+        }
+        for (width, enabled) in [(CGFloat(800), true), (300, false), (700, true), (300, true)] {
+            host.rootView = Editor(enabled: enabled).environmentObject(model)
+            window.setContentSize(NSSize(width: width, height: 70))
+            try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+            let editor = try XCTUnwrap(find(host)), clip = try XCTUnwrap(editor.enclosingScrollView?.contentView)
+            let placeholder = try XCTUnwrap(editor.placeholderView)
+            XCTAssertEqual(editor.isEditable, enabled)
+            XCTAssertGreaterThanOrEqual(editor.bounds.height, clip.bounds.height)
+            XCTAssertGreaterThanOrEqual(placeholder.convert(placeholder.bounds, to: clip).intersection(clip.bounds).height, 20)
+            XCTAssertEqual(placeholder.string, "Write a message"); XCTAssertFalse(placeholder.isHidden)
+            let manager = try XCTUnwrap(placeholder.layoutManager as? NativeGlyphLayoutManager); manager.recordDraws = true
+            let bitmap = try XCTUnwrap(CaptureRaster.forView(host)); host.cacheDisplay(in: host.bounds, to: bitmap)
+            XCTAssertEqual(manager.fontEvidence(for: NSRange(location: 0, length: 15), in: placeholder)["status"] as? String, "measured-current-draw")
+        }
+    }
+
     func testUnrepresentableNativeMeasurementRetainsItsFailureAndPath() throws {
         var errors: [[String: String]] = []
         let actual = CaptureMeasurements.jsonValue(["nested": ["bounds": ["x": Double.infinity, "y": Double.nan, "width": 20.0]]], errors: &errors)
