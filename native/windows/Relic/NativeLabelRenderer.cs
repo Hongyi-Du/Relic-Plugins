@@ -31,6 +31,7 @@ internal sealed class NativeLabelRenderer : IDisposable
     private readonly IntPtr context, brush;
     private readonly float pixelsPerDip;
     private readonly Matrix transform;
+    private readonly bool captureDiagnostics;
     private int references = 1;
     private bool disposed;
     internal IntPtr Pointer { get; private set; }
@@ -41,10 +42,12 @@ internal sealed class NativeLabelRenderer : IDisposable
     private readonly string? trimmingSignIdentity;
     private readonly Stack<int> inlineStack = new();
 
-    internal NativeLabelRenderer(IntPtr context, IntPtr brush, float pixelsPerDip, Matrix transform, IntPtr trimmingSign = default)
+    internal NativeLabelRenderer(IntPtr context, IntPtr brush, float pixelsPerDip, Matrix transform, IntPtr trimmingSign = default,
+        bool? captureDiagnostics = null)
     {
         this.context = context; this.brush = brush; this.pixelsPerDip = pixelsPerDip; this.transform = transform;
-        trimmingSignIdentity = !CaptureDiagnostics || trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
+        this.captureDiagnostics = captureDiagnostics ?? CaptureDiagnostics;
+        trimmingSignIdentity = !this.captureDiagnostics || trimmingSign == IntPtr.Zero ? null : ComIdentity(trimmingSign);
         Pointer = Marshal.AllocHGlobal(2 * IntPtr.Size);
         Marshal.WriteIntPtr(Pointer, Vtable);
         Marshal.WriteIntPtr(Pointer, IntPtr.Size, GCHandle.ToIntPtr(GCHandle.Alloc(this)));
@@ -90,7 +93,7 @@ internal sealed class NativeLabelRenderer : IDisposable
     private static int Inline(IntPtr self, IntPtr context, float x, float y, IntPtr inline, int sideways, int rightToLeft, IntPtr effect)
     {
         var owner = Owner(self);
-        if (!CaptureDiagnostics)
+        if (!owner.captureDiagnostics)
         {
             try
             {
@@ -152,7 +155,7 @@ internal sealed class NativeLabelRenderer : IDisposable
         if (effect != IntPtr.Zero) throw new NotSupportedException("NativeLabel does not paint custom drawing effects");
         var run = Marshal.PtrToStructure<GlyphRun>(originalRun);
         if (run.IsSideways != 0) throw new NotSupportedException("NativeLabel only implements horizontal, non-sideways text");
-        if (!CaptureDiagnostics)
+        if (!captureDiagnostics)
         {
             // Paint the same original callback pointer with the same context,
             // brush and baseline. Only diagnostic observation is omitted.
