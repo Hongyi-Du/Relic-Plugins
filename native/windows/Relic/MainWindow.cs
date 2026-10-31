@@ -147,6 +147,7 @@ public sealed partial class MainWindow : Window
         {
             if (closing) return;
             e.Handled = true; SaveViewState(); SaveWindowPlacement(); placementTimer.Stop(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
+            await viewStateWriter.DisposeAsync(); await windowStateWriter.DisposeAsync();
             await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
         root.Loaded += async (_, _) =>

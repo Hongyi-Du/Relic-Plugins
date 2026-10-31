@@ -11,6 +11,7 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private readonly DispatcherTimer placementTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private readonly LatestStateWriter windowStateWriter = new();
     private WindowSubclass? placementSubclass;
     private SavedWindowPlacement? normalPlacement;
     private bool applyingPlacement;
@@ -87,13 +88,7 @@ public sealed partial class MainWindow
             normalPlacement = WindowSizing.Save(new(position.X, position.Y, size.Width, size.Height), CurrentWindowMonitor(), false);
         }
         else normalPlacement = normalPlacement with { Maximized = true };
-        try
-        {
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(WindowStatePath)!);
-            System.IO.File.WriteAllText(WindowStatePath + ".tmp", JsonSerializer.Serialize(normalPlacement));
-            System.IO.File.Move(WindowStatePath + ".tmp", WindowStatePath, true);
-        }
-        catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException) { }
+        windowStateWriter.Queue(WindowStatePath, JsonSerializer.SerializeToNode(normalPlacement)!);
     }
 
     private nint WindowPlacementMessage(nint handle, uint message, nuint wparam, nint lparam, nuint id, nuint data)

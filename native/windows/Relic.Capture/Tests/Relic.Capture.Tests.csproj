@@ -18,6 +18,8 @@
     <Compile Include="../../Relic/NativeCaptureNumbers.cs" Link="NativeCaptureNumbers.cs" />
     <Compile Include="../../Relic/MessageHeaderRow.cs" Link="MessageHeaderRow.cs" />
     <Compile Include="../../Relic/NativePathLineBreaks.cs" Link="NativePathLineBreaks.cs" />
+    <Compile Include="../../Relic/NativePathIcu.cs" Link="NativePathIcu.cs" />
+    <Compile Include="../../Relic/PerformanceTrace.cs" Link="PerformanceTrace.cs" />
     <Compile Include="../../Relic/NativeSelectableTextLayout.cs" Link="NativeSelectableTextLayout.cs" />
     <Compile Include="../../Relic/NativeBannerFlex.cs" Link="NativeBannerFlex.cs" />
     <Compile Include="../../Relic/NativeListMarkerMetrics.cs" Link="NativeListMarkerMetrics.cs" />

@@ -1,5 +1,20 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Normal Windows acceptance first passed at dfca953 in CI 41168135315: all 175
+exhaustive actions plus 155 real random-click actions over 181.135 seconds,
+maximum UI dispatch delay 141.351 ms, peak RSS 442.547 MiB and 37 threads.
+The three steady windows had 351.02 / 326.55 / 303.84 MiB median RSS and 32
+threads each; all error lists are empty. macOS still failed its startup gate.
+This is retained evidence, not the final candidate: another runner at 1d288de
+measured NativePath.ICU.boundaries at 419.591 ms alongside a 405.857 ms UI delay.
+The Windows parser now runs through one bounded background worker with shared
+system ICU module handles; native text capture waits for actual prepared text.
+State JSON serialization and atomic file replacement also move off the UI
+thread into one latest-only writer per state file, drained on normal close.
+New CI regressions cover actual ICU Unicode boundaries/cancellation and slow
+state writes, coalescing, draining, and access failures. These changes require
+a fresh normal responsiveness run, with all original limits retained.
+
 Windows evidence update (2026-10-31): diagnostic CI 41166109662 reproduced a
 real `LayoutCycleException` in a private conversation. `MessageBubbleLayout`
 and `CenteredFractionLayout` alternated infinite and constrained child measures
