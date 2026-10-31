@@ -1,5 +1,20 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+58520ef / 41190616226 completes all 175 fixed interactions, all four histories
+and their real End checks, then fails at random interaction 51: numeric top is
+zero but the actual first row is absent. Maximum UI delay is 95.324 ms, peak
+450.977 MiB /37 threads. The failure screenshot is blank, so this is not yet
+classified as observation timing alone. Boundary completion now requires both
+the original <=1 DIP offset and a loaded, constructed, visible actual row for
+two observations within the same 15-second window, recording the last state.
+If content remains absent, this still fails. The fixed four history scenarios
+each retain the requirement for at least one real anchor-preservation case.
+Random cold jumps with no drawn old message at either observation explicitly
+report no_drawn_anchor_pages and do not count as matched anchors; every actual
+observed anchor remains checked at <=1 DIP. Their full-history, real first/last
+row, input, 250 ms and resource assertions are unchanged. This separates an
+absent comparison precondition from a successfully preserved old message.
+
 Changes for the clients: native-macos d4ca408 reports a real End blank-content
 failure despite a numeric bottom gap of zero, removes the competing default
 SwiftUI bottom anchor and adds a 5,850-row mounted-content regression. It asks

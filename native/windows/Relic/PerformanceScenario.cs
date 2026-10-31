@@ -267,6 +267,7 @@ public sealed partial class MainWindow
                         "Actual End input did not activate production follow-latest behavior");
                 }
                 var waiting = Stopwatch.StartNew(); var quiet = 0;
+                JsonObject? observation = null;
                 while (quiet < 2)
                 {
                     if (waiting.Elapsed > TimeSpan.FromSeconds(15))
@@ -274,22 +275,26 @@ public sealed partial class MainWindow
                     if (!bottom) chatScroll.ChangeView(null, 0, null, true);
                     await PerformanceYield(); await WaitForMarkdown();
                     var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
-                    quiet = Math.Abs(gap) <= 1 ? quiet + 1 : 0;
+                    var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
+                        ?? throw new InvalidOperationException("History viewport has no real ItemsRepeater");
+                    var index = bottom ? stream.Children.Count - 1 : 0;
+                    var row = repeater.TryGetElement(index) as Border;
+                    var realized = row is { IsLoaded: true, Child: not null, ActualHeight: > 0 };
+                    var bounds = realized ? row!.TransformToVisual(chatScroll).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight))
+                        : default;
+                    var visible = realized && bounds.Bottom > 0 && bounds.Top < chatScroll.ViewportHeight;
+                    observation = new JsonObject { ["vertical_offset"] = chatScroll.VerticalOffset,
+                        ["scrollable_height"] = chatScroll.ScrollableHeight, ["viewport_height"] = chatScroll.ViewportHeight,
+                        ["gap_dip"] = gap, ["realized_row_index"] = index, ["row_realized"] = realized,
+                        ["row_top"] = realized ? bounds.Top : null, ["row_bottom"] = realized ? bounds.Bottom : null,
+                        ["row_visible"] = visible, ["elapsed_ms"] = waiting.Elapsed.TotalMilliseconds };
+                    diagnostics[bottom ? "bottom_boundary_observation" : "top_boundary_observation"] = observation.DeepClone();
+                    // A numeric boundary and empty preparation queues do not
+                    // prove that the next virtual realization has occurred.
+                    // Require the actual drawn row in the same bounded wait.
+                    quiet = Math.Abs(gap) <= 1 && visible ? quiet + 1 : 0;
                 }
-                var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
-                    ?? throw new InvalidOperationException("History viewport has no real ItemsRepeater");
-                var index = bottom ? stream.Children.Count - 1 : 0;
-                var row = repeater.TryGetElement(index) as FrameworkElement;
-                if (row is not { IsLoaded: true, ActualHeight: > 0 })
-                    throw new InvalidOperationException("History boundary row was not realized: " + index);
-                var bounds = row.TransformToVisual(chatScroll).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
-                if (bounds.Bottom <= 0 || bounds.Top >= chatScroll.ViewportHeight)
-                    throw new InvalidOperationException("History boundary row is outside the actual viewport: " + index);
-                return new JsonObject { ["vertical_offset"] = chatScroll.VerticalOffset,
-                    ["scrollable_height"] = chatScroll.ScrollableHeight, ["viewport_height"] = chatScroll.ViewportHeight,
-                    ["gap_dip"] = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset,
-                    ["realized_row_index"] = index, ["row_top"] = bounds.Top, ["row_bottom"] = bounds.Bottom,
-                    ["row_visible"] = true };
+                return observation!;
             }
 
             // A real upward wheel cancels the production follow-latest state.
@@ -384,7 +389,12 @@ public sealed partial class MainWindow
             }
             record["history_top"] = await Boundary(false);
             record["observed_reading_anchor_cases"] = observedAnchorCases;
-            if (observedAnchorCases == 0)
+            record["no_drawn_anchor_pages"] = pages.OfType<JsonObject>()
+                .Count(page => page["reading_anchor"]?["observed"]?.GetValue<bool>() == false);
+            // The four fixed history scenarios each require a real preservation
+            // case. Random cold jumps may have no drawn old content to compare;
+            // report that absence separately, never as a matched anchor.
+            if (!record.Text("id").StartsWith("monkey-", StringComparison.Ordinal) && observedAnchorCases == 0)
                 throw new InvalidOperationException("History scenario did not observe any real message position across page insertion");
             var ids = MessageIds();
             var oldest = ids.DefaultIfEmpty(0).Min();
