@@ -1,6 +1,31 @@
 # Current delivery policy — Amendment 7 responsiveness
 
-Windows/shared delivery evidence at **7c0ff4298b04dec8b09fed402cb8fce1a4290d6f**:
+Integration repeat **ecd83a1 / CI 41175412099 fails Windows** while opening
+Settings: maximum UI delay **566.015 ms**, WM_NULL timeout, **345.605 MiB**,
+**38** threads, early stop before the monkey phase. Windows/shared sources are
+unchanged from the passing 7c0ff42 result below. Actual timing now attributes
+**504.908 ms to dialog.measure**, followed by another 299.787 ms dialog measure;
+the nearby GC pauses are only 22.739 + 6.9 ms. The cold DirectWrite worker fix
+does not remove this remaining native modal-layout stall. Diagnostic-only
+41175880844 is collecting native UI stacks; no acceptance or gate relaxation.
+Raw failure artifacts are in
+`S:\Codex\Outputs\Relic-native-performance\candidate-ecd83a1\windows`.
+Settings navigation/body/content now retain their original native base layout
+and add slow-operation subtree timings to distinguish the real modal measure
+owner. This is instrumentation, not an asserted fix; headless build passes.
+
+Changes for the clients: ecd83a1 Native apps CI 41175415967 also catches a real
+macOS regression: ConversationKeyboardTests.testRealConversationHomeAndEndMoveTheLazyNativeViewport
+reports Home offset 8 px instead of 0 +/- 2 (ConversationKeyboardTests.swift:44).
+The Mac owner must fix the actual keyboard scroll behavior; do not weaken its
+new assertion. Full-window chrome passes, which does not establish keyboard or
+performance acceptance. The latest candidates remain unaccepted.
+Changes for the clients: merged macOS 78aa8ec, including its actual Home spacer
+fix and scoped geometry observation. REQUESTS.md records the preceding resize
+failure at 250.741 ms without rounding or exceptions. No additional shared
+route/harness request is outstanding; both pressure gates still apply.
+
+Windows/shared measured evidence at **7c0ff4298b04dec8b09fed402cb8fce1a4290d6f**:
 normal responsiveness CI **41174728524** passes Windows: **114.259 ms** maximum
 UI dispatch, **401.941 MiB** peak RSS, **39** peak threads, all 175 fixed actions
 plus 125 observed random clicks over **181.082 seconds**. Error, coverage,

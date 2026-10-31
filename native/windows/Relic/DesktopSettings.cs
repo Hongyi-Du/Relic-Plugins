@@ -247,15 +247,15 @@ public sealed partial class MainWindow
         var current = section;
         // A transparent brush keeps the layout surface hit-testable without
         // painting a second overall fill above the ContentDialog surface.
-        var body = new Grid { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var body = new NativeSettingsGrid("Settings.Body") { Width = Math.Min(920, root.ActualWidth - 40), Height = Math.Min(640, root.ActualHeight - 48), CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         body.ColumnDefinitions.Add(new() { Width = new GridLength(220) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = body };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog, T("common.settings"));
-        var navigation = new StackPanel { Spacing = 2, Padding = new Thickness(10, 14, 10, 14) };
+        var navigation = new NativeSettingsStack("Settings.Navigation") { Spacing = 2, Padding = new Thickness(10, 14, 10, 14) };
         var navTitle = OverviewText(T("common.settings"), 16, weight: 650); navTitle.Margin = new Thickness(10, 4, 10, 12); navigation.Children.Add(navTitle);
         var navigationSurface = new Border { Child = navigation, Background = Paint("F8F7F5", "191918"), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 0), CornerRadius = new CornerRadius(16, 0, 0, 16) }; body.Children.Add(navigationSurface);
-        var pane = new Grid(); Grid.SetColumn(pane, 1); body.Children.Add(pane);
-        var content = new StackPanel { Spacing = 6, Padding = new Thickness(28, 22, 28, 28) };
+        var pane = new NativeSettingsGrid("Settings.Pane"); Grid.SetColumn(pane, 1); body.Children.Add(pane);
+        var content = new NativeSettingsStack("Settings.Content") { Spacing = 6, Padding = new Thickness(28, 22, 28, 28) };
         var close = IconButton("\uE711", "common.close", () => { dialog.Hide(); return Task.CompletedTask; }); close.Content = ReferenceIcon("x", 18); close.Padding = new Thickness(0);
         close.HorizontalAlignment = HorizontalAlignment.Right; close.VerticalAlignment = VerticalAlignment.Top; close.Margin = new Thickness(0, 14, 14, 0); pane.Children.Add(close);
         // The close action precedes the pane heading/content in the reference
@@ -284,7 +284,7 @@ public sealed partial class MainWindow
         }
         body.Loaded += (_, _) => PaintNavigation();
         body.ActualThemeChanged += (_, _) => PaintNavigation();
-        var navigationBar = new SelectorBar
+        var navigationBar = new NativeSettingsSelector
         {
             Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch,
             Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
