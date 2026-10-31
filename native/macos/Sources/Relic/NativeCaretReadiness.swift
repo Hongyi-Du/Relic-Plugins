@@ -7,6 +7,12 @@ import AppKit
     static func observations(in root: NSView) -> [[String: Any]] {
         var result: [[String: Any]] = []
         func number(_ value: Double) -> Any { value.isFinite ? value : NSNull() }
+        func animationValue(_ value: Any?) -> Any {
+            guard let value else { return NSNull() }
+            if let numeric = value as? NSNumber { return number(numeric.doubleValue) }
+            if let string = value as? String { return string }
+            return ["class": String(describing: type(of: value)), "description": String(describing: value)]
+        }
         func visit(_ view: NSView) {
             if let indicator = view as? NSTextInsertionIndicator, let layer = indicator.layer {
                 let localTime = layer.convertTime(CACurrentMediaTime(), from: nil)
@@ -26,6 +32,12 @@ import AppKit
                         && elapsed.map { $0 >= animation.duration * (animation.autoreverses ? 2 : 1) } == true
                     return ["key": key, "current_animation_available": true,
                         "class": String(describing: type(of: animation)),
+                        "key_path": (animation as? CAPropertyAnimation)?.keyPath as Any? ?? NSNull(),
+                        "values": (animation as? CAKeyframeAnimation)?.values?.map { animationValue($0) } as Any? ?? NSNull(),
+                        "key_times": (animation as? CAKeyframeAnimation)?.keyTimes as Any? ?? NSNull(),
+                        "calculation_mode": (animation as? CAKeyframeAnimation)?.calculationMode.rawValue as Any? ?? NSNull(),
+                        "from_value": animationValue((animation as? CABasicAnimation)?.fromValue),
+                        "to_value": animationValue((animation as? CABasicAnimation)?.toValue),
                         "duration": number(animation.duration), "begin_time": number(animation.beginTime),
                         "repeat_count": number(Double(animation.repeatCount)), "repeat_duration": number(animation.repeatDuration),
                         "speed": number(Double(animation.speed)), "time_offset": number(animation.timeOffset),
