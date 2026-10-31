@@ -1,5 +1,17 @@
 # Native Relic App contract
 
+Changes for the clients (state-dot boundary measurement): when the existing
+actual Ellipse stroke/contour receipt proves one closed, undashed state-dot
+boundary, its stroke is represented once in border_* and radius properties.
+The duplicate independent vector-stroke fields are nonapplicable, with every
+original field retained in ellipse_border.stroke_applicability and raw evidence.
+Other kinds, dashed/unknown contours, transformed or additional paint retain
+their stroke fields. No element, tolerance or matcher rule is removed.
+
+Windows select arrows now use the theme's primary ink in normal/focused states,
+matching the reference's visible control paint instead of the SDK's secondary
+glyph brush. Native selection, popup, disabled and keyboard behavior stay native.
+
 Changes for the clients (Windows text prefix quantities): a successful actual
 GetText(-1) / SysStringLen receipt now records logical UTF16 length independently
 of CompareEndpoints structural position. A null BSTR can therefore have length

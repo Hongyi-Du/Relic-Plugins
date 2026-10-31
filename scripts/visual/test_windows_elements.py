@@ -151,10 +151,60 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(element["style"]["corner_radius"], expected_outer)
         self.assertEqual(element["style"]["corner_radii"], [expected_outer] * 4)
         self.assertEqual(proof["geometry_derivation"]["outer_bounds"], node["bounds"])
+        applicability = proof["stroke_applicability"]
+        self.assertEqual(applicability["status"], "not-applicable-as-independent-paint")
+        self.assertEqual(applicability["kind"], "state-dot")
+        for field in ("stroke_width", "stroke_dash", "stroke_dash_offset", "stroke_linecap",
+                      "stroke_linejoin", "stroke_miterlimit"):
+            self.assertIsNone(element["style"][field])
+            self.assertEqual(applicability["raw_canonical_fields"][field], original["style"][field])
+        self.assertEqual(proof["raw_style"], original["style"])
+        self.assertEqual(proof["stroke_evidence"], original["stroke_evidence"])
+        self.assertEqual(element["style"]["border_width"], original["stroke_evidence"]["raw_width"])
+        self.assertEqual(element["style"]["border_color"], original["style"]["foreground"])
         self.assertFalse(any(issue["id"] == node["id"] and issue["property"] == "style.corner_radius"
                              for issue in result["coverage"]["unmeasured"]))
         self.assertTrue(result["extraction_errors"], "Other missing scene/UIA measurements are not resolved by a circle radius")
         self.assertEqual(node, original)
+
+    def test_verified_circle_keeps_independent_stroke_for_other_canonical_kinds(self):
+        for kind in (None, "image", "icon", "chart-node"):
+            with self.subTest(kind=kind):
+                node = self.recorded_ellipse_circle()["native"]
+                element = {"kind": kind, "style": deepcopy(node["style"]), "evidence": {}}
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertEqual(issues, [])
+                self.assertTrue(element["evidence"]["ellipse_border"]["contour_measured"])
+                self.assertNotIn("stroke_applicability", element["evidence"]["ellipse_border"])
+                for field, value in node["style"].items():
+                    if field.startswith("stroke_"):
+                        self.assertEqual(element["style"][field], value)
+
+    def test_state_dot_keeps_stroke_when_actual_contour_is_unknown_or_has_additional_paint(self):
+        for change in ("missing-contour", "dashed", "scaled", "additional-composition", "additional-child"):
+            with self.subTest(change=change):
+                node = self.recorded_ellipse_circle()["native"]
+                if change == "missing-contour": node.pop("shape_geometry_evidence")
+                elif change == "dashed":
+                    node["style"]["stroke_dash"] = [2, 2]
+                    node["stroke_evidence"]["raw_pattern"]["dash_array"] = [1, 1]
+                elif change == "scaled": node["transform"]["m11"] = 2
+                elif change == "additional-composition":
+                    node["outline_owner_evidence"]["composition"]["child_visual_present"] = True
+                elif change == "additional-child":
+                    node["outline_owner_evidence"]["children"]["items"] = [{"id": "other-painted-child"}]
+                original = deepcopy(node)
+                element = {"kind": "state-dot", "style": deepcopy(node["style"]), "evidence": {}}
+                issues = []
+                project_ellipse_border(element, node, issues)
+                self.assertTrue(issues)
+                self.assertFalse(element["evidence"]["ellipse_border"]["contour_measured"])
+                self.assertNotIn("stroke_applicability", element["evidence"]["ellipse_border"])
+                for field, value in node["style"].items():
+                    if field.startswith("stroke_"):
+                        self.assertEqual(element["style"][field], value)
+                self.assertEqual(node, original)
 
     def test_circle_radius_changes_with_actual_inputs_in_both_supported_stretch_modes(self):
         # Synthetic variations of the recorded inputs exercise SDK geometry,

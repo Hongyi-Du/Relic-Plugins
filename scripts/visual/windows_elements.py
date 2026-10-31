@@ -1505,6 +1505,25 @@ def project_ellipse_border(element, node, unmeasured):
     proof["contour_reason"] = None
     proof["projected_fields"].extend(("corner_radius", "corner_radii"))
     proof["quantity"] = "Actual native centered boundary stroke and circular outer border radius; no raster/frame equivalence asserted"
+    if element.get("kind") == "state-dot":
+        # This exact primitive has only Fill and its closed circular Stroke.
+        # The measured Stroke is already represented by border_* above; it is
+        # not a second vector paint on the canonical state-dot. Keep the raw
+        # values and quantity mapping, including otherwise inoperative caps /
+        # joins on this smooth undashed circle. Other Ellipse kinds keep their
+        # vector-stroke fields, as do all unsupported or incomplete receipts.
+        stroke_fields = ("stroke_width", "stroke_dash", "stroke_dash_offset",
+                         "stroke_linecap", "stroke_linejoin", "stroke_miterlimit")
+        original_fields = {field: copy.deepcopy(style[field]) for field in stroke_fields if field in style}
+        proof["stroke_applicability"] = {
+            "status": "not-applicable-as-independent-paint", "kind": element["kind"],
+            "source": "Same bound Ellipse Shape.Stroke and complete circular contour receipt as ellipse_border",
+            "raw_canonical_fields": original_fields,
+            "represented_by": list(fields) + ["corner_radius", "corner_radii"],
+            "quantity": "One closed undashed native boundary paint represented once as a state-dot border; no extra stroke paint is removed",
+        }
+        for field in original_fields:
+            style[field] = None
 
 
 def state_dot_analytic_paint(node, by_id):
