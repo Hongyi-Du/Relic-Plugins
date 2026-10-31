@@ -1,3 +1,25 @@
+## A7 update: pressure now reaches resize; geometry invalidation fix
+
+7d45b97 passes native builds/packages (289 macOS tests), all four Python jobs,
+and complete-window chrome. Its normal pressure run 41174560185 passes startup
+and every organization/chat/dialog through action-0165, then fails resize:
+622.471 ms maximum, 202.781 MiB peak RSS, 9 threads, early stop. 76d842f makes
+Markdown block layout lazy and waits for actual dialog presence/removal; strict
+41175306371 reaches the same resize stage and fails at 250.741 ms (193.563 MiB,
+9 threads). This remains a FAIL, not rounded down or excepted.
+
+The newly mounted real Home/End test at 76d842f also catches Home leaving an
+8 px top offset. 2aeca02 includes the actual top spacer in its scroll target,
+without relaxing that assertion. Window size is now a nested Observable value,
+so resizing notifies the views that actually read geometry rather than every
+message/member/protocol through the global Model publisher. A native mounted
+view test verifies this remains observable through EnvironmentObject, and a
+model test verifies that a resize does not publish conversation data.
+
+The current branch includes native-apps ecd83a1 (latest shared Windows font
+preparation changes and reports). No full macOS pressure pass yet. Raw reports
+remain under `S:\Codex\Outputs\Relic-native-visual\responsiveness-<commit>\macos`.
+
 ## A7 update: verified 60d07d0 build and continuing cold-layout fix
 
 Native apps 41173774259 is green at 60d07d0 (289 macOS tests, zero failures,

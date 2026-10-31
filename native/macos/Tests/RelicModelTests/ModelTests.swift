@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import Combine
+import Observation
 @testable import Relic
 import RelicCore
 
@@ -19,6 +20,20 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testWindowGeometryIsObservedWithoutRepublishingConversationData() async throws {
+        let model = try model()
+        let changed = expectation(description: "Actual geometry readers are invalidated")
+        var dataUpdates = 0
+        let subscription = model.objectWillChange.sink { dataUpdates += 1 }
+        defer { subscription.cancel() }
+        withObservationTracking {
+            XCTAssertEqual(model.windowSize, CGSize(width: 1440, height: 900))
+        } onChange: { changed.fulfill() }
+        model.windowSize = CGSize(width: 1024, height: 700)
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertEqual(model.windowSize, CGSize(width: 1024, height: 700))
+        XCTAssertEqual(dataUpdates, 0, "Resize must not invalidate the whole conversation model")
+    }
     func testDialogPresentationDoesNotInvalidateConversationAndOrganizationData() throws {
         let model = try model()
         var dataUpdates = 0, presentationUpdates = 0

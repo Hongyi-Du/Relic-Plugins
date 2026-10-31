@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 import UserNotifications
 import RelicCore
+import Observation
+
+@Observable @MainActor final class WindowMetrics {
+    var size = CGSize(width: 1440, height: 900)
+}
 
 @MainActor final class Model: ObservableObject {
     @Published var organizations: [Node] = []
@@ -48,7 +53,13 @@ import RelicCore
     @Published var moreChat = false
     @Published var loadingOlder = false
     private(set) var historyPagesLoaded = 0
-    @Published var windowSize = CGSize(width: 1440, height: 900)
+    private let windowMetrics = WindowMetrics()
+    // SwiftUI tracks this nested observable only in bodies that read geometry.
+    // A window resize must not republish every message, avatar and protocol.
+    var windowSize: CGSize {
+        get { windowMetrics.size }
+        set { if windowMetrics.size != newValue { windowMetrics.size = newValue } }
+    }
     @Published var expandRules = false
     @Published var recipientPicker = false
     @Published var mentionItems: [Node] = []
