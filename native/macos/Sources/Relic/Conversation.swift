@@ -311,16 +311,11 @@ struct ConversationStream: View {
     @State private var userFollowsLatest = true
     @State private var preservingDisclosure = false
     @State private var initialLoad = true
-    @State private var firstPresentedID: String?
     @State private var mountedViewport = false
     @State private var mountedComposer = false
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
-    private var firstPresentedIndex: Int {
-        guard let firstPresentedID else { return m.streamRows.count }
-        return m.streamRows.firstIndex { $0.id == firstPresentedID } ?? m.streamRows.count
-    }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -345,7 +340,7 @@ struct ConversationStream: View {
                                         .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
-                            ForEach(Array(rows.dropFirst(firstPresentedIndex))) { row in
+                            ForEach(rows) { row in
                                 ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
@@ -416,13 +411,13 @@ struct ConversationStream: View {
                             // following state during a Home/scroll transition.
                             // That state must not suppress the history pager.
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
-                               !initialLoad, firstPresentedIndex == 0, olderAnchor == nil, m.moreChat, !m.loadingOlder,
+                               !initialLoad, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {
                                 olderAnchor = first
                                 m.run {
                                     do {
                                         try await m.loadOlder()
-                                        if !m.isPreparingConversation && firstPresentedIndex == 0 { olderAnchor = nil }
+                                        if !m.isPreparingConversation { olderAnchor = nil }
                                     }
                                     catch { olderAnchor = nil; throw error }
                                 }
@@ -449,35 +444,14 @@ struct ConversationStream: View {
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
-                // The API page remains 1,000 messages. Even a lazy SwiftUI
-                // stack creates identity/state bookkeeping for every item in
-                // one transaction. Admit that full page in bounded batches,
-                // starting with its newest rows, without discarding any data.
-                // Keep the first admitted identity stable when messages append.
-                // A fixed suffix count temporarily drops the visible first row
-                // on every append, invalidating SwiftUI's reading anchor.
-                while firstPresentedIndex > 0 {
-                    let turn = UUID()
-                    guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
-                    guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    let next = max(0, firstPresentedIndex - 25)
-                    guard m.streamRows.indices.contains(next) else { RowMountQueue.shared.release(turn); return }
-                    firstPresentedID = m.streamRows[next].id
-                    do { try await Task.sleep(for: .milliseconds(32)) }
-                    catch { RowMountQueue.shared.release(turn); return }
-                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
-                    else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
-                    // Let the explicit target settle before another cold view
-                    // mutation enters the same AppKit layout transaction.
-                    do { try await Task.sleep(for: .milliseconds(32)) }
-                    catch { RowMountQueue.shared.release(turn); return }
-                    RowMountQueue.shared.release(turn)
-                }
-                // An append may leave the admitted range unchanged. Its new
-                // ForEach target still has to enter the native layout before
-                // ScrollViewReader can resolve it; onChange alone runs before
-                // that happens. Finish every source revision with one deferred
-                // request, even when there were no identity batches to admit.
+                // API pages are already bounded (1,000 latest /200 earlier).
+                // Each server revision updates the stable ForEach IDs once.
+                // Repeatedly inserting 25 IDs re-diffed the entire growing
+                // collection and sought the tail on every batch. Only visible
+                // native content needs staged construction, handled by the
+                // ProgressiveRows and Markdown queue above.
+                // New targets must enter native layout before the one deferred
+                // request; onChange alone runs before that happens.
                 // User navigation cancels following, and task cancellation
                 // cancels obsolete revisions. This is not an extent/offset loop.
                 let anchorTurn = UUID()

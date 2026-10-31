@@ -84,8 +84,7 @@ import RelicCore
             return nil
         }
         func settled() async throws {
-            // The production admission queue deliberately spreads thousands
-            // of identities over display turns. This is a completion deadline,
+            // This is a completion deadline for the actual native content,
             // not the separate unchanged 250 ms responsiveness watchdog.
             let deadline = ProcessInfo.processInfo.systemUptime + (messageCount > 1_000 ? 30 : 5)
             var quiet = 0
@@ -121,6 +120,7 @@ import RelicCore
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")
+        XCTAssertTrue(visibleText("Message 1", in: host), "Home must show actual oldest message text")
         model.messages.append(Node(["id": messageCount + 2, "type": "message", "from": "human", "to": ["all"], "text": "Arrived while reading history", "at": "2026-10-30T12:02:00Z"] as [String: Any]))
         try await settled()
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "New messages must not override a person's explicit history navigation")
