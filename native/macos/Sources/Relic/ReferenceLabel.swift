@@ -20,11 +20,11 @@ struct ReferenceLabel: NSViewRepresentable {
     var stateOwner: String? = nil
     var textGlyphIcon = false
     var truncates = true
-    var ownedLayer = true
+    var ownedLayer = false
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
-    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = true) {
+    init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, lines: Int = 1, alignment: NSTextAlignment = .left, owner: String? = nil, monospaced: Bool = false, pathWrapping: Bool = false, struck: Bool = false, accessibleName: String? = nil, controlLabel: Bool = false, textGlyphIcon: Bool = false, stateOwner: String? = nil, truncates: Bool = true, ownedLayer: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
         self.lineHeight = lineHeight; self.lines = lines; self.alignment = alignment; self.owner = owner
         self.monospaced = monospaced
@@ -208,6 +208,7 @@ final class ReferenceLabelView: ReadOnlyTextView {
             "glyph_draw": backingDraw as Any? ?? NSNull(), "final_png_attribution_proven": false]
     }
     override func draw(_ dirtyRect: NSRect) {
+        let trace = UIWorkTrace.begin("label.draw." + productionRegion); defer { UIWorkTrace.end(trace) }
         // These labels are never editable or selectable. Draw their actual
         // TextKit layout directly, so AppKit's editable-text content layers do
         // not contribute another unowned drawing path behind native controls.
