@@ -10,6 +10,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var pending: Double = 0, pendingEpoch: Double = 0, worst: Double = 0
     private var pings = 0, sequence = 0
     private var stage = "startup"
+    private var pendingStage = "startup"
+    private var stalls: [[String: Any]] = []
     private var sampledStall = false
 
     init(output: URL) { self.output = output }
@@ -36,10 +38,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let enqueue = pending == 0
         let sampleStall = worst > 250 && !sampledStall
         if sampleStall { sampledStall = true }
-        if enqueue { pending = now; pendingEpoch = Self.epoch }
+        if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
         sequence += 1
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage]
+        let observations = stalls
         lock.unlock()
         if sampleStall {
             write(UIWorkTrace.shared.snapshot(), "first-stall-work.json")
@@ -57,13 +60,22 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.lock.lock()
-                self.worst = max(self.worst, (ProcessInfo.processInfo.systemUptime - self.pending) * 1000)
+                let delay = (ProcessInfo.processInfo.systemUptime - self.pending) * 1000
+                self.worst = max(self.worst, delay)
+                if delay > 250 {
+                    if self.stalls.count >= 512 { self.stalls.removeFirst() }
+                    self.stalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": delay,
+                                       "started_action": self.pendingStage, "completed_action": self.stage])
+                }
                 self.pending = 0; self.pendingEpoch = 0; self.pings += 1
                 self.lock.unlock()
             }
         }
         write(receipt, "heartbeat.json")
-        if sampledStall { write(UIWorkTrace.shared.snapshot(), "ui-work.json") }
+        if sampledStall {
+            write(UIWorkTrace.shared.snapshot(), "ui-work.json")
+            write(["completed_probes_over_250ms": observations], "ui-stalls.json")
+        }
     }
     private func write(_ value: [String: Any], _ name: String) {
         do { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: output.appendingPathComponent(name), options: .atomic) }

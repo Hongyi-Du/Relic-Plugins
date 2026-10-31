@@ -4,7 +4,7 @@ import Foundation
 @MainActor enum PerformanceRendering {
     private static var markdown: Set<UUID> = []
     private static var surfaces: Set<UUID> = []
-    private static var mountedRows = 0
+    private static var mountedRows: [String: Int] = [:]
     private(set) static var streamVersion = -1
     static var pendingMarkdown: Int { markdown.count }
     static var pendingSurfaces: Int { surfaces.count }
@@ -25,12 +25,12 @@ import Foundation
     static func observed(streamVersion: Int) {
         if ResponsivenessCapture.enabled { self.streamVersion = streamVersion }
     }
-    static func rowAppeared() {
+    static func rowAppeared(_ kind: String = "message") {
         guard ResponsivenessCapture.enabled else { return }
-        mountedRows += 1; UIWorkTrace.gauge("mounted_message_rows", mountedRows)
+        mountedRows[kind, default: 0] += 1; UIWorkTrace.gauge("mounted_\(kind)_rows", mountedRows[kind, default: 0])
     }
-    static func rowDisappeared() {
+    static func rowDisappeared(_ kind: String = "message") {
         guard ResponsivenessCapture.enabled else { return }
-        mountedRows -= 1; UIWorkTrace.gauge("mounted_message_rows", mountedRows)
+        mountedRows[kind, default: 0] -= 1; UIWorkTrace.gauge("mounted_\(kind)_rows", mountedRows[kind, default: 0])
     }
 }

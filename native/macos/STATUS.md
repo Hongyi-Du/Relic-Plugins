@@ -1,3 +1,38 @@
+# macOS 原生 Relic App：Amendment 7 响应性修复进行中
+
+**尚未达到响应性验收，不能把本轮包称为最终可安装版本。** 所有修改、运行截图和测试都在
+`native/macos/**` 与 GitHub Actions 内完成；没有运行本机 App 或 Python 测试，也没有使用人的存储数据。
+
+确认的代码问题及修复：原先的千条消息 eager VStack 改为惰性列表；消息合并从逐条线性查找
+改为索引合并；会话行准备、Markdown 解析、深层内容比较移到后台；SSE 刷新合并，未改变的数据
+不再触发整窗发布；同组织切换会话保留组织快照，点击当前会话保留已加载历史。文本测量缓存保留
+最多16个尺寸结果，并为未缓存的约束建立独立 TextKit 布局，避免截断宽度污染。
+
+实际 `sample` 调用栈还确认 `Node.subscript` / `Words.t` 反复桥接整个 Foundation 字典。
+`87f7b77` 改为直接字段读取、预解析词条和缓存成员列表；新的采样不再以这个转换为主要热点，
+剩余热点集中在 SwiftUI 创建和测量控件。`1d288de` 将组织的三个区域分帧挂载，保留最终宽度。
+测量始终覆盖此过程，等待真实会话版本、可见 Markdown 和各区域完成后才继续。
+
+| 提交 / CI | 测量范围 | 最长 UI 停顿 | 峰值 RSS / 线程 | 结论 |
+| --- | --- | --- | --- | --- |
+| `6a92a00` / `41162500465` | 修改前严格基线，启动后早停 | 1986.742 ms | 133.281 MiB / 8 | 失败 |
+| `87f7b77` / `41167167972` | 严格候选，启动后早停 | 574.371 ms | 174.953 MiB / 8 | 失败 |
+| `87f7b77` / `41167474995` | 明确标注诊断，超时后继续30秒 | 658.700 ms | 200.531 MiB / 10 | 诊断，不可验收 |
+
+以上运行时长不同，不能据此宣称长期内存改善或无增长；尚无完成全量交互加180秒随机点击的
+macOS 通过记录。250 ms、内存和线程门槛没有放宽。合成数据包含13组织、90成员、12310条消息、
+420任务、796事件，最大群聊5500条；初始API页1000条、历史页200条不变。
+
+`87f7b77` 的 [Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167167998)
+通过274项 macOS 测试（零失败）、双平台构建和打包。`1d288de` 的
+[整窗截图](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167801377) 已通过，图片在
+`S:\Codex\Outputs\Relic-native-visual\titlebar-1d288de\macos\`；
+[严格压力测试](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167801393) 正在运行。
+采样和原始 JSON 位于 `responsiveness-87f7b77\macos\` 与
+`responsiveness-87f7b77-diagnostic\macos\`（同一个 `Relic-native-visual` 输出根目录）。
+
+以下为此前窗口适配和外观交付记录；不替代 Amendment 7 验收。
+
 # macOS 原生 Relic App：Amendment 6 窗口适配
 
 macOS 原先使用固定 SwiftUI `.defaultSize(1440, 900)`，缺少屏幕可用区域适配和显式

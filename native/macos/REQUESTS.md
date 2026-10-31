@@ -1,5 +1,18 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+04:21Z update: `87f7b77` Native apps `41167167998` is green (274 Mac tests,
+Windows tests and packaging). Its strict Mac performance still fails at
+**574.371 ms / 174.953 MiB / 8 threads** (`41167167972`). Diagnostic-only
+`41167474995` retains the actual stack: after direct dictionary access, the
+repeated Foundation whole-dictionary bridging hotspot is gone; SwiftUI layout
+and native view creation remain. Diagnostic maximum **658.700 ms / 200.531 MiB /
+10 threads**, with only early exhaustive coverage, is not acceptance. Current
+`1d288de` progressively mounts all three organization panes over UI frames while
+reserving their final widths. The same behavior is in production, and the
+watchdog covers it; captures wait for all panes and Markdown tasks. Realized row
+counts now accompany the work trace. Full-window capture `41167801377` passed.
+The previous candidate failures and limits are retained; no exception requested.
+
 Latest macOS evidence (04:01Z): strict `41166444498` at `a0cd274` still fails,
 first during `startup:publish` (323.614 ms), maximum retained **1150.567 ms**,
 **166.703 MiB / 9 threads**. Capture now waits for background row projection,
