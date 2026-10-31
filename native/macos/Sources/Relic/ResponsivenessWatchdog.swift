@@ -15,6 +15,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var pendingStage = "startup"
     private var stalls: [[String: Any]] = []
     private var sampledStall = false
+    private var sampledStartup = false
 
     init(output: URL) { self.output = output }
     func begin() {
@@ -25,7 +26,17 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         timer.setEventHandler { [weak self] in self?.probe() }
         source = timer; timer.resume()
     }
-    func action(_ name: String) { lock.lock(); stage = name; lock.unlock() }
+    func action(_ name: String) {
+        lock.lock(); stage = name
+        let sample = !sampledStartup && name == "startup:publish"
+            && ProcessInfo.processInfo.environment["RELIC_PERF_DIAGNOSTIC"] == "true"
+        if sample { sampledStartup = true }
+        lock.unlock()
+        // Diagnostic-only sampling begins before the cold native view layout.
+        // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
+        // Normal acceptance retains its original workload and watchdog limit.
+        if sample { queue.async { self.sample("startup-diagnostic", seconds: 3) } }
+    }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func finish(_ receipt: [String: Any]) {
         source?.cancel(); source = nil
@@ -68,13 +79,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             write(UIWorkTrace.shared.snapshot(), "first-stall-work.json")
             // CI-only diagnosis after the unchanged limit has already failed.
             // Sampling our own process preserves the blocked native call stack.
-            let sampler = Process()
-            sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-            sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), "1", "1", "-mayDie", "-file", output.appendingPathComponent("first-stall.sample.txt").path]
-            let log = output.appendingPathComponent("sampler.log")
-            FileManager.default.createFile(atPath: log.path, contents: nil)
-            sampler.standardOutput = try? FileHandle(forWritingTo: log); sampler.standardError = sampler.standardOutput
-            try? sampler.run()
+            sample("first-stall", seconds: 1)
         }
         if enqueue {
             DispatchQueue.main.async { [weak self] in
@@ -96,6 +101,15 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             write(UIWorkTrace.shared.snapshot(), "ui-work.json")
             write(["completed_probes_over_250ms": observations], "ui-stalls.json")
         }
+    }
+    private func sample(_ name: String, seconds: Int) {
+        let sampler = Process()
+        sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+        sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), "1", "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        sampler.standardOutput = try? FileHandle(forWritingTo: log); sampler.standardError = sampler.standardOutput
+        try? sampler.run()
     }
     private func write(_ value: [String: Any], _ name: String) {
         do { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: output.appendingPathComponent(name), options: .atomic) }
