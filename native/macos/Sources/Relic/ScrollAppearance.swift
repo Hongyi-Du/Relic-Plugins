@@ -31,6 +31,7 @@ struct ScrollAppearance: NSViewRepresentable {
             applying = true; defer { applying = false }
             func apply(_ view: NSView) {
                 if let scroll = view as? NSScrollView {
+                    HiddenScrollIndicators.apply(to: scroll)
                     if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "native-scroll-mounted", once: true) }
                     let vertical = scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller)
                     let horizontal = scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller)
@@ -46,6 +47,40 @@ struct ScrollAppearance: NSViewRepresentable {
                 for child in view.subviews { apply(child) }
             }
             apply(root)
+        }
+    }
+}
+
+/// Explicit production policy for scroll areas whose reference hides its
+/// indicators. A native scroller must not reserve a legacy gutter in these
+/// areas; the NSScrollView and its document still perform normal scrolling.
+struct HiddenScrollIndicators: NSViewRepresentable {
+    var horizontal = true
+    var vertical = false
+    private static let live = NSHashTable<Mount>.weakObjects()
+    func makeNSView(context: Context) -> Mount {
+        let view = Mount(); Self.live.add(view); updateNSView(view, context: context); return view
+    }
+    func updateNSView(_ view: Mount, context: Context) {
+        view.horizontal = horizontal; view.vertical = vertical; view.apply()
+    }
+    static func apply(to scroll: NSScrollView) {
+        for view in live.allObjects where view.enclosingScrollView === scroll {
+            if view.horizontal && scroll.hasHorizontalScroller { scroll.hasHorizontalScroller = false }
+            if view.vertical && scroll.hasVerticalScroller { scroll.hasVerticalScroller = false }
+        }
+    }
+    final class Mount: NSView {
+        var horizontal = true, vertical = false
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); apply() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); apply() }
+        override func layout() { super.layout(); apply() }
+        func apply() {
+            guard let scroll = enclosingScrollView else { return }
+            if horizontal && scroll.hasHorizontalScroller { scroll.hasHorizontalScroller = false }
+            if vertical && scroll.hasVerticalScroller { scroll.hasVerticalScroller = false }
         }
     }
 }
