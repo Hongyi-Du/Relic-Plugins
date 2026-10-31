@@ -51,6 +51,7 @@ struct RichText: View {
     private var baseSize: CGFloat { pointSize ?? (document ? 13.5 : m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) }
     private var textLineHeight: CGFloat { baseSize * (document ? 1.7 : 1.65) }
     @State private var prepared: PreparedMarkdown?
+    @State private var presentedBlocks = 0
     private var parsed: PreparedMarkdown? { prepared?.source == text ? prepared : nil }
     private var blocks: [MarkdownBlock] { parsed?.blocks ?? [] }
     private func attributed(_ value: String) -> AttributedString { parsed?.inline(value) ?? AttributedString(value) }
@@ -61,8 +62,14 @@ struct RichText: View {
         if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
+                }
+                if presentedBlocks < blocks.count {
+                    // Keep the remaining text readable while native paragraph
+                    // views are materialized over subsequent UI frames.
+                    SelectableText(value: AttributedString(blocks.dropFirst(presentedBlocks).map(\.text).joined(separator: "\n\n")),
+                        pointSize: baseSize, lineHeight: textLineHeight).padding(.top, 8)
                 }
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         } }
@@ -70,8 +77,16 @@ struct RichText: View {
             let ticket = PerformanceRendering.beginMarkdown()
             defer { PerformanceRendering.endMarkdown(ticket) }
             let value = await MarkdownPreparation.shared.prepare(text)
-            if !Task.isCancelled { prepared = value }
-        }.onDisappear { prepared = nil }
+            guard !Task.isCancelled else { return }
+            if prepared?.source != text { prepared = value; presentedBlocks = min(2, value.blocks.count) }
+            while presentedBlocks < value.blocks.count {
+                do { try await Task.sleep(for: .milliseconds(32)) } catch { return }
+                presentedBlocks = min(presentedBlocks + 2, value.blocks.count)
+            }
+        }
+        // Keep this row's formatting state while its stable identity survives.
+        // Clearing it on disappearance substitutes a different-height plain
+        // block into the lazy stack and invalidates the scroll height again.
         .environment(\.openURL, OpenURLAction { url in
             if url.scheme == "relic-file", let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let path = parts.queryItems?.first(where: { $0.name == "path" })?.value {
                 let line = Int(parts.queryItems?.first(where: { $0.name == "line" })?.value ?? "") ?? 0
