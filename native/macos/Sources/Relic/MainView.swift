@@ -54,6 +54,8 @@ struct MainView: View {
         .background(ScrollAppearance())
         .background(InitialWindowFocus().frame(width: 0, height: 0))
         }
+        .background(WindowChromeMount().frame(width: 0, height: 0))
+        .ignoresSafeArea(.container, edges: .top)
     }
     private var inspector: some View {
         RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
@@ -80,6 +82,7 @@ struct AppToolbar: View {
     @EnvironmentObject var m: Model
     @State private var anchors: [String: CGRect] = [:]
     @State private var hoveredMenu: String?
+    @State private var controlBounds: [CGRect] = []
     private let menus = [("file", "common.file"), ("edit", "appmenu.edit"), ("view", "appmenu.view"), ("help", "appmenu.help")]
     var body: some View {
         ToolbarLayout {
@@ -100,7 +103,7 @@ struct AppToolbar: View {
                     }
                 }.modifier(RecordedSurface(background: .clear, kind: "region"))
                     .padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
-            }
+            }.background(GeometryReader { proxy in Color.clear.preference(key: ToolbarControlBounds.self, value: [proxy.frame(in: .named("appbar"))]) })
             let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
             ReferenceLabel(title, size: 12.5, color: RelicStyle.muted, lineHeight: 20).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
             HStack(spacing: 2) {
@@ -116,9 +119,12 @@ struct AppToolbar: View {
                     }
                 }
             }
-        }.padding(.leading, 6).padding(.trailing, 8).frame(height: 40)
+            .background(GeometryReader { proxy in Color.clear.preference(key: ToolbarControlBounds.self, value: [proxy.frame(in: .named("appbar"))]) })
+        }.padding(.leading, WindowChrome.controlsWidth).padding(.trailing, 8).frame(height: WindowChrome.rowHeight)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
+            .background(WindowDragRegion(excluded: controlBounds))
             .coordinateSpace(name: "appbar").onPreferenceChange(MenuAnchors.self) { anchors = $0 }
+            .onPreferenceChange(ToolbarControlBounds.self) { controlBounds = $0 }
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.titlebar"))
             .accessibilityIdentifier("relic-region/header")
             .overlay(alignment: .topLeading) {
@@ -139,9 +145,11 @@ private struct ToolbarLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard subviews.count == 3 else { return }
         let left = subviews[0].sizeThatFits(.unspecified), right = subviews[2].sizeThatFits(.unspecified)
-        let center = subviews[1].sizeThatFits(ProposedViewSize(width: bounds.width * 0.4, height: bounds.height))
+        let centerX = bounds.midX - (WindowChrome.controlsWidth - 8) / 2
+        let available = max(0, 2 * min(centerX - bounds.minX - left.width - 12, bounds.maxX - right.width - centerX - 12))
+        let center = subviews[1].sizeThatFits(ProposedViewSize(width: available, height: bounds.height))
         subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY - left.height / 2), proposal: ProposedViewSize(left))
-        subviews[1].place(at: CGPoint(x: bounds.midX - center.width / 2, y: bounds.midY - center.height / 2), proposal: ProposedViewSize(center))
+        subviews[1].place(at: CGPoint(x: centerX - center.width / 2, y: bounds.midY - center.height / 2), proposal: ProposedViewSize(width: min(available, center.width), height: center.height))
         subviews[2].place(at: CGPoint(x: bounds.maxX - right.width, y: bounds.midY - right.height / 2), proposal: ProposedViewSize(right))
     }
 }

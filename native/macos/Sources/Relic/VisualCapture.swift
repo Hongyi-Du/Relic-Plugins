@@ -127,7 +127,7 @@ import RelicAX
                 else if scene.hasPrefix("menu-") { model.appMenu = String(scene.dropFirst(5)) }
                 else {
                     switch scene {
-                    case "group", "panel-resize-hover", "panel-resized": break
+                case "group", "panel-resize-hover", "panel-resized", "empty-group", "long-conversation": break
                     case "message-hover", "message-copy-toast": break
                     case "live-busy", "live-tool-output", "live-typing":
                         // select reloads the real organization snapshot before
@@ -135,7 +135,7 @@ import RelicAX
                         try await model.select(prepared["org"].text, prepared["member"].text)
                         guard model.selectedMember["embedded"].flag, model.liveStatus["state"].text == prepared["state"].text,
                               !model.displayLiveItems.isEmpty else { throw RelicError.message("Prepared live state was not loaded: " + scene) }
-                    case "private": try await model.select(fixture["org"].text, fixture["member"].text)
+                case "private", "empty-private": try await model.select(fixture["org"].text, fixture["member"].text)
                     case "overview": model.setPane("overview")
                     case "workspace": model.workspaceMember = fixture["member"].text; model.setPane("workspace")
                     case "thread": try await model.openThread(fixture["thread"].text)
@@ -271,13 +271,6 @@ import RelicAX
                 try phases.record("before-final-display")
                 hosting.displayIfNeeded(); CATransaction.flush()
                 try phases.record("after-final-display")
-                try phases.record("before-caret-transition-readiness")
-                let caretReadiness = try await NativeCaretReadiness.settle(in: hosting)
-                try evidence(caretReadiness, suffix: ".caret-readiness.json", item: item, output: output)
-                guard caretReadiness["settled"] as? Bool == true else {
-                    throw RelicError.message("Native insertion indicator retained a finite transition before capture")
-                }
-                try phases.record("after-caret-transition-readiness")
                 let geometry = GeometryCaptureSession(path: output.appendingPathComponent(item["id"].text + ".native-geometry.json"))
                 try geometry.observe("before-screenshot", window: window)
                 try resizeCapture?.observe("before-screenshot")

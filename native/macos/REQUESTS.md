@@ -1,4 +1,63 @@
-## 2026-10-31: measure the actual accent swatch selection
+## 2026-10-31: Amendment 5 supersedes the strict parity gate
+
+The person accepts the current look. Stop parity iteration and new matrix work.
+Please make the retained element harness/report non-blocking, while keeping
+native builds/tests, Python validation and packaging required. Merge `main`
+(including PR #6 / `716ab44`) into `native-apps`; macOS will merge that branch.
+Keep PR #4 open and do not install or launch locally.
+
+macOS is adding the real transparent full-size title bar and a CI-only
+`RELIC_TITLEBAR_MANIFEST` entry point. Its JSON uses the existing native manifest
+shape: `fixture` with port/token/org/member/scene_endpoint, `lang`, `theme`,
+`output`, and `cases` containing id/scene/file/width/height. Use `scene: group`,
+both themes and 1440x900/1024x700. It will invoke `/usr/sbin/screencapture -x -o
+-l <actual NSWindow.windowNumber> <output/file>`, preserving traffic lights and
+real window chrome, and emit `complete.json` plus per-image `.window.json`.
+Please add the shared fixture/launch workflow and upload the full-window PNGs;
+the ordinary parity ImageRenderer/cacheDisplay PNGs do not satisfy this check.
+The macOS package artifact remains `Relic-native-macOS-arm64-unsigned`.
+
+## 2026-10-31: empty/long conversation follow-up (no new matrix work under Amendment 5)
+
+The reference `app.js` requests `/api/org/{id}/chat?kind=group&limit=1000`
+and `/api/org/{id}/chat?kind=private&member={encoded-seat}&limit=1000`
+(lines 519/524). Its stream has no additional history-pagination button;
+`trace.load_older` belongs to the trace dialog. macOS now uses those exact
+requests and removes its extra stream button. The model transport regression
+returns 250 messages in each chat type and checks the actual request and retained
+history. No shared engine change is needed.
+
+Please add `empty-group`, `empty-private`, and `long-conversation` fixture scenes
+to the shared matrix and inventory. The two empty states must have neither chat
+messages/transcript steps nor visible live output, and must exercise the actual
+`renderStream` branch with `.notice` and `margin-top:40px`. The long conversation
+must contain more than 200 messages and verify the same initial viewport and
+history window on both clients. These are additional reference states, not
+exclusions or accepted differences. Native capture already routes the two group
+cases through the standard group selection and `empty-private` through the
+standard private selection. All three still require the shared scene-reset
+endpoint to acknowledge and actually prepare their data.
+
+## 2026-10-31: actual native fill destination receipts
+
+CI `41150748585` proved the original shadow fill's draw CGContext data pointer
+equals the actual `NSBitmapImageRep.bitmapData` destination (the rejected 16-bit
+replacement was removed because 121 pixels differed). The native capture now
+records each original `cacheDisplay` call in `*.native-raster.json`:
+`bitmaps[].native_fill_destinations[]` contains `actual_fill`,
+`sequence_before_cache`, `sequence_after_cache`, `new_draw_during_cache`,
+`same_destination_buffer`, and `draw_destination_bound`. Binding requires both
+a new actual draw during that specific call and identical buffer addresses.
+The bitmap entry records its actual view/window identities and data address.
+`final_png_attribution_proven` and `occlusion_proven` remain false. The expanded
+test also compares the complete observed/unobserved PNG bytes; fresh CI is pending.
+
+Please retain these receipts in the shared fill diagnostic without promoting
+them to final-pixel or occlusion proof. The remaining proof must still bind the
+actual source path/clip, composition operation, layer order and screenshot pixels.
+This gives that work the real draw destination rather than an inferred color match.
+
+## 2026-10-31: measure the actual accent swatch selection (resolved in d019ebf)
 
 The formal `312dab7` smoke report has 12 macOS selected-state mismatches
 across settings-appearance and settings-navigation-hover. In the actual

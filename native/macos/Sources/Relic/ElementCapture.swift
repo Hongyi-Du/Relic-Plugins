@@ -296,7 +296,6 @@ import CoreText
         let viewport = NSRect(origin: .zero, size: content.bounds.size)
         var raw: [[String: Any]] = [], elements: [[String: Any]] = [], seen = Set<ObjectIdentifier>()
         var nativeTextTargets: [(id: String, view: NSTextView, screen: NSRect)] = []
-        var nativeLabelViews: [ReferenceLabelView] = []
         var childReadErrors: [String] = []
         let regions = ElementRegionProbe.regions(in: contentScreen)
         func region(_ rect: NSRect, fallback: String) -> String {
@@ -306,7 +305,6 @@ import CoreText
         func visit(_ value: Any, path: String, parent: String?, inheritedRegion: String, clip: NSRect, suppressElements: Bool = false, scrollbarOwner: ReferenceScroller? = nil) {
             let object = value as AnyObject
             guard seen.insert(ObjectIdentifier(object)).inserted else { return }
-            if let label = object as? ReferenceLabelView { nativeLabelViews.append(label) }
             let attributes = RelicAXRead(object)
             let childSnapshot = RelicAXChildSnapshot(object)
             let actualChildren = childSnapshot["children"] as? [Any] ?? []
@@ -522,7 +520,6 @@ import CoreText
         // Resolve only after its measured paint surface has been collected.
         surfaceGaps.append(contentsOf: FieldEditorCapture.attach(to: &elements, receipts: FieldEditorCapture.receipts(in: window)))
         surfaceGaps.append(contentsOf: ElementOwnership.attachLabels(to: &elements))
-        ClippedTabLabelCapture.attach(to: &elements, labels: nativeLabelViews, window: window)
         let paint = ElementPaintProbe.snapshots(in: contentScreen)
         for sample in paint {
             let rect = topLeft((sample["screenRect"] as! NSValue).rectValue, in: contentScreen), visible = rect.intersection(Self.rect(sample["nativeVisibleBounds"])).intersection(viewport)

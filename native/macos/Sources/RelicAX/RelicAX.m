@@ -50,42 +50,6 @@ static NSDictionary *ChildrenObservation(id object) {
 NSArray *RelicAXChildren(id object) {
     return RelicAXChildSnapshot(object)[@"children"];
 }
-BOOL RelicAXPlaceChildBefore(id object, NSString *childIdentifier, NSString *beforeIdentifier) {
-    @try {
-        SEL setter = @selector(setAccessibilityChildrenInNavigationOrder:);
-        if (![object respondsToSelector:setter] || !childIdentifier.length || !beforeIdentifier.length ||
-            [childIdentifier isEqual:beforeIdentifier]) return NO;
-        NSDictionary *snapshot = ChildrenObservation(object);
-        NSArray *ordinary = snapshot[@"ordinary"], *children = snapshot[@"children"];
-        // An empty ordinary getter cannot prove a complete inventory.
-        if (!ordinary.count || children.count != ordinary.count) return NO;
-        NSUInteger childIndex = NSNotFound, beforeIndex = NSNotFound;
-        for (NSUInteger i = 0; i < children.count; i++) {
-            id identifier = Attribute(children[i], @"accessibilityIdentifier", NSAccessibilityIdentifierAttribute);
-            if ([identifier isEqual:childIdentifier]) {
-                if (childIndex != NSNotFound) return NO;
-                childIndex = i;
-            }
-            if ([identifier isEqual:beforeIdentifier]) {
-                if (beforeIndex != NSNotFound) return NO;
-                beforeIndex = i;
-            }
-        }
-        if (childIndex == NSNotFound || beforeIndex == NSNotFound) return NO;
-        if (childIndex + 1 == beforeIndex) return YES;
-        NSMutableArray *ordered = [children mutableCopy];
-        id child = ordered[childIndex], before = ordered[beforeIndex];
-        [ordered removeObjectAtIndex:childIndex];
-        [ordered insertObject:child atIndex:[ordered indexOfObjectIdenticalTo:before]];
-        ((void (*)(id, SEL, NSArray *))objc_msgSend)(object, setter, ordered);
-        NSDictionary *after = ChildrenObservation(object);
-        if (![after[@"evidence"][@"same_object_inventory"] boolValue]) return NO;
-        NSArray *observed = after[@"children"];
-        if (observed.count != ordered.count) return NO;
-        for (NSUInteger i = 0; i < ordered.count; i++) if (observed[i] != ordered[i]) return NO;
-        return YES;
-    } @catch (NSException *exception) { return NO; }
-}
 NSDictionary<NSString *, id> *RelicAXChildSnapshot(id object) {
     @try { return ChildrenObservation(object); }
     @catch (NSException *exception) {

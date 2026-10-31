@@ -232,7 +232,9 @@ import RelicCore
         guard !organization.isEmpty else { return }
         let selected = selection
         let snap = try await get(selected.path("?lang=" + words.language))
-        let chat = try await get(selected.path("/chat?kind=" + (selected.member.isEmpty ? "group" : "private") + "&member=" + Client.segment(selected.member) + "&limit=200"))
+        let chatQuery = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
+            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
+        let chat = try await get(selected.path(chatQuery))
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
         var live = Node(), convo = Node()
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }

@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import RelicCore
-import RelicAX
 
 struct MessageActionButton: View {
     let title: String
@@ -24,19 +23,13 @@ struct MessageActionButton: View {
     }
 }
 
-/// Mount for message geometry and the actual VoiceOver navigation order. It
-/// has no paint or accessible element and is present during normal use.
+/// Read-only geometry of the actual message for CI hover/copy actions. It has
+/// no paint or accessibility element and is also present during normal use.
 struct MessageInteractionAnchor: NSViewRepresentable {
     let messageID: String
-    var avatarNavigationID: String? = nil
-    var metadataNavigationID: String? = nil
     static let live = NSHashTable<AnchorView>.weakObjects()
     func makeNSView(context: Context) -> AnchorView { let view = AnchorView(); Self.live.add(view); updateNSView(view, context: context); return view }
-    func updateNSView(_ view: AnchorView, context: Context) {
-        view.messageID = messageID
-        view.avatarNavigationID = avatarNavigationID; view.metadataNavigationID = metadataNavigationID
-        view.scheduleNavigationOrder()
-    }
+    func updateNSView(_ view: AnchorView, context: Context) { view.messageID = messageID }
     static func visibleBounds(messageID: String) -> [NSRect] {
         live.allObjects.filter { $0.messageID == messageID && $0.window?.isVisible == true }.compactMap { view in
             guard let rect = NativeVisibility.screenClip(view), !rect.isNull, !rect.isEmpty else { return nil }; return rect
@@ -56,37 +49,7 @@ struct MessageInteractionAnchor: NSViewRepresentable {
     }
     final class AnchorView: NSView {
         var messageID = ""
-        var avatarNavigationID: String?, metadataNavigationID: String?
-        private var navigationPending = false
-        private(set) var navigationAttempts = 0
-        private(set) var navigationSucceeded: Bool?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleNavigationOrder() }
-        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); scheduleNavigationOrder() }
-        override func layout() { super.layout(); scheduleNavigationOrder() }
-        func scheduleNavigationOrder(retry: Int = 0) {
-            guard !navigationPending, avatarNavigationID != nil else { return }
-            navigationPending = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }; self.navigationPending = false
-                guard self.window != nil, let scroll = self.enclosingScrollView,
-                      let avatar = self.avatarNavigationID, let metadata = self.metadataNavigationID else { return }
-                // Outgoing avatars are visually on the right, but VoiceOver
-                // should introduce the author before the message metadata.
-                // Move the existing native object; never create a proxy or
-                // replace the scroll area's accessible child inventory.
-                self.navigationAttempts += 1
-                self.navigationSucceeded = RelicAXPlaceChildBefore(scroll, avatar, metadata)
-                // SwiftUI may materialize its virtual children on the first AX
-                // query after layout. Give that real tree another main-loop
-                // turn; never retry indefinitely or reorder capture output.
-                if self.navigationSucceeded == false && retry < 3 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
-                        self?.scheduleNavigationOrder(retry: retry + 1)
-                    }
-                }
-            }
-        }
     }
 }

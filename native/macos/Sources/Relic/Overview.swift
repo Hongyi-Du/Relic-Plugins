@@ -163,7 +163,7 @@ struct HierarchyView: View {
                 let subtitle = active ? [group["leader"].text.isEmpty ? "" : m.t("org.leader_chip", ["name": group["leader"].text]), child.map { stats($0) } ?? ""].filter { !$0.isEmpty }.joined(separator: " · ") : m.t(group["status"].text == "closed" ? "org.status_closed" : "org.status_dissolved") + (group["ended_at"].text.isEmpty ? "" : " · " + m.shortWhen(group["ended_at"]))
                 childRow(Node(group.object.merging(["kind": "subgroup"], uniquingKeysWith: { actual, _ in actual })), subtitle: subtitle).recordedOpacity(active ? 1 : 0.6)
             }
-            if org["kind"].text == "subgroup" && active { Button(m.t("org.close_group"), role: .destructive) { close = true }.buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
+            if org["kind"].text == "subgroup" && active { TextButton(m.t("org.close_group"), role: .destructive, color: RelicStyle.red) { close = true }.buttonStyle(ReferenceButtonStyle(small: true, danger: true)) }
         }.confirmationDialog(m.t("org.leader_confirm", ["name": m.name(leader), "org": org["name"].text]), isPresented: Binding(get: { !leader.isEmpty }, set: { if !$0 { leader = "" } })) {
             Button(m.t("common.save")) { let who = leader; m.run { do { try await m.post(m.path("/leader"), ["member": who]); m.notice = m.t("org.leader_changed", ["name": m.name(who)]); try await m.refresh() } catch { throw RelicError.message(m.t("org.leader_failed", ["error": error.localizedDescription])) } } }
         }.confirmationDialog(m.t("org.close_group_confirm", ["name": org["name"].text]), isPresented: $close) {

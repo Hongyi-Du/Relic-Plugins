@@ -18,6 +18,29 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testConversationRefreshRequestsTheReferenceHistoryWindowForGroupAndPrivateChats() async throws {
+        for member in ["", "analyst"] {
+            let model = try model(); model.setSelection(ChatSelection("a", member))
+            let received = expectation(description: "Reference chat history request")
+            let entries = (1...250).map { ["id": $0, "type": "message", "text": "Message \($0)"] as [String: Any] }
+            let payload = String(data: try JSONSerialization.data(withJSONObject: ["items": entries, "more": true]), encoding: .utf8)!
+            ModelTransport.handler = { request in
+                switch request.url!.path {
+                case "/api/orgs": return (200, #"[{"id":"a"}]"#)
+                case "/api/cc": return (200, #"{"items":[],"unread":0}"#)
+                case "/api/org/a": return (200, #"{"members":[]}"#)
+                case "/api/org/a/chat":
+                    XCTAssertEqual(request.url?.query, member.isEmpty ? "kind=group&limit=1000" : "kind=private&member=analyst&limit=1000")
+                    received.fulfill(); return (200, payload)
+                default: XCTFail("Unexpected request " + request.url!.path); return (500, "{}")
+                }
+            }
+            try await model.refresh(); await fulfillment(of: [received], timeout: 1)
+            XCTAssertEqual(model.messages.count, 250)
+            XCTAssertEqual(model.messages.first?["id"].integer, 1)
+            XCTAssertEqual(model.messages.last?["id"].integer, 250)
+        }
+    }
     func testRoleNameUsesSeatIDOnlyWhenDisplayRepeatsTheLocalizedOfficeTitle() throws {
         let model = try model()
         for (language, title, distinct) in [("en-US", "Secretary", "Chief of staff"), ("zh-CN", "秘书", "秘书处负责人")] {
