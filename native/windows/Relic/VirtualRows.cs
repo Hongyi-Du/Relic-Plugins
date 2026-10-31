@@ -49,12 +49,13 @@ internal sealed class VirtualRows : Grid
     private FollowRequest? followingLast;
     internal sealed record ReadingAnchor(string Key, double ViewportTop);
     private sealed class ReadingRestore(int revision, ReadingAnchor anchor, ScrollViewer viewport,
-        Func<bool> isCurrent, Func<bool> isContentReady)
+        Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow = false)
     {
         internal int Revision = revision;
         internal readonly ReadingAnchor Anchor = anchor;
         internal readonly ScrollViewer Viewport = viewport;
         internal readonly Func<bool> IsCurrent = isCurrent, IsContentReady = isContentReady;
+        internal readonly bool FirstRow = firstRow;
         internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     private ReadingRestore? restoringReading;
@@ -82,7 +83,7 @@ internal sealed class VirtualRows : Grid
         if (committed == revision) return;
         using var timing = PerformanceTrace.Measure("rows.commit");
         var reading = restoringReading is { } candidate && candidate.IsCurrent()
-            && Children.Any(row => row.Key == candidate.Anchor.Key) ? candidate : null;
+            && ReadingIndex(candidate) >= 0 ? candidate : null;
         committed = revision;
         if (reading == null) StopFollowingLast();
         else
@@ -101,8 +102,8 @@ internal sealed class VirtualRows : Grid
         {
             reading.Viewport.AnchorRequested += ReadingAnchorRequested;
             reading.Viewport.ViewChanged += ReadingViewChanged;
-            var index = Children.FindIndex(row => row.Key == reading.Anchor.Key);
-            PerformanceTrace.Count(TraceName + ".reading.rebased", index);
+            var index = ReadingIndex(reading);
+            PerformanceTrace.Count(TraceName + (reading.FirstRow ? ".start.rebased" : ".reading.rebased"), index);
             BringIndexIntoViewCore(index, 0, reading.Anchor.ViewportTop,
                 () => IsCurrent(reading), reading.IsContentReady);
         }
@@ -156,6 +157,8 @@ internal sealed class VirtualRows : Grid
         && follow.Revision == revision && follow.IsCurrent() && Children.Count > 0;
     private bool IsCurrent(ReadingRestore reading) => ReferenceEquals(restoringReading, reading)
         && reading.Revision == revision && reading.IsCurrent();
+    private int ReadingIndex(ReadingRestore reading) => reading.FirstRow
+        ? (Children.Count > 0 ? 0 : -1) : Children.FindIndex(row => row.Key == reading.Anchor.Key);
     internal ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
     {
         ReadingAnchor? first = null;
@@ -182,19 +185,26 @@ internal sealed class VirtualRows : Grid
     }
     internal Task<bool> RestoreReadingAnchorAsync(ReadingAnchor anchor, ScrollViewer viewport,
         Func<bool> isCurrent, Func<bool> isContentReady)
+        => RestoreReadingPositionAsync(anchor, viewport, isCurrent, isContentReady, false);
+    internal Task<bool> RestoreFirstIntoViewAsync(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+        => RestoreReadingPositionAsync(new ReadingAnchor("", Padding.Top), viewport, isCurrent, isContentReady, true);
+    private Task<bool> RestoreReadingPositionAsync(ReadingAnchor anchor, ScrollViewer viewport,
+        Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow)
     {
         Commit(); StopFollowingLast();
-        var index = Children.FindIndex(row => row.Key == anchor.Key);
+        var index = firstRow ? (Children.Count > 0 ? 0 : -1) : Children.FindIndex(row => row.Key == anchor.Key);
         if (index < 0 || !isCurrent()) return Task.FromResult(false);
-        var reading = new ReadingRestore(committed, anchor, viewport, isCurrent, isContentReady);
+        var reading = new ReadingRestore(committed, anchor, viewport, isCurrent, isContentReady, firstRow);
         restoringReading = reading;
         viewport.AnchorRequested += ReadingAnchorRequested;
         viewport.ViewChanged += ReadingViewChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
-        PerformanceTrace.Count(TraceName + ".reading.request", index);
+        PerformanceTrace.Count(TraceName + (firstRow ? ".start.request" : ".reading.request"), index);
         // Prepending changes virtual extent estimates. Address the retained
         // message itself, after real Arrange and its deferred text preparation,
         // instead of forcing UpdateLayout and subtracting two estimated extents.
+        // With no drawn reading anchor, an actual top request addresses row 0:
+        // offset=0 alone does not invalidate a stale virtual realization range.
         BringIndexIntoViewCore(index, 0, anchor.ViewportTop, () => IsCurrent(reading), isContentReady);
         return reading.Completion.Task;
     }
@@ -210,7 +220,7 @@ internal sealed class VirtualRows : Grid
     private void ReadingAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
     {
         if (restoringReading is not { } reading || !IsCurrent(reading)) return;
-        var index = Children.FindIndex(row => row.Key == reading.Anchor.Key);
+        var index = ReadingIndex(reading);
         if (index < 0 || repeater.TryGetElement(index) is not FrameworkElement
             { IsLoaded: true, ActualHeight: > 0 } element) return;
         var bounds = element.TransformToVisual(sender).TransformBounds(new(0, 0, element.ActualWidth, element.ActualHeight));
@@ -228,6 +238,16 @@ internal sealed class VirtualRows : Grid
             if (restoringReading is not { } reading) return;
             if (!IsCurrent(reading)) { StopRestoringReading(false); return; }
             if (pendingBring != null || !reading.IsContentReady()) return;
+            if (reading.FirstRow)
+            {
+                if (repeater.TryGetElement(0) is not Border { IsLoaded: true, Child: not null, ActualHeight: > 0 } first) return;
+                var bounds = first.TransformToVisual(reading.Viewport).TransformBounds(new(0, 0, first.ActualWidth, first.ActualHeight));
+                if (bounds.Bottom <= 0 || bounds.Top >= reading.Viewport.ViewportHeight
+                    || Math.Abs(reading.Viewport.VerticalOffset) > 1 || Math.Abs(bounds.Top - Padding.Top) > 1) return;
+                PerformanceTrace.Count(TraceName + ".start.restored", bounds.Top);
+                StopRestoringReading(true);
+                return;
+            }
             var actual = ReadAnchor(reading.Viewport, reading.Anchor.Key);
             if (actual == null || Math.Abs(actual.ViewportTop - reading.Anchor.ViewportTop) > 1) return;
             PerformanceTrace.Count(TraceName + ".reading.restored", actual.ViewportTop);

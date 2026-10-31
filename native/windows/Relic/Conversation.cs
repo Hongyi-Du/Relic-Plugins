@@ -345,6 +345,8 @@ public sealed partial class MainWindow
         var readingOrg = org; var readingMember = member; var readingRequest = latestRequest;
         var readingAnchor = !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending
             && renderedView == org + "/" + member ? stream.ReadVisibleAnchor(chatScroll) : null;
+        var restoreStart = readingAnchor == null && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending
+            && renderedView == org + "/" + member && chatScroll.VerticalOffset < 32;
         chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
         conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed; conversationBanner.MaxWidth = double.PositiveInfinity;
         composerRegion.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -487,6 +489,10 @@ public sealed partial class MainWindow
             _ = stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
                 () => !closing && !keepLatest && readingRequest == latestRequest && org == readingOrg && member == readingMember,
                 ConversationContentReady);
+        else if (restoreStart)
+            _ = stream.RestoreFirstIntoViewAsync(chatScroll,
+                () => !closing && !keepLatest && readingRequest == latestRequest && org == readingOrg && member == readingMember,
+                ConversationContentReady);
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
@@ -504,6 +510,7 @@ public sealed partial class MainWindow
         {
         var selectedOrg = org; var selectedMember = member;
         var readingAnchor = stream.ReadVisibleAnchor(chatScroll);
+        var requestedStart = chatScroll.VerticalOffset < 32;
         var request = latestRequest;
         var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
         if (before.Length == 0) { chatMore = false; return; }
@@ -516,6 +523,10 @@ public sealed partial class MainWindow
         olderHistory = true; messages = merged; chatMore = page.Flag("more"); chatPages++; DrawConversation();
         if (readingAnchor != null)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
+                () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
+                ConversationContentReady);
+        else if (requestedStart)
+            await stream.RestoreFirstIntoViewAsync(chatScroll,
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
                 ConversationContentReady);
         }

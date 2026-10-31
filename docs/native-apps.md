@@ -1,5 +1,21 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+97aa049 / 41191413019 confirms a real missing-top-row defect: after all fixed
+history/End cases pass, random interaction 51 keeps offset 0.25 DIP for the
+full 15-second window while actual row 0 remains absent. Maximum UI delay is
+161.049 ms, peak 408.930 MiB /38 threads; no full random acceptance. With no
+drawn old message before this cold page insertion, there was no restoration
+request at all, and the old virtual realization range could remain stale.
+The product now retains a FirstRow intent for this actual top request, using
+the same cancellable, content-ready, Arrange-driven lifecycle as a real reading
+anchor. It explicitly realizes row 0, survives valid same-chat refreshes and
+completes only with actual visible content at Padding.Top and <=1 DIP offset.
+User navigation/input cancels it; pending restoration blocks recursive paging.
+The same rule covers an anchorless redraw while already reading at the top.
+There is no polling, retry increase, synchronous layout or numeric compensation.
+Both changed files compile headlessly with zero warnings/errors; runtime proof
+still requires the unchanged complete pressure scenario.
+
 The 58520ef random re-entry waits 10.772 seconds for its initial end position,
 with only one DrawChat near the end of that interval; it is not evidence of
 10 Hz repeated chat redraw. Independently, source inspection confirms a broad
