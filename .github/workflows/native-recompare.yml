@@ -20,6 +20,7 @@ jobs:
     uses: ./.github/workflows/native-element-checks.yml
   compare:
     runs-on: ubuntu-latest
+    continue-on-error: true # Amendment 5: retained appearance evidence is report-only
     needs: element-checker
     if: always()
     steps:
@@ -60,9 +61,9 @@ jobs:
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
         if: always()
         continue-on-error: true
-      - name: Require every full-matrix scene to have zero element mismatches
+      - name: Publish the complete element regression report
         if: always()
-        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full
+        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full --report-only
       - name: Record actual final report storage
         if: always()
         run: |

@@ -19,7 +19,7 @@ class CaptureViewportShardTests(unittest.TestCase):
         cls.spec = json.loads((capture.HERE / "scenes.json").read_text(encoding="utf-8"))
         cls.workflow = (capture.ROOT / ".github/workflows/native-visual.yml").read_text(encoding="utf-8")
         cls.windows_job = cls.workflow.split("  windows:\n", 1)[1].split("  macos:\n", 1)[0]
-        expression = re.search(r"include: \$\{\{ fromJSON\(inputs\.matrix != 'smoke' && '([^']+)' \|\| '([^']+)'\) \}\}", cls.windows_job)
+        expression = re.search(r"include: \$\{\{ fromJSON\(inputs\.matrix == 'full' && '([^']+)' \|\| '([^']+)'\) \}\}", cls.windows_job)
         if expression is None:
             raise AssertionError("Windows workflow must expose its full and smoke job matrices")
         cls.full_jobs, cls.smoke_jobs = (json.loads(value) for value in expression.groups())
@@ -87,7 +87,7 @@ class CaptureViewportShardTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 45", self.windows_job)
         self.assertIn("timeout-minutes: 45", macos)
         compare = self.workflow.split("  compare:\n", 1)[1]
-        self.assertIn("--output visual/parity --matrix full", compare)
+        self.assertIn("--output visual/parity --matrix ${{ inputs.matrix || 'smoke' }} --report-only", compare)
         self.assertIn("python scripts/visual/download_comparison_inputs.py --output visual", compare)
         self.assertIn("--report-output visual/parity --report-output visual/comparisons", compare)
         self.assertIn("--reference-root visual/reference --macos-reference-root visual/reference-macos", compare)
@@ -104,7 +104,7 @@ class CaptureViewportShardTests(unittest.TestCase):
                     self.assertEqual(artifact_client(name), expected)
                 routes.append(artifact_client(name))
         macos = self.workflow.split("  macos:\n", 1)[1].split("  compare:\n", 1)[0]
-        expression = re.search(r"include: \$\{\{ fromJSON\(inputs\.matrix != 'smoke' && '([^']+)' \|\| '([^']+)'\) \}\}", macos)
+        expression = re.search(r"include: \$\{\{ fromJSON\(inputs\.matrix == 'full' && '([^']+)' \|\| '([^']+)'\) \}\}", macos)
         self.assertIsNotNone(expression, "Every macOS producer shard must remain in the transport inventory")
         macos_jobs = json.loads(expression.group(1))
         self.assertEqual(macos_jobs, [{"lang": lang, "theme": theme}

@@ -1,5 +1,5 @@
 name: Native visual review
-run-name: ${{ inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.capture_run_id || inputs.matrix || 'full' }}
+run-name: ${{ inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.capture_run_id || inputs.matrix || 'smoke' }}
 on:
   push:
     branches: [native-apps, native-macos]
@@ -11,10 +11,10 @@ on:
   workflow_dispatch:
     inputs:
       matrix:
-        description: Full acceptance matrix, fast first-look scenes, or browser paint diagnostics only
+        description: Appearance regression report: full matrix, smoke scenes, or paint diagnostics
         type: choice
         options: [smoke, full, paint]
-        default: full
+        default: smoke
       capture_run_id:
         description: Optional existing capture run to recompare; leaves every original measurement unchanged
         type: string
@@ -31,7 +31,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'full' }}
+  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'smoke' }}
   cancel-in-progress: false
 jobs:
   archive-compare:
@@ -59,6 +59,7 @@ jobs:
   windows:
     if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     runs-on: windows-2025
+    continue-on-error: true # Appearance evidence is report-only under Amendment 5
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -66,7 +67,7 @@ jobs:
       # any of the twelve required Windows capture shards.
       max-parallel: 4
       matrix:
-        include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"},{"lang":"zh-CN","theme":"light","viewport":"1280x800"},{"lang":"zh-CN","theme":"light","viewport":"1024x700"},{"lang":"zh-CN","theme":"dark","viewport":"1440x900"},{"lang":"zh-CN","theme":"dark","viewport":"1280x800"},{"lang":"zh-CN","theme":"dark","viewport":"1024x700"},{"lang":"en-US","theme":"light","viewport":"1440x900"},{"lang":"en-US","theme":"light","viewport":"1280x800"},{"lang":"en-US","theme":"light","viewport":"1024x700"},{"lang":"en-US","theme":"dark","viewport":"1440x900"},{"lang":"en-US","theme":"dark","viewport":"1280x800"},{"lang":"en-US","theme":"dark","viewport":"1024x700"}]' || '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"}]') }}
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"},{"lang":"zh-CN","theme":"light","viewport":"1280x800"},{"lang":"zh-CN","theme":"light","viewport":"1024x700"},{"lang":"zh-CN","theme":"dark","viewport":"1440x900"},{"lang":"zh-CN","theme":"dark","viewport":"1280x800"},{"lang":"zh-CN","theme":"dark","viewport":"1024x700"},{"lang":"en-US","theme":"light","viewport":"1440x900"},{"lang":"en-US","theme":"light","viewport":"1280x800"},{"lang":"en-US","theme":"light","viewport":"1024x700"},{"lang":"en-US","theme":"dark","viewport":"1440x900"},{"lang":"en-US","theme":"dark","viewport":"1280x800"},{"lang":"en-US","theme":"dark","viewport":"1024x700"}]' || '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -83,7 +84,7 @@ jobs:
         run: |
           Set-TimeZone -Id UTC
           ./scripts/visual/windows-display.ps1
-      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --viewport ${{ matrix.viewport }} --output visual/windows
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --viewport ${{ matrix.viewport }} --output visual/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -94,27 +95,10 @@ jobs:
         with:
           name: reference-windows-${{ matrix.lang }}-${{ matrix.theme }}-${{ matrix.viewport }}
           path: visual/reference
-      - name: Collect actual browser paint records for unresolved glyph evidence
-        timeout-minutes: 5
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light' && matrix.viewport == '1440x900'
-        run: python -X utf8 scripts/visual/paint_trace.py --manifest visual/windows/data/en-US/light/${{ matrix.viewport }}/manifest.json --output visual/paint-trace-windows-en-US-light-${{ matrix.viewport }}
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light' && matrix.viewport == '1440x900'
-        with:
-          name: paint-trace-windows-en-US-light-${{ matrix.viewport }}
-          path: visual/paint-trace-windows-en-US-light-${{ matrix.viewport }}
-      - name: Compare full Chromium headless paint diagnostics
-        timeout-minutes: 5
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light' && matrix.viewport == '1440x900'
-        run: python -X utf8 scripts/visual/paint_trace.py --channel chromium --manifest visual/windows/data/en-US/light/${{ matrix.viewport }}/manifest.json --output visual/paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light' && matrix.viewport == '1440x900'
-        with:
-          name: paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
-          path: visual/paint-trace-full-chromium-windows-en-US-light-${{ matrix.viewport }}
   macos:
     if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
     runs-on: macos-15
+    continue-on-error: true # Native builds/tests have a separate required workflow
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -122,7 +106,7 @@ jobs:
       # and focused diagnostics during concurrent client development.
       max-parallel: 2
       matrix:
-        include: ${{ fromJSON(inputs.matrix != 'smoke' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -135,7 +119,7 @@ jobs:
       - shell: bash
         run: |
           for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'full' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
+            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --output visual/macos
           done
       - name: Retain actual macOS capture crash reports after a failure
         if: failure()
@@ -156,28 +140,11 @@ jobs:
         with:
           name: reference-macos-${{ matrix.lang }}-${{ matrix.theme }}
           path: visual/reference-macos
-      - name: Collect actual browser paint records for unresolved glyph evidence
-        timeout-minutes: 5
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
-        run: python3 scripts/visual/paint_trace.py --manifest visual/macos/data/en-US/light/manifest.json --output visual/paint-trace-macos-en-US-light
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
-        with:
-          name: paint-trace-macos-en-US-light
-          path: visual/paint-trace-macos-en-US-light
-      - name: Compare full Chromium headless paint diagnostics
-        timeout-minutes: 5
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
-        run: python3 scripts/visual/paint_trace.py --channel chromium --manifest visual/macos/data/en-US/light/manifest.json --output visual/paint-trace-full-chromium-macos-en-US-light
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.lang == 'en-US' && matrix.theme == 'light'
-        with:
-          name: paint-trace-full-chromium-macos-en-US-light
-          path: visual/paint-trace-full-chromium-macos-en-US-light
   compare:
     needs: [windows, macos, element-checker]
     if: always() && inputs.matrix != 'paint' && !inputs.capture_run_id
     runs-on: ubuntu-latest
+    continue-on-error: true # Retain failed/missing extraction as regression findings
     permissions:
       contents: read
       actions: read
@@ -198,9 +165,9 @@ jobs:
           du -sh visual/*
       - run: python scripts/visual/compose.py --source visual --output visual/comparisons
         continue-on-error: true
-      - name: Require every full-matrix scene to have zero element mismatches
+      - name: Publish element differences as a non-blocking regression report
         if: always()
-        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix full
+        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix ${{ inputs.matrix || 'smoke' }} --report-only
       - name: Record actual comparison storage after reports
         if: always()
         run: |

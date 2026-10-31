@@ -1,3 +1,39 @@
+# Current delivery policy — Amendment 5
+
+The person accepted the current native appearance and ended element-parity
+iteration. The historical requirements and measurements below remain evidence,
+but element differences are now a report-only regression signal, not a release
+blocker. No mismatch is relabeled as a match. Native builds/tests, shared Python
+validation, packaging and whole-window title-bar captures remain required.
+PR #4 stays open and unmerged; Claude owns merge and installation after the
+person tries the app. No application or test is run on the person's desktop.
+
+Changes for the clients (whole-window capture contract):
+- The new CI workflow is `native-titlebar.yml`; driver is
+  `scripts/visual/titlebar_capture.py --client windows|macos --exe ... --output ...`.
+- It starts the existing isolated real fixture server and writes the same
+  `RELIC_VISUAL_MANIFEST`, plus `RELIC_TITLEBAR_CAPTURE=1` and
+  `capture_mode: "whole-window"`. Each process receives one `group` case.
+- `width`/`height` are the complete native window's dimensions: 1440x900 or
+  1024x700. Both light and dark use zh-CN. Preserve the real OS caption controls.
+- Write the original full-window PNG at `output/case.file`, and
+  `output/<case.id>.window-chrome.json` with actual window/client bounds, native
+  window identity, scale and screenshot method. On macOS use the running app's
+  `screencapture -l <window id>`, not ImageRenderer/cacheDisplay. The driver keeps
+  actual PNG dimensions, including a native backing-scale factor if applicable.
+- Complete with the existing manifest-directory `complete.json` containing
+  `{errors: [], count: 1}`. This mode omits element extraction and its IPC;
+  it must not wait for a UIA/extraction request. Normal parity capture remains.
+- The driver supplies language/theme preferences, isolated app state and the
+  existing fixture clock. Native clients still use their production group
+  selection, controls and title-bar setup. It never launches outside CI.
+
+Shared engine: merged main at 716ab44 (PR #6 wake prompts and receipts).
+The latest macOS requests for additional empty/long parity scenes and more fill
+attribution are retained in REQUESTS but are no longer new release work after
+Amendment 5. Existing functional changes and their tests remain in the Mac branch.
+The pending optional question about resolved font-weight evidence is superseded
+by the report-only policy; the underlying comparison data is retained unchanged.
 Changes for the clients (native semantic and template observations): Windows now
 separates the Raw-only organization avatar container's provider Name from an
 independently exposed accessible name. This requires the actual current avatar,
