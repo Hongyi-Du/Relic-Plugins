@@ -134,7 +134,23 @@ internal sealed class VirtualRows : Grid
         viewport.ViewChanged += FollowViewChanged;
         viewport.SizeChanged += FollowViewportSizeChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
+        // A new latest intent addresses the end of this model, not a reading
+        // position in the previous organization or ItemsSource revision.
+        ResetBoundaryLayout(".follow.layout_reset");
         BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent, isContentReady);
+    }
+    private void ResetBoundaryLayout(string trace)
+    {
+        // ItemsSource replacement preserves StackLayout's origin and the
+        // ViewportManager's estimated shifts. GetOrCreateElement temporarily
+        // hides them; releasing its suggested anchor can then recycle the
+        // requested boundary row. A new Layout resets those native coordinates.
+        // Call once at the start of a boundary intent, never from its repairs
+        // or from keyed reading restoration, which must retain actual position.
+        var spacing = Spacing;
+        repeater.Layout = new StackLayout { Spacing = spacing };
+        hasSuggestedAnchor = false;
+        PerformanceTrace.Count(TraceName + trace, committed);
     }
     internal void StopFollowingLast()
     {
@@ -217,20 +233,7 @@ internal sealed class VirtualRows : Grid
         viewport.ViewChanged += ReadingViewChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
         PerformanceTrace.Count(TraceName + (firstRow ? ".start.request" : ".reading.request"), index);
-        if (firstRow)
-        {
-            // This explicit top intent has no drawn message anchor to retain.
-            // ItemsSource replacement preserves StackLayout's old origin and
-            // ViewportManager's estimated shifts. GetOrCreateElement masks that
-            // origin until its bring is rendered; releasing the suggested anchor
-            // can then leave offset zero with no realized rows. Changing Layout
-            // uninitializes that layout state and resets the native extent/shifts.
-            // Do it once, before realization, rather than retrying a blank range.
-            var spacing = Spacing;
-            repeater.Layout = new StackLayout { Spacing = spacing };
-            hasSuggestedAnchor = false;
-            PerformanceTrace.Count(TraceName + ".start.layout_reset", committed);
-        }
+        if (firstRow) ResetBoundaryLayout(".start.layout_reset");
         // Prepending changes virtual extent estimates. Address the retained
         // message itself, after real Arrange and its deferred text preparation,
         // instead of forcing UpdateLayout and subtracting two estimated extents.

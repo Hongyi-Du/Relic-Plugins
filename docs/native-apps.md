@@ -1,5 +1,22 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+0866447 / 41252892811 completes all 175 fixed interactions, all four real
+history/top/End cases, and 51 real-pointer random interactions, then FAILS
+random history re-entry before any new history input. The selected 1,000-item
+page's last row disappears with keep_latest=true and a 56,711 DIP gap.
+Maximum UI delay 93.698 ms, peak 461.914 MiB /37 threads. The live fixture
+published 798 events and inserted 40 synthetic messages; it did not complete
+the required random duration, so no acceptance or plateau claim. Two explicit
+FirstRow layout resets ran successfully in the fixed 5,500-message history.
+The same coordinate reset is now performed once at the START of each new
+follow-latest intent, before realizing its final row. It is never performed
+by repair/Arrange/readiness callbacks, and keyed reading anchors are unchanged.
+There is no additional retry or timeout. Complete CI remains required.
+Changes for the clients: Mac 37da869's bounded 16-width Flow/Markdown layout
+caches and wrapping/content replacement regressions are integrated in 67d8b3a;
+REQUESTS contains no shared route or payload change. The preceding Mac 8087b5c
+on 0866447 still fails 304.473 ms at action-0133:group (220.688 MiB /9 threads).
+
 The 0866447 adaptive-window failure is a capture race: the wide/dark receipt
 has a 27.800 DIP gap while native_bring.Routed=true, Rendered=false and
 follow.in_flight=true. The old fixed 350 ms sleep followed by forced UpdateLayout
