@@ -10,7 +10,7 @@ from capture import HERE, ROOT, configure, stop_native_process, wait_file
 from relic_core.process import creation_flags
 
 
-def capture_case(exe, output, fixture, client, theme, width, height):
+def capture_case(exe, output, fixture, client, theme, width, height, logical_sizing=False):
     case_id = f"{client}-zh-CN-{theme}-{width}x{height}-group"
     work = output / "data" / case_id
     work.mkdir(parents=True)
@@ -20,6 +20,8 @@ def capture_case(exe, output, fixture, client, theme, width, height):
     manifest = {"version": 1, "client": client, "lang": "zh-CN", "theme": theme,
                 "capture_mode": "whole-window", "fixture": fixture, "output": str(output),
                 "state_directory": str(state), "cases": [case]}
+    if logical_sizing:
+        manifest["window_units"] = "dip" if client == "windows" else "point"
     path = work / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     env = dict(os.environ, RELIC_TITLEBAR_CAPTURE="1", RELIC_VISUAL_MANIFEST=str(path),
@@ -40,7 +42,7 @@ def capture_case(exe, output, fixture, client, theme, width, height):
                 row["png"] = {"file": case["file"], "width": image.width, "height": image.height, "format": image.format}
                 if image.format != "PNG" or image.width <= 0 or image.height <= 0:
                     raise ValueError("Whole-window screenshot is not a nonempty PNG")
-                if client == "windows" and image.size != (width, height):
+                if client == "windows" and not logical_sizing and image.size != (width, height):
                     raise ValueError("Windows PNG does not cover the requested full window rectangle")
             chrome_path = output / (case_id + ".window-chrome.json")
             row["window_chrome"] = json.loads(chrome_path.read_text(encoding="utf-8-sig"))
@@ -60,6 +62,8 @@ def main():
     parser.add_argument("--client", choices=("windows", "macos"), required=True)
     parser.add_argument("--exe", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--window-sizing", action="store_true",
+                        help="Request DIP/point sizes and retain actual startup-placement receipts")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -77,10 +81,12 @@ def main():
                 configure(fixture, lang="zh-CN", theme=theme, font="medium", density="comfortable", notify=False)
                 for width, height in ((1440, 900), (1024, 700)):
                     print(f"Whole-window capture: {args.client} {theme} {width}x{height}", flush=True)
-                    results.append(capture_case(args.exe.resolve(), output, fixture, args.client, theme, width, height))
-                    (output / "titlebar-report.json").write_text(json.dumps({
+                    results.append(capture_case(args.exe.resolve(), output, fixture, args.client, theme, width, height,
+                                                args.window_sizing))
+                    (output / ("window-report.json" if args.window_sizing else "titlebar-report.json")).write_text(json.dumps({
                         "commit": os.environ.get("GITHUB_SHA"), "client": args.client,
                         "capture": "complete native window with system caption controls", "expected": 4,
+                        "requested_units": "logical" if args.window_sizing else "platform",
                         "captured": sum(row["status"] == "captured" for row in results), "cases": results},
                         ensure_ascii=False, indent=2), encoding="utf-8")
         finally:

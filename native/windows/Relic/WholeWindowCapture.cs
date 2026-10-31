@@ -36,6 +36,14 @@ public sealed partial class MainWindow
                 {
                     if (shot.Text("scene") != "group") throw new InvalidOperationException("Whole-window capture supports the real group scene only");
                     var width = int.Parse(shot.Text("width")); var height = int.Parse(shot.Text("height"));
+                    var monitor = CurrentWindowMonitor();
+                    var logicalSizing = manifest.Text("window_units") == "dip";
+                    var initialWindow = new PixelRect(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+                    if (logicalSizing)
+                    {
+                        width = WindowSizing.Pixels(width, monitor.Scale);
+                        height = WindowSizing.Pixels(height, monitor.Scale);
+                    }
                     var endpoint = fixture.Text("scene_endpoint");
                     if (endpoint.Length == 0) throw new InvalidOperationException("Visual fixture scene endpoint is missing");
                     var prepared = await api!.Post(endpoint, new { scene = "group" });
@@ -47,13 +55,14 @@ public sealed partial class MainWindow
                     // including its system caption and resize border, not XAML.
                     AppWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
                     AppWindow.Move(new Windows.Graphics.PointInt32(24, 24));
-                    sideWidth = 276; panelWidth = 340; sideOpen = true; panelOpen = width > 1180;
+                    sideWidth = 276; panelWidth = 340; sideOpen = true; panelOpen = width / monitor.Scale > ResponsiveLayout.InspectorOverlayWidth;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false;
                     folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote();
                     await Select(prepared.Text("org")); LayoutColumns(); root.UpdateLayout();
                     var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
                     SetForegroundWindow(handle);
-                    await CaptureMoveScreenPointer(1900, 1040);
+                    await CaptureMoveScreenPointer(monitor.WorkArea.X + monitor.WorkArea.Width - 10,
+                        monitor.WorkArea.Y + monitor.WorkArea.Height - 10);
                     await Task.Delay(350); root.UpdateLayout();
                     if (error.IsOpen) throw new InvalidOperationException("Production UI reported: " + error.Message);
                     if (!editor.IsDocumentReady) throw new InvalidOperationException("Native composer did not initialize: " + editor.InitializationFailure);
@@ -65,6 +74,14 @@ public sealed partial class MainWindow
                     receipt["language"] = words.Language;
                     receipt["theme"] = root.ActualTheme.ToString().ToLowerInvariant();
                     receipt["image_before_actions"] = true;
+                    receipt["sizing"] = JsonSerializer.SerializeToNode(new {
+                        units = logicalSizing ? "dip" : "physical-pixel", dpi = windowDpi,
+                        monitor, initial_window = initialWindow, startup_placement = startupPlacement,
+                        default_window = WindowSizing.Default(monitor), minimum = WindowSizing.Minimum(monitor),
+                        logical_width = AppWindow.Size.Width / monitor.Scale, logical_height = AppWindow.Size.Height / monitor.Scale,
+                        content_width = root.ActualWidth, content_height = root.ActualHeight,
+                        inspector_overlay = root.ActualWidth <= ResponsiveLayout.InspectorOverlayWidth,
+                        inspector_open = panelOpen, sidebar_width = sidebarSurface.ActualWidth });
                     receipt["actions_passed"] = false;
                     receipt["original_window_screen"] = receipt["window_screen"]!.DeepClone();
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, id + ".window-chrome.json"), receipt.ToJsonString());
