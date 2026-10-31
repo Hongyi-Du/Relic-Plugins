@@ -7,7 +7,9 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     var onNotification: ((String, String) -> Void)?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        if TitlebarCapture.enabled {
+        if ResponsivenessCapture.enabled {
+            Task { @MainActor in await ResponsivenessCapture.run() }
+        } else if TitlebarCapture.enabled {
             Task { @MainActor in await TitlebarCapture.run() }
         } else if VisualCapture.enabled {
             // A subsequent viewport process can restore the ordinary window
@@ -31,7 +33,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     var body: some Scene {
         Window("Relic", id: "main") {
             MainView().environmentObject(model)
-                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if !VisualCapture.enabled && !TitlebarCapture.enabled { await model.start() } }
+                .task { delegate.onQuit = { model.stop() }; delegate.onNotification = { org, member in model.run { try await model.select(org, member) } }; if !VisualCapture.enabled && !TitlebarCapture.enabled && !ResponsivenessCapture.enabled { await model.start() } }
                 .background(WindowPlacementMount { model.prepareInitialWindow(size: $0) }.frame(width: 0, height: 0))
         }
         .windowStyle(.hiddenTitleBar)
