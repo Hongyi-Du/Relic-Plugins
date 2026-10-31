@@ -279,6 +279,7 @@ struct ChatView: View {
 private struct LatestMessageBounds: Equatable {
     var id = ""
     var size = CGSize.zero
+    var bottom: CGFloat = 0
 }
 private struct LatestMessageSize: PreferenceKey {
     static var defaultValue = LatestMessageBounds()
@@ -352,14 +353,14 @@ struct ConversationStream: View {
                                 }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
                                     .background {
                                         if row.id == latestRowID { GeometryReader { geometry in
-                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size))
+                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
                                         } }
                                     }
                             }
                             if !m.displayLiveItems.isEmpty {
                                 LiveTurnView().padding(.bottom, 24).id("live-end")
                                     .background(GeometryReader { geometry in
-                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size))
+                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
                                     })
                             }
                             else if rows.isEmpty { Color.clear.frame(height: 24) }
@@ -377,14 +378,16 @@ struct ConversationStream: View {
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(LatestMessageSize.self) { latest in
-                            // Observe only the actual newest row, not the lazy
-                            // document's estimated height. Markdown prepares in
-                            // stages after scrollTo's first layout; preserve the
-                            // bottom while that row acquires its real height.
+                            // Observe the actual newest row, including where
+                            // native layout places it. Appending after a long
+                            // message can change the preceding row's height
+                            // without changing this new row's own size. Restore
+                            // this real target only while following is intended
+                            // and its lower edge is not already at the viewport.
                             guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
                                   initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
-                            proxy.scrollTo(latest.id, anchor: .bottom)
+                            if abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in

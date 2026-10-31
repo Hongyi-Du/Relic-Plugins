@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+432e6d2 / 41186072127 restores all shadow pixel checks, but the real append
+regression still fails with a 692 pt bottom gap (299 tests, two assertions).
+Deferring the source revision alone is insufficient: the preceding long row
+reflows later without changing the new last row's own size. Observe that actual
+last row's placed bottom as well as its size, and request its own scroll target
+only while following is intended and its lower edge is not already aligned.
+This never uses an estimated document maximum, and user history/disclosure
+navigation still suppresses following. Actual visible-text tests remain intact;
+the strict run must also prove that this does not create layout churn.
+
 432e6d2 / 41186072130 FAILS startup at 269.412 ms, 154.719 MiB, 9 threads.
 The cold composer is now 32.521 ms and first identity batch 85.228 ms; failure
 is inside a cold conversation row, with only two mounted rows. Message body
