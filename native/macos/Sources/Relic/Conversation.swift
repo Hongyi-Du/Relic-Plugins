@@ -267,6 +267,17 @@ struct ChatView: View {
     }
 }
 
+private struct LatestMessageBounds: Equatable {
+    var id = ""
+    var size = CGSize.zero
+}
+private struct LatestMessageSize: PreferenceKey {
+    static var defaultValue = LatestMessageBounds()
+    static func reduce(value: inout LatestMessageBounds, nextValue: () -> LatestMessageBounds) {
+        let next = nextValue()
+        if !next.id.isEmpty { value = next }
+    }
+}
 private struct StreamMetrics: Equatable {
     var bottom: CGFloat = 0
     var height: CGFloat = 0
@@ -325,8 +336,18 @@ struct ConversationStream: View {
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
+                                    .background {
+                                        if row.id == latestRowID { GeometryReader { geometry in
+                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size))
+                                        } }
+                                    }
                             }
-                            if !m.displayLiveItems.isEmpty { LiveTurnView().padding(.bottom, 24).id("live-end") }
+                            if !m.displayLiveItems.isEmpty {
+                                LiveTurnView().padding(.bottom, 24).id("live-end")
+                                    .background(GeometryReader { geometry in
+                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size))
+                                    })
+                            }
                             else if rows.isEmpty { Color.clear.frame(height: 24) }
                             // Target the actual newest row, including its 24px
                             // trailing space. A separate footer can be realized
@@ -342,6 +363,17 @@ struct ConversationStream: View {
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
+                        .onPreferenceChange(LatestMessageSize.self) { latest in
+                            // Observe only the actual newest row, not the lazy
+                            // document's estimated height. Markdown prepares in
+                            // stages after scrollTo's first layout; preserve the
+                            // bottom while that row acquires its real height.
+                            guard !latest.id.isEmpty, latest.size.height > 0,
+                                  initialLoad || following.followsBottom else { return }
+                            following.followsBottom = true
+                            visibleRow = latest.id; proxy.scrollTo(latest.id, anchor: .bottom)
+                            initialLoad = false
+                        }
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
                             // The bound row identity owns initial placement and
@@ -406,14 +438,14 @@ struct ConversationStream: View {
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
                         if (initialLoad || following.followsBottom), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
-                        initialLoad = false
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
-                    initialLoad = m.streamRows.isEmpty
+                    initialLoad = true
                     if let id = latestRowID { visibleRow = id }
                     keyboard.scrollToEdge = { top in
+                        initialLoad = false
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
                         else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
