@@ -59,14 +59,13 @@ struct MainView: View {
         }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
         .onChange(of: m.panelOpen) { if !floatingPanel { m.defaults.set(m.panelOpen, forKey: "panel") } }
-        .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }
         .onChange(of: m.focusSearch) { if m.focusSearch { m.mentionEditor?.closeMentions() } }
         .onChange(of: m.appMenu) { if m.appMenu != nil { m.mentionEditor?.closeMentions(); m.recipientPicker = false } }
         .onChange(of: m.recipientPicker) { if m.recipientPicker { m.appMenu = nil } }
         .onChange(of: m.pane) { resizingPanel = nil; resizeStart = nil }
         .overlay { if !m.mentionItems.isEmpty { MentionSuggestions() } }
         .overlay { if m.recipientPicker { RecipientLayer() } }
-        .overlay { if let sheet = m.sheet { DialogLayer(sheet: sheet) } }
+        .overlay { DialogPresentationLayer(presentation: m.dialogPresentation) }
         .overlay { if m.inputSuggestions != nil { InputSuggestionsLayer() } }
         .overlay(alignment: .bottom) { NativeToasts() }
         .preferredColorScheme(m.preferences["theme"].text == "dark" ? .dark : m.preferences["theme"].text == "light" ? .light : nil)

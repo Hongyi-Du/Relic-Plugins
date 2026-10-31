@@ -229,7 +229,10 @@ final class ComposerTextView: NSTextView {
     func closeMentions() {
         completing = false; suggestions = []; suggestionIndex = 0
         if let mentionMouseMonitor { NSEvent.removeMonitor(mentionMouseMonitor); self.mentionMouseMonitor = nil }
-        if let model = presentationModel, model.mentionEditor === self { model.mentionItems = []; model.mentionEditor = nil; model.mentionVisible = false }
+        if let model = presentationModel, model.mentionEditor === self {
+            if !model.mentionItems.isEmpty { model.mentionItems = [] }
+            model.mentionEditor = nil; model.mentionVisible = false
+        }
     }
 }
 

@@ -1,3 +1,21 @@
+## A7 update: dialog invalidation (2026-10-31)
+
+The normal macOS run 41172011957 at e9df4aa reaches action-0160 Settings,
+then fails at 276.840 ms; About and New organization reach 379.647 / 360.643 ms.
+Peak RSS is 197 MiB, threads 9. This is an early failure, not a memory plateau
+or a completed monkey pass. The independent run-loop probe agrees (377.739 ms),
+so this is not merely the DispatchQueue callback being delayed while UI stays free.
+The dialog presentation was a global Model publication, invalidating the whole
+underlying chat. This branch now scopes it to the actual dialog overlay and
+avoids publishing already-empty mention state; regression tests cover both the
+notification scope and recipient dismissal. CI validation is pending.
+
+cb02130 full-window captures (41172139399) pass both platforms; the actual
+macOS dark 1024 capture was inspected and shows prepared Markdown and chrome.
+Its build and strict pressure run are still pending. No passing pressure claim.
+The latest shared update is merged, including the Windows repeat failure at
+8d5f1ef. The earlier e346d03 passing run does not override that failure.
+
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
 `3d9648e` full-window CI **41171394417** is green on both systems. All four Mac

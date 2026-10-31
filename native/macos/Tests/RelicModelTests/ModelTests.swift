@@ -19,6 +19,26 @@ final class ModelTransport: URLProtocol {
 }
 
 @MainActor final class ModelTests: XCTestCase {
+    func testDialogPresentationDoesNotInvalidateConversationAndOrganizationData() throws {
+        let model = try model()
+        var dataUpdates = 0, presentationUpdates = 0
+        let data = model.objectWillChange.sink { dataUpdates += 1 }
+        let presentation = model.dialogPresentation.objectWillChange.sink { presentationUpdates += 1 }
+        defer { data.cancel(); presentation.cancel() }
+        model.sheet = .settings
+        XCTAssertEqual(model.dialogPresentation.sheet, .settings)
+        model.sheet = .settings
+        model.sheet = nil
+        model.sheet = nil
+        XCTAssertEqual(presentationUpdates, 2)
+        XCTAssertEqual(dataUpdates, 0, "Opening and closing a dialog must not re-layout the underlying chat")
+    }
+    func testDialogOpeningStillDismissesAnActiveRecipientPicker() throws {
+        let model = try model(); model.recipientPicker = true
+        model.sheet = .create
+        XCTAssertFalse(model.recipientPicker)
+        XCTAssertEqual(model.sheet, .create)
+    }
     func testConversationRefreshRequestsTheReferenceHistoryWindowForGroupAndPrivateChats() async throws {
         for member in ["", "analyst"] {
             let model = try model(); model.setSelection(ChatSelection("a", member))
