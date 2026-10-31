@@ -1,3 +1,13 @@
+9e60abb strict 41193206730 FAILS visible-content readiness at startup:
+42.954 ms, 141.531 MiB /7 threads, zero actions and zero conversation mount
+turns. The low timing is NOT progress or acceptance when no message is drawn.
+Native test 41193206743 likewise fails real initial/append/End content (302
+ tests, 11 assertions). Bind each row ID explicitly to one stable VStack
+surrounding the placeholder/content switch. This gives scrollTargetLayout a
+persistent actual layout target instead of the transparent progressive Group.
+Failure evidence now also records the actual native binding ID, latest model
+ID, anchor and user-follow state, alongside real visible probes and gaps.
+These observations never drive rendering or relax the existing assertions.
 1b9d271 strict 41192369412 records 172.810 ms /194.172 MiB /9 threads,
 but FAILS action-0052 group with a blank conversation (1016 rows, no mounted
 row probes, 418 pt bottom gap). No random-phase acceptance. Native tests

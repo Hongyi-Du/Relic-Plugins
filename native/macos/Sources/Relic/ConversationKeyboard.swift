@@ -10,6 +10,7 @@ import SwiftUI
     var enabled = true
     var scrollToEdge: ((Bool) -> Void)?
     var didUserScroll: ((Bool) -> Void)?
+    var positionObservation: (() -> [String: Any])?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
@@ -91,6 +92,9 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     }
     static func bottomGap(in window: NSWindow) -> CGFloat? {
         edgeGap(in: window, atTop: false)
+    }
+    static func position(in window: NSWindow) -> [String: Any] {
+        live.allObjects.first { $0.window === window }?.keyboard?.positionObservation?() ?? [:]
     }
     static func edgeGap(in window: NSWindow, atTop: Bool) -> CGFloat? {
         guard let scroll = live.allObjects.first(where: { $0.window === window })?.attachedScroll,

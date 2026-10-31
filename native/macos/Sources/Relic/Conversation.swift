@@ -335,6 +335,11 @@ struct ConversationStream: View {
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
                             ForEach(rows) { row in
+                                // One persistent layout target surrounds the
+                                // placeholder/content switch. The scroll target
+                                // must be this row, not a flattened Group whose
+                                // descendants change during native admission.
+                                VStack(alignment: .leading, spacing: 0) {
                                 ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
@@ -346,7 +351,8 @@ struct ConversationStream: View {
                                 }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
-                                }.padding(.bottom, row.id == lastID && !hasLive ? 24 : 0)
+                                }
+                                }.padding(.bottom, row.id == lastID && !hasLive ? 24 : 0).id(row.id)
                             }
                             if hasLive {
                                 LiveTurnView().padding(.bottom, 24).id("live-end")
@@ -437,6 +443,10 @@ struct ConversationStream: View {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = true
                     if let id = latestRowID { position(id, at: .bottom) }
+                    keyboard.positionObservation = {
+                        ["bound_id": scrollID as Any? ?? NSNull(), "last_row_id": latestRowID as Any? ?? NSNull(),
+                         "anchor_y": scrollAnchor.y, "follows_latest": userFollowsLatest, "initial": initialLoad]
+                    }
                     // A lazy height correction is not a user scroll. Only
                     // native live scrolling or scoped keyboard input changes
                     // the person's follow-latest intent.
@@ -452,7 +462,7 @@ struct ConversationStream: View {
                         else if let id = latestRowID { position(id, at: .bottom) }
                     }
                 }
-                .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil }
+                .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil; keyboard.positionObservation = nil }
     }
 }
 

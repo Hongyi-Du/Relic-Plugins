@@ -82,6 +82,7 @@ import RelicCore
                 failureState = RenderReadiness.diagnostic(in: window)
                 failureState["top_gap_pt"] = ConversationKeyboardMount.edgeGap(in: window, atTop: true)
                 failureState["bottom_gap_pt"] = ConversationKeyboardMount.bottomGap(in: window)
+                failureState["scroll_position"] = ConversationKeyboardMount.position(in: window)
                 failureState["conversation_rows"] = model?.streamRows.count
                 failureState["history_pages"] = model?.historyPagesLoaded
                 do { failureState["screenshot"] = try await capture(window, output: output, name: "failure-window.png") }
