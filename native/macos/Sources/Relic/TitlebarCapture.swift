@@ -56,7 +56,7 @@ import RelicCore
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); WindowChrome.positionButtons(in: window)
                 try await Task.sleep(for: .milliseconds(750))
-                try await PerformanceRendering.waitForContent(current)
+                try await PerformanceRendering.waitForContent(current, window: window)
                 host.layoutSubtreeIfNeeded(); window.displayIfNeeded(); WindowChrome.positionButtons(in: window)
                 let file = output.appendingPathComponent(item["file"].text), number = window.windowNumber
                 try await Task.detached {
@@ -76,7 +76,10 @@ import RelicCore
                     return ["type": type.rawValue, "frame": ElementCapture.box(rect), "hidden": button.isHidden,
                         "enabled": button.isEnabled, "native_action": button.action.map(NSStringFromSelector) as Any? ?? NSNull()]
                 }
+                let readiness = RenderReadiness.observation(in: window, expectInspector: current.panelOpen)
+                guard readiness.ready, readiness.markdown > 0 else { throw RelicError.message("Whole-window capture has no prepared visible conversation") }
                 let record: [String: Any] = ["case_id": item["id"].text, "file": file.lastPathComponent,
+                    "content_readiness": readiness.record,
                     "provider": "/usr/sbin/screencapture -x -o -l", "window_number": number,
                     "window_frame": ElementCapture.box(window.frame), "content_bounds": ElementCapture.box(host.bounds),
                     "client_screen_frame": ElementCapture.box(window.convertToScreen(host.convert(host.bounds, to: nil))),

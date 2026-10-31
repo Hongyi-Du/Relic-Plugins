@@ -129,15 +129,8 @@ import RelicCore
         // A completed HTTP request does not mean SwiftUI displayed its rows.
         // Wait for projection, the real stream's observation, and visible
         // Markdown tasks, while leaving the main run loop/watchdog running.
-        let deadline = ProcessInfo.processInfo.systemUptime + 15
-        repeat {
-            await settle()
-            if !model.isPreparingConversation,
-               PerformanceRendering.streamVersion == model.streamVersion,
-               PerformanceRendering.pendingSurfaces == 0,
-               PerformanceRendering.pendingMarkdown == 0 { return }
-        } while ProcessInfo.processInfo.systemUptime < deadline
-        throw RelicError.message("Conversation did not finish displaying its current rows and Markdown")
+        guard let window = NSApp.keyWindow else { throw RelicError.message("The production window is not active") }
+        try await PerformanceRendering.waitForContent(model, window: window)
     }
     private static func click(_ window: NSWindow, target: String) async throws -> Int {
         guard let root = window.contentView, let bounds = PerformancePointer.bounds[target], bounds.width > 0, bounds.height > 0 else {
