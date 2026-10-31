@@ -1,5 +1,33 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+6648e83 strict run 41186777750 completes all six pages /5,500 messages and
+shows the actual first historical row at gap 0, but End input reaches a
+NativePathText descendant rather than the ScrollViewer. The inherited default
+ScrollViewer style sets IsTabStop=false; the conversation now opts into direct
+keyboard focus without changing any child text's selection behavior. The
+scenario records the actual FocusManager target before sending End.
+Maximum UI delay is 63.765 ms, peak 519.570 MiB /38 threads; this functional
+failure still prevents acceptance or a completed random phase.
+
+Diagnostic 41186778103 independently catches a real LayoutCycleException while
+loading large history at 1793437537590. After DrawChat at 7537525, realized
+conversation rows alternate 4/5 dozens of times within the same layout turn.
+No follow correction occurs in that interval. The retained app-unhandled.jsonl
+and timings identify an actual crash; the later stack helper finds no window,
+so its empty symbol report is NOT evidence of any native function. Inspection
+finds LoadOlderMessages still forcing synchronous UpdateLayout followed by a
+scroll based on the changing estimated extent. This path is being replaced by
+restoration of a real visible message identity after native layout, retaining
+the user's history-reading position and all strict checks.
+The correction now has a stable message key, actual viewport-top restoration
+after native Arrange/content preparation, and cancellation on further input or
+navigation. CI independently observes the old visible message and checks its
+actual position after every page. The focus/anchor changes and strengthened
+scenario compile headlessly with 0 warnings/errors; runtime convergence remains
+unverified. Mac REQUESTS at 7008a0b records passing 299 native tests and pending
+pressure failures; its diagnostic-only sampling interval change requests no
+shared route or acceptance-threshold change.
+
 bf68de8 fixes all four Windows full-window/end-position cases in 41185683562
 and 41185683567; both systems' window captures and all four Python jobs in
 41185687008 pass. Images are retained in window-bf68de8 under the visual

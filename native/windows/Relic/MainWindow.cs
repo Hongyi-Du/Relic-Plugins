@@ -108,7 +108,12 @@ public sealed partial class MainWindow : Window
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
         Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
-        chatScroll = Scroll(stream); Grid.SetRow(chatScroll, 2); chat.Children.Add(chatScroll);
+        chatScroll = Scroll(stream);
+        // DefaultScrollViewerStyle sets IsTabStop=false, which redirects Focus
+        // to a selectable descendant. The conversation itself owns Home/End;
+        // child text keeps its independent caret/selection keyboard behavior.
+        chatScroll.IsTabStop = true;
+        Grid.SetRow(chatScroll, 2); chat.Children.Add(chatScroll);
         Grid.SetRow(emptyConversation, 2); chat.Children.Add(emptyConversation);
         var compose = new StackPanel { Spacing = 6 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;

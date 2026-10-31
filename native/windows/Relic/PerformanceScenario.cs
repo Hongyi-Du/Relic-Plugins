@@ -121,6 +121,13 @@ public sealed partial class MainWindow
         await Select(step.Text("org"));
         await WaitForMarkdown(); await PerformanceYield();
         var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0; var topWheelEvents = 0; var endKeyEvents = 0;
+        var expectedAnchorPage = -1;
+        VirtualRows.ReadingAnchor? expectedReadingAnchor = null;
+        void ObserveReadingAnchor()
+        {
+            if (expectedAnchorPage == chatPages && loadingOlder && chatScroll.VerticalOffset < 32)
+                expectedReadingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
+        }
         var diagnostics = new JsonObject(); var checkpoints = new JsonArray(); var inputEvents = new JsonArray();
         diagnostics["checkpoints"] = checkpoints; diagnostics["events"] = inputEvents;
         record["history_input_diagnostics"] = diagnostics;
@@ -182,6 +189,7 @@ public sealed partial class MainWindow
                 if (chatScroll.VerticalOffset < 32) topWheelEvents++;
             }
             ObserveWheel("chatScroll", args);
+            ObserveReadingAnchor();
         };
         Microsoft.UI.Xaml.Input.PointerEventHandler rootWheel = (_, args) => { rootWheelEvents++; ObserveWheel("root", args); };
         Microsoft.UI.Xaml.Input.KeyEventHandler endKey = (_, args) =>
@@ -197,6 +205,7 @@ public sealed partial class MainWindow
             if (args.IsIntermediate) return;
             viewEvents++;
             if (chatScroll.VerticalOffset < 32) topEvents++;
+            ObserveReadingAnchor();
             if (inputEvents.Count < 16) inputEvents.Add(new JsonObject { ["event"] = "ViewChanged", ["vertical_offset"] = chatScroll.VerticalOffset,
                 ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder });
         };
@@ -228,6 +237,11 @@ public sealed partial class MainWindow
                     if (!chatScroll.Focus(FocusState.Programmatic))
                         throw new InvalidOperationException("Could not focus the real conversation scroll control");
                     await PerformanceYield();
+                    var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(root.XamlRoot);
+                    diagnostics["end_key_focus"] = new JsonObject { ["type"] = focused?.GetType().FullName,
+                        ["is_chat_scroll"] = ReferenceEquals(focused, chatScroll) };
+                    if (!ReferenceEquals(focused, chatScroll))
+                        throw new InvalidOperationException("Conversation focus was redirected away from the scroll control");
                     var beforeKeys = endKeyEvents;
                     var inputs = new[] { false, true }.Select(up => new WholeWindowInput { type = 1,
                         data = new WholeWindowInputData { keyboard = new WholeWindowKeyboardInput
@@ -313,6 +327,7 @@ public sealed partial class MainWindow
             while (chatMore)
             {
                 var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents; var beforeWheels = wheelEvents;
+                expectedAnchorPage = beforePages; expectedReadingAnchor = null;
                 var alreadyAtTop = chatScroll.VerticalOffset <= 1;
                 if (alreadyAtTop)
                 {
@@ -326,6 +341,14 @@ public sealed partial class MainWindow
                     "History did not page through the production ScrollViewer input handlers");
                 await WaitForMarkdown(); await PerformanceYield();
                 if (keepLatest) throw new InvalidOperationException("History layout reactivated follow-latest without user end input");
+                await Until(() => !stream.ReadingAnchorRestorePending,
+                    "History did not finish restoring the real reading anchor");
+                if (expectedReadingAnchor is not { } expectedAnchor)
+                    throw new InvalidOperationException("History input had no observable visible message anchor");
+                var actualAnchor = stream.ReadAnchor(chatScroll, expectedAnchor.Key);
+                if (actualAnchor is not { } restoredAnchor || Math.Abs(restoredAnchor.ViewportTop - expectedAnchor.ViewportTop) > 1)
+                    throw new InvalidOperationException("History insertion moved the visible reading message: " + expectedAnchor.Key);
+                expectedAnchorPage = -1;
                 var afterIds = MessageIds();
                 if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min()
                     || (viewEvents <= beforeViews && wheelEvents <= beforeWheels))
@@ -334,6 +357,9 @@ public sealed partial class MainWindow
                     ["before_oldest_id"] = beforeIds.Min(), ["after_oldest_id"] = afterIds.Min(),
                     ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
                     ["upward_wheel_events"] = wheelEvents - beforeWheels,
+                    ["reading_anchor"] = new JsonObject { ["key"] = expectedAnchor.Key,
+                        ["before_viewport_top"] = expectedAnchor.ViewportTop, ["after_viewport_top"] = restoredAnchor.ViewportTop,
+                        ["source"] = "Actual visible message observed during real scroll input and after production page restoration" },
                     ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollViewer.ChangeView to the top" });
             }
             record["history_top"] = await Boundary(false);

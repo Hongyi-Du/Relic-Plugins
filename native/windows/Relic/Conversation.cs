@@ -234,6 +234,7 @@ public sealed partial class MainWindow
             }
             else if (pointer.MouseWheelDelta < 0)
             {
+                if (stream.ReadingAnchorRestorePending) LeaveLatest();
                 downwardRequest = latestRequest; downwardOrg = org; downwardMember = member;
                 if (chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
                     FollowLatestIntent("wheel_end");
@@ -464,7 +465,8 @@ public sealed partial class MainWindow
             var continued = Transcript.SameMessageGroup(previous, item!);
             var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
             var estimate = item.Text("type") == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
-            stream.Children.Add(() => Message(item!, false, continued), estimate);
+            var rowKey = item.Text("type") == "message" && item.Text("id").Length > 0 ? "message:" + item.Text("id") : null;
+            stream.Children.Add(() => Message(item!, false, continued), estimate, rowKey);
             if (item.Text("type") != "acts") previous = item;
         }
         var liveState = liveData["status"].Text("state");
@@ -488,16 +490,22 @@ public sealed partial class MainWindow
         try
         {
         var selectedOrg = org; var selectedMember = member;
+        var readingAnchor = stream.ReadVisibleAnchor(chatScroll);
+        var request = latestRequest;
         var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
         if (before.Length == 0) { chatMore = false; return; }
         var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=1000&before=" + Client.Segment(before)));
         if (org != selectedOrg || member != selectedMember) return;
-        var height = chatScroll.ScrollableHeight; var offset = chatScroll.VerticalOffset;
         var current = messages;
         var merged = await Task.Run(() => Transcript.MergeMessages(page.Rows("items"), current), lifetime.Token);
         if (org != selectedOrg || member != selectedMember) return;
+        readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         olderHistory = true; messages = merged; chatMore = page.Flag("more"); chatPages++; DrawConversation();
-        DispatcherQueue.TryEnqueue(() => { stream.UpdateLayout(); chatScroll.ChangeView(null, offset + chatScroll.ScrollableHeight - height, null); });
+        if (readingAnchor != null)
+            await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
+                () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
+                () => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
+                    && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0);
         }
         finally { loadingOlder = false; }
     }
