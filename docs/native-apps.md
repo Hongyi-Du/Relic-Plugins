@@ -1,5 +1,27 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+ab4e484 / 41182092838 proves the initial-layout correction and actual history
+paging: the initial final row is visible at offset=max=257404.890625; all six
+pages load 5,500 distinct messages down to ID 1, and the actual first row is
+visible with top gap 0. It still FAILS returning to the bottom: numeric
+ScrollViewer.ChangeView(maximum) chases a changing virtual extent while
+follow-latest remains false. The retained full-window screenshot really shows
+message 5422 instead of the end, at offset 1677943.125 /max 1703773.5.
+Maximum UI delay is 110.587 ms, peak 527.496 MiB /38 threads; the random phase
+does not run. Evidence is in `candidate-ab4e484/windows` under the performance
+output directory. Production handling now translates an explicit downward
+end-target/scrollbar end intent into the existing arranged final-row anchor,
+guarded by current conversation/user intent. The test still uses the real
+scroll control and retains its <=1 DIP and visible-last-row requirements.
+
+Native builds/tests/packages 41182096462 and all four Python jobs 41182096454
+pass ab4e484. Its adaptive/full-window jobs also pass both systems; images are
+at `S:\Codex\Outputs\Relic-native-visual\window-ab4e484` (Windows wide dark and
+macOS narrow light inspected). Mac pressure still fails startup at 285.523 ms,
+139.359 MiB /9 threads. REQUESTS.md at 0104cef records a bounded composer
+TextKit measurement cache and actual boundary-message visibility checks; these
+are integrated without claiming that the Mac startup issue has passed.
+
 6e72578 / 41181207962 retains the next real Windows failure. UI max is
 142.625 ms, peak 383.758 MiB /39 threads, but history is incomplete. Its actual
 `history-action-0171.json` proves the handled wheel now arrives with delta 120
