@@ -1,3 +1,14 @@
+d4ca408 strict 41190456806 FAILS startup: first 323.137 ms, cumulative max
+947.889 ms, peak 165.156 MiB /8 threads. A message-identities turn is active;
+39 completed turns repeatedly update the growing ForEach and seek the tail.
+After the measured shared-observation fix, this admission workaround still
+re-diffs the whole loaded collection once per 25 IDs. Update stable IDs once
+per server page instead. Actual visible rows, editor and Markdown construction
+remain serialized across display turns; API latest=1000 /history=200 and all
+strict checks remain intact. 5850-row native test also requires actual oldest
+text after Home. Diagnostic 41190715896 retains the preceding implementation
+for comparison; it cannot count as acceptance. 7c96b5d native build/300 tests
+pass (41189899830), and all four whole-window captures pass (41189899845).
 b290303 / 41188795063 reaches action-0171 and loads all 23 history pages /
 5,850 stream rows, but FAILS the real End content check: native bottom gap 0,
 top gap 1,174,403 pt, zero conversation row probes, visibly blank screenshot.
