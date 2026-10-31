@@ -120,18 +120,75 @@ public sealed partial class MainWindow
         if (!PerformanceEnabled) throw new InvalidOperationException("History interaction is CI-only");
         await Select(step.Text("org"));
         await WaitForMarkdown(); await PerformanceYield();
-        var wheelEvents = 0; var viewEvents = 0; var topEvents = 0;
+        var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0;
+        var diagnostics = new JsonObject(); var checkpoints = new JsonArray(); var inputEvents = new JsonArray();
+        diagnostics["checkpoints"] = checkpoints; diagnostics["events"] = inputEvents;
+        record["history_input_diagnostics"] = diagnostics;
+        void Checkpoint(string stage)
+        {
+            var state = new JsonObject { ["stage"] = stage, ["unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ["wheel_events"] = wheelEvents, ["root_wheel_events"] = rootWheelEvents, ["view_events"] = viewEvents,
+                ["top_events"] = topEvents, ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder,
+                ["chat_more"] = chatMore, ["chat_pages"] = chatPages, ["latest_request"] = latestRequest,
+                ["vertical_offset"] = chatScroll.VerticalOffset, ["scrollable_height"] = chatScroll.ScrollableHeight,
+                ["viewport_width"] = chatScroll.ViewportWidth, ["viewport_height"] = chatScroll.ViewportHeight };
+            checkpoints.Add(state);
+            try
+            {
+                var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                state["window"] = window.ToInt64(); state["foreground_window"] = WholeWindowForeground().ToInt64();
+                if (WholeWindowGetRect(window, out var windowBox)) state["window_rect_px"] = WholeWindowBox(windowBox);
+                var viewport = chatScroll.TransformToVisual(root).TransformBounds(new(0, 0, chatScroll.ActualWidth, chatScroll.ActualHeight));
+                state["scroll_viewport_root_dip"] = new JsonObject { ["x"] = viewport.X, ["y"] = viewport.Y,
+                    ["width"] = viewport.Width, ["height"] = viewport.Height };
+                var center = chatScroll.TransformToVisual(root).TransformPoint(new(chatScroll.ActualWidth / 2, chatScroll.ActualHeight / 2));
+                state["capture_hover_root_dip"] = new JsonObject { ["x"] = center.X, ["y"] = center.Y };
+                var cursor = new CapturePoint(); var origin = new CapturePoint();
+                if (GetCursorPos(ref cursor) && ClientToScreen(window, ref origin))
+                {
+                    var scale = root.XamlRoot.RasterizationScale;
+                    var point = new Windows.Foundation.Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
+                    var hitWindow = HistoryWindowFromPoint(cursor);
+                    state["pointer_screen_px"] = new JsonObject { ["x"] = cursor.x, ["y"] = cursor.y };
+                    state["client_origin_px"] = new JsonObject { ["x"] = origin.x, ["y"] = origin.y };
+                    state["pointer_root_dip"] = new JsonObject { ["x"] = point.X, ["y"] = point.Y };
+                    state["rasterization_scale"] = scale; state["pointer_inside_viewport"] = viewport.Contains(point);
+                    state["pointer_window"] = hitWindow.ToInt64();
+                    state["pointer_root_window"] = HistoryGetAncestor(hitWindow, 2).ToInt64();
+                    var hits = new JsonArray();
+                    foreach (var hit in Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(point, root).Take(16))
+                        hits.Add(new JsonObject { ["type"] = hit.GetType().FullName, ["is_chat_scroll"] = ReferenceEquals(hit, chatScroll),
+                            ["automation_id"] = Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(hit) });
+                    state["hit_test_front_to_back"] = hits;
+                }
+            }
+            catch (Exception error) { state["observation_error"] = error.ToString(); }
+        }
+        void ObserveWheel(string receiver, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
+        {
+            if (inputEvents.Count >= 16) return;
+            var point = args.GetCurrentPoint(chatScroll);
+            inputEvents.Add(new JsonObject { ["event"] = "PointerWheelChanged", ["receiver"] = receiver,
+                ["delta"] = point.Properties.MouseWheelDelta, ["handled"] = args.Handled,
+                ["source_type"] = args.OriginalSource?.GetType().FullName, ["x"] = point.Position.X, ["y"] = point.Position.Y,
+                ["keep_latest"] = keepLatest, ["vertical_offset"] = chatScroll.VerticalOffset });
+        }
         Microsoft.UI.Xaml.Input.PointerEventHandler wheel = (_, args) =>
         {
             if (args.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) wheelEvents++;
+            ObserveWheel("chatScroll", args);
         };
+        Microsoft.UI.Xaml.Input.PointerEventHandler rootWheel = (_, args) => { rootWheelEvents++; ObserveWheel("root", args); };
         EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) =>
         {
             if (args.IsIntermediate) return;
             viewEvents++;
             if (chatScroll.VerticalOffset < 32) topEvents++;
+            if (inputEvents.Count < 16) inputEvents.Add(new JsonObject { ["event"] = "ViewChanged", ["vertical_offset"] = chatScroll.VerticalOffset,
+                ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder });
         };
         chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, wheel, true);
+        root.AddHandler(UIElement.PointerWheelChangedEvent, rootWheel, true);
         chatScroll.ViewChanged += changed;
         var pages = new JsonArray();
         try
@@ -180,10 +237,15 @@ public sealed partial class MainWindow
             // ChangeView only drives the visible ScrollViewer; its ViewChanged
             // handler must perform every page request without a business-method
             // fallback or a test-written keepLatest/loadingOlder state.
-            SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+            capturePointerReceipts.Clear();
+            Checkpoint("before_hover");
+            diagnostics["set_foreground_returned"] = SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
             await CaptureHover(chatScroll);
+            Checkpoint("after_hover_before_wheel");
             SendCaptureMouse(new CaptureMouseInput { Data = 120, Flags = 0x0800 });
+            diagnostics["injected_wheel_delta"] = 120;
             await Until(() => wheelEvents > 0 && !keepLatest, "Real upward scroll did not leave follow-latest mode");
+            Checkpoint("wheel_processed");
             await PerformanceYield();
             while (chatMore)
             {
@@ -214,12 +276,30 @@ public sealed partial class MainWindow
             record["history_bottom"] = await Boundary(true);
             record["history_scroll_source"] = "Actual upward pointer wheel and ScrollViewer.ViewChanged; no direct page load";
         }
+        catch (Exception error)
+        {
+            diagnostics["failure"] = error.ToString();
+            Checkpoint("failure");
+            throw;
+        }
         finally
         {
             chatScroll.RemoveHandler(UIElement.PointerWheelChangedEvent, wheel);
+            root.RemoveHandler(UIElement.PointerWheelChangedEvent, rootWheel);
             chatScroll.ViewChanged -= changed;
+            diagnostics["pointer_input"] = capturePointerReceipts.DeepClone();
+            Checkpoint("finished");
+            // Failed actions are not added to the success receipt. Preserve the
+            // real input observations independently before propagating failure.
+            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(PerformanceOutput, "history-" + record.Text("id") + ".json"),
+                record.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "WindowFromPoint")]
+    private static extern nint HistoryWindowFromPoint(CapturePoint point);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetAncestor")]
+    private static extern nint HistoryGetAncestor(nint window, uint flags);
 
     private async Task RunPerformanceScenario()
     {

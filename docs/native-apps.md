@@ -1,5 +1,31 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The stronger 6b3e990 history test (41180304294) exposes a Windows input-state
+failure: real upward scroll never leaves follow-latest, so history is incomplete
+despite a 92.961 ms maximum UI delay (380.602 MiB, 39 threads). The previous
+direct-load fallback concealed this requirement. Production scroll intent now
+observes already-handled pointer wheel/press events with AddHandler, without
+consuming them, and observes touchpad/touch direct manipulation. Microsoft's
+[PointerWheelChanged contract](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.uielement.pointerwheelchanged)
+explains that native class handlers may consume these before ordinary handlers;
+the [ScrollViewer contract](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer)
+also distinguishes direct manipulation from mouse wheel input. Fresh CI must
+verify actual input delivery, follow state and complete native paging; no direct
+page-loading fallback is restored. Headless Release build passes 0/0.
+
+The late-Unloaded correction passes Windows normal 8be551a / 41179843948:
+130.742 ms, 412.676 MiB, 39 threads, 175 fixed +132 random actions /181.400 s,
+including seven genuinely painted Settings labels. Independent diagnostic-only
+41179846554 completes 175+135 actions/180.260 s at 158.867 ms, 514.047 MiB,
+38 threads; its sole error is diagnostic ineligibility. These older runs still
+used direct-call history fallback, so they cannot establish real scroll paging.
+
+Changes for the clients: REQUESTS.md at 149dfa8 records macOS real paging of
+all 5,500 messages but a subsequent End-position failure. Its explicit end-row
+anchor and long-Markdown keyboard regression are integrated for fresh CI.
+Separately the shared 6b3e990 Mac run stops during startup at 418.003 ms; this
+failure is retained and not superseded by lower numbers from another run.
+
 Changes for the clients: Windows history pressure now enters scrolling with a
 real upward pointer-wheel event, observes the production follow-latest state
 change, and relies exclusively on ScrollViewer.ViewChanged for older pages.
