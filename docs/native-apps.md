@@ -13,6 +13,15 @@ Python validation, adaptive windows and whole-window chrome pass on this SHA.
 The next candidate replaces only the conversation's legacy ScrollViewer with
 stable WinUI 1.8 ScrollView, correlating actual bring requests and completion;
 real rendered-row/frame validation and all acceptance limits remain required.
+The chat-only ScrollView migration builds headlessly with zero warnings/errors.
+Its BringingIntoView correlation must complete and pass the retained rendering
+frame before reading/follow checks; it removes IsScrolling/SubmittedGeometry
+completion inference. The existing 10-DIP scrollbar and UIA/frame clipping are
+preserved. No experimental APIs, additional retry, or weaker test is used.
+Changes for the clients: integrated native-macos 20ea445, including 35bd31b's
+native Quartz shadow implementation and corrected flipped-context offset.
+Its original shadow pixel tests/tolerances remain unchanged. REQUESTS asks for
+no shared route or payload changes; complete native/pressure CI is still needed.
 Changes for the clients: the same 11e6ec5 run's Mac job reaches
 action-0171:scroll-history, then fails its 250 ms probe (258.193 ms at first
 failure; 389.801 ms final maximum, 294 MiB /10 threads). It has no completion
