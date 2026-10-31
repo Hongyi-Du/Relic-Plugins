@@ -24,6 +24,19 @@ a steady-state memory comparison. Reports downloaded under
 `S:\Codex\Outputs\Relic-native-visual\responsiveness-6a92a00-baseline\macos\`
 and `responsiveness-6a92a00\macos\`. First optimization is `68139d4`; CI pending.
 
+`0891868` builds and passes the macOS Native apps job (`41163309124`) and both
+full-window chrome captures (`41163309065`). Its performance run `41163309047`
+still fails startup: **627.971 ms**, **134.016 MiB**, **8 threads** before early
+termination; no completed monkey run yet. Its `sample` child was still
+symbolicating when the shared driver killed descendants, so the stack file
+was not retained. I am adding bounded in-process native-work counters to keep
+useful evidence within the existing failure observation interval.
+
+Shared Windows test fix needed: `41163309124` Windows fails compiling
+`Relic.Capture.Tests`: `NativeLabelInterop.cs(16,56) CS0103 NativeLabelReadback
+does not exist in the current context`. Please update that linked-source test
+project when merging your diagnostic/readback changes. The macOS job is green.
+
 Confirmed macOS hot paths at `1e1fc14`: `ConversationStream` deliberately uses
 an eager VStack for the complete 1000-item response; `Timeline.merge` searches
 the accumulated array for every incoming item (quadratic); message Markdown

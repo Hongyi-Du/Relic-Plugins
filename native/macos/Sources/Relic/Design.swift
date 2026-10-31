@@ -63,7 +63,15 @@ enum RelicStyle {
         let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
         return CTFontCreateCopyWithAttributes(converted as CTFont, converted.pointSize, nil, descriptor) as NSFont
     }
+    private static let nativeFonts: NSCache<NSString, NSFont> = { let cache = NSCache<NSString, NSFont>(); cache.countLimit = 256; return cache }()
     static func nativeFont(_ size: CGFloat, weight: Int) -> NSFont {
+        let key = "\(size)/\(weight)" as NSString
+        if let cached = nativeFonts.object(forKey: key) { return cached }
+        let font = makeNativeFont(size, weight: weight)
+        nativeFonts.setObject(font, forKey: key); return font
+    }
+    private static func makeNativeFont(_ size: CGFloat, weight: Int) -> NSFont {
+        let trace = UIWorkTrace.begin("font.create"); defer { UIWorkTrace.end(trace) }
         // app.css reaches PingFang SC on macOS after the Windows-only faces.
         // Select its real installed face, including the CSS 500/550 boundary.
         let face = weight >= 550 ? "Semibold" : weight >= 500 ? "Medium" : weight >= 400 ? "Regular" : weight >= 300 ? "Light" : weight >= 200 ? "Ultralight" : "Thin"
