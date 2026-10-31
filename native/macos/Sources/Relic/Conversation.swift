@@ -362,7 +362,7 @@ struct ConversationStream: View {
                 for stage in 0..<2 {
                     if stage == 0 ? mountedViewport : mountedComposer { continue }
                     let turn = UUID()
-                    guard await RowMountQueue.shared.acquire(turn) else { return }
+                    guard await RowMountQueue.shared.acquire(turn, label: stage == 0 ? "conversation-viewport" : "composer") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
                     if stage == 0 { mountedViewport = true } else { mountedComposer = true }
                     do { try await Task.sleep(for: .milliseconds(32)) }
@@ -375,7 +375,7 @@ struct ConversationStream: View {
                 // starting with its newest rows, without discarding any data.
                 while presentedRowCount < m.streamRows.count {
                     let turn = UUID()
-                    guard await RowMountQueue.shared.acquire(turn) else { return }
+                    guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
                     presentedRowCount = min(m.streamRows.count, presentedRowCount + 200)
                     do { try await Task.sleep(for: .milliseconds(32)) }

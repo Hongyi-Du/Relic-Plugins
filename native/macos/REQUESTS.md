@@ -1,3 +1,24 @@
+## A7 update: verified 60d07d0 build and continuing cold-layout fix
+
+Native apps 41173774259 is green at 60d07d0 (289 macOS tests, zero failures,
+both packages). Full-window chrome 41173774218 captures all four macOS cases
+without errors. Both dark sizes were inspected: prepared Markdown, inspector
+and traffic lights are visible. Artifacts are downloaded to
+`S:\Codex\Outputs\Relic-native-visual\titlebar-60d07d0\macos`.
+
+Strict responsiveness 41173774161 still FAILS at startup: maximum 334.410 ms,
+135.938 MiB peak RSS, 8 threads, early stop. 56a32ac previously failed at
+1030.851 ms, and 3a60986 at 440.148 ms. These are not full-duration comparisons.
+Do not call these packages accepted. The complete API page is now admitted
+in 200-identity display batches (all 1,000 initial messages remain loaded and
+are mounted before capture readiness); cold native viewport/composer setup
+is also split across real display turns in 360c930, pending validation.
+The gate remains 250 ms, every plan action and the 180-second actual-click
+phase remain required. No exception, timeout relaxation or data exclusion.
+
+Merged native-apps 39c15ee. Its latest Windows repeat at 02b5940 is recorded
+as a complete strict pass in the shared document; macOS is still incomplete.
+
 ## A7 update: dialog invalidation (2026-10-31)
 
 The normal macOS run 41172011957 at e9df4aa reaches action-0160 Settings,

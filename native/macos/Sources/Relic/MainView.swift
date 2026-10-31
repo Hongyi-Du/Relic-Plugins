@@ -54,7 +54,7 @@ struct MainView: View {
             // twice. The same progressive mounting runs in the shipped app.
             for phase in 1...3 {
                 let turn = UUID()
-                guard await RowMountQueue.shared.acquire(turn) else { return }
+                guard await RowMountQueue.shared.acquire(turn, label: "pane-\(phase)") else { return }
                 guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
                 revealPhase = phase
                 // Use the same turn queue as the lazy rows. Independent 32 ms
@@ -223,6 +223,7 @@ struct SheetContent: View {
 
 struct RightPane: View {
     @EnvironmentObject var m: Model
+    @State private var presentedPane: String?
     var floating = false
     var body: some View {
         VStack(spacing: 0) {
@@ -245,14 +246,24 @@ struct RightPane: View {
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: "relic-card/right-pane-header"))
                 .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/right-pane-header").accessibilityLabel("")
-            switch m.pane {
+            if presentedPane == m.pane { switch m.pane {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
             default: ScrollView { if !m.snapshot["org"].isNull { Overview() } }.defaultScrollAnchor(.top)
-            }
+            } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
+            .task(id: m.pane) {
+                guard presentedPane != m.pane else { return }
+                let ticket = PerformanceRendering.beginSurface(), turn = UUID()
+                defer { PerformanceRendering.endSurface(ticket) }
+                guard await RowMountQueue.shared.acquire(turn, label: "inspector." + m.pane) else { return }
+                defer { RowMountQueue.shared.release(turn) }
+                guard !Task.isCancelled else { return }
+                presentedPane = m.pane
+                try? await Task.sleep(for: .milliseconds(32))
+            }
     }
 }
 
