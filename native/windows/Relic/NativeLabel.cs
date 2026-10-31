@@ -48,7 +48,7 @@ public sealed class NativeLabel : Panel
     private string? failure;
     private CancellationTokenSource? preparation;
     private Exception? preparationError;
-    private bool preparationRetired;
+    private bool preparationRetired, pathLineDisposed, mountCheckQueued;
     private static int pendingPreparations;
     private long attachCount, detachCount, preparationsStarted, preparationsApplied;
     internal static int PendingPreparations => Volatile.Read(ref pendingPreparations);
@@ -62,6 +62,8 @@ public sealed class NativeLabel : Panel
     {
         ["text"] = text, ["is_loaded"] = IsLoaded, ["layout_prepared"] = IsLayoutPrepared,
         ["preparation_pending"] = preparation != null, ["preparation_retired"] = preparationRetired,
+        ["path_line_disposed"] = pathLineDisposed, ["mount_check_queued"] = mountCheckQueued,
+        ["actual_visual_tree_mount"] = IsActuallyMounted(),
         ["queued"] = queued, ["rendering"] = rendering, ["draw_dirty"] = drawDirty,
         ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision,
         ["draw_ordinal"] = drawOrdinal, ["surface_width"] = pixelWidth, ["surface_height"] = pixelHeight,
@@ -101,7 +103,7 @@ public sealed class NativeLabel : Panel
     }
 
     internal string Text => text;
-    internal void DisposePathLine() => Detach();
+    internal void DisposePathLine() { pathLineDisposed = true; Detach(); }
     // Used by the production selectable path owner. All hit tests use this
     // exact per-line layout, the same object that supplies production Draw.
     [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int HitPoint(IntPtr self, float x, float y, out int trailing, out int inside, out HitTestMetrics hit);
@@ -295,6 +297,7 @@ public sealed class NativeLabel : Panel
 
     private void Attach()
     {
+        if (pathLineDisposed) return;
         using var timing = PerformanceTrace.Measure("NativeLabel.attach");
         attachCount++;
         preparationRetired = false;
@@ -381,6 +384,7 @@ public sealed class NativeLabel : Panel
         Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;
         resolvedLineHeight = lineHeight; InvalidateDraw();
+        QueueMountCheck();
     }
     private void InvalidateDraw() { receipt = null; drawDirty = true; QueueDraw(); }
 
@@ -390,7 +394,41 @@ public sealed class NativeLabel : Panel
         // deferred lifecycle events settle. A currently mounted label that is
         // being measured/arranged must not remain in its retired state with all
         // foreground/root subscriptions cleared by a previous Unloaded event.
-        if (IsLoaded && (preparationRetired || observedRoot == null)) Attach();
+        if ((preparationRetired || observedRoot == null) && IsActuallyMounted()) Attach();
+    }
+
+    private bool IsActuallyMounted()
+    {
+        if (pathLineDisposed || !IsLoaded || XamlRoot is not { } root) return false;
+        // IsLoaded alone can outlive a late Unloaded notification. Require a
+        // real parent chain to this root's content or one of its open popups.
+        var ancestry = new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance);
+        for (DependencyObject? current = this; current != null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, root.Content)) return true;
+            if (!ancestry.Add(current)) return false;
+        }
+        var popups = VisualTreeHelper.GetOpenPopupsForXamlRoot(root);
+        for (var index = 0; index < popups.Count; index++)
+            if (popups[index] is { IsOpen: true, Child: { } child } && ancestry.Contains(child)) return true;
+        return false;
+    }
+
+    private void QueueMountCheck()
+    {
+        if (pathLineDisposed || mountCheckQueued) return;
+        mountCheckQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            mountCheckQueued = false;
+            if (!IsActuallyMounted()) return;
+            EnsureMountedState();
+            // A late Unloaded can clear a previously arranged label without
+            // another size change. Restore its actual layout asynchronously.
+            if (arrangedWidth > 0 && arrangedHeight > 0)
+                StartPreparation((float)arrangedWidth, (float)arrangedHeight);
+            QueueDraw();
+        })) mountCheckQueued = false;
     }
 
     private void StartPreparation(float width, float height)
@@ -560,7 +598,7 @@ public sealed class NativeLabel : Panel
     }
     private void QueueDraw()
     {
-        if (queued || rendering || !drawDirty || !IsLoaded) return; queued = true;
+        if (pathLineDisposed || queued || rendering || !drawDirty || !IsLoaded) return; queued = true;
         // At most one submission per realized label is queued. Visible text is
         // foreground work: low-priority callbacks can remain pending throughout
         // modal layout/observation while the label displays only its placeholder.
@@ -586,6 +624,11 @@ public sealed class NativeLabel : Panel
     }
     private void Render()
     {
+        if (pathLineDisposed) return;
+        EnsureMountedState();
+        if (preparationRetired) return;
+        if (layout == IntPtr.Zero && arrangedWidth > 0 && arrangedHeight > 0)
+            StartPreparation((float)arrangedWidth, (float)arrangedHeight);
         if (rendering || arrangedWidth <= 0 || arrangedHeight <= 0 || layout == IntPtr.Zero) return;
         using var timing = PerformanceTrace.Measure("NativeLabel.render");
         rendering = true; InvalidateDraw(); readback = null; IntPtr context = IntPtr.Zero, brush = IntPtr.Zero;

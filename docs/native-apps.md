@@ -1,5 +1,25 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+4a51b68 normal Windows pressure 41178823399 passes all 175 fixed actions and
+126 real random actions over 181.027 seconds: maximum 125.708 ms, peak
+402.055 MiB and 39 threads. However diagnostic 41178826833 catches a real
+intermittent content loss: six Settings captions retain IsLoaded=true after a
+late Unloaded retires their layouts and surfaces. They had drawn once, but no
+fresh measure followed; the actual navigation-text readiness gate correctly
+fails despite maximum UI delay of 95.852 ms. Focused screenshot 41178824396
+shows all seven captions, so a single successful image cannot dismiss this bug.
+NativeLabel now checks actual visual ancestry on the render path and schedules
+one coalesced mount recheck after detach, restoring the existing asynchronous
+preparation when the label still belongs to its XamlRoot or an open popup.
+Permanently disposed path lines cannot be revived. The readiness assertion,
+worker bounds and 250 ms watchdog are unchanged; CI must validate the fix.
+
+Changes for the clients: macOS REQUESTS.md at 6c908a7 records field-scoped
+Observation and real scroll-triggered history paging, with the existing first
+message and <=2 pt endpoint assertions retained. These changes are integrated
+for fresh CI; macOS has not yet completed the strict pressure gate. The previous
+4a51b68 native test run also reports a 3 pt Home offset against its 2 pt bound.
+
 Focused Settings capture at 2090f5c (41177859278) finds a real Windows rendering
 regression: all seven navigation captions are blank, while icons/body remain.
 Raw XAML confirms placeholder widths, layout/surface/draw revisions zero,
