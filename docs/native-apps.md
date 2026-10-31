@@ -1,5 +1,22 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+b16bf37 strict 41188242003 fails cold startup at 257.379 ms (260.262 MiB,
+38 threads). Diagnostic 41188242470 instead stays at 108.188 ms and captures
+no early stack; it reaches history, observes one real reading restoration at
+81.6875 DIP, then the new observer fails on a subsequent direct jump to the
+top before any message child is drawn. The retained events are exactly top,
+restoration, next top: there is no evidence of unprompted extra paging here.
+The scenario now first scrolls the real viewport to 64 DIP, waits for a visible
+message, and asserts pages unchanged, reading mode retained and offset >=32.
+Only then does it scroll to the production loading boundary and observe the
+old message. This repairs the measurement precondition; every page, actual End,
+same-key position check and <=1 DIP /250 ms limit remains required. No test
+invokes product page/restore methods or writes follow state.
+Changes for the clients: Mac REQUESTS at b290303 records a strict 251.418 ms
+failure at action 119, with no rounding exemption. Its initialized native
+regions now remain mounted while another organization loads; no shared route,
+payload, sampling threshold or acceptance assertion change is requested.
+
 c2ec6ba / 41187848376 fails during initial organization loading at 264.591 ms
 (225.508 MiB, 36 threads), before the new history restoration is exercised.
 It does not validate or invalidate that later path. Changes for the clients:

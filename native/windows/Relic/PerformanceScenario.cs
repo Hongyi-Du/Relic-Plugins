@@ -326,6 +326,22 @@ public sealed partial class MainWindow
             await PerformanceYield();
             while (chatMore)
             {
+                // A distant jump can reach the paging boundary before any
+                // top message has been materialized. Approach through the real
+                // viewport first so preservation is tested on visible content,
+                // not on an empty placeholder range. This is ordinary scroll
+                // input; the product still performs every page/anchor operation.
+                var approachPages = chatPages;
+                chatScroll.ChangeView(null, 64, null, true);
+                await PerformanceYield(); await WaitForMarkdown();
+                await Until(() => !loadingOlder && !stream.ReadingAnchorRestorePending
+                    && stream.ReadVisibleAnchor(chatScroll) != null,
+                    "History approach did not finish its production layout");
+                if (chatPages != approachPages)
+                    throw new InvalidOperationException("History paged before its visible-content approach reached the loading boundary");
+                if (keepLatest || chatScroll.VerticalOffset < 32)
+                    throw new InvalidOperationException("History approach did not remain outside the loading boundary in reading mode");
+                var approachOffset = chatScroll.VerticalOffset;
                 var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents; var beforeWheels = wheelEvents;
                 expectedAnchorPage = beforePages; expectedReadingAnchor = null;
                 var alreadyAtTop = chatScroll.VerticalOffset <= 1;
@@ -357,6 +373,7 @@ public sealed partial class MainWindow
                     ["before_oldest_id"] = beforeIds.Min(), ["after_oldest_id"] = afterIds.Min(),
                     ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
                     ["upward_wheel_events"] = wheelEvents - beforeWheels,
+                    ["approach_offset"] = approachOffset, ["approach_pages_unchanged"] = true,
                     ["reading_anchor"] = new JsonObject { ["key"] = expectedAnchor.Key,
                         ["before_viewport_top"] = expectedAnchor.ViewportTop, ["after_viewport_top"] = restoredAnchor.ViewportTop,
                         ["source"] = "Actual visible message observed during real scroll input and after production page restoration" },
