@@ -68,7 +68,17 @@ public sealed partial class MainWindow
                     if (prepared.Text("scene") != scene || prepared.Flag("live") != isLive || prepared.Text("org").Length == 0 || prepared.Text("member").Length == 0)
                         throw new InvalidOperationException("Visual fixture did not prepare the requested scene: " + scene);
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".scene-fixture.json"), prepared.ToJsonString());
-                    AppWindow.ResizeClient(new(int.Parse(shot.Text("width")), int.Parse(shot.Text("height")))); AppWindow.Move(new(0, 0));
+                    var viewportWidth = int.Parse(shot.Text("width")); var viewportHeight = int.Parse(shot.Text("height"));
+                    AppWindow.ResizeClient(new(viewportWidth, viewportHeight));
+                    await Task.Delay(100); root.UpdateLayout();
+                    // ResizeClient's frame calculation still includes the old
+                    // caption height when content extends into the title bar.
+                    // Bind the reference viewport to the actual XAML content;
+                    // leave the later exact viewport assertion unchanged.
+                    var outerSize = AppWindow.Size; var scale = root.XamlRoot.RasterizationScale;
+                    AppWindow.Resize(new(outerSize.Width + (int)Math.Round((viewportWidth - root.ActualWidth) * scale),
+                        outerSize.Height + (int)Math.Round((viewportHeight - root.ActualHeight) * scale)));
+                    AppWindow.Move(new(0, 0));
                     SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
                     // Previous menu cases leave the desktop pointer over the
                     // toolbar. Move it off-window so hover tooltips cannot mask

@@ -29,6 +29,10 @@ Changes for the clients (whole-window capture contract):
 - The driver supplies language/theme preferences, isolated app state and the
   existing fixture clock. Native clients still use their production group
   selection, controls and title-bar setup. It never launches outside CI.
+- The older element-report capture still targets the requested content viewport.
+  Windows compensates for `ResizeClient` retaining the former caption height
+  by resizing from actual XAML bounds; its viewport assertion is unchanged.
+  Whole-window delivery captures continue to use the complete window dimensions.
 
 Shared engine: merged main at 716ab44 (PR #6 wake prompts and receipts).
 The latest macOS requests for additional empty/long parity scenes and more fill
