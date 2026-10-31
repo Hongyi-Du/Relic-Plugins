@@ -15,11 +15,14 @@ public sealed partial class MainWindow
 {
     private TextRangeFrameObserver? textRangeFrameObserver;
     private JsonObject? capturedTextRangeFrameEvidence;
+    private bool textRangeFrameFinalPublicationAttempted;
 
     private void BeginTextRangeFrameCapture(string caseId)
     {
         if (!VisualCaptureEnabled) throw new InvalidOperationException("Text range frame observation is CI-only");
         EndTextRangeFrameCapture();
+        capturedTextRangeFrameEvidence = null;
+        textRangeFrameFinalPublicationAttempted = false;
         textRangeFrameObserver = new TextRangeFrameObserver(root, caseId, WinRT.Interop.WindowNative.GetWindowHandle(this));
         capturedTextRangeFrameEvidence = textRangeFrameObserver.Receipt;
         textRangeFrameObserver.Checkpoint("begin_before_desktop_readback");
@@ -32,6 +35,23 @@ public sealed partial class MainWindow
         textRangeFrameObserver?.ObserveProvider(owner, peer, stage);
     private void EndTextRangeFrameCapture()
     { textRangeFrameObserver?.Dispose(); textRangeFrameObserver = null; }
+
+    private async Task PublishFinalTextRangeFrameCapture(string directory, string caseId)
+    {
+        EndTextRangeFrameCapture();
+        // The failed-scene finally also calls this method. A completed file
+        // must not be rewritten while Python reads it; a failed write remains
+        // a capture failure rather than becoming an implicit retry.
+        if (textRangeFrameFinalPublicationAttempted) return;
+        var evidence = capturedTextRangeFrameEvidence
+            ?? throw new InvalidOperationException("Actual text range frame observation is missing for " + caseId);
+        if (evidence["case_id"]?.GetValue<string>() != caseId)
+            throw new InvalidOperationException("Actual text range frame belongs to another scene");
+        textRangeFrameFinalPublicationAttempted = true;
+        var path = System.IO.Path.Combine(directory, caseId + ".text-range-frame-final.json");
+        await System.IO.File.WriteAllTextAsync(path + ".tmp", evidence.ToJsonString());
+        System.IO.File.Move(path + ".tmp", path, overwrite: true);
+    }
 
     // Source/layout inputs of the actual TextBlock objects, not glyph ink or a
     // compositor presentation proof. No native rectangle is replaced here.

@@ -1,5 +1,38 @@
 # Native Relic App contract
 
+Changes for the clients (final Windows frame publication): the actual text-range
+observer now ends and publishes its final sidecar atomically before the native
+probes receipt reports success. Previously that file was only written later in
+VisualCapture.finally, racing the Python reader. Failed scenes retain their
+cleanup/publication path; an already published file is not rewritten and failed
+writes are not retried implicitly. No timeout or measurement is extended.
+The headless WinUI build passes with zero warnings/errors; actual CI capture is
+still required. fd6ceb9's independent contract suite also passes (41147536434).
+
+Changes for the clients (informational token state): the Windows reader reuses
+the exact sealed OverviewToken template/content identity contract plus actual
+no-peer, IsTabStop=false and unfocused observations to distinguish its container
+from an interactive control. Only that container's enabled/focused defaults are
+nonapplicable; raw values remain in the audit. Real peer/action/focus evidence,
+hover, tooltips and each child TextPattern remain independent and unchanged.
+The real 35ac04a badge/chip fixture contains no reference expectations. Seven
+regression methods include unknown templates, replaced children and real actions.
+
+CI progress: 37e5ae4's independent extraction-contract run 41147326267 passes all
+944 Python tests and the reference JavaScript checks. c8d6311's new actual native
+capture is still running. No full scene or final element gate is yet accepted.
+
+Changes for the clients (shared CI): native-element-checks.yml now runs on
+relevant native branch pushes as well as its unchanged reusable workflow_call.
+This runs the same full extraction-contract suite while platform jobs wait for
+runners; it does not replace either required native build or the full visual
+gate. Direct dispatch was rejected because this reusable workflow is absent
+from the default branch; no default-branch change was made.
+c8d6311 ran 944 tests with one provenance assertion failure: the effective
+geometry source should identify the selected actual COM channel, while the
+original source belongs in the immutable audit. The regression now explicitly
+checks both original range records and that distinct effective source.
+
 Changes for the clients (observed UIA range geometry): the Windows reader can
 select actual in-process public COM doubles for an external zero-area range
 only after exact peer/RuntimeId/observer, UTF-16 endpoints/category, HRESULT,

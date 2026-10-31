@@ -270,7 +270,7 @@ public sealed partial class MainWindow
                     finally { EndSettingsNavigationCapture(); }
                     EndTextRangeFrameCapture();
                     if (capturedTextRangeFrameEvidence != null)
-                        await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".text-range-frame-final.json"), capturedTextRangeFrameEvidence.ToJsonString());
+                        await PublishFinalTextRangeFrameCapture(manifest.Text("output"), shot.Text("id"));
                     await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(manifest.Text("output"), shot.Text("id") + ".pointer-input.json"), capturePointerReceipts.ToJsonString());
                     try
                     {

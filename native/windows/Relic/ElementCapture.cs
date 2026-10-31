@@ -669,6 +669,10 @@ public sealed partial class MainWindow
                 directory, caseId, renderIds, renderNodes, winrtTextRangeProbe, identityObserver,
                 ObserveTextRangeFrameProvider);
             CheckpointTextRangeFrameCapture("after_text_range_provider_probe");
+            // Finish the actual observer and atomically publish its final
+            // receipt before the successful probes handshake can release UIA.
+            // Python may read this sidecar immediately after that handshake.
+            await PublishFinalTextRangeFrameCapture(directory, caseId);
             if (capturedTextRangeFrameEvidence != null)
             {
                 result["capture_evidence"]!["text_range_frame"] = capturedTextRangeFrameEvidence.DeepClone();

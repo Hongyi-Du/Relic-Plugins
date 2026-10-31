@@ -1,6 +1,13 @@
 name: Native element extraction contracts
 on:
   workflow_call:
+  # Keep shared measurement feedback independent of queued native builds.
+  # Required callers still run the same suite and full visual gate.
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - 'scripts/visual/**'
+      - '.github/workflows/native-element-checks.yml'
 permissions:
   contents: read
 jobs:
