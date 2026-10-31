@@ -692,8 +692,14 @@ struct ComposerView: View {
             if !m.quote.isEmpty {
                 ComposerQuote()
             }
-            MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .accessibilityLabel(placeholder)
+            // The editor's AppKit text system and the inline command controls
+            // are separate cold mounts. Keep them on distinct UI turns, using
+            // the same bounded queue as message and inspector rows.
+            ProgressiveRow(estimatedHeight: 26.4) {
+                MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
+                    .accessibilityLabel(placeholder)
+            }
+            ProgressiveRow(estimatedHeight: 32) {
             HStack(spacing: 6) {
                 if m.member.isEmpty {
                     Button {
@@ -717,6 +723,7 @@ struct ComposerView: View {
                 VoiceButton(text: $m.draft, size: 32)
                 ComposerSendButton(action: send).keyboardShortcut(.return, modifiers: .command)
                     .disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty)
+            }
             }
         }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
             .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "card", shadows: SurfaceShadow.small))

@@ -1,5 +1,12 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+392c658 / 41182594829 remains a strict FAIL at 251.645 ms (143.172 MiB,
+9 threads); no rounding exemption. Its composer measure cache performs four
+actual measurements totaling 0.246 ms, but the enclosing cold composer mount
+still takes 288.017 ms. Editor and inline command controls now enter the same
+bounded native mount queue separately instead of materializing together.
+All controls remain present and the readiness gate includes both mount tasks.
+
 be19670 / 41182085087 narrows the mounted long-Markdown regression: append
 and Home/End now pass, but the initial viewport is 740 pt above the bottom and
 the final paragraph is absent. Initial/follow-latest anchoring now observes only
