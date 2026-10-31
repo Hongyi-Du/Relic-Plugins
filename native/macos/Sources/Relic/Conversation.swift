@@ -374,12 +374,18 @@ struct ConversationStream: View {
                             // Target the actual newest row, including its 24px
                             // trailing space. A separate footer can be realized
                             // while the preceding lazy message is still absent.
-                        }.scrollTargetLayout()
+                        }
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }.defaultScrollAnchor(.bottom)
+                    }
+                        // ScrollViewReader is the sole placement owner. A
+                        // default bottom anchor also reacts to estimated size
+                        // changes, including the large corrections made when
+                        // Home/End realizes a distant variable-height row.
+                        // Initial/append placement already targets that real
+                        // row below; a second extent anchor can strand it.
                         .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }

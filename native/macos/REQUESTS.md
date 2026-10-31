@@ -1,3 +1,15 @@
+b290303 / 41188795063 reaches action-0171 and loads all 23 history pages /
+5,850 stream rows, but FAILS the real End content check: native bottom gap 0,
+top gap 1,174,403 pt, zero conversation row probes, visibly blank screenshot.
+Worst stall 246.764 ms, peak 248.172 MiB /9 threads; no random phase completed.
+336f85d separately FAILS startup at 256.697 ms, 156.063 MiB /9 threads. Neither
+is acceptance. Its native build and 300 tests pass (41189866499).
+The stream still had defaultScrollAnchor(.bottom), which owns content-size
+adjustments in addition to explicit row targeting. Remove that second anchor
+and unused scrollTargetLayout; retain the actual newest-row geometry owner.
+Add a mounted 5,850-variable-row regression for actual initial/append/Home/End
+text and offsets. Strict pressure assertions and limits remain unchanged.
+Shared native-apps 0e799cc is merged; no shared change is requested.
 ## A7 update: field-scoped observation for all model presentation state
 
 b290303 passes native build/299 tests/package (41188795082), Python validation
