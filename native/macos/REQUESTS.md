@@ -1,5 +1,24 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+a7698a6 / 41183942102 remains a functional FAIL, despite max 221.131 ms,
+201.547 MiB and 9 threads: after 61 completed actions the group viewport is
+blank, with 1016 data rows and zero mounted message probes. Its retained image
+confirms this; the native offset is stranded between top/bottom estimates.
+The scrollPosition binding and explicit ScrollViewReader requests no longer
+compete for the virtual list's anchor: explicit actual-row targets alone now
+maintain initial/End placement and restore the previous first row through
+each staged history insertion. Each batch settles before the next cold mount.
+No direct native clip forcing or test-only repair is added. Unit/pressure and
+all visible-content checks still need to validate this correction.
+
+0fe7715 / 41183716190 passes startup and reaches action-0043 (return to the
+largest group), then FAILS at 285.890 ms, 188.422 MiB, 8 threads. The active
+scope is still message-identities. RichText was admitting paragraphs on its
+own 32 ms timer while the shared queue admitted rows; both could invalidate
+the same native layout turn. Parsed Markdown block admission now uses the
+same cancellable queue as rows/panes/editor. Parsing stays on its background
+actor, all text remains readable during staging, and the strict gate remains.
+
 Source inspection found an additional concrete append bug in staged admission:
 `rows.suffix(presentedRowCount)` temporarily removes the visible first row when
 a message appends, until the asynchronous count catches up. Its missing identity
