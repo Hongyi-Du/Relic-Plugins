@@ -1,5 +1,27 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Windows evidence update (2026-10-31): diagnostic CI 41166109662 reproduced a
+real `LayoutCycleException` in a private conversation. `MessageBubbleLayout`
+and `CenteredFractionLayout` alternated infinite and constrained child measures
+inside every pass; empty live footers were also used as scroll anchors. Commit
+6247e5b uses one actual-width measure and omits only genuinely empty live rows.
+The full diagnostic run 41166524688 at 5b6db6a then completed all 175 exhaustive
+actions plus 120 actual random-click actions over 180.49 seconds, without an
+application error: 100.301 ms maximum UI dispatch delay, 379.266 MiB peak RSS,
+38 threads. Its diagnostic flag makes it explicitly ineligible for acceptance.
+Normal run 41166524332 retained 88.143 ms but timed out waiting for the member
+dialog; the capture previously awaited dismissal if preparation took over two
+seconds. It now waits for the real `Opened` event with a bounded timeout before
+closing. A new normal run must prove complete coverage; neither result above
+is claimed as passing final acceptance. The original user's hang had no dump,
+so the reproduced layout cycle is not asserted to be its exact call stack.
+
+Changes for the clients: merged native-macos through 87f7b77, including unchanged
+payload suppression, the TextKit measurement regression fix and direct Node
+dictionary access. Shared heartbeat reads use Windows FILE_SHARE_DELETE and
+atomic writers retry transient file-sharing errors without losing maxima.
+Responsiveness limits and the required action/real-pointer coverage are unchanged.
+
 The installed 1e1fc14 hung with real large data. Native responsiveness is now a
 required gate before PR #4 can merge. The shared CI harness is being added at
 `scripts/performance/`; its fixture is synthetic and never copies personal data.

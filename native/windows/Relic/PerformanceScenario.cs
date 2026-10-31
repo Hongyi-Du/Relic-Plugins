@@ -119,9 +119,21 @@ public sealed partial class MainWindow
                     var dialog = step.Text("name") switch { "settings" => Settings(), "about" => SettingsScreen("about"),
                         "neworg" => CreateOrg(), "member" => AddMember(), "tasks" => Details("tasks"),
                         "protocols" => Details("protocols"), _ => throw new InvalidOperationException("Unknown dialog") };
-                    for (var attempt = 0; visibleDialog == null && !dialog.IsCompleted && attempt < 100; attempt++) await Task.Delay(20);
-                    if (visibleDialog == null) { await dialog; throw new InvalidOperationException("Production dialog did not open"); }
-                    await WaitForMarkdown(); await PerformanceYield(); visibleDialog.Hide(); await dialog; break;
+                    // Preparation can include several HTTP requests. Waiting on
+                    // the dialog task before it has opened instead waits for a
+                    // user dismissal forever. Also, Hide before Opened can be
+                    // ignored while ContentDialog is still presenting.
+                    var opening = Stopwatch.StartNew();
+                    while (openedDialog == null && !dialog.IsCompleted && opening.Elapsed < TimeSpan.FromSeconds(20))
+                        await Task.Delay(20);
+                    if (openedDialog == null)
+                    {
+                        if (dialog.IsCompleted) await dialog; // Preserve a real preparation error.
+                        throw new TimeoutException("Production dialog did not reach Opened: " + step.Text("name"));
+                    }
+                    var presented = openedDialog;
+                    await WaitForMarkdown(); await PerformanceYield(); presented.Hide();
+                    await dialog.WaitAsync(TimeSpan.FromSeconds(10)); break;
                 case "scroll-history":
                     await Select(step.Text("org"));
                     while (chatMore)

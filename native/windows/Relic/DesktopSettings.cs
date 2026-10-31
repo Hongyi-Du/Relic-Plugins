@@ -13,6 +13,7 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private ContentDialog? visibleDialog;
+    private ContentDialog? openedDialog;
     private Task<ContentDialogResult>? visibleDialogTask;
     private readonly Dictionary<string, TextBlock> installViews = new();
     private readonly Dictionary<string, ScrollViewer> installLogSurfaces = new();
@@ -49,7 +50,8 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogTopOverlay"] = singleSurfaceBackground
             ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : dialog.Background;
         dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 14, 12)) { Opacity = .32 };
-        dialog.Opened += (_, _) => StyleDialogParts(dialog);
+        dialog.Opened += (_, _) => { openedDialog = dialog; StyleDialogParts(dialog); };
+        dialog.Closed += (_, _) => { if (openedDialog == dialog) openedDialog = null; };
         visibleDialogTask = dialog.ShowAsync().AsTask();
         if (await visibleDialogTask == ContentDialogResult.Primary) confirmedDialogs.Add(dialog);
         if (visibleDialog == dialog) { visibleDialog = null; visibleDialogTask = null; }
