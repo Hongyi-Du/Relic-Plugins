@@ -5,7 +5,7 @@ import RelicCore
 
 @MainActor final class Model: ObservableObject {
     @Published var organizations: [Node] = []
-    @Published var messages: [Node] = [] { didSet { prepareConversation() } }
+    @Published var messages: [Node] = [] { didSet { messageGeneration += 1; prepareConversation() } }
     @Published var liveItems: [Node] = [] { didSet { prepareConversation() } }
     @Published var liveStatus = Node() { didSet { prepareConversation() } }
     @Published var streamRows: [ConversationRow] = []
@@ -107,6 +107,7 @@ import RelicCore
     private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     private var conversationTask: Task<Void, Never>?
     private var conversationGeneration = 0
+    private var messageGeneration = 0
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
@@ -267,10 +268,9 @@ import RelicCore
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
         guard selected == selection else { return }
-        let merged = await Timeline.mergeInBackground(messages, chat["items"].rows)
-        guard selected == selection else { return }
         let hadHistory = !messages.isEmpty
-        snapshot = snap; messages = merged
+        guard await mergeMessages(chat["items"].rows, selected: selected) else { return }
+        snapshot = snap
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
@@ -319,9 +319,19 @@ import RelicCore
         guard !before.isEmpty else { moreChat = false; return }
         let result = try await get(selected.path("/chat?kind=" + (member.isEmpty ? "group" : "private") + "&member=" + Client.segment(member) + "&limit=200&before=" + Client.segment(before)))
         guard selected == selection else { return }
-        let merged = await Timeline.mergeInBackground(result["items"].rows, messages)
-        guard selected == selection else { return }
-        messages = merged; moreChat = result["more"].flag
+        guard await mergeMessages(result["items"].rows, selected: selected, prepend: true) else { return }
+        moreChat = result["more"].flag
+    }
+    private func mergeMessages(_ incoming: [Node], selected: ChatSelection, prepend: Bool = false) async -> Bool {
+        while selected == selection && !Task.isCancelled {
+            let generation = messageGeneration, current = messages
+            let merged = await Timeline.mergeInBackground(prepend ? incoming : current, prepend ? current : incoming)
+            guard selected == selection else { return false }
+            // A refresh and an older page can finish together. Rebase onto the
+            // latest immutable array instead of overwriting the other response.
+            if generation == messageGeneration { messages = merged; return true }
+        }
+        return false
     }
     func send() async throws {
         guard !sending, !organization.isEmpty, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !quote.isEmpty else { return }
