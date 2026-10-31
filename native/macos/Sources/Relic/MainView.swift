@@ -204,7 +204,6 @@ struct RightPane: View {
                                 .environment(\.nativeElementParent, "relic-tab/" + pane.0)
                         }
                     }
-                    .background(HiddenScrollIndicators())
                 }.scrollIndicators(.hidden).frame(height: 28)
                 IconButton(title: m.t("panel.hide_title"), icon: "x", size: 16) { m.panelOpen = false }.accessibilityLabel(m.t("panel.hide"))
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
