@@ -1,5 +1,12 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+dedf7bd / 41185011711 catches a shadow-rendering regression: the broad dialog
+blur becomes too light without non-linear raster composition. Restore the
+original drawingGroup path for blur radii above 1 pt, retaining native layer
+composition only for the small control shadows (composer/selected tabs).
+The real pixel-profile test and expected colors/tolerances remain unchanged.
+The same run still catches the append assertion addressed in ce1b203.
+
 dedf7bd / 41185011763 clears startup but FAILS at action-0052:group;
 maximum 280.410 ms, peak 197.141 MiB and 8 threads. The first failed work
 snapshot has message-identities active and only two message rows mounted.
