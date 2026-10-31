@@ -5,10 +5,13 @@ import RelicCore
 /// CI-only WindowServer captures of the same application content and chrome
 /// used by the shipped app. This deliberately does not use cacheDisplay.
 @MainActor enum TitlebarCapture {
-    static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_TITLEBAR_MANIFEST"] != nil }
+    static var enabled: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["RELIC_TITLEBAR_CAPTURE"] == "1" || env["RELIC_TITLEBAR_MANIFEST"] != nil
+    }
     static func run() async {
         let env = ProcessInfo.processInfo.environment
-        guard env["GITHUB_ACTIONS"] == "true", let path = env["RELIC_TITLEBAR_MANIFEST"] else {
+        guard env["GITHUB_ACTIONS"] == "true", let path = env["RELIC_TITLEBAR_MANIFEST"] ?? env["RELIC_VISUAL_MANIFEST"] else {
             fputs("Whole-window capture is restricted to GitHub Actions\n", stderr); NSApp.terminate(nil); return
         }
         var display: CaptureDisplay?
@@ -45,7 +48,7 @@ import RelicCore
                 try await current.select(fixture["org"].text)
                 current.sheet = nil; current.appMenu = nil; current.recipientPicker = false
                 current.sidebarOpen = true; current.panelOpen = item["width"].integer > 1180; current.pane = "overview"
-                let size = NSSize(width: item["width"].integer, height: item["height"].integer)
+                let size = NSSize(width: CGFloat(item["width"].integer), height: CGFloat(item["height"].integer))
                 window.setFrame(NSRect(x: 40, y: 60, width: size.width, height: size.height), display: true)
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded(); WindowChrome.positionButtons(in: window)
@@ -72,16 +75,18 @@ import RelicCore
                 let record: [String: Any] = ["case_id": item["id"].text, "file": file.lastPathComponent,
                     "provider": "/usr/sbin/screencapture -x -o -l", "window_number": number,
                     "window_frame": ElementCapture.box(window.frame), "content_bounds": ElementCapture.box(host.bounds),
+                    "client_screen_frame": ElementCapture.box(window.convertToScreen(host.convert(host.bounds, to: nil))),
+                    "backing_scale": window.backingScaleFactor,
                     "title_hidden": window.titleVisibility == .hidden, "titlebar_transparent": window.titlebarAppearsTransparent,
                     "full_size_content": window.styleMask.contains(.fullSizeContentView), "traffic_lights": buttons,
                     "theme": theme, "language": language]
                 try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
-                    .write(to: file.deletingPathExtension().appendingPathExtension("window.json"))
+                    .write(to: output.appendingPathComponent(item["id"].text + ".window-chrome.json"))
                 results.append(record)
             }
         } catch { errors.append(String(describing: error)) }
         try? JSONSerialization.data(withJSONObject: ["count": results.count, "cases": results, "errors": errors], options: [.prettyPrinted, .sortedKeys])
-            .write(to: output.appendingPathComponent("complete.json"))
+            .write(to: URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("complete.json"))
         model?.stop(); display?.restore()
         for error in errors { fputs(error + "\n", stderr) }
         NSApp.terminate(nil)

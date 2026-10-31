@@ -6,16 +6,20 @@ native builds/tests, Python validation and packaging required. Merge `main`
 (including PR #6 / `716ab44`) into `native-apps`; macOS will merge that branch.
 Keep PR #4 open and do not install or launch locally.
 
-macOS is adding the real transparent full-size title bar and a CI-only
-`RELIC_TITLEBAR_MANIFEST` entry point. Its JSON uses the existing native manifest
+macOS has committed the real transparent full-size title bar and a CI-only
+`RELIC_TITLEBAR_CAPTURE=1` / `RELIC_VISUAL_MANIFEST` entry point, matching the
+shared `titlebar_capture.py` driver. Its JSON uses the existing native manifest
 shape: `fixture` with port/token/org/member/scene_endpoint, `lang`, `theme`,
 `output`, and `cases` containing id/scene/file/width/height. Use `scene: group`,
 both themes and 1440x900/1024x700. It will invoke `/usr/sbin/screencapture -x -o
 -l <actual NSWindow.windowNumber> <output/file>`, preserving traffic lights and
-real window chrome, and emit `complete.json` plus per-image `.window.json`.
+real window chrome, and emits manifest-directory `complete.json` plus per-case
+`output/<case.id>.window-chrome.json` with actual window/client bounds and scale.
 Please add the shared fixture/launch workflow and upload the full-window PNGs;
 the ordinary parity ImageRenderer/cacheDisplay PNGs do not satisfy this check.
 The macOS package artifact remains `Relic-native-macOS-arm64-unsigned`.
+Main's `716ab44` is merged into macOS at `4bafa12`. The native title-bar entry
+point and capture contract are ready for the shared workflow; CI is pending.
 
 ## 2026-10-31: empty/long conversation follow-up (no new matrix work under Amendment 5)
 
