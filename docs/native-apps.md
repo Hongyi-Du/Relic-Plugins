@@ -35,6 +35,13 @@ Changes for the clients (whole-window capture contract):
   Whole-window delivery captures continue to use the complete window dimensions.
 
 Shared engine: merged main at 716ab44 (PR #6 wake prompts and receipts).
+Changes for the clients (2026-10-31 shared validation request): the runner
+integration fixture now retains each real `Popen` handle and waits for process
+exit before reading final state or deleting its temporary database. Terminal
+state is written before receipt/wake cleanup; it is not an exit notification.
+Removed the fixture's cleanup-error suppression. This addresses the Windows
+Python 3.11 SQLite WAL sharing violation reported by macOS in REQUESTS; production
+receipt/wake ordering and the HTTP contract are unchanged. Tests run only in CI.
 The latest macOS requests for additional empty/long parity scenes and more fill
 attribution are retained in REQUESTS but are no longer new release work after
 Amendment 5. Existing functional changes and their tests remain in the Mac branch.

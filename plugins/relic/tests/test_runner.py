@@ -3,9 +3,9 @@ the real CLI flags and the codex app-server JSON-RPC contract."""
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -68,7 +68,8 @@ for line in sys.stdin:
 
 class Runner(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # Windows: a runner log may still be open
+        self.tmp = tempfile.TemporaryDirectory()
+        self.processes = []
         base = Path(self.tmp.name)
         bin_dir = base / "bin"
         bin_dir.mkdir()
@@ -98,9 +99,36 @@ class Runner(unittest.TestCase):
                                                        env={"FOO": "bar"}))
 
     def tearDown(self):
-        os.environ.clear()
-        os.environ.update(self.saved)
-        self.tmp.cleanup()
+        try:
+            for process in self.processes:
+                self.wait_for_runner(process)
+        finally:
+            os.environ.clear()
+            os.environ.update(self.saved)
+            self.tmp.cleanup()
+
+    def start_turn(self, member, prompt, **kwargs):
+        popen = subprocess.Popen
+
+        def retain_process(*args, **options):
+            process = popen(*args, **options)
+            self.processes.append(process)
+            return process
+
+        with mock.patch.object(runner.subprocess, "Popen", side_effect=retain_process):
+            runner.start_turn(self.oid, member, prompt, **kwargs)
+        return self.processes[-1]
+
+    def wait_for_runner(self, process):
+        # Terminal run state precedes clear_focus, receipts and wake.dispatch.
+        # Wait on the owned Popen handle, not that state or a reusable PID, so
+        # SQLite and log handles are closed before assertions and cleanup.
+        try:
+            return process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+            self.fail("runner process did not finish")
 
     def calls(self, binary):
         if not self.log.exists():
@@ -108,11 +136,8 @@ class Runner(unittest.TestCase):
         return [c for c in map(json.loads, self.log.read_text().splitlines()) if c["bin"] == binary]
 
     def turn(self, member, prompt, new=False):
-        runner.start_turn(self.oid, member, prompt, new_session=new)
-        deadline = time.time() + 30
-        while runner.is_running(self.oid, member):
-            self.assertLess(time.time(), deadline, "turn did not finish")
-            time.sleep(0.1)
+        process = self.start_turn(member, prompt, new_session=new)
+        self.assertEqual(self.wait_for_runner(process), 0)
         state = runner.run_state(self.oid, member)
         self.assertEqual(state["status"], "done", state)
         return state
@@ -252,12 +277,9 @@ class Runner(unittest.TestCase):
         from relic_core import wake
         org = self.store.get(self.oid)
         self.turn("bob", runner.introduction(org, "bob"), new=True)
-        runner.start_turn(self.oid, "bob", wake.prompt(org, "bob", ["alice"], 1), wake_from=["alice"])
-        deadline = time.time() + 30
-        while runner.is_running(self.oid, "bob") or not any(
-                m["body"].startswith(wake.RECEIPT_MARK) for m in self.store.history(self.oid)):
-            self.assertLess(time.time(), deadline, "no receipt")
-            time.sleep(0.1)
+        process = self.start_turn("bob", wake.prompt(org, "bob", ["alice"], 1), wake_from=["alice"])
+        self.assertEqual(self.wait_for_runner(process), 0)
+        self.assertTrue(any(m["body"].startswith(wake.RECEIPT_MARK) for m in self.store.history(self.oid)), "no receipt")
         receipt = [m for m in self.store.history(self.oid) if m["body"].startswith(wake.RECEIPT_MARK)][-1]
         self.assertEqual((receipt["from"], receipt["to"]), ("bob", ["alice"]))
         self.assertIn("the turn finished", receipt["body"])
