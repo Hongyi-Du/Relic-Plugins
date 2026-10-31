@@ -24,7 +24,7 @@ import SwiftUI
         let host = NSHostingView(rootView: root)
         host.frame = NSRect(x: 0, y: 0, width: 200, height: 140)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 200, height: 140),
-            styleMask: [.borderless], backing: .buffered, defer: false)
+            styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         window.acceptsMouseMovedEvents = true; window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

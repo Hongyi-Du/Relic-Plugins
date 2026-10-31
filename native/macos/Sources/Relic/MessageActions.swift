@@ -58,12 +58,14 @@ struct MessageInteractionAnchor: NSViewRepresentable {
         var messageID = ""
         var avatarNavigationID: String?, metadataNavigationID: String?
         private var navigationPending = false
+        private(set) var navigationAttempts = 0
+        private(set) var navigationSucceeded: Bool?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleNavigationOrder() }
         override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); scheduleNavigationOrder() }
         override func layout() { super.layout(); scheduleNavigationOrder() }
-        func scheduleNavigationOrder() {
+        func scheduleNavigationOrder(retry: Int = 0) {
             guard !navigationPending, avatarNavigationID != nil else { return }
             navigationPending = true
             DispatchQueue.main.async { [weak self] in
@@ -74,7 +76,16 @@ struct MessageInteractionAnchor: NSViewRepresentable {
                 // should introduce the author before the message metadata.
                 // Move the existing native object; never create a proxy or
                 // replace the scroll area's accessible child inventory.
-                RelicAXPlaceChildBefore(scroll, avatar, metadata)
+                self.navigationAttempts += 1
+                self.navigationSucceeded = RelicAXPlaceChildBefore(scroll, avatar, metadata)
+                // SwiftUI may materialize its virtual children on the first AX
+                // query after layout. Give that real tree another main-loop
+                // turn; never retry indefinitely or reorder capture output.
+                if self.navigationSucceeded == false && retry < 3 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
+                        self?.scheduleNavigationOrder(retry: retry + 1)
+                    }
+                }
             }
         }
     }
