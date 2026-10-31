@@ -33,7 +33,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 .frame(minWidth: 920, minHeight: 620)
         }
         .defaultSize(width: 1440, height: 900)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button(model.t("appmenu.new_org")) { model.sheet = .create }.keyboardShortcut("n")
