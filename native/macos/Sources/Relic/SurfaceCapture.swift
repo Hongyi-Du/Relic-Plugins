@@ -67,12 +67,15 @@ struct RecordedSurface: ViewModifier {
             // dialogs. Paint each shadow from the same background shape instead.
             if nativeFill {
                 ZStack {
-                    if !shadows.isEmpty {
+                    if shadows.contains(where: { $0.radius > 1 }) {
+                        NativeSurfaceShadow(fill: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), shadows: shadows, outset: shadowOutset)
+                            .padding(-shadowOutset).allowsHitTesting(false)
+                    } else if !shadows.isEmpty {
                         ZStack {
                             ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
                                 shape.fill(background).shadow(color: value.color, radius: value.radius, x: value.x, y: value.y)
                             }
-                        }.padding(shadowOutset).modifier(SurfaceShadowCompositing(rasterized: shadows.contains { $0.radius > 1 })).padding(-shadowOutset)
+                        }.padding(shadowOutset).compositingGroup().padding(-shadowOutset)
                     }
                 // Keep AppKit's original fill path when SwiftUI composites
                 // shadows. Quantizing that fill into another 8-bit image first
@@ -80,6 +83,13 @@ struct RecordedSurface: ViewModifier {
                 NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner, ownedLayer: shadows.isEmpty)
                 }
             } else if shadows.isEmpty { if background != .clear { shape.fill(background) } }
+            else if shadows.contains(where: { $0.radius > 1 }) {
+                ZStack {
+                    NativeSurfaceShadow(fill: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), shadows: shadows, outset: shadowOutset)
+                        .padding(-shadowOutset).allowsHitTesting(false)
+                    shape.fill(background)
+                }
+            }
             else {
                 ZStack {
                     ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
@@ -87,12 +97,10 @@ struct RecordedSurface: ViewModifier {
                     }
                     shape.fill(background)
                 }
-                // Small control shadows can remain native layers. Broad dialog
-                // blurs require the original non-linear raster composition to
-                // preserve their edge profile (verified against actual pixels).
-                // Preserve the complete blur/offset bounds in either path.
+                // Small control shadows remain native layers. Broad shadows
+                // use Quartz above, without starting an offscreen renderer.
                 .padding(shadowOutset)
-                .modifier(SurfaceShadowCompositing(rasterized: shadows.contains { $0.radius > 1 }))
+                .compositingGroup()
                 .padding(-shadowOutset)
             }
         }
@@ -136,14 +144,6 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false) }
             }
-    }
-}
-
-private struct SurfaceShadowCompositing: ViewModifier {
-    let rasterized: Bool
-    @ViewBuilder func body(content: Content) -> some View {
-        if rasterized { content.drawingGroup(opaque: false, colorMode: .nonLinear) }
-        else { content.compositingGroup() }
     }
 }
 

@@ -1,3 +1,15 @@
+35bd31b / Native apps41253717697 compiles, but its existing shadow edge test
+FAILS15 pixel assertions (other307 tests pass). The Quartz path inverted y in
+an already-flipped native context, placing the shadow above the surface.
+Correct its offset sign; retain the exact original expected pixels/tolerance.
+Python41253717709 passes all four jobs. Strict41253717577 is still running;
+there is no completed responsiveness acceptance or final package claim.
+`0ed6e7e`：Native apps `41252939967` 的308项测试及包通过，新增标题/Markdown的
+文字和宽度变化原生测试通过。严格 `41252939866` 在首次文件菜单action-0155仍失败：
+270.014 ms、221.719 MiB、9线程；消息列测量峰值57.663 ms。未进入随机阶段。
+已定位源码仍保留宽阴影 drawingGroup（432e6d2为保留像素恢复），现改原生Quartz阴影；
+原阴影边缘像素及native-fill位图测试、容差全部保留，修复效果需下一轮CI证实。
+证据：`S:\Codex\Outputs\Relic-native-visual\responsiveness-0ed6e7e\macos\`。
 最新候选 `8087b5c`：Native apps `41252118990` 的306项测试、构建与包全部通过，
 四组Python验证 `41252118958` 全通过。新1063行跨聊天/组织原生测试13.308秒通过，
 5850行Home/End测试8.560秒通过。严格压力 `41252118966` 仍失败：267.238 ms，
