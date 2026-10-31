@@ -1,5 +1,26 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients: Windows history pressure now enters scrolling with a
+real upward pointer-wheel event, observes the production follow-latest state
+change, and relies exclusively on ScrollViewer.ViewChanged for older pages.
+The direct LoadOlderMessages fallback is removed. Every page must add older
+messages; the actual first ID and full fixture message count must be reached.
+Both endpoints must have <=1 DIP actual scroll gap and a realized visible
+boundary row. Receipts retain wheel/view events, page progress and endpoints.
+No latency, resource, duration or coverage gate is relaxed.
+
+8be551a native builds, tests and packaging pass in 41179844066. Focused Windows
+Settings 41179843985 paints all seven captions with an error-free capture;
+full-window/adaptive jobs 41179843940 / 41179843939 pass both systems. Actual
+images are retained in `S:\Codex\Outputs\Relic-native-visual\settings-8be551a`
+and `window-8be551a`. Windows narrow dark and macOS wide dark were inspected.
+macOS strict 41179843948 fails real history paging, not the latency threshold
+(137.420 ms, 201.469 MiB, 9 threads, no monkey completion). REQUESTS.md at
+2b5f3f1 identifies stale followsBottom blocking real top-proximity loading;
+the macOS owner's production fix and mounted HTTP/scroll regression are merged
+for the next validation. Earlier successful paging with a direct-call fallback
+does not establish this real-input requirement.
+
 4a51b68 normal Windows pressure 41178823399 passes all 175 fixed actions and
 126 real random actions over 181.027 seconds: maximum 125.708 ms, peak
 402.055 MiB and 39 threads. However diagnostic 41178826833 catches a real

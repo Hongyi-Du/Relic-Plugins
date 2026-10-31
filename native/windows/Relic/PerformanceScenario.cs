@@ -115,6 +115,112 @@ public sealed partial class MainWindow
         throw new TimeoutException("Settings navigation did not complete its actual text draw: " + states.ToJsonString());
     }
 
+    private async Task ExerciseHistoryScroll(JsonNode step, JsonObject record)
+    {
+        if (!PerformanceEnabled) throw new InvalidOperationException("History interaction is CI-only");
+        await Select(step.Text("org"));
+        await WaitForMarkdown(); await PerformanceYield();
+        var wheelEvents = 0; var viewEvents = 0; var topEvents = 0;
+        Microsoft.UI.Xaml.Input.PointerEventHandler wheel = (_, args) =>
+        {
+            if (args.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) wheelEvents++;
+        };
+        EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) =>
+        {
+            if (args.IsIntermediate) return;
+            viewEvents++;
+            if (chatScroll.VerticalOffset < 32) topEvents++;
+        };
+        chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, wheel, true);
+        chatScroll.ViewChanged += changed;
+        var pages = new JsonArray();
+        try
+        {
+            async Task Until(Func<bool> done, string failure)
+            {
+                var waiting = Stopwatch.StartNew();
+                while (!done())
+                {
+                    if (error.IsOpen) throw new InvalidOperationException(error.Message);
+                    if (waiting.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException(failure);
+                    await Task.Delay(20);
+                }
+            }
+            long[] MessageIds() => messages.Where(row => row.Text("type") == "message")
+                .Select(row => long.TryParse(row.Text("id"), out var id) ? id : 0).Where(id => id > 0).Distinct().ToArray();
+            async Task<JsonObject> Boundary(bool bottom)
+            {
+                var waiting = Stopwatch.StartNew(); var quiet = 0;
+                while (quiet < 2)
+                {
+                    if (waiting.Elapsed > TimeSpan.FromSeconds(15))
+                        throw new TimeoutException(bottom ? "Real history scroll did not reach the bottom" : "Real history scroll did not reach the top");
+                    chatScroll.ChangeView(null, bottom ? chatScroll.ScrollableHeight : 0, null, true);
+                    await PerformanceYield(); await WaitForMarkdown();
+                    var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
+                    quiet = Math.Abs(gap) <= 1 ? quiet + 1 : 0;
+                }
+                var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
+                    ?? throw new InvalidOperationException("History viewport has no real ItemsRepeater");
+                var index = bottom ? stream.Children.Count - 1 : 0;
+                var row = repeater.TryGetElement(index) as FrameworkElement;
+                if (row is not { IsLoaded: true, ActualHeight: > 0 })
+                    throw new InvalidOperationException("History boundary row was not realized: " + index);
+                var bounds = row.TransformToVisual(chatScroll).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
+                if (bounds.Bottom <= 0 || bounds.Top >= chatScroll.ViewportHeight)
+                    throw new InvalidOperationException("History boundary row is outside the actual viewport: " + index);
+                return new JsonObject { ["vertical_offset"] = chatScroll.VerticalOffset,
+                    ["scrollable_height"] = chatScroll.ScrollableHeight, ["viewport_height"] = chatScroll.ViewportHeight,
+                    ["gap_dip"] = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset,
+                    ["realized_row_index"] = index, ["row_top"] = bounds.Top, ["row_bottom"] = bounds.Bottom,
+                    ["row_visible"] = true };
+            }
+
+            // A real upward wheel cancels the production follow-latest state.
+            // ChangeView only drives the visible ScrollViewer; its ViewChanged
+            // handler must perform every page request without a business-method
+            // fallback or a test-written keepLatest/loadingOlder state.
+            SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+            await CaptureHover(chatScroll);
+            SendCaptureMouse(new CaptureMouseInput { Data = 120, Flags = 0x0800 });
+            await Until(() => wheelEvents > 0 && !keepLatest, "Real upward scroll did not leave follow-latest mode");
+            await PerformanceYield();
+            while (chatMore)
+            {
+                var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents;
+                chatScroll.ChangeView(null, 0, null, true);
+                await Until(() => chatPages > beforePages && !loadingOlder,
+                    "History did not page through the production ScrollViewer.ViewChanged handler");
+                await WaitForMarkdown(); await PerformanceYield();
+                var afterIds = MessageIds();
+                if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min() || viewEvents <= beforeViews)
+                    throw new InvalidOperationException("Real history scroll did not add an older message page");
+                pages.Add(new JsonObject { ["before_pages"] = beforePages, ["after_pages"] = chatPages,
+                    ["before_oldest_id"] = beforeIds.Min(), ["after_oldest_id"] = afterIds.Min(),
+                    ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews });
+            }
+            record["history_top"] = await Boundary(false);
+            var ids = MessageIds();
+            var oldest = ids.DefaultIfEmpty(0).Min();
+            var expectedOldest = long.Parse(step.Text("first_message_id"));
+            var fixture = performanceManifest!["fixture"].Rows("orgs").First(item => item.Text("id") == step.Text("org"));
+            var expectedCount = int.Parse(fixture.Text("group_messages"));
+            if (oldest != expectedOldest || ids.Length < expectedCount || topEvents == 0)
+                throw new InvalidOperationException($"History coverage mismatch: oldest={oldest}/{expectedOldest}, messages={ids.Length}/{expectedCount}, top events={topEvents}");
+            record["pages_loaded"] = chatPages; record["history_complete"] = !chatMore;
+            record["oldest_message_id"] = oldest; record["message_count"] = ids.Length;
+            record["expected_fixture_messages"] = expectedCount; record["history_pages"] = pages;
+            record["upward_wheel_events"] = wheelEvents; record["top_view_changed_events"] = topEvents;
+            record["history_bottom"] = await Boundary(true);
+            record["history_scroll_source"] = "Actual upward pointer wheel and ScrollViewer.ViewChanged; no direct page load";
+        }
+        finally
+        {
+            chatScroll.RemoveHandler(UIElement.PointerWheelChangedEvent, wheel);
+            chatScroll.ViewChanged -= changed;
+        }
+    }
+
     private async Task RunPerformanceScenario()
     {
         var actions = new List<JsonObject>(); var errors = new List<string>();
@@ -167,21 +273,7 @@ public sealed partial class MainWindow
                     await PerformanceYield(); presented.Hide();
                     await dialog.WaitAsync(TimeSpan.FromSeconds(10)); break;
                 case "scroll-history":
-                    await Select(step.Text("org"));
-                    while (chatMore)
-                    {
-                        var before = messages.Count;
-                        chatScroll.ChangeView(null, 0, null, true);
-                        await PerformanceYield();
-                        while (loadingOlder) await Task.Delay(20);
-                        if (messages.Count == before && chatMore) await LoadOlderMessages();
-                        await WaitForMarkdown();
-                        if (messages.Count <= before && chatMore) throw new InvalidOperationException("History pagination did not progress");
-                    }
-                    record["pages_loaded"] = chatPages; record["history_complete"] = !chatMore;
-                    record["oldest_message_id"] = messages.Where(row => row.Text("type") == "message")
-                        .Select(row => long.TryParse(row.Text("id"), out var id) ? id : long.MaxValue).DefaultIfEmpty(0).Min();
-                    ScrollToLatest(); break;
+                    await ExerciseHistoryScroll(step, record); break;
                 default: throw new InvalidOperationException("Unknown performance action: " + kind);
             }
             await PerformanceYield(); await WaitForMarkdown();
