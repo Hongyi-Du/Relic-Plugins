@@ -267,6 +267,17 @@ struct ChatView: View {
     }
 }
 
+private struct LatestMessageBounds: Equatable {
+    var id = ""
+    var size = CGSize.zero
+}
+private struct LatestMessageSize: PreferenceKey {
+    static var defaultValue = LatestMessageBounds()
+    static func reduce(value: inout LatestMessageBounds, nextValue: () -> LatestMessageBounds) {
+        let next = nextValue()
+        if !next.id.isEmpty { value = next }
+    }
+}
 private struct StreamMetrics: Equatable {
     var bottom: CGFloat = 0
     var height: CGFloat = 0
@@ -287,14 +298,20 @@ struct ConversationStream: View {
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
     @State private var following = ConversationScrollFollowing()
+    @State private var userFollowsLatest = true
+    @State private var preservingDisclosure = false
     @State private var initialLoad = true
-    @State private var presentedRowCount = 0
+    @State private var firstPresentedID: String?
     @State private var mountedViewport = false
     @State private var mountedComposer = false
     @State private var visibleRow: String?
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
+    private var firstPresentedIndex: Int {
+        guard let firstPresentedID else { return m.streamRows.count }
+        return m.streamRows.firstIndex { $0.id == firstPresentedID } ?? m.streamRows.count
+    }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -312,7 +329,7 @@ struct ConversationStream: View {
                                         .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
-                            ForEach(Array(rows.suffix(presentedRowCount))) { row in
+                            ForEach(Array(rows.dropFirst(firstPresentedIndex))) { row in
                                 ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
@@ -325,15 +342,25 @@ struct ConversationStream: View {
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)
+                                    .background {
+                                        if row.id == latestRowID { GeometryReader { geometry in
+                                            Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size))
+                                        } }
+                                    }
                             }
-                            if !m.displayLiveItems.isEmpty { LiveTurnView().padding(.bottom, 24).id("live-end") }
+                            if !m.displayLiveItems.isEmpty {
+                                LiveTurnView().padding(.bottom, 24).id("live-end")
+                                    .background(GeometryReader { geometry in
+                                        Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: "live-end", size: geometry.size))
+                                    })
+                            }
                             else if rows.isEmpty { Color.clear.frame(height: 24) }
                             // Target the actual newest row, including its 24px
                             // trailing space. A separate footer can be realized
                             // while the preceding lazy message is still absent.
                         }.scrollTargetLayout()
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
-                            .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
+                            .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.defaultScrollAnchor(.bottom)
@@ -342,6 +369,17 @@ struct ConversationStream: View {
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
+                        .onPreferenceChange(LatestMessageSize.self) { latest in
+                            // Observe only the actual newest row, not the lazy
+                            // document's estimated height. Markdown prepares in
+                            // stages after scrollTo's first layout; preserve the
+                            // bottom while that row acquires its real height.
+                            guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
+                                  initialLoad || userFollowsLatest else { return }
+                            following.followsBottom = true
+                            visibleRow = latest.id; proxy.scrollTo(latest.id, anchor: .bottom)
+                            initialLoad = false
+                        }
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
                             // The bound row identity owns initial placement and
@@ -355,7 +393,7 @@ struct ConversationStream: View {
                             // following state during a Home/scroll transition.
                             // That state must not suppress the history pager.
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
-                               !initialLoad, olderAnchor == nil, m.moreChat, !m.loadingOlder,
+                               !initialLoad, firstPresentedIndex == 0, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {
                                 olderAnchor = first
                                 m.run {
@@ -368,7 +406,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
+                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -389,37 +427,52 @@ struct ConversationStream: View {
                 // stack creates identity/state bookkeeping for every item in
                 // one transaction. Admit that full page in bounded batches,
                 // starting with its newest rows, without discarding any data.
-                while presentedRowCount < m.streamRows.count {
+                // Keep the first admitted identity stable when messages append.
+                // A fixed suffix count temporarily drops the visible first row
+                // on every append, invalidating SwiftUI's reading anchor.
+                while firstPresentedIndex > 0 {
                     let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "message-identities") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    presentedRowCount = min(m.streamRows.count, presentedRowCount + 200)
+                    let next = max(0, firstPresentedIndex - 50)
+                    guard m.streamRows.indices.contains(next) else { RowMountQueue.shared.release(turn); return }
+                    firstPresentedID = m.streamRows[next].id
                     do { try await Task.sleep(for: .milliseconds(32)) }
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
+                    if preservingDisclosure { userFollowsLatest = following.followsBottom }
+                    preservingDisclosure = false
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if (initialLoad || following.followsBottom), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
-                        initialLoad = false
+                        if (initialLoad || userFollowsLatest), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
-                    initialLoad = m.streamRows.isEmpty
+                    initialLoad = true
                     if let id = latestRowID { visibleRow = id }
+                    // A lazy height correction is not a user scroll. Only
+                    // native live scrolling or scoped keyboard input changes
+                    // the person's follow-latest intent.
+                    keyboard.didUserScroll = { nearBottom in
+                        initialLoad = false; userFollowsLatest = nearBottom
+                        following.followsBottom = nearBottom; preservingDisclosure = false
+                    }
                     keyboard.scrollToEdge = { top in
+                        initialLoad = false
+                        userFollowsLatest = !top; preservingDisclosure = false
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
                         else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
-                .onDisappear { keyboard.scrollToEdge = nil }
+                .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil }
         }
     }
 }
@@ -660,8 +713,14 @@ struct ComposerView: View {
             if !m.quote.isEmpty {
                 ComposerQuote()
             }
-            MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
-                .accessibilityLabel(placeholder)
+            // The editor's AppKit text system and the inline command controls
+            // are separate cold mounts. Keep them on distinct UI turns, using
+            // the same bounded queue as message and inspector rows.
+            ProgressiveRow(estimatedHeight: 26.4) {
+                MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
+                    .accessibilityLabel(placeholder)
+            }
+            ProgressiveRow(estimatedHeight: 32) {
             HStack(spacing: 6) {
                 if m.member.isEmpty {
                     Button {
@@ -685,6 +744,7 @@ struct ComposerView: View {
                 VoiceButton(text: $m.draft, size: 32)
                 ComposerSendButton(action: send).keyboardShortcut(.return, modifiers: .command)
                     .disabled(m.sending || m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.quote.isEmpty)
+            }
             }
         }.padding(.leading, 15).padding(.trailing, 11).padding(.top, 11).padding(.bottom, 9)
             .modifier(RecordedSurface(background: RelicStyle.card, border: focused ? RelicStyle.mix(RelicStyle.accent, RelicStyle.border, fraction: 0.45) : RelicStyle.border, borderWidth: 1, radius: 18, kind: "card", shadows: SurfaceShadow.small))

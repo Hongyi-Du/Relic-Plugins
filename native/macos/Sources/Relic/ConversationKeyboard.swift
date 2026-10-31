@@ -9,9 +9,17 @@ import SwiftUI
     weak var scroll: NSScrollView?
     var enabled = true
     var scrollToEdge: ((Bool) -> Void)?
+    var didUserScroll: ((Bool) -> Void)?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
+
+    func userScrolled() {
+        guard enabled, let scroll, let document = scroll.documentView else { return }
+        let clip = scroll.contentView.bounds
+        let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        didUserScroll?(gap < 120)
+    }
 
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
@@ -66,6 +74,7 @@ import SwiftUI
         let constrained = clip.constrainBoundsRect(target)
         clip.scroll(to: constrained.origin)
         scroll.reflectScrolledClipView(clip)
+        userScrolled()
         return .handled
     }
 }
@@ -105,6 +114,7 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     final class Mount: NSView {
         fileprivate weak var keyboard: ConversationKeyboard?
         fileprivate weak var attachedScroll: NSScrollView?
+        private var liveScrollObserver: NSObjectProtocol?
         private var enabled = true, focused = false
         init(keyboard: ConversationKeyboard) { self.keyboard = keyboard; super.init(frame: .zero) }
         required init?(coder: NSCoder) { return nil }
@@ -133,13 +143,25 @@ struct ConversationKeyboardMount: NSViewRepresentable {
         }
         func resolveScroll() {
             guard window != nil, let current = enclosingScrollView else {
+                if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
+                liveScrollObserver = nil
                 if keyboard?.scroll === attachedScroll { keyboard?.scroll = nil }
                 attachedScroll = nil; return
+            }
+            if attachedScroll !== current {
+                if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
+                // Unlike generic clip bounds changes, AppKit posts this only
+                // for user input, including legacy wheels without start/end.
+                liveScrollObserver = NotificationCenter.default.addObserver(forName: NSScrollView.didLiveScrollNotification,
+                    object: current, queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.keyboard?.userScrolled() }
+                    }
             }
             attachedScroll = current; keyboard?.scroll = current
             keyboard?.enabled = enabled
             current.setAccessibilityIdentifier(ConversationKeyboard.identifier)
             current.setAccessibilityEnabled(enabled)
         }
+        deinit { if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) } }
     }
 }

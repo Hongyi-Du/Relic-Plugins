@@ -100,7 +100,7 @@ final class ComposerTextMeasurement {
             heights.removeAll(keepingCapacity: true)
         }
         if let height = heights[width] { return height }
-        let trace = UIWorkTrace.begin("composer.measure"); defer { UIWorkTrace.end(trace) }
+        let trace = UIWorkTrace.begin("editor-measure"); defer { UIWorkTrace.end(trace) }
         let storage = NSTextStorage(string: text.isEmpty ? " " : text, attributes: [.font: font, .paragraphStyle: paragraph, .tracking: 0])
         let layout = NSLayoutManager(), container = NSTextContainer(containerSize: NSSize(width: width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)

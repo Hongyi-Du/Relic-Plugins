@@ -1,5 +1,46 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+Source inspection found an additional concrete append bug in staged admission:
+`rows.suffix(presentedRowCount)` temporarily removes the visible first row when
+a message appends, until the asynchronous count catches up. Its missing identity
+invalidates the native reading anchor. Admission now retains the first admitted
+row's stable ID; new messages extend that range without removing existing rows.
+Prepending history admits older rows in batches of 50 and does not request the
+next API page until all of the existing page is admitted. The actual Home / new
+message / End regression covers preserving a person's history-reading position.
+
+7b3dbca / 41183087326 moves the cold composer below the threshold (183.980 ms
+mount scope) but still FAILS during message identity admission (353.158 ms UI
+max; 158.375 MiB, 9 threads). Per-turn identity admission is reduced from 200
+to 50; the API pages and total retained messages are unchanged. Its mounted
+test now passes initial final-paragraph visibility but fails append-following:
+geometry corrections can falsely clear followsBottom. Conversation follow
+intent now changes only for scoped keyboard commands and this NSScrollView's
+didLiveScrollNotification (documented by Apple as user-initiated, including
+legacy wheels), not lazy layout estimates. A native notification/viewport test
+checks sender isolation, detachment and actual bottom distance; the mounted
+long-conversation test also appends while reading history and requires no jump.
+The diagnostic composer.measure identifier is renamed editor-measure so it
+cannot be mistaken for a user-facing vocabulary key; word-list tests stay intact.
+
+392c658 / 41182594829 remains a strict FAIL at 251.645 ms (143.172 MiB,
+9 threads); no rounding exemption. Its composer measure cache performs four
+actual measurements totaling 0.246 ms, but the enclosing cold composer mount
+still takes 288.017 ms. Editor and inline command controls now enter the same
+bounded native mount queue separately instead of materializing together.
+All controls remain present and the readiness gate includes both mount tasks.
+
+be19670 / 41182085087 narrows the mounted long-Markdown regression: append
+and Home/End now pass, but the initial viewport is 740 pt above the bottom and
+the final paragraph is absent. Initial/follow-latest anchoring now observes only
+the actual last row's size as staged Markdown finishes, not the lazy document's
+estimated total height. The unchanged test requires the final paragraph and new
+message to actually intersect the native clip view. Strict 41182085049 still
+fails startup (380.216 ms, 130.047 MiB, 9 threads); diagnostic 41182272749 reaches
+action-0021 but is ineligible (298.758 ms). Its retained native stacks identify
+repeated MessageColumns/Markdown child measurement during cold layout; the
+composer cache is an independent reduction, not a proven fix for that stall.
+
 00df02b / 41181961617 still fails the startup watchdog (completed maximum
 565.435 ms; 151.750 MiB, 9 threads). UI-work scopes include composer mounting
 and message identity admission. 41182272749 is an explicit diagnostic run to
