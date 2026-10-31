@@ -1,4 +1,23 @@
-## 2026-10-31: measure the actual accent swatch selection
+## 2026-10-31: extend the matrix to empty and long conversation states
+
+The reference `app.js` requests `/api/org/{id}/chat?kind=group&limit=1000`
+and `/api/org/{id}/chat?kind=private&member={encoded-seat}&limit=1000`
+(lines 519/524). Its stream has no additional history-pagination button;
+`trace.load_older` belongs to the trace dialog. macOS now uses those exact
+requests and removes its extra stream button. The model transport regression
+returns 250 messages in each chat type and checks the actual request and retained
+history. No shared engine change is needed.
+
+Please add `empty-group`, `empty-private`, and `long-conversation` fixture scenes
+to the shared matrix and inventory. The two empty states must have neither chat
+messages/transcript steps nor visible live output, and must exercise the actual
+`renderStream` branch with `.notice` and `margin-top:40px`. The long conversation
+must contain more than 200 messages and verify the same initial viewport and
+history window on both clients. These are additional reference states, not
+exclusions or accepted differences. Native capture case routing will be added
+against the shared scene names when their fixture setup is available.
+
+## 2026-10-31: measure the actual accent swatch selection (resolved in d019ebf)
 
 The formal `312dab7` smoke report has 12 macOS selected-state mismatches
 across settings-appearance and settings-navigation-hover. In the actual

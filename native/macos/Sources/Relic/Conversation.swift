@@ -265,9 +265,14 @@ struct ConversationStream: View {
                         // accessibility subsequently materializes those rows.
                         VStack(alignment: .leading, spacing: 0) {
                             let rows = m.conversationRows(m.displayMessages)
-                            if m.moreChat { Button(m.t("trace.load_older")) { following.followsBottom = false; m.run { try await m.loadOlder() } }
-                                .accessibilitySortPriority(Double(rows.count * 2 + 2)) }
-                            if m.messages.isEmpty && m.conversation["steps"].rows.isEmpty { Text(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private")).foregroundStyle(.secondary) }
+                            if m.displayMessages.isEmpty && m.displayLiveItems.isEmpty {
+                                NoticeLayout {
+                                    ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
+                                        size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
+                                        .padding(.horizontal, 10).padding(.vertical, 2)
+                                        .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
+                                }.padding(.top, 40).padding(.bottom, 8)
+                            }
                             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                                 let priority = Double((rows.count - index) * 2)
                                 if let separator = row.separator {
