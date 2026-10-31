@@ -51,21 +51,30 @@ struct ConversationRow: Identifiable {
 /// from that reading order; text keeps its ordinary left-to-right environment.
 struct MessageColumns: Layout {
     var mine = false
-    private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews) -> (width: CGFloat, avatar: CGSize, body: CGSize, bodyWidth: CGFloat) {
+    struct Measurement { let width: CGFloat, avatar: CGSize, body: CGSize, bodyWidth: CGFloat }
+    struct Cache { var measurements: [CGFloat: Measurement] = [:] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.measurements.removeAll(keepingCapacity: true) }
+    private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews, cache: inout Cache) -> Measurement {
+        let key = proposal.width ?? -.infinity
+        if let value = cache.measurements[key] { return value }
         let avatar = subviews[0].sizeThatFits(.unspecified)
         let available = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
         let bodyWidth = min(720, available.map { max(0, $0 - avatar.width - 10) } ?? subviews[1].sizeThatFits(.unspecified).width)
         let body = subviews[1].sizeThatFits(ProposedViewSize(width: bodyWidth, height: nil))
-        return (available ?? avatar.width + 10 + bodyWidth, avatar, body, bodyWidth)
+        let value = Measurement(width: available ?? avatar.width + 10 + bodyWidth, avatar: avatar, body: body, bodyWidth: bodyWidth)
+        if cache.measurements.count >= 16 { cache.measurements.removeAll(keepingCapacity: true) }
+        cache.measurements[key] = value
+        return value
     }
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard subviews.count == 2 else { return .zero }
-        let value = measurements(proposal, subviews)
+        let value = measurements(proposal, subviews, cache: &cache)
         return CGSize(width: value.width, height: max(value.avatar.height, value.body.height))
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
-        let value = measurements(ProposedViewSize(width: bounds.width, height: nil), subviews)
+        let value = measurements(ProposedViewSize(width: bounds.width, height: nil), subviews, cache: &cache)
         subviews[0].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width : bounds.minX, y: bounds.minY),
             anchor: .topLeading, proposal: ProposedViewSize(value.avatar))
         subviews[1].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width - 10 - value.bodyWidth : bounds.minX + value.avatar.width + 10, y: bounds.minY),
