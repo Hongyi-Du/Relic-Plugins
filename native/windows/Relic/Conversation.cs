@@ -169,8 +169,20 @@ public sealed partial class MainWindow
     private void WireComposer()
     {
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
-        chatScroll.PointerWheelChanged += (_, e) => { if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) { keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++; } };
-        chatScroll.PointerPressed += (_, _) => { keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++; };
+        void LeaveLatest()
+        {
+            keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+        }
+        // ScrollViewer and selectable message children can handle these routed
+        // events before application handlers. Still observe the user's intent
+        // without consuming the event or replacing native scrolling/selection.
+        chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, e) =>
+        {
+            if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) LeaveLatest();
+        }), true);
+        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
+        // Touchpad/touch panning is direct manipulation, not a wheel event.
+        chatScroll.DirectManipulationStarted += (_, _) => LeaveLatest();
         chatScroll.ViewChanged += async (_, e) =>
         {
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
