@@ -39,6 +39,7 @@ struct ReferenceLabel: NSViewRepresentable {
     }
     private var containerBreakMode: NSLineBreakMode { lines > 0 ? (truncates ? .byTruncatingTail : .byClipping) : .byWordWrapping }
     func makeNSView(context: Context) -> ReferenceLabelView {
+        let trace = UIWorkTrace.begin("label.make"); defer { UIWorkTrace.end(trace) }
         let view = makeLabelView()
         updateNSView(view, context: context); return view
     }

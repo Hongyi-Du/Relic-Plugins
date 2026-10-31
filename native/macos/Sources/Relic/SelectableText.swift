@@ -25,6 +25,7 @@ struct SelectableText: NSViewRepresentable {
     var maximumLines = 0
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
+        let trace = UIWorkTrace.begin("text.make"); defer { UIWorkTrace.end(trace) }
         let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
         layout.recordDraws = VisualCapture.enabled
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
