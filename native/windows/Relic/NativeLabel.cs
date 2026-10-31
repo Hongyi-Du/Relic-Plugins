@@ -46,6 +46,14 @@ public sealed class NativeLabel : Panel
     private JsonObject? fallbackConfiguration;
     private JsonObject? lineSpacingConfiguration;
     private string? failure;
+    private CancellationTokenSource? preparation;
+    private Exception? preparationError;
+    private bool preparationRetired;
+    private static int pendingPreparations;
+    internal static int PendingPreparations => Volatile.Read(ref pendingPreparations);
+    internal bool IsLayoutPrepared => layout != IntPtr.Zero;
+    internal Exception? LayoutPreparationError => preparationError;
+    internal event Action? LayoutPrepared;
 
     private static Windows.UI.ViewManagement.UISettings CreateTextSettings()
     {
@@ -267,6 +275,7 @@ public sealed class NativeLabel : Panel
     private void Attach()
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.attach");
+        preparationRetired = false;
         DetachSubscriptions();
         if (scaleText) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
         observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
@@ -284,6 +293,7 @@ public sealed class NativeLabel : Panel
         var value = scaleText ? textSettings.TextScaleFactor : 1;
         if (value == textScale) return;
         textScale = value;
+        preparation?.Cancel(); preparationError = null;
         Release(ref layout); Release(ref trimmingSign); Release(ref format);
         layoutWidth = layoutHeight = -1; resolvedLineHeight = lineHeight;
         InvalidateMeasure(); InvalidateDraw(); QueueDraw();
@@ -343,6 +353,7 @@ public sealed class NativeLabel : Panel
     private void Detach()
     {
         using var timing = PerformanceTrace.Measure("NativeLabel.detach");
+        preparationRetired = true; preparation?.Cancel(); preparationError = null;
         DetachSubscriptions(); Release(ref surfaceInterop); surface = null; image.Source = null;
         Release(ref layout); Release(ref trimmingSign); Release(ref format); layoutWidth = layoutHeight = -1;
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;
@@ -350,97 +361,79 @@ public sealed class NativeLabel : Panel
     }
     private void InvalidateDraw() { receipt = null; drawDirty = true; }
 
-    private void EnsureLayout(float width, float height)
+    private void StartPreparation(float width, float height)
+    {
+        if (preparation != null || preparationRetired || preparationError != null || layout != IntPtr.Zero) return;
+        var cancellation = preparation = new CancellationTokenSource();
+        var dispatcher = DispatcherQueue;
+        var requested = new NativeLabelLayoutRequest(text, familyList, locale, fontSize, weight, lineHeight,
+            width, height, wrapWholeWords, primaryFontLineSpacing, characterEllipsis);
+        Interlocked.Increment(ref pendingPreparations);
+        _ = Prepare();
+        async Task Prepare()
+        {
+            NativeLabelPreparedLayout? prepared = null;
+            Exception? error = null;
+            try { prepared = await NativeLabelPreparation.PrepareAsync(requested, cancellation.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (Exception failure) { error = failure; }
+            if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                try
+                {
+                    if (ReferenceEquals(preparation, cancellation)) preparation = null;
+                    if (!cancellation.IsCancellationRequested && !preparationRetired)
+                    {
+                        preparationError = error;
+                        failure = error?.ToString();
+                        if (prepared != null)
+                        {
+                            format = prepared.Format; prepared.Format = IntPtr.Zero;
+                            layout = prepared.Layout; prepared.Layout = IntPtr.Zero;
+                            trimmingSign = prepared.TrimmingSign; prepared.TrimmingSign = IntPtr.Zero;
+                            layoutWidth = prepared.Width; layoutHeight = prepared.Height;
+                            resolvedLineHeight = prepared.ResolvedLineHeight;
+                            fallbackConfiguration = prepared.Fallback; lineSpacingConfiguration = prepared.LineSpacing;
+                            layoutRevision++; InvalidateDraw();
+                        }
+                        InvalidateMeasure(); InvalidateArrange(); QueueDraw();
+                        LayoutPrepared?.Invoke();
+                    }
+                    else if (!preparationRetired)
+                    {
+                        // A scale change or a reload superseded this request.
+                        // Start the next request only after its predecessor ends.
+                        InvalidateMeasure(); InvalidateArrange();
+                    }
+                }
+                finally
+                {
+                    prepared?.Dispose(); cancellation.Dispose();
+                    Interlocked.Decrement(ref pendingPreparations);
+                }
+            }))
+            {
+                prepared?.Dispose(); cancellation.Dispose();
+                Interlocked.Decrement(ref pendingPreparations);
+            }
+        }
+    }
+
+    private bool EnsureLayout(float width, float height)
     {
         if (layout == IntPtr.Zero)
         {
-            using var timing = PerformanceTrace.Measure("NativeLabel.layout.create");
-            try
-            {
-                // CreateTextFormat accepts one family. The remaining ordered list
-                // is installed on this exact layout through IDWriteTextLayout2.
-                // No precomputed coverage is used as drawn-font evidence.
-                var family = familyList.Split(',')[0].Trim().Trim('"');
-                if (family.Length == 0) throw new InvalidOperationException("NativeLabel requires an explicit primary font family");
-                IntPtr factory;
-                using (PerformanceTrace.Measure("NativeLabel.shared-device.acquire")) factory = NativeLabelDevice.Shared.WriteFactory;
-                Check(Method<CreateFormat>(factory, 15)(factory, family, IntPtr.Zero, weight, 0, 5, fontSize, locale, out format));
-                // The message header's ordinary inline text retains normal
-                // word breaks without emergency word splitting. Menus and
-                // sidebar previews keep their single-line production mode.
-                // DWRITE_WORD_WRAPPING_WHOLE_WORD=3; NO_WRAP=1.
-                Check(Method<SetUInt>(format, 5)(format, wrapWholeWords ? 3u : 1u));
-                using (PerformanceTrace.Measure("NativeLabel.DirectWrite.CreateTextLayout"))
-                    Check(Method<CreateLayout>(factory, 18)(factory, text, checked((uint)text.Length), format, width, Math.Max(height, 1000), out layout));
-                using (PerformanceTrace.Measure("NativeLabel.fallback.apply"))
-                    fallbackConfiguration = NativeLabelFallback.Apply(factory, layout, familyList);
-                // Retain the natural metrics from this exact layout before
-                // applying the requested production line-spacing policy.
-                LineMetrics[] lines;
-                using (PerformanceTrace.Measure("NativeLabel.DirectWrite.GetLineMetrics")) lines = ReadLines();
-                if (lines.Length > 0)
-                {
-                    var baseline = lines[0].Baseline + (lineHeight - lines[0].Height) / 2;
-                    var effectiveHeight = lineHeight;
-                    lineSpacingConfiguration = CaptureDiagnostics ? new JsonObject
-                    {
-                        ["source"] = "Actual production IDWriteTextLayout natural line metrics and subsequent SetLineSpacing",
-                        ["policy"] = primaryFontLineSpacing ? "primary-font-integer-metrics-floor-half-leading" : "natural-line-symmetric-half-leading",
-                        ["layout_com_identity"] = ComIdentity(layout),
-                        ["natural_first_line_height"] = lines[0].Height, ["natural_first_line_baseline"] = lines[0].Baseline,
-                        ["requested_line_height"] = lineHeight
-                    } : null;
-                    if (primaryFontLineSpacing)
-                    {
-                        // .msg .who has an explicit line-height:1.3. Its strut
-                        // follows the primary face, not a fallback glyph face.
-                        // Apply it to the very layout used for Draw/FirstBaseline.
-                        var primary = NativeListMarkerFont.ReadForLine(familyList, fontSize, locale, weight);
-                        var spacing = NativePrimaryLineMetrics.FromPrimary(primary.Metrics, lineHeight);
-                        effectiveHeight = (float)spacing.Height; baseline = (float)spacing.Baseline;
-                        if (lineSpacingConfiguration != null)
-                        {
-                            lineSpacingConfiguration["primary_font"] = primary.Evidence;
-                            lineSpacingConfiguration["leading_before"] = spacing.LeadingBefore;
-                            lineSpacingConfiguration["leading_after"] = spacing.LeadingAfter;
-                        }
-                    }
-                    var spacingResult = Method<SetLineSpacing>(layout, 10)(layout, 1, effectiveHeight, baseline);
-                    if (lineSpacingConfiguration != null)
-                    {
-                        lineSpacingConfiguration["set_line_spacing_hresult"] = spacingResult;
-                        lineSpacingConfiguration["applied_height"] = effectiveHeight;
-                        lineSpacingConfiguration["applied_baseline"] = baseline;
-                    }
-                    Check(spacingResult);
-                    resolvedLineHeight = effectiveHeight;
-                }
-                if (characterEllipsis) trimmingSign = ApplyCharacterEllipsis(factory, layout);
-                layoutWidth = width; layoutHeight = Math.Max(height, 1000); layoutRevision++; InvalidateDraw();
-            }
-            catch
-            {
-                Release(ref layout); Release(ref trimmingSign); Release(ref format); fallbackConfiguration = null;
-                layoutWidth = layoutHeight = -1; throw;
-            }
+            StartPreparation(width, height);
+            if (preparationError != null) throw new InvalidOperationException("Native label layout preparation failed", preparationError);
+            return false;
         }
+        // Only a fully shaped layout reaches this branch. The worker no longer
+        // accesses it; subsequent width/height mutations belong solely to UI.
         if (layoutWidth != width) { Check(Method<SetFloat>(layout, 28)(layout, width)); layoutWidth = width; layoutRevision++; InvalidateDraw(); }
         if (layoutHeight != height) { Check(Method<SetFloat>(layout, 29)(layout, height)); layoutHeight = height; layoutRevision++; InvalidateDraw(); }
+        return true;
     }
-    private LineMetrics[] ReadLines()
-    {
-        var first = Method<GetArray>(layout, 59)(layout, IntPtr.Zero, 0, out var count);
-        if (first < 0 && first != unchecked((int)0x8007007A)) Check(first);
-        if (count == 0) return Array.Empty<LineMetrics>();
-        var pointer = Marshal.AllocHGlobal(checked((int)count * Marshal.SizeOf<LineMetrics>()));
-        try
-        {
-            Check(Method<GetArray>(layout, 59)(layout, pointer, count, out var actual)); var result = new LineMetrics[actual];
-            for (var i = 0; i < result.Length; i++) result[i] = Marshal.PtrToStructure<LineMetrics>(pointer + i * Marshal.SizeOf<LineMetrics>());
-            return result;
-        }
-        finally { Marshal.FreeHGlobal(pointer); }
-    }
+    private LineMetrics[] ReadLines() => NativeLabelPreparation.ReadLines(layout);
     private JsonArray ReadHitTestBounds()
     {
         var result = new JsonArray(); if (text.Length == 0) return result;
@@ -496,7 +489,15 @@ public sealed class NativeLabel : Panel
         using var timing = PerformanceTrace.Measure("NativeLabel.measure");
         try
         {
-            EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), wrapWholeWords ? 1000000 : lineHeight);
+            if (!EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), wrapWholeWords ? 1000000 : lineHeight))
+            {
+                // Reserve a small text-shaped box without invoking another
+                // font engine. Actual DirectWrite metrics replace it on handoff.
+                var estimatedWidth = text.Length * (double)fontSize * .55;
+                if (double.IsFinite(availableSize.Width)) estimatedWidth = Math.Min(estimatedWidth, Math.Max(0, availableSize.Width));
+                var placeholder = new LayoutSize(estimatedWidth, lineHeight);
+                image.Measure(placeholder); return placeholder;
+            }
             Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics));
             var desiredWidth = (double)metrics.WidthIncludingTrailingWhitespace;
             if (characterEllipsis && double.IsFinite(availableSize.Width)) desiredWidth = Math.Min(desiredWidth, Math.Max(0, availableSize.Width));
@@ -560,7 +561,7 @@ public sealed class NativeLabel : Panel
             if (!ReferenceEquals(foreground, (Foreground ?? presenter?.Foreground) as SolidColorBrush)) ObserveForeground();
             if (foreground == null) throw new NotSupportedException("NativeLabel requires an actual explicit or ContentPresenter SolidColorBrush foreground; " + ObserveForegroundBinding().ToJsonString());
             scale = XamlRoot?.RasterizationScale ?? 1;
-            EnsureLayout((float)arrangedWidth, (float)arrangedHeight);
+            if (!EnsureLayout((float)arrangedWidth, (float)arrangedHeight)) return;
             EnsureSurface(checked((int)Math.Ceiling(arrangedWidth * scale)), checked((int)Math.Ceiling(arrangedHeight * scale)));
             var update = new NativeLabelInterop.Rect { Right = pixelWidth, Bottom = pixelHeight }; var iid = DeviceContext;
             NativeLabelInterop.Point offset;

@@ -282,16 +282,28 @@ internal static class NativeLabelInterop
     }
 }
 
+// DirectWrite format/layout objects are device independent. This factory has
+// no XAML, D2D, DXGI or D3D state and can be acquired by a shaping worker.
+// A mutable layout has one owner at a time: worker until handoff, then UI.
+internal static class NativeWriteFactory
+{
+    private static readonly Lazy<IntPtr> shared = new(() =>
+    {
+        var factoryId = new Guid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48");
+        NativeLabelInterop.Check(NativeLabelInterop.DWriteCreateFactory(0, ref factoryId, out var factory));
+        return factory;
+    }, LazyThreadSafetyMode.ExecutionAndPublication);
+    internal static IntPtr Shared => shared.Value;
+}
+
 internal sealed class NativeLabelDevice
 {
     internal static NativeLabelDevice Shared { get; } = new();
-    internal IntPtr WriteFactory { get; }
+    internal IntPtr WriteFactory => NativeWriteFactory.Shared;
     internal IntPtr Device { get; }
     internal string Driver { get; }
     private NativeLabelDevice()
     {
-        var factoryId = new Guid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48");
-        NativeLabelInterop.Check(NativeLabelInterop.DWriteCreateFactory(0, ref factoryId, out var factory));
         IntPtr d3d = IntPtr.Zero, context = IntPtr.Zero, dxgi = IntPtr.Zero, d2d = IntPtr.Zero;
         try
         {
@@ -305,9 +317,9 @@ internal sealed class NativeLabelDevice
             NativeLabelInterop.Check(hr);
             dxgi = NativeLabelInterop.Query(d3d, new Guid("54ec77fa-1377-44e6-8c32-88fd5f44c84c"));
             NativeLabelInterop.Check(NativeLabelInterop.D2D1CreateDevice(dxgi, IntPtr.Zero, out d2d));
-            WriteFactory = factory; Device = d2d;
+            Device = d2d;
         }
-        catch { NativeLabelInterop.Release(ref factory); NativeLabelInterop.Release(ref d2d); throw; }
+        catch { NativeLabelInterop.Release(ref d2d); throw; }
         finally { NativeLabelInterop.Release(ref dxgi); NativeLabelInterop.Release(ref context); NativeLabelInterop.Release(ref d3d); }
         // The shared native factories/devices intentionally live for the process.
         // Per-label layouts, brushes, contexts and surface references are released.

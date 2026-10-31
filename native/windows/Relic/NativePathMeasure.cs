@@ -38,7 +38,7 @@ internal static class NativePathMeasure
         IntPtr format = IntPtr.Zero, layout = IntPtr.Zero;
         try
         {
-            var factory = NativeLabelDevice.Shared.WriteFactory;
+            var factory = NativeWriteFactory.Shared;
             Check(Method<CreateFormat>(factory, 15)(factory, families.Split(',')[0].Trim().Trim('"'), IntPtr.Zero,
                 weight, 0, 5, checked((float)size), locale, out format));
             // A banner obtains both intrinsic widths from this same production

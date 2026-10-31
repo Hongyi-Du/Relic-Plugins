@@ -144,6 +144,27 @@ struct Symbols {
     ~Symbols() { SymCleanup(process); }
 };
 
+std::string FrameProblem(HANDLE process, const Snapshot& snapshot, DWORD64 ip, DWORD64 sp, DWORD64 previousSp = 0) {
+    if (sp % sizeof(DWORD64)) return "unaligned stack pointer";
+    if (sp < snapshot.stackStart || sp - snapshot.stackStart >= snapshot.copied)
+        return "stack pointer outside captured stack";
+    if (previousSp && sp <= previousSp) return "stack pointer did not advance";
+    MEMORY_BASIC_INFORMATION memory{};
+    if (!VirtualQueryEx(process, reinterpret_cast<LPCVOID>(ip), &memory, sizeof(memory)))
+        return "instruction pointer query failed: Win32 error " + std::to_string(GetLastError());
+    if (memory.State != MEM_COMMIT) return "instruction pointer is not committed memory";
+    if (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) return "instruction pointer is guarded or inaccessible";
+    constexpr DWORD executable = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    if (!(memory.Protect & executable)) return "instruction pointer is not executable memory";
+    return {};
+}
+
+void EmitRejected(DWORD64 ip, DWORD64 sp, const std::string& reason) {
+    // A rejected candidate is evidence of the unwind boundary, never a frame.
+    std::cout << "{\"kind\":\"native_unwind_rejected\",\"ip\":" << Quote(Hex(ip))
+        << ",\"sp\":" << Quote(Hex(sp)) << ",\"reason\":" << Quote(reason) << "}\n" << std::flush;
+}
+
 void EmitFrame(HANDLE process, size_t index, DWORD64 ip, DWORD64 sp, bool resolve) {
     IMAGEHLP_MODULE64 module{}; module.SizeOfStruct = sizeof(module);
     const bool hasModule = resolve && SymGetModuleInfo64(process, ip, &module) != FALSE;
@@ -159,6 +180,7 @@ void EmitFrame(HANDLE process, size_t index, DWORD64 ip, DWORD64 sp, bool resolv
         << ",\"symbol\":" << Quote(hasSymbol ? std::string(symbol->Name, symbol->NameLen) : "")
         << ",\"symbol_displacement\":" << Quote(hasSymbol ? Hex(displacement) : "")
         << ",\"lookup_skipped\":" << (resolve ? "false" : "true")
+        << ",\"validation\":\"executable PC and captured stack pointer\""
         << ",\"symbol_source\":\"local symbols or exports only\"}\n" << std::flush;
 }
 
@@ -215,9 +237,13 @@ int Capture(DWORD pid) {
     frame.AddrPC.Offset = context.Rip; frame.AddrPC.Mode = AddrModeFlat;
     frame.AddrStack.Offset = context.Rsp; frame.AddrStack.Mode = AddrModeFlat;
     frame.AddrFrame.Offset = context.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
-    std::vector<std::pair<DWORD64, DWORD64>> frames{{context.Rip, context.Rsp}};
-    std::string stop = "frame limit";
-    for (size_t step = 0; step < FrameLimit; ++step) {
+    std::vector<std::pair<DWORD64, DWORD64>> frames;
+    std::string stop = FrameProblem(process.value, snapshot, context.Rip, context.Rsp);
+    if (stop.empty()) {
+        frames.emplace_back(context.Rip, context.Rsp);
+        stop = "frame limit";
+    } else EmitRejected(context.Rip, context.Rsp, stop);
+    for (size_t step = 0; !frames.empty() && step < FrameLimit; ++step) {
         if (GetTickCount64() - resumed >= WalkBudgetMs) { stop = "unwind time limit"; break; }
         if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process.value, thread.value, &frame, &context,
                          ReadSnapshot, SymFunctionTableAccess64, SymGetModuleBase64, nullptr)) {
@@ -228,6 +254,10 @@ int Capture(DWORD pid) {
         if (next == frames.back()) {
             if (step == 0) continue;
             stop = "repeated frame"; break;
+        }
+        const auto problem = FrameProblem(process.value, snapshot, next.first, next.second, frames.back().second);
+        if (!problem.empty()) {
+            stop = problem; EmitRejected(next.first, next.second, problem); break;
         }
         frames.push_back(next);
         if (frames.size() >= FrameLimit) break;

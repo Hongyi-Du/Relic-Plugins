@@ -1,5 +1,25 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Cold-font follow-up: normal 39c15ee passes again in CI 41173632395 (111.980 ms,
+426.465 MiB, 38 threads; 175 exhaustive + 155 random actions over 180.657 s).
+However diagnostic 41173632429 captures a real 429.177 ms first
+NativeLabel.DirectWrite.GetLineMetrics on the UI thread, with matching native
+ucrtbase/DWrite frames; the helper reports 0 ms suspension. This remaining cold
+path cannot be dismissed by the normal pass. Initial NativeLabel layout and
+NativePath source/strut shaping now use one bounded background DirectWrite
+worker. The exact prepared layout transfers to UI; XAML/D2D/surface drawing
+stays on UI, pending lines do not invoke a cold TextBlock fallback, and captures
+wait for NativeLabel.PendingPreparations as well as Markdown/rows/paragraphs.
+CI regressions compare actual Unicode metrics, baseline/wrapping/ellipsis,
+cancellation disposal and queue serialization. Local headless app and test
+project compilation passed; new runtime and visual evidence is still required.
+
+Diagnostic validity follow-up: the first native sampler crossed a JIT boundary
+and returned non-executable addresses after the valid DWrite frames. The original
+artifact is retained unchanged. New captures stop at an invalid instruction page
+or out-of-snapshot/non-advancing stack pointer, label the unwind incomplete, and
+record rejected addresses separately rather than asserting them as native frames.
+
 Latest Windows result: **02b5940 / CI 41172820210 passes** the full normal
 pressure run: 175 exhaustive actions, 129 observed random clicks over 180.725 s,
 maximum UI delay **83.942 ms**, peak RSS **453.398 MiB**, peak threads **38**.

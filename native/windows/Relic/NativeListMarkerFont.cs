@@ -23,7 +23,7 @@ internal static class NativeListMarkerFont
         var lookups = new JsonArray();
         try
         {
-            var factory = NativeLabelDevice.Shared.WriteFactory;
+            var factory = NativeWriteFactory.Shared;
             Check(Method<GetCollection>(factory, 3)(factory, out collection, 0));
             string? selected = null;
             foreach (var candidate in familyList.Split(',').Select(value => value.Trim().Trim('"')))

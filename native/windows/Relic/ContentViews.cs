@@ -20,11 +20,12 @@ public sealed partial class MainWindow
         var timeout = System.Diagnostics.Stopwatch.StartNew(); var quiet = 0;
         while (quiet < 2)
         {
-            if (timeout.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException($"Visible content did not finish rendering (Markdown={PendingMarkdown}, rows={VirtualRows.PendingBuilds}, text={NativePathText.PendingPreparations})");
+            if (timeout.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException($"Visible content did not finish rendering (Markdown={PendingMarkdown}, rows={VirtualRows.PendingBuilds}, text={NativePathText.PendingPreparations}, labels={NativeLabel.PendingPreparations})");
             var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
             await yield.Task; await Task.Delay(16);
-            quiet = PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativePathText.PendingPreparations == 0 ? quiet + 1 : 0;
+            quiet = PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativePathText.PendingPreparations == 0
+                && NativeLabel.PendingPreparations == 0 ? quiet + 1 : 0;
         }
     }
     private RichTextBlock? selectedRich;

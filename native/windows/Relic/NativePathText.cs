@@ -51,6 +51,7 @@ public sealed partial class NativePathText : UserControl
     private string? bannerIntrinsicFailure;
     private JsonObject? bannerIntrinsicEvidence, bannerAllocationEvidence;
     private long layoutRevision;
+    private bool lineGeometryDirty;
     internal string SourceText { get; }
     internal IReadOnlyList<PaintedLine> PaintedLines => lines;
     internal int SelectionStart => Math.Min(anchor, caret);
@@ -67,36 +68,50 @@ public sealed partial class NativePathText : UserControl
 
     private void EnsureSourceMeasurement()
     {
-        if (boundaryPreparationError != null) throw new InvalidOperationException("System ICU preparation failed", boundaryPreparationError);
-        if (boundaries == null || paintBoundaries == null) throw new InvalidOperationException("System ICU preparation is pending");
-        measured ??= NativePathMeasure.Shape(sourceMap.Paint, textStyle.Family, textStyle.Size, textStyle.Weight, locale,
-            measureIntrinsicWidths: textStyle.Kind == "banner");
+        if (boundaryPreparationError != null) throw new InvalidOperationException("Native text preparation failed", boundaryPreparationError);
+        if (boundaries == null || paintBoundaries == null || measured == null)
+            throw new InvalidOperationException("Native text preparation is pending");
     }
 
     private void PrepareBoundaries()
     {
-        if (boundaries != null || boundaryPreparation != null || boundaryPreparationError != null) return;
+        if ((boundaries != null && measured != null) || boundaryPreparation != null || boundaryPreparationError != null) return;
         var cancellation = boundaryPreparation = new CancellationTokenSource();
+        var dispatcher = DispatcherQueue;
+        var style = textStyle;
+        var original = SourceText; var painted = sourceMap.Paint; var language = locale;
+        var retainedSource = boundaries; var retainedPaint = paintBoundaries;
         Interlocked.Increment(ref pendingPreparations);
         _ = Prepare();
         async Task Prepare()
         {
             NativePathBoundaries? source = null, paint = null;
+            NativePathMeasurement? sourceMeasurement = null, strutMeasurement = null;
             Exception? error = null;
             try
             {
-                source = await NativePathIcu.ReadAsync(SourceText, locale, cancellation.Token).ConfigureAwait(false);
-                paint = sourceMap.Paint == SourceText ? source
-                    : await NativePathIcu.ReadAsync(sourceMap.Paint, locale, cancellation.Token).ConfigureAwait(false);
+                source = retainedSource ?? await NativePathIcu.ReadAsync(original, language, cancellation.Token).ConfigureAwait(false);
+                paint = retainedPaint ?? (painted == original ? source
+                    : await NativePathIcu.ReadAsync(painted, language, cancellation.Token).ConfigureAwait(false));
+                (sourceMeasurement, strutMeasurement) = await NativeLabelPreparation.RunAsync(token =>
+                {
+                    var shape = NativePathMeasure.Shape(painted, style.Family, style.Size, style.Weight, language,
+                        measureIntrinsicWidths: style.Kind == "banner");
+                    token.ThrowIfCancellationRequested();
+                    var strutShape = style.StrutFamily == null ? null
+                        : NativePathMeasure.Shape("", style.StrutFamily, style.StrutSize, 400, language);
+                    return (shape, strutShape);
+                }, cancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             catch (Exception failure) { error = failure; }
-            if (!DispatcherQueue.TryEnqueue(() =>
+            if (!dispatcher.TryEnqueue(() =>
             {
                 boundaryPreparation = null;
                 if (!cancellation.IsCancellationRequested)
                 {
                     boundaries = source; paintBoundaries = paint; boundaryPreparationError = error;
+                    measured = sourceMeasurement; strut = strutMeasurement;
                     measuredWidth = double.NaN; bannerIntrinsic = null; bannerIntrinsicFailure = null;
                     body.InvalidateMeasure(); InvalidateMeasure();
                 }
@@ -114,7 +129,7 @@ public sealed partial class NativePathText : UserControl
     internal bool TryGetBannerIntrinsic(out NativeBannerFlex.Intrinsic intrinsic)
     {
         if (textStyle.Kind != "banner") throw new InvalidOperationException("Only a banner participates in this flex layout");
-        if (boundaries == null && boundaryPreparationError == null) { intrinsic = default; return false; }
+        if ((boundaries == null || measured == null) && boundaryPreparationError == null) { PrepareBoundaries(); intrinsic = default; return false; }
         if (bannerIntrinsic is { } cached) { intrinsic = cached; return true; }
         if (bannerIntrinsicFailure != null) { intrinsic = default; return false; }
         try
@@ -192,7 +207,7 @@ public sealed partial class NativePathText : UserControl
         menu.Opening += (_, _) => copy.IsEnabled = SelectionEnd > SelectionStart;
         menu.Items.Add(copy); menu.Items.Add(all); ContextFlyout = menu;
         RefreshTextScale();
-        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); PrepareBoundaries(); };
+        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); PrepareBoundaries(); lineGeometryDirty = true; body.InvalidateMeasure(); };
         Unloaded += (_, _) => { textSettings.TextScaleFactorChanged -= TextScaleChanged; boundaryPreparation?.Cancel(); };
         PrepareBoundaries();
     }
@@ -207,6 +222,7 @@ public sealed partial class NativePathText : UserControl
         textStyle = baseTextStyle with { Size = baseTextStyle.Size * value, LineHeight = baseTextStyle.LineHeight * value,
             StrutSize = baseTextStyle.StrutSize * value, StrutLineHeight = baseTextStyle.StrutLineHeight * value };
         measured = strut = null; measuredWidth = double.NaN;
+        boundaryPreparation?.Cancel(); boundaryPreparationError = null;
         bannerIntrinsic = null; bannerIntrinsicFailure = null;
         body.InvalidateMeasure(); InvalidateMeasure();
     }
@@ -280,31 +296,84 @@ public sealed partial class NativePathText : UserControl
         finally { NativeLabelInterop.Release(ref pointer); }
     }
 
+    private void LineLayoutPrepared()
+    {
+        lineGeometryDirty = true;
+        body.InvalidateMeasure(); InvalidateMeasure();
+    }
+
+    private void ClearLines()
+    {
+        foreach (var line in lines)
+        {
+            line.Label.LayoutPrepared -= LineLayoutPrepared;
+            line.Label.DisposePathLine();
+        }
+        body.Children.Clear(); lines.Clear(); selectionPaint.Clear();
+    }
+
     private void Reflow(double width)
     {
         width = double.IsFinite(width) ? Math.Max(0, width) : double.MaxValue;
-        if (width == measuredWidth) return;
+        if (width == measuredWidth && !lineGeometryDirty) return;
+        var rebuild = width != measuredWidth;
         measuredWidth = width; layoutRevision++;
-        foreach (var line in lines) line.Label.DisposePathLine();
-        body.Children.Clear(); lines.Clear(); selectionPaint.Clear(); fallback = null; failure = null;
+        lineGeometryDirty = false;
+        if (rebuild) ClearLines();
+        fallback = null; failure = null;
+        if ((boundaries == null || paintBoundaries == null || measured == null) && boundaryPreparationError == null)
+        {
+            // Pending ICU/font work is not a rendering failure. Do not invoke
+            // the synchronous TextBlock font path while the real layout waits.
+            PrepareBoundaries(); ClearLines(); measuredWidth = double.NaN;
+            desiredWidth = Math.Min(width, sourceMap.Paint.Length * textStyle.Size * .55);
+            desiredHeight = textStyle.StrutFamily != null ? textStyle.StrutLineHeight : textStyle.LineHeight;
+            layoutEvidence = null; ContextFlyout = null; return;
+        }
         try
         {
             if (bannerIntrinsicFailure != null) throw new InvalidOperationException(bannerIntrinsicFailure);
             EnsureSourceMeasurement();
-            if (textStyle.StrutFamily != null)
-                strut ??= NativePathMeasure.Shape("", textStyle.StrutFamily, textStyle.StrutSize, 400, locale);
             var chosen = textStyle.NormalWhitespace
                 ? NativeSelectableTextLayout.NoticeLines(sourceMap.Paint, measured!.Clusters, paintBoundaries!.Lines, paintBoundaries.Characters, width)
                 : NativePathLineBreaks.Select(SourceText.Length, measured!.Clusters, boundaries!.Lines, boundaries.Characters, width)
                     .Select(line => new NativeSelectableTextLayout.Line(line.Start, line.End, line.Emergency)).ToArray();
+            if (lines.Count != chosen.Count) ClearLines();
+            if (lines.Count == 0)
+            {
+                foreach (var segment in chosen)
+                {
+                    var label = new NativeLabel(sourceMap.Paint[segment.Start..segment.End], textStyle.Family,
+                        textStyle.Size, textStyle.Weight, locale, textStyle.LineHeight, scaleText: false)
+                    { Foreground = Foreground, IsHitTestVisible = false };
+                    label.LayoutPrepared += LineLayoutPrepared;
+                    body.Children.Add(label);
+                    lines.Add(new PaintedLine(sourceMap.SourceStart(segment.Start), sourceMap.SourceEnd(segment.End),
+                        segment.Start, segment.End, segment.Emergency, label, 0, textStyle.LineHeight));
+                }
+            }
+            foreach (var line in lines)
+                line.Label.Measure(new Size(textStyle.NormalWhitespace ? double.PositiveInfinity : width, double.PositiveInfinity));
+            var preparationError = lines.Select(line => line.Label.LayoutPreparationError).FirstOrDefault(error => error != null);
+            if (preparationError != null) throw new InvalidOperationException("Actual path line preparation failed", preparationError);
+            if (lines.Any(line => !line.Label.IsLayoutPrepared))
+            {
+                desiredWidth = desiredHeight = 0;
+                for (var index = 0; index < lines.Count; index++)
+                {
+                    var line = lines[index];
+                    lines[index] = line with { Y = desiredHeight, Height = line.Label.DesiredSize.Height };
+                    desiredHeight += line.Label.DesiredSize.Height;
+                    desiredWidth = Math.Max(desiredWidth, line.Label.DesiredSize.Width);
+                }
+                if (textStyle.NormalWhitespace) desiredWidth = Math.Min(desiredWidth, width);
+                lineGeometryDirty = true; layoutEvidence = null; ContextFlyout = null; return;
+            }
             var parentAscent = strut != null ? strut.Baseline + (textStyle.StrutLineHeight - strut.NaturalHeight) / 2 : 0;
             desiredWidth = desiredHeight = 0; var receiptLines = new JsonArray();
-            foreach (var segment in chosen)
+            for (var index = 0; index < chosen.Count; index++)
             {
-                var label = new NativeLabel(sourceMap.Paint[segment.Start..segment.End], textStyle.Family,
-                    textStyle.Size, textStyle.Weight, locale, textStyle.LineHeight, scaleText: false)
-                { Foreground = Foreground, IsHitTestVisible = false };
-                body.Children.Add(label); label.Measure(new Size(textStyle.NormalWhitespace ? double.PositiveInfinity : width, double.PositiveInfinity));
+                var segment = chosen[index]; var label = lines[index].Label;
                 var baseline = label.FirstBaseline;
                 if (!double.IsFinite(baseline) || baseline <= 0) throw new InvalidOperationException("Actual path line has no measured baseline");
                 var (ascent, descent) = strut != null
@@ -312,7 +381,7 @@ public sealed partial class NativePathText : UserControl
                     : (baseline, label.DesiredSize.Height - baseline);
                 var height = ascent + descent; var y = desiredHeight + ascent - baseline;
                 var sourceStart = sourceMap.SourceStart(segment.Start); var sourceEnd = sourceMap.SourceEnd(segment.End);
-                lines.Add(new PaintedLine(sourceStart, sourceEnd, segment.Start, segment.End, segment.Emergency, label, y, height));
+                lines[index] = new PaintedLine(sourceStart, sourceEnd, segment.Start, segment.End, segment.Emergency, label, y, height);
                 if (NativeLabelInterop.CaptureDiagnostics) receiptLines.Add(new JsonObject { ["start_utf16"] = sourceStart, ["end_utf16"] = sourceEnd,
                     ["source_text"] = SourceText[sourceStart..sourceEnd], ["paint_text"] = label.Text,
                     ["paint_start_utf16"] = segment.Start, ["paint_end_utf16"] = segment.End,
@@ -338,8 +407,7 @@ public sealed partial class NativePathText : UserControl
             // Preserve readable/selectable production content if this OS lacks
             // ICU or a supported measurable layout; the receipt retains failure.
             failure = error.ToString(); layoutEvidence = null;
-            foreach (var line in body.Children.OfType<NativeLabel>()) line.DisposePathLine();
-            lines.Clear(); selectionPaint.Clear(); body.Children.Clear(); ContextFlyout = null;
+            ClearLines(); ContextFlyout = null;
             fallback = new TextBlock { FontFamily = new FontFamily(textStyle.StrutFamily ?? textStyle.Family),
                 FontSize = textStyle.StrutFamily != null ? textStyle.StrutSize : textStyle.Size,
                 LineHeight = textStyle.StrutFamily != null ? textStyle.StrutLineHeight : textStyle.LineHeight,
@@ -372,7 +440,7 @@ public sealed partial class NativePathText : UserControl
 
     internal int PositionAt(Point point)
     {
-        if (lines.Count == 0) return 0;
+        if (lines.Count == 0 || lines.Any(line => !line.Label.IsLayoutPrepared)) return 0;
         var line = lines.MinBy(line => point.Y < line.Y ? line.Y - point.Y : Math.Max(0, point.Y - line.Y - line.Label.DesiredSize.Height))!;
         var paintPosition = line.PaintStart + line.Label.PathPositionAt(
             NativeSelectableTextLayout.LocalX(point.X, line.X), point.Y - line.Y);
@@ -384,6 +452,7 @@ public sealed partial class NativePathText : UserControl
         var painted = sourceMap.PaintRange(start, end);
         foreach (var line in lines)
         {
+            if (!line.Label.IsLayoutPrepared) continue;
             var first = Math.Max(painted.Start, line.PaintStart); var last = Math.Min(painted.End, line.PaintEnd);
             if (first >= last) continue;
             foreach (var rectangle in line.Label.PathRangeRectangles(first - line.PaintStart, last - line.PaintStart))
@@ -430,7 +499,7 @@ public sealed partial class NativePathText : UserControl
     }
     private void Key(object sender, KeyRoutedEventArgs e)
     {
-        if (boundaries == null || fallback != null) return;
+        if (boundaries == null || fallback != null || lines.Any(line => !line.Label.IsLayoutPrepared)) return;
         var control = Down(VirtualKey.Control); var shift = Down(VirtualKey.Shift); var next = caret;
         if (control && e.Key == VirtualKey.C) { Copy(); e.Handled = true; return; }
         if (control && e.Key == VirtualKey.A) { SetSelection(0, SourceText.Length); e.Handled = true; return; }

@@ -28,7 +28,20 @@ Stdout is JSON Lines: `native_snapshot` records the PID, UI thread, window,
 actual suspend duration, copied bytes, truncation and confirmed resumption;
 `native_frame` records instruction/stack pointers and optional local lookup;
 `native_summary` records completeness, stop reason and duration. The walker
-has 96-frame and two-second soft limits. All collected raw addresses are
+validates the initial PC and every prospective frame with `VirtualQueryEx`:
+the PC must be in `MEM_COMMIT` memory with a `PAGE_EXECUTE*` protection and
+without `PAGE_GUARD` or `PAGE_NOACCESS`. Each SP must be eight-byte aligned,
+inside the actual captured stack bytes, and advance beyond the previous SP.
+The first StackWalk64 result may repeat the already-validated initial frame;
+it is skipped, not counted twice. Any invalid candidate stops unwinding with
+`complete:false` and an explicit reason. Its IP/SP appear only in a separate
+`native_unwind_rejected` record, never as `native_frame`. This prevents heap
+values and small integers encountered after missing JIT unwind data from
+becoming spurious native frames. Executable-address validation is a necessary
+sanity check, not a substitute for managed unwind metadata or proof that an
+entire cross-JIT stack is complete.
+
+The walker has 96-frame and two-second soft limits. All accepted raw addresses are
 emitted even if symbol lookup runs out of time. Incomplete contiguous stacks,
 unavailable unwind data, JIT frames and repeated frames are not presented as a
 complete call stack. The outer diagnostic driver imposes the five-second hard
@@ -46,3 +59,4 @@ SDK contracts used:
 - [SymInitializeW local search path](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-syminitializew)
 - [SymSetOptions](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-symsetoptions)
 - [CBA_READ_MEMORY callback](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nc-dbghelp-psymbol_registered_callback64)
+- [VirtualQueryEx page state and protection](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualqueryex)
