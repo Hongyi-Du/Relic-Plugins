@@ -165,11 +165,12 @@ public sealed partial class MainWindow : Window
                 try { AppNotificationManager.Default.Register(); }
                 catch { notificationsAvailable = false; Note(T("settings.notify_unsupported")); }
                 VisualStartup("loading organization and conversation");
-                ApplyAppearance(); DrawMenu(); await Refresh();
+                ApplyAppearance(); DrawMenu(); StartPerformanceProbe(); await Refresh();
                 // The successfully opened startup conversation is the first
                 // navigation entry, so the first later selection can go back.
                 if (org.Length > 0) PushHistory();
                 if (VisualCaptureEnabled) { _ = CaptureVisuals(); return; }
+                if (PerformanceEnabled) _ = RunPerformanceScenario();
                 _ = api.Events(ev =>
                 {
                     DispatcherQueue.TryEnqueue(async () =>
