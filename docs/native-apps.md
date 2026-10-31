@@ -1,5 +1,11 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients (shared REQUESTS.md 5f753ff): the scene-selection
+refactor moved a CLI assignment into a validated helper, so the old AST-only
+contract lookup raised StopIteration. The test now follows the actual CLI call,
+checks its default `all` argument and original full/smoke selection expression;
+all existing 672-case assertions stay mandatory. No contract is made optional.
+
 062dcba removes that instrumentation crash: normal Windows pressure 41176785566
 completes 175 fixed + 111 random actions over 181.402 s, maximum 192.263 ms,
 426.598 MiB and 38 threads, errors empty. Diagnostic-only 41176785876 completes

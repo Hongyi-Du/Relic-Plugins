@@ -637,10 +637,19 @@ class MatrixReportTests(unittest.TestCase):
         # process/browser entry point. Both producers must retain the old order.
         capture_source = ast.parse((Path(__file__).parent / "capture.py").read_text(encoding="utf-8"))
         capture_main = next(node for node in capture_source.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-        capture_scenes = next(node.value for node in capture_main.body if isinstance(node, ast.Assign)
+        capture_call = next(node.value for node in ast.walk(capture_main) if isinstance(node, ast.Assign)
                               and any(isinstance(target, ast.Name) and target.id == "scenes" for target in node.targets))
-        self.assertIsInstance(capture_scenes, ast.IfExp)
-        self.assertEqual(ast.literal_eval(capture_scenes.orelse), list(smoke_scenes))
+        self.assertIsInstance(capture_call, ast.Call)
+        self.assertEqual(capture_call.func.id, "capture_scenes")
+        self.assertEqual([ast.unparse(argument) for argument in capture_call.args],
+                         ["spec", "args.matrix", "args.diagnostic_scene"])
+        capture_selector = next(node for node in capture_source.body
+                                if isinstance(node, ast.FunctionDef) and node.name == "capture_scenes")
+        self.assertEqual(ast.literal_eval(capture_selector.args.defaults[-1]), "all")
+        capture_selection = next(node.value for node in capture_selector.body if isinstance(node, ast.Return))
+        self.assertIsInstance(capture_selection, ast.IfExp)
+        self.assertEqual(ast.literal_eval(capture_selection.orelse), list(smoke_scenes))
+        self.assertEqual(ast.unparse(capture_selection.body), "spec['scenes']")
 
     def test_missing_native_capture_writes_failure_report_and_html(self):
         spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
