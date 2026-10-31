@@ -1,6 +1,20 @@
 import SwiftUI
 import RelicCore
 
+/// Opening a dialog must not republish the entire conversation and organization
+/// model. Only this overlay subscribes to presentation changes; the live data
+/// underneath keeps its existing native views and scroll position.
+@MainActor final class DialogPresentation: ObservableObject {
+    @Published var sheet: Model.Sheet?
+}
+
+struct DialogPresentationLayer: View {
+    @ObservedObject var presentation: DialogPresentation
+    var body: some View {
+        if let sheet = presentation.sheet { DialogLayer(sheet: sheet) }
+    }
+}
+
 // These are production window-relative layouts, shared by pointer/keyboard
 // invocation and CI. The native content remains in the application's NSWindow.
 struct DialogLayer: View {

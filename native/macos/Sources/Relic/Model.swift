@@ -59,7 +59,19 @@ import RelicCore
     weak var mentionEditor: ComposerTextView?
     @Published var recipientAnchor = CGRect.zero
     @Published var appMenu: String?
-    @Published var sheet: Sheet?
+    let dialogPresentation = DialogPresentation()
+    var sheet: Sheet? {
+        get { dialogPresentation.sheet }
+        set {
+            guard newValue != dialogPresentation.sheet else { return }
+            activeSpeech?.stop()
+            if newValue != nil {
+                if recipientPicker { recipientPicker = false }
+                mentionEditor?.closeMentions()
+            }
+            dialogPresentation.sheet = newValue
+        }
+    }
     @Published var folded: Set<String> = []
     @Published var history = NavigationHistory()
     @Published var recent: [ChatSelection] = []
