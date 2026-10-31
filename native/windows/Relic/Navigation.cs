@@ -23,7 +23,9 @@ public sealed partial class MainWindow
     private int historyIndex = -1;
     private readonly Dictionary<string, string> seenMessages = new();
     private JsonObject chatStates = new();
-    private string StatePath => VisualCaptureEnabled
+    private string StatePath => PerformanceEnabled
+        ? System.IO.Path.Combine(Environment.GetEnvironmentVariable("RELIC_PERF_OUTPUT")!, "state", "native-ui.json")
+        : VisualCaptureEnabled
         ? System.IO.Path.Combine(Environment.GetEnvironmentVariable("RELIC_VISUAL_STATE_DIR") is { Length: > 0 } directory ? directory
             : System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!, "state"), "native-ui.json")
         : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Relic", "native-ui.json");

@@ -1,4 +1,27 @@
-# Current delivery policy — Amendments 5 and 6
+# Current delivery policy — Amendment 7 responsiveness
+
+The installed 1e1fc14 hung with real large data. Native responsiveness is now a
+required gate before PR #4 can merge. The shared CI harness is being added at
+`scripts/performance/`; its fixture is synthetic and never copies personal data.
+Changes for the clients: `RELIC_PERF_MANIFEST` selects a CI-only performance run,
+separate from `RELIC_VISUAL_MANIFEST` (which deliberately enables costly visual
+diagnostics). `RELIC_PERF_OUTPUT` is an isolated state/report directory; the driver
+supplies a private `RELIC_HOME`. The manifest carries `fixture` with actual server
+port/token/home and `orgs:[{id,members:[name],group_messages}]`, `seconds:180`,
+`seed:1729`, `max_ui_stall_ms:250`, and `output`. See the shared harness README
+for ready/heartbeat/completion schemas. Start background UI dispatch probes
+after framework initialization but before the initial organization load. A
+blocked UI must not block heartbeat/failure recording. Exercise every group and
+private chat, panes, dialogs, menus, breakpoint resizing, earlier history and a
+seeded three-minute interaction loop. No local application launches are allowed.
+
+Reference contract correction: app.js currently requests 1000 messages per
+group/private page (lines 519/524), not 50. Both native clients retain that API
+page size and use viewport virtualization to avoid constructing that many visual
+trees. History uses the server's existing `before` cursor. The observed hang has
+no surviving dump, so production thread-growth causes are not yet established.
+
+# Previous delivery policy — Amendments 5 and 6
 
 Changes for the clients (2026-10-31, adaptive window placement): Windows stores
 normal bounds in DIPs relative to a monitor work area, separately from maximized
