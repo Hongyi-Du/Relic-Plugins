@@ -23,6 +23,11 @@ internal sealed class VirtualRows : Grid
     private readonly RowFactory factory = new();
     private int revision, committed = -1;
     private bool commitQueued;
+    private sealed record BringRequest(int Revision, int Index, FrameworkElement Element,
+        double Alignment, double Offset, Func<bool>? IsCurrent, long AfterArrange);
+    private BringRequest? pendingBring;
+    private long arrangeRevision;
+    private bool bringQueued;
     internal VirtualRows()
     {
         Children = new(() =>
@@ -34,29 +39,59 @@ internal sealed class VirtualRows : Grid
         });
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
+        Unloaded += (_, _) => pendingBring = null;
     }
     internal void Commit()
     {
         if (committed == revision) return;
         using var timing = PerformanceTrace.Measure("rows.commit");
         committed = revision;
+        pendingBring = null;
         repeater.ItemsSource = Children.ToArray();
     }
-    internal void BringLastIntoView()
+    internal void BringLastIntoView(Func<bool>? isCurrent = null)
     {
         // Align the last row above the content's real bottom padding. Let the
         // ScrollViewer's bottom anchor preserve it as deferred rows settle;
         // repeated ChangeView(maximum) fights virtual extent estimation.
-        BringIndexIntoView(Children.Count - 1, 1, -Padding.Bottom);
+        BringIndexIntoView(Children.Count - 1, 1, -Padding.Bottom, isCurrent);
     }
-    internal void BringIndexIntoView(int index, double alignment = .5, double offset = 0)
+    internal void BringIndexIntoView(int index, double alignment = .5, double offset = 0, Func<bool>? isCurrent = null)
     {
-        if (index < 0 || index >= Children.Count) return;
-        var last = repeater.GetOrCreateElement(index) as FrameworkElement;
-        // Let the normal frame measure the new anchor. UpdateLayout here
-        // recursively measured every dirty pane inside the chat command.
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => last?.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false, VerticalAlignmentRatio = alignment, VerticalOffset = offset }));
+        if (index < 0 || index >= Children.Count || isCurrent?.Invoke() == false) return;
+        Commit();
+        var element = (FrameworkElement)repeater.GetOrCreateElement(index);
+        // GetOrCreateElement only suggests an anchor for the NEXT layout pass.
+        // A dispatcher callback (even Low priority) can run before that pass,
+        // when a distant row still has no position. Wait for actual Arrange,
+        // without forcing the whole window through synchronous UpdateLayout.
+        pendingBring = new(committed, index, element, alignment, offset, isCurrent, arrangeRevision);
+        PerformanceTrace.Count(TraceName + ".bring.request", index);
+        InvalidateArrange();
+    }
+    private void QueueArrangedBring()
+    {
+        if (bringQueued || pendingBring is not { } request || arrangeRevision <= request.AfterArrange) return;
+        bringQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            bringQueued = false;
+            if (!ReferenceEquals(pendingBring, request)) { QueueArrangedBring(); return; }
+            if (request.Revision != revision || request.IsCurrent?.Invoke() == false)
+            { pendingBring = null; return; }
+            // Never scroll a recycled host that now belongs to another row.
+            if (!ReferenceEquals(repeater.TryGetElement(request.Index), request.Element)
+                || repeater.GetElementIndex(request.Element) != request.Index)
+            {
+                BringIndexIntoView(request.Index, request.Alignment, request.Offset, request.IsCurrent);
+                return;
+            }
+            if (!request.Element.IsLoaded || request.Element.ActualWidth <= 0 || request.Element.ActualHeight <= 0) return;
+            pendingBring = null;
+            PerformanceTrace.Count(TraceName + ".bring.arranged", request.Index);
+            request.Element.StartBringIntoView(new BringIntoViewOptions
+            { AnimationDesired = false, VerticalAlignmentRatio = request.Alignment, VerticalOffset = request.Offset });
+        })) bringQueued = false;
     }
     internal bool MoveFocus(UIElement source, int delta, Func<UIElement, Control?> focusTarget)
     {
@@ -85,7 +120,10 @@ internal sealed class VirtualRows : Grid
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
     {
         using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
-        return base.ArrangeOverride(finalSize);
+        var result = base.ArrangeOverride(finalSize);
+        arrangeRevision++;
+        QueueArrangedBring();
+        return result;
     }
     private sealed class RowFactory : IElementFactory
     {

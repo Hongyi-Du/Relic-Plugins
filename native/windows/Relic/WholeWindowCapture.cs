@@ -248,7 +248,7 @@ public sealed partial class MainWindow
 
     private async Task<JsonObject> CaptureWholeWindowPixels(string path, int requestedWidth, int requestedHeight)
     {
-        if (!WholeWindowCaptureEnabled) throw new InvalidOperationException("Whole-window desktop capture is CI-only");
+        if (!WholeWindowCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("Whole-window desktop capture is CI-only");
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         if (!WholeWindowGetRect(handle, out var window) || !WholeWindowGetClientRect(handle, out var client))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not read actual window/client rectangle");

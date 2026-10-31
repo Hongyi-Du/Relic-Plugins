@@ -336,24 +336,23 @@ public sealed partial class MainWindow : Window
     private void DrawChat() => DrawConversation();
     private void ScrollToLatest()
     {
-        // Finish this conversation's current layout before choosing its end.
-        // A queued delay can outlive the action that requested the scroll: for
-        // example, opening a file then narrows the chat and wraps a message.
-        // Scrolling that later layout would move the reader past the position
-        // retained when they opened the file (or started reading history).
+        // VirtualRows waits for the real anchor's Arrange before scrolling.
+        // Keep both that pending request and the post-Markdown correction tied
+        // to this action so neither can override a later user/history scroll.
         keepLatest = true;
         chatScroll.VerticalAnchorRatio = 1;
         var request = ++latestRequest;
-        stream.BringLastIntoView();
+        bool IsCurrent() => !closing && keepLatest && request == latestRequest;
+        stream.BringLastIntoView(IsCurrent);
         _ = SettleLatest();
         async Task SettleLatest()
         {
             try
             {
                 await WaitForMarkdown();
-                if (!closing && keepLatest && request == latestRequest)
+                if (IsCurrent())
                 {
-                    stream.BringLastIntoView();
+                    stream.BringLastIntoView(IsCurrent);
                 }
             }
             catch (TimeoutException) { /* Loading continues; never override a later user scroll. */ }

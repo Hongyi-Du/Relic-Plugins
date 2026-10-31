@@ -120,7 +120,7 @@ public sealed partial class MainWindow
         if (!PerformanceEnabled) throw new InvalidOperationException("History interaction is CI-only");
         await Select(step.Text("org"));
         await WaitForMarkdown(); await PerformanceYield();
-        var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0;
+        var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0; var topWheelEvents = 0;
         var diagnostics = new JsonObject(); var checkpoints = new JsonArray(); var inputEvents = new JsonArray();
         diagnostics["checkpoints"] = checkpoints; diagnostics["events"] = inputEvents;
         record["history_input_diagnostics"] = diagnostics;
@@ -128,7 +128,8 @@ public sealed partial class MainWindow
         {
             var state = new JsonObject { ["stage"] = stage, ["unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 ["wheel_events"] = wheelEvents, ["root_wheel_events"] = rootWheelEvents, ["view_events"] = viewEvents,
-                ["top_events"] = topEvents, ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder,
+                ["top_events"] = topEvents, ["top_wheel_events"] = topWheelEvents,
+                ["keep_latest"] = keepLatest, ["loading_older"] = loadingOlder,
                 ["chat_more"] = chatMore, ["chat_pages"] = chatPages, ["latest_request"] = latestRequest,
                 ["vertical_offset"] = chatScroll.VerticalOffset, ["scrollable_height"] = chatScroll.ScrollableHeight,
                 ["viewport_width"] = chatScroll.ViewportWidth, ["viewport_height"] = chatScroll.ViewportHeight };
@@ -175,7 +176,11 @@ public sealed partial class MainWindow
         }
         Microsoft.UI.Xaml.Input.PointerEventHandler wheel = (_, args) =>
         {
-            if (args.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) wheelEvents++;
+            if (args.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0)
+            {
+                wheelEvents++;
+                if (chatScroll.VerticalOffset < 32) topWheelEvents++;
+            }
             ObserveWheel("chatScroll", args);
         };
         Microsoft.UI.Xaml.Input.PointerEventHandler rootWheel = (_, args) => { rootWheelEvents++; ObserveWheel("root", args); };
@@ -234,10 +239,39 @@ public sealed partial class MainWindow
             }
 
             // A real upward wheel cancels the production follow-latest state.
-            // ChangeView only drives the visible ScrollViewer; its ViewChanged
-            // handler must perform every page request without a business-method
+            // ChangeView and real wheel input only drive the visible ScrollViewer;
+            // its production handlers must perform every page request without a business-method
             // fallback or a test-written keepLatest/loadingOlder state.
             capturePointerReceipts.Clear();
+            Checkpoint("before_initial_latest");
+            var initialLatestQuiet = 0;
+            await Until(() =>
+            {
+                // Observe the product's automatic arrival at the latest row;
+                // do not repair its initial scroll position from this scenario.
+                var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater;
+                var index = stream.Children.Count - 1;
+                var row = index >= 0 ? repeater?.TryGetElement(index) as FrameworkElement : null;
+                var visible = false;
+                var observation = new JsonObject { ["source"] = "Passive observation before any history input",
+                    ["vertical_offset"] = chatScroll.VerticalOffset, ["scrollable_height"] = chatScroll.ScrollableHeight,
+                    ["viewport_height"] = chatScroll.ViewportHeight, ["keep_latest"] = keepLatest,
+                    ["gap_dip"] = chatScroll.ScrollableHeight - chatScroll.VerticalOffset,
+                    ["realized_row_index"] = index, ["row_realized"] = row is { IsLoaded: true, ActualHeight: > 0 } };
+                if (row is { IsLoaded: true, ActualHeight: > 0 })
+                {
+                    var bounds = row.TransformToVisual(chatScroll).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
+                    visible = bounds.Bottom > 0 && bounds.Top < chatScroll.ViewportHeight;
+                    observation["row_top"] = bounds.Top; observation["row_bottom"] = bounds.Bottom;
+                }
+                observation["row_visible"] = visible;
+                diagnostics["initial_latest_observation"] = observation;
+                initialLatestQuiet = keepLatest && visible && chatScroll.ViewportHeight > 0
+                    && Math.Abs(chatScroll.ScrollableHeight - chatScroll.VerticalOffset) <= 1 ? initialLatestQuiet + 1 : 0;
+                return initialLatestQuiet >= 2;
+            }, "Production conversation did not automatically reach its latest row before history input");
+            record["history_initial_latest"] = diagnostics["initial_latest_observation"]!.DeepClone();
+            Checkpoint("initial_latest_ready");
             Checkpoint("before_hover");
             diagnostics["set_foreground_returned"] = SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
             await CaptureHover(chatScroll);
@@ -249,17 +283,28 @@ public sealed partial class MainWindow
             await PerformanceYield();
             while (chatMore)
             {
-                var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents;
-                chatScroll.ChangeView(null, 0, null, true);
+                var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents; var beforeWheels = wheelEvents;
+                var alreadyAtTop = chatScroll.VerticalOffset <= 1;
+                if (alreadyAtTop)
+                {
+                    // At the upper boundary ChangeView(0) cannot emit a new
+                    // position event. Exercise the real user's upward wheel.
+                    await CaptureHover(chatScroll);
+                    SendCaptureMouse(new CaptureMouseInput { Data = 120, Flags = 0x0800 });
+                }
+                else chatScroll.ChangeView(null, 0, null, true);
                 await Until(() => chatPages > beforePages && !loadingOlder,
-                    "History did not page through the production ScrollViewer.ViewChanged handler");
+                    "History did not page through the production ScrollViewer input handlers");
                 await WaitForMarkdown(); await PerformanceYield();
                 var afterIds = MessageIds();
-                if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min() || viewEvents <= beforeViews)
+                if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min()
+                    || (viewEvents <= beforeViews && wheelEvents <= beforeWheels))
                     throw new InvalidOperationException("Real history scroll did not add an older message page");
                 pages.Add(new JsonObject { ["before_pages"] = beforePages, ["after_pages"] = chatPages,
                     ["before_oldest_id"] = beforeIds.Min(), ["after_oldest_id"] = afterIds.Min(),
-                    ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews });
+                    ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
+                    ["upward_wheel_events"] = wheelEvents - beforeWheels,
+                    ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollViewer.ChangeView to the top" });
             }
             record["history_top"] = await Boundary(false);
             var ids = MessageIds();
@@ -267,19 +312,34 @@ public sealed partial class MainWindow
             var expectedOldest = long.Parse(step.Text("first_message_id"));
             var fixture = performanceManifest!["fixture"].Rows("orgs").First(item => item.Text("id") == step.Text("org"));
             var expectedCount = int.Parse(fixture.Text("group_messages"));
-            if (oldest != expectedOldest || ids.Length < expectedCount || topEvents == 0)
-                throw new InvalidOperationException($"History coverage mismatch: oldest={oldest}/{expectedOldest}, messages={ids.Length}/{expectedCount}, top events={topEvents}");
+            if (oldest != expectedOldest || ids.Length < expectedCount || (topEvents == 0 && topWheelEvents == 0))
+                throw new InvalidOperationException($"History coverage mismatch: oldest={oldest}/{expectedOldest}, messages={ids.Length}/{expectedCount}, top view/wheel events={topEvents}/{topWheelEvents}");
             record["pages_loaded"] = chatPages; record["history_complete"] = !chatMore;
             record["oldest_message_id"] = oldest; record["message_count"] = ids.Length;
             record["expected_fixture_messages"] = expectedCount; record["history_pages"] = pages;
             record["upward_wheel_events"] = wheelEvents; record["top_view_changed_events"] = topEvents;
+            record["top_upward_wheel_events"] = topWheelEvents;
             record["history_bottom"] = await Boundary(true);
-            record["history_scroll_source"] = "Actual upward pointer wheel and ScrollViewer.ViewChanged; no direct page load";
+            record["history_scroll_source"] = "Actual upward pointer wheel and ScrollViewer.ViewChanged production handlers; no direct page load";
         }
         catch (Exception error)
         {
             diagnostics["failure"] = error.ToString();
             Checkpoint("failure");
+            diagnostics["failure_window_capture_started_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            try
+            {
+                var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                if (!WholeWindowGetRect(window, out var box))
+                    throw new InvalidOperationException("Could not read the failed history window rectangle");
+                var file = "history-" + record.Text("id") + "-failure.png";
+                var capture = await CaptureWholeWindowPixels(System.IO.Path.Combine(PerformanceOutput, file),
+                    box.right - box.left, box.bottom - box.top);
+                capture["file"] = file;
+                diagnostics["failure_window_capture"] = capture;
+            }
+            catch (Exception captureError) { diagnostics["failure_window_capture_error"] = captureError.ToString(); }
+            finally { diagnostics["failure_window_capture_finished_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); }
             throw;
         }
         finally
