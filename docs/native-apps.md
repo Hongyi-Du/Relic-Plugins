@@ -1,5 +1,33 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Windows/shared acceptance update (2026-10-31): normal CI **41170556043** at
+**e346d033e6ef4aea74c30f9c8ce28c9d7e175354** passes all 175 exhaustive actions
+and 130 observed random-click actions over 180.621 seconds, with no scenario,
+watchdog, window-hang, resource-growth, or coverage errors. Maximum UI dispatch
+delay is **124.198 ms**, peak RSS **451.414 MiB**, and peak threads **39**.
+Three steady-window median RSS values are 372.197 / 356.012 / 354.742 MiB,
+with 32 / 31 / 31 threads. Reports and raw timings are retained under
+`S:\Codex\Outputs\Relic-native-performance\candidate-e346d03\windows`.
+The synthetic fixture has 13 organizations, 90 members, 12,310 messages (5,500
+in the largest group), 420 tasks, 796 events, 105 episodes, and 156 protocols.
+It includes long Markdown and actual SSE/stored-message traffic during the
+three-minute monkey phase. No personal store was read or uploaded.
+
+The same source passes Native apps CI 41170559901 (330 Windows and 279 macOS
+tests, both packages) and all four Python validation jobs in 41170559903.
+Visual review 41169425156 is green as a report-only regression workflow;
+required build, Python and responsiveness failures remain blocking.
+Windows now yields native presentation between changed panes, uses the native
+bottom anchor rather than repeated geometry-driven scrolling, virtualizes
+all long lists, coalesces SSE refreshes, and prepares Markdown/ICU boundaries
+and state-file writes off the UI thread. Earlier baseline 41161899958 fails
+at 926.520 ms with a WM_NULL timeout. That baseline stopped early, so its
+311.64 MiB / 35 threads are not a full-duration memory/thread comparison.
+There was no dump from the person's original hang: these are reproduced code
+contributors and CI evidence, not a claim about that process's exact stack.
+macOS still has no full passing pressure run and is owned by its platform session.
+PR #4 remains draft, open and unmerged; no local app or installed copy was launched.
+
 Changes for the clients (macOS visual follow-up): actual inspection of all eight
 e346d03 adaptive-window images found that **both dark macOS images retain raw
 Markdown**, and `macos-zh-CN-dark-1440x900-group.png` has a blank inspector.
@@ -36,8 +64,8 @@ system ICU module handles; native text capture waits for actual prepared text.
 State JSON serialization and atomic file replacement also move off the UI
 thread into one latest-only writer per state file, drained on normal close.
 New CI regressions cover actual ICU Unicode boundaries/cancellation and slow
-state writes, coalescing, draining, and access failures. These changes require
-a fresh normal responsiveness run, with all original limits retained.
+state writes, coalescing, draining, and access failures. Normal e346d03 evidence
+above verifies these changes with all original limits retained.
 
 Windows evidence update (2026-10-31): diagnostic CI 41166109662 reproduced a
 real `LayoutCycleException` in a private conversation. `MessageBubbleLayout`
