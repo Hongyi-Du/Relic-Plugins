@@ -1,3 +1,18 @@
+1b9d271 strict 41192369412 records 172.810 ms /194.172 MiB /9 threads,
+but FAILS action-0052 group with a blank conversation (1016 rows, no mounted
+row probes, 418 pt bottom gap). No random-phase acceptance. Native tests
+41192369472 pass 301/302: the new 3000-reply viewport/retention test passes,
+50-row append/Home/End passes, and only the 5850-row actual End text is absent.
+Python validation 41192369425 passes all four jobs.
+Replace the one-shot ScrollViewReader requests, default extent anchor, and
+latest-row geometry correction with one native scrollPosition(id:anchor:)
+binding and scrollTargetLayout. SwiftUI owns row realization and placement
+across size/data changes; initial ID is supplied before the viewport mounts.
+Home/End, incoming messages and history restoration update that same binding.
+No direct native clip repair is added. All real-text, offset and watchdog
+assertions remain unchanged. API available on macOS 14:
+https://developer.apple.com/documentation/swiftui/view/scrollposition(id:anchor:)
+Shared native-apps 6754fb6 is merged. No shared API change is requested.
 d4e7f6a / 41191509218 FAILS startup at 261.997 ms, 173.875 MiB /9 threads.
 The separate body scope peaks at 270.288 ms; individual text measurement stays
 below 5 ms. RichText was constructing the entire source as plain native text,
