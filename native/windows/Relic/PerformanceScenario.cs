@@ -89,6 +89,32 @@ public sealed partial class MainWindow
         await Task.Delay(60);
     }
 
+    private async Task<JsonObject> WaitForSettingsNavigationDraw(ContentDialog dialog)
+    {
+        var elapsed = Stopwatch.StartNew();
+        JsonArray states = [];
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            var navigation = new List<NativeSettingsNavigationLabel>();
+            void Walk(DependencyObject node)
+            {
+                if (node is NativeSettingsNavigationLabel label) { navigation.Add(label); return; }
+                for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node); index++)
+                    Walk(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, index));
+            }
+            Walk(dialog);
+            states = new JsonArray(navigation.Select(item => (JsonNode)(item.CurrentLabel?.DrawState()
+                ?? new JsonObject { ["current_draw"] = false, ["failure"] = "Visible navigation owner has no label" })).ToArray());
+            if (navigation.Count == 7 && navigation.All(item => item.IsLoaded && item.Visibility == Visibility.Visible
+                && item.CurrentLabel is { HasCurrentDraw: true, ActualWidth: > 0, ActualHeight: > 0 }))
+                return new JsonObject { ["source"] = "Seven actual mounted settings navigation labels after their production SurfaceImageSource EndDraw",
+                    ["count"] = navigation.Count, ["elapsed_ms"] = elapsed.Elapsed.TotalMilliseconds,
+                    ["labels"] = states, ["passed"] = true };
+            await Task.Delay(20);
+        }
+        throw new TimeoutException("Settings navigation did not complete its actual text draw: " + states.ToJsonString());
+    }
+
     private async Task RunPerformanceScenario()
     {
         var actions = new List<JsonObject>(); var errors = new List<string>();
@@ -135,7 +161,10 @@ public sealed partial class MainWindow
                         throw new TimeoutException("Production dialog did not reach Opened: " + step.Text("name"));
                     }
                     var presented = openedDialog;
-                    await WaitForMarkdown(); await PerformanceYield(); presented.Hide();
+                    await WaitForMarkdown();
+                    if (step.Text("name") is "settings" or "about")
+                        record["navigation_text_ready"] = await WaitForSettingsNavigationDraw(presented);
+                    await PerformanceYield(); presented.Hide();
                     await dialog.WaitAsync(TimeSpan.FromSeconds(10)); break;
                 case "scroll-history":
                     await Select(step.Text("org"));
