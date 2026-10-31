@@ -74,7 +74,7 @@ public sealed partial class NativePathText
                 if (element.Visibility != Visibility.Visible) return [];
                 if (element.Clip is RectangleGeometry geometry)
                     clip.Intersect(element.TransformToVisual(owner).TransformBounds(geometry.Rect));
-                if (element is ScrollViewer)
+                if (element is ScrollViewer or ScrollView or Microsoft.UI.Xaml.Controls.Primitives.ScrollPresenter)
                     clip.Intersect(element.TransformToVisual(owner).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight)));
             }
             var result = new List<Rect>();

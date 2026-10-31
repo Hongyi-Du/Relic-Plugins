@@ -209,9 +209,8 @@ public sealed partial class MainWindow
                 ["source_type"] = args.OriginalSource?.GetType().FullName,
                 ["source_is_chat_scroll"] = ReferenceEquals(args.OriginalSource, chatScroll) };
         };
-        EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) =>
+        Windows.Foundation.TypedEventHandler<ScrollView, object> changed = (_, _) =>
         {
-            if (args.IsIntermediate) return;
             viewEvents++;
             if (chatScroll.VerticalOffset < 32) topEvents++;
             ObserveReadingAnchor();
@@ -272,7 +271,8 @@ public sealed partial class MainWindow
                 {
                     if (waiting.Elapsed > TimeSpan.FromSeconds(15))
                         throw new TimeoutException(bottom ? "Real history scroll did not reach the bottom" : "Real history scroll did not reach the top");
-                    if (!bottom) chatScroll.ChangeView(null, 0, null, true);
+                    if (!bottom) chatScroll.ScrollTo(chatScroll.HorizontalOffset, 0,
+                        new ScrollingScrollOptions(ScrollingAnimationMode.Disabled, ScrollingSnapPointsMode.Ignore));
                     await PerformanceYield(); await WaitForMarkdown();
                     var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
                     var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
@@ -299,7 +299,7 @@ public sealed partial class MainWindow
             }
 
             // A real upward wheel cancels the production follow-latest state.
-            // ChangeView and real wheel input only drive the visible ScrollViewer;
+            // ScrollTo and real wheel input only drive the visible ScrollView;
             // its production handlers must perform every page request without a business-method
             // fallback or a test-written keepLatest/loadingOlder state.
             capturePointerReceipts.Clear();
@@ -353,9 +353,10 @@ public sealed partial class MainWindow
                     await CaptureHover(chatScroll);
                     SendCaptureMouse(new CaptureMouseInput { Data = 120, Flags = 0x0800 });
                 }
-                else chatScroll.ChangeView(null, 0, null, true);
+                else chatScroll.ScrollTo(chatScroll.HorizontalOffset, 0,
+                    new ScrollingScrollOptions(ScrollingAnimationMode.Disabled, ScrollingSnapPointsMode.Ignore));
                 await Until(() => chatPages > beforePages && !loadingOlder,
-                    "History did not page through the production ScrollViewer input handlers");
+                    "History did not page through the production ScrollView input handlers");
                 await WaitForMarkdown(); await PerformanceYield();
                 if (keepLatest) throw new InvalidOperationException("History layout reactivated follow-latest without user end input");
                 await Until(() => !stream.ReadingAnchorRestorePending,
@@ -386,7 +387,7 @@ public sealed partial class MainWindow
                     ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
                     ["upward_wheel_events"] = wheelEvents - beforeWheels,
                     ["reading_anchor"] = anchorObservation,
-                    ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollViewer.ChangeView to the top" });
+                    ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollView.ScrollTo to the top" });
             }
             record["history_top"] = await Boundary(false);
             record["observed_reading_anchor_cases"] = observedAnchorCases;
@@ -411,7 +412,7 @@ public sealed partial class MainWindow
             record["top_upward_wheel_events"] = topWheelEvents;
             record["history_bottom"] = await Boundary(true);
             record["end_key_events"] = endKeyEvents;
-            record["history_scroll_source"] = "Actual upward pointer wheel, ScrollViewer top input and actual End key; no direct page load or bottom repair";
+            record["history_scroll_source"] = "Actual upward pointer wheel, ScrollView top input and actual End key; no direct page load or bottom repair";
         }
         catch (Exception error)
         {

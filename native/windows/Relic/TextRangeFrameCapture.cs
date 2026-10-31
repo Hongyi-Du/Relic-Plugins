@@ -179,6 +179,26 @@ public sealed partial class MainWindow
                 };
                 viewer.ViewChanged += handler; detach.Add(() => viewer.ViewChanged -= handler);
             }
+            if (value is ScrollView view)
+            {
+                var previous = (view.HorizontalOffset, view.VerticalOffset, view.ZoomFactor);
+                Windows.Foundation.TypedEventHandler<ScrollView, object> handler = (_, _) =>
+                {
+                    var current = (view.HorizontalOffset, view.VerticalOffset, view.ZoomFactor);
+                    if (current != previous) { Changed(view, "ScrollView.ViewChanged"); previous = current; }
+                };
+                view.ViewChanged += handler; detach.Add(() => view.ViewChanged -= handler);
+            }
+            if (value is Microsoft.UI.Xaml.Controls.Primitives.ScrollPresenter presenter)
+            {
+                var previous = (presenter.HorizontalOffset, presenter.VerticalOffset, presenter.ZoomFactor);
+                Windows.Foundation.TypedEventHandler<Microsoft.UI.Xaml.Controls.Primitives.ScrollPresenter, object> handler = (_, _) =>
+                {
+                    var current = (presenter.HorizontalOffset, presenter.VerticalOffset, presenter.ZoomFactor);
+                    if (current != previous) { Changed(presenter, "ScrollPresenter.ViewChanged"); previous = current; }
+                };
+                presenter.ViewChanged += handler; detach.Add(() => presenter.ViewChanged -= handler);
+            }
             return id;
         }
 
@@ -231,6 +251,8 @@ public sealed partial class MainWindow
                         ["transform_to_root"] = new JsonArray(x.X - p.X, x.Y - p.Y, y.X - p.X, y.Y - p.Y, p.X, p.Y) };
                 }
                 if (value is ScrollViewer viewer) record["scroll"] = new JsonArray(viewer.HorizontalOffset, viewer.VerticalOffset, viewer.ZoomFactor, viewer.ViewportWidth, viewer.ViewportHeight);
+                if (value is ScrollView view) record["scroll"] = new JsonArray(view.HorizontalOffset, view.VerticalOffset, view.ZoomFactor, view.ViewportWidth, view.ViewportHeight);
+                if (value is Microsoft.UI.Xaml.Controls.Primitives.ScrollPresenter presenter) record["scroll"] = new JsonArray(presenter.HorizontalOffset, presenter.VerticalOffset, presenter.ZoomFactor, presenter.ViewportWidth, presenter.ViewportHeight);
                 if (value is TextBlock block) record["is_text_trimmed"] = block.IsTextTrimmed;
                 if (value is Run run)
                 {

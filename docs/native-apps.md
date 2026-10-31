@@ -1,5 +1,60 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+11e6ec5 / 41253590421 still FAILS Windows, despite passing all 175 fixed
+interactions and the four complete history/top/End cases. Random history case
+monkey-51 now reaches the real initial last row, loads all 1,253 messages and
+preserves its visible reading anchor (0.102 DIP change), then fails the actual
+End operation after a live append. The last row 1275 is absent, with a
+24,021 DIP gap and no pending native request. Maximum UI delay is 149.456 ms,
+peak 490.691 MiB /40 threads. The required full random duration and resource
+plateau are not proven. This is a product scroll-positioning failure, not a
+missing paging request or a weakened harness assertion. Native builds/tests,
+Python validation, adaptive windows and whole-window chrome pass on this SHA.
+The next candidate replaces only the conversation's legacy ScrollViewer with
+stable WinUI 1.8 ScrollView, correlating actual bring requests and completion;
+real rendered-row/frame validation and all acceptance limits remain required.
+The chat-only ScrollView migration builds headlessly with zero warnings/errors.
+Its BringingIntoView correlation must complete and pass the retained rendering
+frame before reading/follow checks; it removes IsScrolling/SubmittedGeometry
+completion inference. The existing 10-DIP scrollbar and UIA/frame clipping are
+preserved. No experimental APIs, additional retry, or weaker test is used.
+Changes for the clients: integrated native-macos 20ea445, including 35bd31b's
+native Quartz shadow implementation and corrected flipped-context offset.
+Its original shadow pixel tests/tolerances remain unchanged. REQUESTS asks for
+no shared route or payload changes; complete native/pressure CI is still needed.
+Changes for the clients: the same 11e6ec5 run's Mac job reaches
+action-0171:scroll-history, then fails its 250 ms probe (258.193 ms at first
+failure; 389.801 ms final maximum, 294 MiB /10 threads). It has no completion
+receipt and cannot count as full-scenario acceptance. Raw reports are retained
+in the 11e6ec5 candidate folders. There is no shared route/payload/gate change.
+
+0866447 / 41252892811 completes all 175 fixed interactions, all four real
+history/top/End cases, and 51 real-pointer random interactions, then FAILS
+random history re-entry before any new history input. The selected 1,000-item
+page's last row disappears with keep_latest=true and a 56,711 DIP gap.
+Maximum UI delay 93.698 ms, peak 461.914 MiB /37 threads. The live fixture
+published 798 events and inserted 40 synthetic messages; it did not complete
+the required random duration, so no acceptance or plateau claim. Two explicit
+FirstRow layout resets ran successfully in the fixed 5,500-message history.
+The same coordinate reset is now performed once at the START of each new
+follow-latest intent, before realizing its final row. It is never performed
+by repair/Arrange/readiness callbacks, and keyed reading anchors are unchanged.
+There is no additional retry or timeout. Complete CI remains required.
+Changes for the clients: Mac 37da869's bounded 16-width Flow/Markdown layout
+caches and wrapping/content replacement regressions are integrated in 67d8b3a;
+REQUESTS contains no shared route or payload change. The preceding Mac 8087b5c
+on 0866447 still fails 304.473 ms at action-0133:group (220.688 MiB /9 threads).
+
+The 0866447 adaptive-window failure is a capture race: the wide/dark receipt
+has a 27.800 DIP gap while native_bring.Routed=true, Rendered=false and
+follow.in_flight=true. The old fixed 350 ms sleep followed by forced UpdateLayout
+could submit a new asynchronous correction immediately before pixel capture.
+Whole-window capture now passively observes two ready/settled actual-tail states
+inside the existing 15-second presentation budget. It does not drive layout,
+scrolling or business methods; end-gap/content assertions remain. A timeout
+still retains the actual window pixels and state before reporting failure.
+The pressure scenario and its deadlines are unchanged. No shared API change.
+
 fb820fa / 41252003658 still FAILS, now at End after actual complete history:
 all 5,500 messages, five preserved reading anchors and the visible row-0/top
 check pass; no FirstRow reset was needed in this particular fixed case.
