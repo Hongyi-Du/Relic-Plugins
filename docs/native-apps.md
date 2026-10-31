@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (final Windows frame publication): the actual text-range
+observer now ends and publishes its final sidecar atomically before the native
+probes receipt reports success. Previously that file was only written later in
+VisualCapture.finally, racing the Python reader. Failed scenes retain their
+cleanup/publication path; an already published file is not rewritten and failed
+writes are not retried implicitly. No timeout or measurement is extended.
+The headless WinUI build passes with zero warnings/errors; actual CI capture is
+still required. fd6ceb9's independent contract suite also passes (41147536434).
+
 Changes for the clients (informational token state): the Windows reader reuses
 the exact sealed OverviewToken template/content identity contract plus actual
 no-peer, IsTabStop=false and unfocused observations to distinguish its container
