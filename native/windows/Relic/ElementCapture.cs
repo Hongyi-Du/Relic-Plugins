@@ -137,7 +137,7 @@ public sealed partial class MainWindow
                     node["composition_clip_evidence"] = compositionClip;
                     if (hidden == null && compositionClip["status"]?.GetValue<string>() != "measured")
                         errors.Add(id + ": Composition clip remains unmeasured: " + compositionClip["reason"]);
-                    if ((element is ScrollViewer || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
+                    if ((element is ScrollViewer or ScrollView or ScrollPresenter || type == "ScrollContentPresenter") && finiteBox) clip = IntersectCapture(clip, box);
                     node["style"] = CaptureStyle(element, opacity, id, errors, hidden == null);
                     if (element is NativeLabel nativeLabel)
                     {

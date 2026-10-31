@@ -337,6 +337,11 @@ public sealed partial class MainWindow
         : actual == typeof(ContentPresenter) ? "native-presenter-fill-border-and-content"
         : actual == typeof(ScrollContentPresenter) ? "native-scroll-content-presenter-fill-border-and-content"
         : actual == typeof(Grid) || actual == typeof(StackPanel) || actual == typeof(Canvas) ? "native-panel-background"
+        // SDK 1.8.12 ScrollPresenter.cpp OnPropertyChanged forwards Background
+        // to its native Panel; UpdateContent retains the actual child in Children.
+        // It is not a template-only control. Clip, Composition and child receipts
+        // remain independently measured, including the actual scrolling transform.
+        : actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.ScrollPresenter) ? "native-panel-background"
         : actual == typeof(Rectangle) || actual == typeof(Ellipse) || actual == typeof(Line)
             || actual == typeof(Microsoft.UI.Xaml.Shapes.Path) || actual == typeof(Polygon) || actual == typeof(Polyline) ? "native-shape-fill-and-stroke"
         : actual == typeof(TextBlock) || actual == typeof(RichTextBlock) ? "native-text-glyphs"
@@ -380,7 +385,7 @@ public sealed partial class MainWindow
         || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.ToggleButton)
         || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.ScrollBar)
         || actual == typeof(Microsoft.UI.Xaml.Controls.Primitives.Thumb)
-        || actual == typeof(ScrollViewer) || actual == typeof(ListViewItem)
+        || actual == typeof(ScrollViewer) || actual == typeof(ScrollView) || actual == typeof(ListViewItem)
         || actual == typeof(ListView) || actual == typeof(ComboBox) || actual == typeof(TextBox);
 
     // These exact sealed production types add layout, retained child ownership

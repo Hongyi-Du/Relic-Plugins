@@ -29,11 +29,12 @@ internal sealed class VirtualRows : Grid
     private sealed record BringRequest(int Revision, int Index, FrameworkElement Element,
         double Alignment, double Offset, Func<bool>? IsCurrent, long AfterArrange, Func<bool>? IsReady = null, bool Created = false);
     private BringRequest? pendingBring;
-    private sealed class NativeBring(BringRequest request, ScrollViewer viewport)
+    private sealed class NativeBring(BringRequest request, ScrollView viewport)
     {
         internal readonly BringRequest Request = request;
-        internal readonly ScrollViewer Viewport = viewport;
-        internal bool Routed, Rendered;
+        internal readonly ScrollView Viewport = viewport;
+        internal bool Routed, Rendered, Completed;
+        internal int? CorrelationId;
         internal long AfterRenderArrange;
     }
     private NativeBring? nativeBring;
@@ -46,27 +47,25 @@ internal sealed class VirtualRows : Grid
         double ViewportWidth, double ViewportHeight, double RowTop, double RowWidth, double RowHeight);
     private readonly record struct PreparedEnd(int Index, double ViewportWidth, double ViewportHeight,
         double RowWidth, double RowHeight, double ContentBottom);
-    private sealed class FollowRequest(int revision, ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    private sealed class FollowRequest(int revision, ScrollView viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {
         internal readonly int Revision = revision;
-        internal readonly ScrollViewer Viewport = viewport;
+        internal readonly ScrollView Viewport = viewport;
         internal readonly Func<bool> IsCurrent = isCurrent;
         internal readonly Func<bool> IsContentReady = isContentReady;
         internal PreparedEnd? LastCorrected;
-        internal PreparedEnd? SubmittedGeometry;
-        internal long SubmittedArrange;
         internal double ViewportWidth = viewport.ViewportWidth, ViewportHeight = viewport.ViewportHeight;
         internal UIElement? LastAnchor;
-        internal bool Settled, IsScrolling, RecoveryRequested;
+        internal bool Settled, RecoveryRequested;
     }
     private FollowRequest? followingLast;
     internal sealed record ReadingAnchor(string Key, double ViewportTop);
-    private sealed class ReadingRestore(int revision, ReadingAnchor anchor, ScrollViewer viewport,
+    private sealed class ReadingRestore(int revision, ReadingAnchor anchor, ScrollView viewport,
         Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow = false)
     {
         internal int Revision = revision;
         internal readonly ReadingAnchor Anchor = anchor;
-        internal readonly ScrollViewer Viewport = viewport;
+        internal readonly ScrollView Viewport = viewport;
         internal readonly Func<bool> IsCurrent = isCurrent, IsContentReady = isContentReady;
         internal readonly bool FirstRow = firstRow;
         internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -124,7 +123,7 @@ internal sealed class VirtualRows : Grid
                 () => IsCurrent(reading), reading.IsContentReady);
         }
     }
-    internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    internal void FollowLastIntoView(ScrollView viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {
         Commit();
         StopFollowingLast();
@@ -132,6 +131,7 @@ internal sealed class VirtualRows : Grid
         followingLast = new(committed, viewport, isCurrent, isContentReady);
         viewport.AnchorRequested += FollowAnchorRequested;
         viewport.ViewChanged += FollowViewChanged;
+        viewport.StateChanged += FollowViewChanged;
         viewport.SizeChanged += FollowViewportSizeChanged;
         PresentationPreparation.Completed += FollowPreparationCompleted;
         // A new latest intent addresses the end of this model, not a reading
@@ -161,6 +161,7 @@ internal sealed class VirtualRows : Grid
         followingLast = null;
         follow.Viewport.AnchorRequested -= FollowAnchorRequested;
         follow.Viewport.ViewChanged -= FollowViewChanged;
+        follow.Viewport.StateChanged -= FollowViewChanged;
         follow.Viewport.SizeChanged -= FollowViewportSizeChanged;
         PresentationPreparation.Completed -= FollowPreparationCompleted;
     }
@@ -192,7 +193,7 @@ internal sealed class VirtualRows : Grid
         && reading.Revision == revision && reading.IsCurrent();
     private int ReadingIndex(ReadingRestore reading) => reading.FirstRow
         ? (Children.Count > 0 ? 0 : -1) : Children.FindIndex(row => row.Key == reading.Anchor.Key);
-    internal ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
+    internal ReadingAnchor? ReadVisibleAnchor(ScrollView viewport)
     {
         ReadingAnchor? first = null;
         // Enumerate the small realized visual set, never create an item or
@@ -207,7 +208,7 @@ internal sealed class VirtualRows : Grid
         }
         return first;
     }
-    internal ReadingAnchor? ReadAnchor(ScrollViewer viewport, string key)
+    internal ReadingAnchor? ReadAnchor(ScrollView viewport, string key)
     {
         var index = Children.FindIndex(row => row.Key == key);
         if (index < 0 || repeater.TryGetElement(index) is not Border
@@ -216,12 +217,12 @@ internal sealed class VirtualRows : Grid
         if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) return null;
         return new(key, bounds.Top);
     }
-    internal Task<bool> RestoreReadingAnchorAsync(ReadingAnchor anchor, ScrollViewer viewport,
+    internal Task<bool> RestoreReadingAnchorAsync(ReadingAnchor anchor, ScrollView viewport,
         Func<bool> isCurrent, Func<bool> isContentReady)
         => RestoreReadingPositionAsync(anchor, viewport, isCurrent, isContentReady, false);
-    internal Task<bool> RestoreFirstIntoViewAsync(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    internal Task<bool> RestoreFirstIntoViewAsync(ScrollView viewport, Func<bool> isCurrent, Func<bool> isContentReady)
         => RestoreReadingPositionAsync(new ReadingAnchor("", Padding.Top), viewport, isCurrent, isContentReady, true);
-    private Task<bool> RestoreReadingPositionAsync(ReadingAnchor anchor, ScrollViewer viewport,
+    private Task<bool> RestoreReadingPositionAsync(ReadingAnchor anchor, ScrollView viewport,
         Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow)
     {
         Commit(); StopFollowingLast();
@@ -251,17 +252,17 @@ internal sealed class VirtualRows : Grid
         PresentationPreparation.Completed -= FollowPreparationCompleted;
         reading.Completion.TrySetResult(restored);
     }
-    private void ReadingAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    private void ReadingAnchorRequested(ScrollView sender, ScrollingAnchorRequestedEventArgs args)
     {
         if (restoringReading is not { } reading || !IsCurrent(reading)) return;
         var index = ReadingIndex(reading);
         if (index < 0 || repeater.TryGetElement(index) is not FrameworkElement
             { IsLoaded: true, ActualHeight: > 0 } element) return;
         var bounds = element.TransformToVisual(sender).TransformBounds(new(0, 0, element.ActualWidth, element.ActualHeight));
-        if (bounds.Bottom > 0 && bounds.Top < sender.ViewportHeight) args.Anchor = element;
+        if (bounds.Bottom > 0 && bounds.Top < sender.ViewportHeight) args.AnchorElement = element;
     }
-    private void ReadingViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
-    { if (!args.IsIntermediate) QueueReadingCheck(); }
+    private void ReadingViewChanged(ScrollView sender, object args)
+    { QueueReadingCheck(); }
     private void QueueReadingCheck()
     {
         if (restoringReading == null || readingCheckQueued) return;
@@ -288,14 +289,14 @@ internal sealed class VirtualRows : Grid
             StopRestoringReading(true);
         })) readingCheckQueued = false;
     }
-    private void FollowAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    private void FollowAnchorRequested(ScrollView sender, ScrollingAnchorRequestedEventArgs args)
     {
         if (followingLast is not { } follow || !IsCurrent(follow)) { QueueFollowCheck(); return; }
         // StartBringIntoView and StackLayout's suggested anchor own the move
         // until it has actually settled. An application-selected end anchor
         // during that move competes with the changing virtual extent; deferred
         // rows can then repeatedly enter/leave a single native layout pass.
-        if (!follow.Settled || follow.IsScrolling || pendingBring != null || !follow.IsContentReady()
+        if (!follow.Settled || nativeBring != null || pendingBring != null || !follow.IsContentReady()
             || Math.Abs(sender.ScrollableHeight - sender.VerticalOffset) > 1) return;
         // An off-viewport anchor disturbs StackLayout's realization range and
         // can repeatedly recycle/rebuild the very row being followed. Only
@@ -305,16 +306,15 @@ internal sealed class VirtualRows : Grid
         {
             var bounds = last.TransformToVisual(sender).TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight));
             if (bounds.Top >= sender.ViewportHeight || bounds.Bottom <= 0) return;
-            args.Anchor = last;
+            args.AnchorElement = last;
             if (!ReferenceEquals(follow.LastAnchor, last))
             { follow.LastAnchor = last; PerformanceTrace.Count(TraceName + ".follow.anchor", Children.Count - 1); }
         }
         else QueueFollowCheck();
     }
-    private void FollowViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    private void FollowViewChanged(ScrollView sender, object args)
     {
-        if (followingLast is { } follow) follow.IsScrolling = args.IsIntermediate;
-        if (!args.IsIntermediate) QueueFollowCheck();
+        QueueFollowCheck();
     }
     private void FollowViewportSizeChanged(object sender, SizeChangedEventArgs args) => QueueFollowCheck();
     private EndGeometry ReadEndGeometry(FollowRequest follow)
@@ -333,7 +333,7 @@ internal sealed class VirtualRows : Grid
     {
         get
         {
-            if (followingLast is not { Settled: true, IsScrolling: false } follow || !IsCurrent(follow)
+            if (followingLast is not { Settled: true } follow || !IsCurrent(follow)
                 || pendingBring != null || nativeBring != null || !follow.IsContentReady()) return false;
             var geometry = ReadEndGeometry(follow);
             return geometry.Element is Border { Child: not null } && geometry.RowHeight > 0
@@ -362,18 +362,9 @@ internal sealed class VirtualRows : Grid
                 && geometry.RowTop + geometry.RowHeight > 0;
             if (atEnd)
             {
-                follow.IsScrolling = false;
                 if (!follow.Settled) PerformanceTrace.Count(TraceName + ".follow.settled", geometry.Index);
                 follow.Settled = true;
                 return;
-            }
-            if (follow.IsScrolling)
-            {
-                // A completed preparation can change content geometry without
-                // changing the scroll offset, hence without ViewChanged.
-                var prepared = PreparedGeometry(geometry);
-                if (arrangeRevision <= follow.SubmittedArrange || prepared == null || prepared == follow.SubmittedGeometry) return;
-                follow.IsScrolling = false;
             }
             // Only completed content/viewport geometry permits a correction.
             // Offset, estimated extent and recycled host identity are NOT new
@@ -466,29 +457,41 @@ internal sealed class VirtualRows : Grid
             if (viewport != null)
             {
                 CancelNativeBring(); nativeBring = new(request, viewport);
+                viewport.BringingIntoView += OnNativeBringingIntoView;
+                viewport.ScrollCompleted += OnNativeScrollCompleted;
                 viewport.AddHandler(UIElement.BringIntoViewRequestedEvent, bringRouted, true);
             }
-            // The request is asynchronous: ViewChanged reports the actual
-            // completed move. Do not let the already-queued follow check read
-            // the previous offset and issue another bring in this same turn.
-            if (followingLast is { } follow && request.Index == Children.Count - 1 && IsCurrent(follow))
-            {
-                follow.IsScrolling = true;
-                follow.SubmittedArrange = arrangeRevision;
-                follow.SubmittedGeometry = PreparedGeometry(ReadEndGeometry(follow));
-            }
+            // ScrollView provides a real completion for this exact request,
+            // including no-op brings. An offset/ViewChanged guess is not enough.
             request.Element.StartBringIntoView(new BringIntoViewOptions
             { AnimationDesired = false, VerticalAlignmentRatio = request.Alignment, VerticalOffset = request.Offset });
             QueueReadingCheck();
         })) bringQueued = false;
     }
-    private bool AtRequestedPosition(BringRequest request, ScrollViewer viewport)
+    private bool AtRequestedPosition(BringRequest request, ScrollView viewport)
     {
         var bounds = request.Element.TransformToVisual(viewport).TransformBounds(new(0, 0, request.Element.ActualWidth, request.Element.ActualHeight));
         var top = (viewport.ViewportHeight - bounds.Height) * request.Alignment + request.Offset;
         if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight || Math.Abs(bounds.Top - top) > 1) return false;
         if (followingLast != null) return Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1;
         return restoringReading?.FirstRow != true || Math.Abs(viewport.VerticalOffset) <= 1;
+    }
+    private void OnNativeBringingIntoView(ScrollView sender, ScrollingBringingIntoViewEventArgs args)
+    {
+        if (nativeBring is not { } bring || !ReferenceEquals(sender, bring.Viewport)
+            || !ReferenceEquals(args.RequestEventArgs.OriginalSource, bring.Request.Element)) return;
+        bring.CorrelationId = args.CorrelationId;
+        PerformanceTrace.Count(TraceName + ".bring.correlation", args.CorrelationId);
+    }
+    private void OnNativeScrollCompleted(ScrollView sender, ScrollingScrollCompletedEventArgs args)
+    {
+        if (nativeBring is not { } bring || !ReferenceEquals(sender, bring.Viewport)
+            || bring.CorrelationId != args.CorrelationId) return;
+        bring.Completed = true;
+        PerformanceTrace.Count(TraceName + ".bring.scroll_completed", args.CorrelationId);
+        // Completion may precede ItemsRepeater's Rendering cleanup (a no-op
+        // completes synchronously), or follow it. Both must precede validation.
+        InvalidateArrange();
     }
     private void OnNativeBringRequested(UIElement sender, BringIntoViewRequestedEventArgs args)
     {
@@ -523,20 +526,24 @@ internal sealed class VirtualRows : Grid
     private bool NativeBringArranged()
     {
         if (nativeBring is not { } bring) return true;
-        if (!bring.Rendered || arrangeRevision <= bring.AfterRenderArrange) return false;
+        if (!bring.Completed || !bring.Rendered || arrangeRevision <= bring.AfterRenderArrange) return false;
         PerformanceTrace.Count(TraceName + ".bring.completed", bring.Request.Index);
         CancelNativeBring();
-        if (followingLast is { } follow) follow.IsScrolling = false;
         return true;
     }
     private void CancelNativeBring()
     {
-        if (nativeBring is { } bring) bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+        if (nativeBring is { } bring)
+        {
+            bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+            bring.Viewport.BringingIntoView -= OnNativeBringingIntoView;
+            bring.Viewport.ScrollCompleted -= OnNativeScrollCompleted;
+        }
         nativeBring = null;
         if (bringRendering) Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnNativeBringRendering;
         bringRendering = false;
     }
-    internal object ReadScrollState(ScrollViewer viewport)
+    internal object ReadScrollState(ScrollView viewport)
     {
         var index = Children.Count - 1;
         var last = index >= 0 ? repeater.TryGetElement(index) as FrameworkElement : null;
@@ -547,9 +554,10 @@ internal sealed class VirtualRows : Grid
             suggested_anchor_pending = hasSuggestedAnchor,
             offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
             pending_bring = pendingBring == null ? null : new { pendingBring.Index, pendingBring.AfterArrange, pendingBring.Created },
-            native_bring = nativeBring == null ? null : new { nativeBring.Request.Index, nativeBring.Routed, nativeBring.Rendered, nativeBring.AfterRenderArrange },
-            follow = followingLast == null ? null : new { in_flight = followingLast.IsScrolling, followingLast.Settled,
-                followingLast.RecoveryRequested, followingLast.SubmittedArrange, followingLast.SubmittedGeometry, followingLast.LastCorrected },
+            native_bring = nativeBring == null ? null : new { nativeBring.Request.Index, nativeBring.Routed, nativeBring.Rendered,
+                nativeBring.Completed, nativeBring.CorrelationId, nativeBring.AfterRenderArrange },
+            follow = followingLast == null ? null : new { in_flight = nativeBring != null, followingLast.Settled,
+                followingLast.RecoveryRequested, followingLast.LastCorrected },
             reading = restoringReading == null ? null : new { restoringReading.FirstRow, restoringReading.Anchor, completed = restoringReading.Completion.Task.IsCompleted },
             last_row = new { index, loaded = last?.IsLoaded ?? false, child_ready = last is Border { Child: not null },
                 top = bounds?.Top, bottom = bounds?.Bottom, height = bounds?.Height }

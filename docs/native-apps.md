@@ -1,5 +1,24 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+11e6ec5 / 41253590421 still FAILS Windows, despite passing all 175 fixed
+interactions and the four complete history/top/End cases. Random history case
+monkey-51 now reaches the real initial last row, loads all 1,253 messages and
+preserves its visible reading anchor (0.102 DIP change), then fails the actual
+End operation after a live append. The last row 1275 is absent, with a
+24,021 DIP gap and no pending native request. Maximum UI delay is 149.456 ms,
+peak 490.691 MiB /40 threads. The required full random duration and resource
+plateau are not proven. This is a product scroll-positioning failure, not a
+missing paging request or a weakened harness assertion. Native builds/tests,
+Python validation, adaptive windows and whole-window chrome pass on this SHA.
+The next candidate replaces only the conversation's legacy ScrollViewer with
+stable WinUI 1.8 ScrollView, correlating actual bring requests and completion;
+real rendered-row/frame validation and all acceptance limits remain required.
+Changes for the clients: the same 11e6ec5 run's Mac job reaches
+action-0171:scroll-history, then fails its 250 ms probe (258.193 ms at first
+failure; 389.801 ms final maximum, 294 MiB /10 threads). It has no completion
+receipt and cannot count as full-scenario acceptance. Raw reports are retained
+in the 11e6ec5 candidate folders. There is no shared route/payload/gate change.
+
 0866447 / 41252892811 completes all 175 fixed interactions, all four real
 history/top/End cases, and 51 real-pointer random interactions, then FAILS
 random history re-entry before any new history input. The selected 1,000-item
