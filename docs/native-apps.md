@@ -1,5 +1,31 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The follow correction now reuses a realized final row, offers an explicit
+native anchor only when that row actually intersects the viewport, and waits
+for completed scrolling and content preparation before correcting. Corrections
+are keyed by the logical row and prepared row/viewport dimensions, not by the
+offset, estimated extent or recycled host identity that scrolling itself changes.
+There is no timer or synchronous layout traversal. Headless Release compilation
+passes (0 warnings/errors); strict runtime acceptance remains pending.
+
+Changes for the clients: native-macos REQUESTS at 0b23163 records a functional
+blank-conversation failure despite sub-250 ms timing. The Mac owner now uses
+one explicit scrolling owner and serializes Markdown/row admission. No shared
+route or payload change is requested. Both actual visible-content assertions
+and the unchanged response/resource thresholds remain required.
+
+bdde4d5 / 41183992304 exposes a regression in the persistent-follow change:
+startup visible-content readiness never becomes quiet for two observations.
+Within roughly 15 seconds the trace has 373 bring requests, 255 arranged
+submissions, 254 repairs and 232 anchor changes. Gaps alternate between values
+such as 190.875 /4811.094 /8024 DIP, creating render churn. The 65.426 ms UI
+maximum and 382.668 MiB /36 threads do NOT make this a pass; no fixed/random
+scenario completed. The actual timings are retained under candidate-bdde4d5.
+The next correction must avoid re-suggesting an already-realized row as a new
+layout anchor and avoid reacting to intermediate, unfinished layout as fresh
+scroll intent. The original 15-second readiness, 250 ms response and complete
+history/monkey gates stay unchanged.
+
 e747b64 / 41182945486 completes every fixed action, including all four real
 history cases (5,500/1,250/1,250/1,250 messages, 6/2/2/2 pages). Each initial,
 top and bottom gap is 0 with actual boundary rows visible. It then FAILS on

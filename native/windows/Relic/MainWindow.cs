@@ -345,7 +345,9 @@ public sealed partial class MainWindow : Window
         var selectedOrg = org; var selectedMember = member;
         bool IsCurrent() => !closing && keepLatest && request == latestRequest
             && org == selectedOrg && member == selectedMember;
-        stream.FollowLastIntoView(chatScroll, IsCurrent);
+        bool IsContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
+            && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
+        stream.FollowLastIntoView(chatScroll, IsCurrent, IsContentReady);
     }
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
