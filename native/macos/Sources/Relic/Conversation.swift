@@ -315,7 +315,8 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.onAppear { PerformanceRendering.rowAppeared() }
+                                }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row") } }
+                                    .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }
                             }
@@ -361,7 +362,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+                    ComposerView { following.followsBottom = true; m.run { try await m.send(); visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -398,7 +399,7 @@ struct ConversationStream: View {
                     following.contentChanged()
                     if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
                     else if !m.streamRows.isEmpty {
-                        if !initialLoad && following.followsBottom { proxy.scrollTo("end", anchor: .bottom) }
+                        if !initialLoad && following.followsBottom { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
                         initialLoad = false
                     }
                 }
@@ -408,7 +409,7 @@ struct ConversationStream: View {
                     keyboard.scrollToEdge = { top in
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
-                        else if !top { proxy.scrollTo("end", anchor: .bottom) }
+                        else { visibleRow = "end"; proxy.scrollTo("end", anchor: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil }

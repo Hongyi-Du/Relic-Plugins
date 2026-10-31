@@ -11,7 +11,7 @@ import RelicCore
         configuration.protocolClasses = [ModelTransport.self]
         let suite = "Relic.ScrollPager." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite); ModelTransport.handler = nil }
+        defer { defaults.removePersistentDomain(forName: suite) }
         let model = Model(client: try Client(port: 39321, token: "fixture", session: URLSession(configuration: configuration)), defaults: defaults)
         model.organization = "test"
         model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
@@ -57,8 +57,11 @@ import RelicCore
         model.organization = "test"
         model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
         model.messages = (1...50).map { Node(["id": $0, "type": "message", "from": "human", "to": ["all"], "text": "Message \($0)", "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
+        let paragraph = String(repeating: "Long synthetic message. 原生界面必须保留完整内容并保持响应。 ", count: 8)
+        let longMarkdown = "# Newest message\n\n" + Array(repeating: paragraph, count: 12).joined(separator: "\n\n")
+            + "\n\n```swift\nlet result = 42\nprint(result)\n```\n\nFinal paragraph."
         model.messages[49] = Node(["id": 50, "type": "message", "from": "human", "to": ["all"],
-            "text": "Newest message\n\n**Prepared asynchronously**\n\n```swift\nlet result = 42\nprint(result)\n```\n\nFinal paragraph.",
+            "text": longMarkdown,
             "at": "2026-10-30T12:00:00Z"] as [String: Any])
         let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
         host.sizingOptions = []; host.autoresizingMask = [.width, .height]
@@ -73,11 +76,14 @@ import RelicCore
         func settled() async throws {
             let deadline = ProcessInfo.processInfo.systemUptime + 5
             var quiet = 0
+            var previousHeight: CGFloat?
             repeat {
                 try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
+                let height = find(host)?.documentView?.bounds.height ?? 0
                 if !model.isPreparingConversation, RowMountQueue.shared.isIdle,
-                   let scroll = find(host), (scroll.documentView?.bounds.height ?? 0) > 1000 { quiet += 1 }
+                   height > 1000, previousHeight == height { quiet += 1 }
                 else { quiet = 0 }
+                previousHeight = height
                 if quiet >= 3 { return }
             } while ProcessInfo.processInfo.systemUptime < deadline
             XCTFail("The production lazy conversation did not settle")

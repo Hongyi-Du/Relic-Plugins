@@ -71,7 +71,7 @@ import RelicCore
             } while randomSeconds < Double(max(180, manifest["seconds"].integer))
         } catch { errors.append(String(describing: error)) }
         monitor?.finish(["actions": receipts, "errors": errors, "random_seconds": randomSeconds,
-                         "random_actions": randomActions, "seed": seed])
+                         "random_actions": randomActions, "seed": seed, "ui_work": UIWorkTrace.shared.snapshot()])
         model?.stop(); NSApp.terminate(nil)
     }
 
@@ -124,7 +124,7 @@ import RelicCore
             }
             try scroll(window, toTop: true); try await settleConversation(m)
             guard let topGap = ConversationKeyboardMount.edgeGap(in: window, atTop: true), topGap <= 2 else {
-                throw RelicError.message("History data loaded but its first row is not at the visible top")
+                throw RelicError.message("History data loaded but its first row is not at the visible top: \(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1) pt")
             }
             result["visible_top_gap_pt"] = topGap
             result["pages_loaded"] = m.historyPagesLoaded
@@ -132,7 +132,7 @@ import RelicCore
             result["history_complete"] = !m.moreChat
             try scroll(window, toTop: false); try await settleConversation(m)
             guard let bottomGap = ConversationKeyboardMount.bottomGap(in: window), bottomGap <= 2 else {
-                throw RelicError.message("End did not restore the visible latest history row")
+                throw RelicError.message("End did not restore the visible latest history row: \(ConversationKeyboardMount.bottomGap(in: window) ?? -1) pt")
             }
             result["visible_bottom_gap_pt"] = bottomGap
         default: throw RelicError.message("Unknown performance action: " + kind)

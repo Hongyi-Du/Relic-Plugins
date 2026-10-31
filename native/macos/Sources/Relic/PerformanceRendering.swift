@@ -43,6 +43,7 @@ import RelicCore
             try await Task.sleep(for: .milliseconds(100))
             let visible = RenderReadiness.observation(in: window, expectInspector: model.panelOpen && !model.organization.isEmpty, expectDialog: model.sheet != nil)
             if visible.ready, !model.isPreparingConversation, (model.organization.isEmpty || streamVersion == model.streamVersion),
+               (model.streamRows.isEmpty || visible.conversationRows > 0),
                pendingSurfaces == 0, pendingMarkdown == 0 { quietPasses += 1 }
             else { quietPasses = 0 }
             if quietPasses >= 3 { return }
