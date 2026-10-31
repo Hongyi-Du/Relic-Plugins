@@ -21,6 +21,11 @@ RSS_LIMIT = 1024 * 1024 * 1024
 THREAD_LIMIT = 160
 
 
+def observation_policy(diagnostic=False):
+    return {"diagnostic": diagnostic, "acceptance_eligible": not diagnostic,
+            "failure_observation_seconds": 30 if diagnostic else 2}
+
+
 def atomic_json(path, value):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -204,8 +209,9 @@ def wait_json(path, process, seconds=90):
     raise TimeoutError(f"No {path.name} after {seconds} seconds")
 
 
-def measure(exe, output, fixture, client, seconds, seed_value, mode):
+def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=False):
     import psutil
+    policy = observation_policy(diagnostic)
     state = output / "native-state"
     state.mkdir()
     plan = action_plan(fixture)
@@ -291,7 +297,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
                     break
                 if errors:
                     first_failure = first_failure or time.monotonic()
-                    if time.monotonic() - first_failure >= 2:
+                    if time.monotonic() - first_failure >= policy["failure_observation_seconds"]:
                         break
                 time.sleep(.025)
             else:
@@ -310,9 +316,11 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
             errors.append("Final native UI stall exceeds 250 ms")
     else:
         errors.append("The native scenario did not complete")
+    if diagnostic:
+        errors.append("Diagnostic-only observation cannot satisfy responsiveness acceptance")
     worst = max([float(h.get("max_ui_stall_ms") or 0) for h in heartbeats]
                 + [float((native_receipt or {}).get("max_ui_stall_ms") or 0)], default=0)
-    report = {"version": 1, "commit": os.environ.get("GITHUB_SHA"), "client": client, "mode": mode,
+    report = {"version": 1, "commit": os.environ.get("GITHUB_SHA"), "client": client, "mode": mode, **policy,
               "fixture_counts": fixture["counts"], "fixture_seed": seed_value, "duration_seconds": seconds,
               "passed": not errors, "errors": list(dict.fromkeys(errors)), "worst_ui_stall_ms": worst,
               "resources": resources, "native_receipt": native_receipt, "limits": {
@@ -320,7 +328,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode):
               "samples": samples, "heartbeats": heartbeats, "window_probes": windows,
               "live_updates": read_json(fixture["live_report"])}
     atomic_json(output / "responsiveness-report.json", report)
-    print(json.dumps({k: report[k] for k in ("client", "mode", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)
+    print(json.dumps({k: report[k] for k in ("client", "mode", "diagnostic", "acceptance_eligible", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)
     return report
 
 
@@ -334,6 +342,8 @@ def main():
     parser.add_argument("--seconds", type=int, default=180)
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--mode", choices=("baseline", "candidate"), default="candidate")
+    parser.add_argument("--diagnostic", action="store_true",
+                        help="Observe 30 seconds after a failure; always exit unsuccessfully and never count as acceptance")
     args = parser.parse_args()
     if args.seconds < 180:
         raise SystemExit("The responsiveness monkey phase must run for at least 180 seconds")
@@ -346,7 +356,7 @@ def main():
                                   stdout=log, stderr=log, creationflags=creation_flags())
         try:
             fixture = wait_json(fixture_output / "fixture.json", server, seconds=120)
-            report = measure(args.exe.resolve(), output, fixture, args.client, args.seconds, args.seed, args.mode)
+            report = measure(args.exe.resolve(), output, fixture, args.client, args.seconds, args.seed, args.mode, args.diagnostic)
         finally:
             stop_owned(server)
     if not report["passed"]:

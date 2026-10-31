@@ -89,6 +89,13 @@ class WatchdogPolicy(unittest.TestCase):
         return {"elapsed_seconds": second, "rss_bytes": rss, "threads": threads,
                 "cpu_seconds": second / 20, "phase": "monkey"}
 
+    def test_diagnostic_observation_is_explicit_and_not_acceptance(self):
+        self.assertEqual(driver.observation_policy(), {
+            "diagnostic": False, "acceptance_eligible": True, "failure_observation_seconds": 2})
+        self.assertEqual(driver.observation_policy(True), {
+            "diagnostic": True, "acceptance_eligible": False, "failure_observation_seconds": 30})
+        self.assertEqual(driver.UI_LIMIT_MS, 250)
+
     def test_stable_cache_and_thread_pool_pass(self):
         rows = [self.sample(second, (100 + second % 9) * 1048576, 30 + second % 3) for second in range(181)]
         result = driver.resource_summary(rows)

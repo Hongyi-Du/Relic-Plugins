@@ -98,3 +98,19 @@ not weaken the gate or turn failures green. Run it on the instrumented pre-fix
 commit to compare the same fixture and policy with the candidate. Artifacts
 contain synthetic data and receipts only. Product packaging remains in the
 existing `Native apps` workflow.
+
+An explicit `--diagnostic` option (workflow-dispatch `diagnostic: true`, default
+false) keeps observing a failed native process for up to **30 seconds** after
+the first violation, instead of the normal two seconds. This can expose a later
+crash and preserve its stack after an initial UI stall. It changes only that
+post-failure observation window: all violations remain in the report and every
+250 ms violation still fails. Process exit or a completed native receipt ends
+observation earlier. Automatic push runs never enable it.
+
+Diagnostic reports always include `diagnostic: true`, `acceptance_eligible: false`,
+`failure_observation_seconds: 30`, and `passed: false`; the command exits with
+failure even if it observed no product violations. Their workflow/artifact names
+are marked diagnostic. A diagnostic result is never acceptance evidence and its
+longer-window memory/thread peaks cannot be compared directly with the normal
+two-second failure baseline. Ordinary candidate and baseline measurements keep
+`diagnostic: false`, a two-second failure window, and all original strict gates.
