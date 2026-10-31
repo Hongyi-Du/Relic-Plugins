@@ -55,11 +55,16 @@ import RelicCore
                 if let scroll {
                     let snapshot = RelicAXChildSnapshot(scroll)
                     record["order_evidence"] = snapshot["evidence"]
-                    record["children"] = (snapshot["children"] as? [Any] ?? []).map { child -> [String: Any] in
-                        let value = RelicAXRead(child as AnyObject)
-                        return ["class": String(describing: type(of: child as AnyObject)),
-                            "identifier": value["identifier"] ?? NSNull(), "label": value["label"] ?? NSNull()]
+                    let children: [Any] = snapshot["children"] as? [Any] ?? []
+                    var childRecords: [[String: Any]] = []
+                    for child in children {
+                        let object = child as AnyObject, value = RelicAXRead(child as AnyObject)
+                        childRecords.append(["class": String(describing: type(of: object)),
+                            "identity": String(format: "%p", UInt(bitPattern: Unmanaged.passUnretained(object).toOpaque())),
+                            "identifier": value["identifier"] ?? NSNull(), "label": value["label"] ?? NSNull(),
+                            "value": value["value"] ?? NSNull(), "role": value["role"] ?? NSNull()])
                     }
+                    record["children"] = childRecords
                 }
                 diagnostics.append(record)
             }

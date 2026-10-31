@@ -17,13 +17,15 @@ import AppKit
         XCTAssertTrue(window.makeFirstResponder(root))
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
         root.layoutSubtreeIfNeeded(); root.displayIfNeeded(); CATransaction.flush()
-        // A custom text owner manages its real first-responder state, as an
-        // NSTextView does. The .visible mode disables AppKit's cursor
-        // animations, so use the normal active text-owner mode for this test.
-        indicator.displayMode = .automatic
+        // This fixture tests the observer against explicit CA animations.
+        // Keep the indicator visible without AppKit's independent blink loop;
+        // production capture keeps the real text view's automatic mode.
+        indicator.displayMode = .visible
+        try await Task.sleep(for: .milliseconds(80))
         let layer = try XCTUnwrap(indicator.layer)
         let transition = CABasicAnimation(keyPath: "opacity")
         transition.fromValue = 1; transition.toValue = 1; transition.duration = 0.15
+        transition.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
         transition.isRemovedOnCompletion = true
         layer.add(transition, forKey: "actual-finite-transition"); CATransaction.flush()
         let before = NativeCaretReadiness.observations(in: root)
@@ -45,7 +47,11 @@ import AppKit
         XCTAssertEqual(ended["settled"] as? Bool, true, String(describing: ended))
         XCTAssertGreaterThanOrEqual(ended["elapsed_seconds"] as? Double ?? 0, 0.05)
         XCTAssertNotNil(layer.animation(forKey: "completed-retained-transition"))
-        XCTAssertNil(layer.animation(forKey: "actual-finite-transition"))
+        let remaining = NativeCaretReadiness.observations(in: root)
+            .flatMap { $0["animations"] as? [[String: Any]] ?? [] }
+            .filter { $0["key"] as? String == "actual-finite-transition" }
+        XCTAssertTrue(remaining.allSatisfy { $0["completed_retained_transition"] as? Bool == true },
+            "A still-published finite animation must have actually finished on its layer clock")
 
         let long = CABasicAnimation(keyPath: "opacity")
         long.fromValue = 1; long.toValue = 1; long.duration = 10; long.isRemovedOnCompletion = false

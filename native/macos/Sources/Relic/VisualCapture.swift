@@ -631,18 +631,18 @@ import RelicAX
         guard abs(view.bounds.width - CGFloat(width)) < 1 && abs(view.bounds.height - CGFloat(height)) < 1 else { throw RelicError.message("Native view size differs from capture matrix: \(view.bounds)") }
         guard let bitmap = CaptureRaster.forView(view) else { throw RelicError.message("Cannot allocate native capture") }
         print("Capture geometry: window=\(window.frame), view=\(view.bounds), bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
-        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let rootRaster = CaptureRaster.cache(view, into: bitmap)
         guard CaptureRaster.sRGBPixel(bitmap, x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?[3] == 255 else {
             throw RelicError.message("Actual native window cache has no opaque center pixel")
         }
-        var rasters = [CaptureRaster.evidence(bitmap)]
+        var rasters = [rootRaster]
         guard let result = CaptureRaster.composite(width: width, height: height, draw: { canvas in
         NSColor.windowBackgroundColor.setFill(); canvas.fill(); bitmap.draw(in: canvas)
         let contentRect = window.convertToScreen(view.bounds)
         for child in NSApp.windows where child !== window && child.isVisible && child.contentView != nil {
             guard let content = child.contentView, let childBitmap = CaptureRaster.forView(content) else { continue }
-            content.layoutSubtreeIfNeeded(); content.displayIfNeeded(); content.cacheDisplay(in: content.bounds, to: childBitmap)
-            rasters.append(CaptureRaster.evidence(childBitmap))
+            content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
+            rasters.append(CaptureRaster.cache(content, into: childBitmap))
             if child === window.attachedSheet { NSColor.black.withAlphaComponent(0.18).setFill(); canvas.fill() }
             let childRect = child.convertToScreen(content.bounds)
             let rect = NSRect(x: childRect.minX - contentRect.minX, y: childRect.minY - contentRect.minY, width: childRect.width, height: childRect.height)

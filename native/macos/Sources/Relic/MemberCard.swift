@@ -155,11 +155,11 @@ struct MemberCard: View {
     }
     private var hasSeatActions: Bool { own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) || hosted || card["harness"].text == "chatgpt" || !card["session"].text.isEmpty }
     @ViewBuilder private var seatActions: some View {
-        if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { Button(m.t("card.new_session")) { confirmation = "fresh" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.new_session_hint")) }
-        if hosted && !card["session"].text.isEmpty { Button(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.open_session_hint")) }
-        if hosted { Button(m.t("card.edit_setup")) { m.openMemberForm(mode: "host", edit: who) }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.edit_setup_hint")) }
-        if card["harness"].text == "chatgpt" { Button(m.t(card["waiting_replies"].integer > 0 ? "card.forward_reply_waiting" : "card.forward_reply", ["n": card["waiting_replies"].text])) { m.sheet = .forward }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.forward_reply_hint")) }
-        if !card["session"].text.isEmpty { Button(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.leave_seat_hint")) }
+        if own && (card["embedded"].flag || hosted && Capabilities.automatic(m.platform, harness: card["harness"].text, surface: card["config"]["surface"].text)) { TextButton(m.t("card.new_session")) { confirmation = "fresh" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.new_session_hint")) }
+        if hosted && !card["session"].text.isEmpty { TextButton(m.t("card.open_session")) { m.run { try await seatAction("open_session") } }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.open_session_hint")) }
+        if hosted { TextButton(m.t("card.edit_setup")) { m.openMemberForm(mode: "host", edit: who) }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.edit_setup_hint")) }
+        if card["harness"].text == "chatgpt" { TextButton(m.t(card["waiting_replies"].integer > 0 ? "card.forward_reply_waiting" : "card.forward_reply", ["n": card["waiting_replies"].text])) { m.sheet = .forward }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.forward_reply_hint")) }
+        if !card["session"].text.isEmpty { TextButton(m.t("card.leave_seat"), role: .destructive) { confirmation = "unbind" }.buttonStyle(ReferenceButtonStyle(small: true, ghost: true)).help(m.t("card.leave_seat_hint")) }
     }
     private func row<Content: View>(_ key: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 12) {

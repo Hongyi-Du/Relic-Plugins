@@ -11,9 +11,10 @@ struct OrganizationBadge: View {
 struct ChartChip: View {
     let text: String
     var tone = ""
+    var weight = 400
     @State private var identity = "relic-chip/chart/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: 10.5, color: tone == "sec" ? RelicStyle.violet : tone == "warn" ? RelicStyle.amber : RelicStyle.secondary, owner: identity)
+        ReferenceLabel(text, size: 10.5, weight: weight, color: tone == "sec" ? RelicStyle.violet : tone == "warn" ? RelicStyle.amber : RelicStyle.secondary, owner: identity)
             .padding(.horizontal, 6).frame(height: 20)
             .modifier(RecordedSurface(background: tone == "sec" ? RelicStyle.violetSoft : tone == "warn" ? RelicStyle.amberSoft : RelicStyle.hover, radius: 10, kind: "chip", owner: identity))
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
