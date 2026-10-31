@@ -283,6 +283,7 @@ struct ConversationStream: View {
     @FocusState private var viewportFocused: Bool
     @State private var following = ConversationScrollFollowing()
     @State private var initialLoad = true
+    @State private var presentedRowCount = 0
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     var body: some View {
@@ -300,7 +301,7 @@ struct ConversationStream: View {
                                         .modifier(RecordedSurface(background: RelicStyle.sidebar, radius: 10, kind: "card"))
                                 }.padding(.top, 40).padding(.bottom, 8)
                             }
-                            ForEach(rows) { row in
+                            ForEach(Array(rows.suffix(presentedRowCount))) { row in
                                 ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                 if let separator = row.separator {
@@ -346,6 +347,22 @@ struct ConversationStream: View {
                         }
                 }
                 ComposerView { following.followsBottom = true; m.run { try await m.send(); proxy.scrollTo("end", anchor: .bottom) } }.measuredRegion("composer")
+            }.task(id: m.streamVersion) {
+                let ticket = PerformanceRendering.beginSurface()
+                defer { PerformanceRendering.endSurface(ticket) }
+                // The API page remains 1,000 messages. Even a lazy SwiftUI
+                // stack creates identity/state bookkeeping for every item in
+                // one transaction. Admit that full page in bounded batches,
+                // starting with its newest rows, without discarding any data.
+                while presentedRowCount < m.streamRows.count {
+                    let turn = UUID()
+                    guard await RowMountQueue.shared.acquire(turn) else { return }
+                    guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                    presentedRowCount = min(m.streamRows.count, presentedRowCount + 200)
+                    do { try await Task.sleep(for: .milliseconds(32)) }
+                    catch { RowMountQueue.shared.release(turn); return }
+                    RowMountQueue.shared.release(turn)
+                }
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing() }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
