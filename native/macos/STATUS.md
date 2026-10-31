@@ -3,6 +3,18 @@
 **尚未通过响应性验收，不能将候选包称为最终版本。** 修改仅限 `native/macos/**`；构建、测试、
 运行与截图均在 GitHub Actions。未安装或启动本机 App，未运行本机 Python 测试，未读取人的存储。
 
+最近的修正仍在验证：用户滚动意图现在来自本会话的 `NSScrollView.didLiveScrollNotification`
+及键盘操作，布局高度修正不再取消自动跟随。分帧显示以首条已接入消息的稳定ID为锚点，
+消除固定 `suffix(count)` 在追加消息时短暂移除首行的问题；每帧最多接入50条，服务端页大小不变。
+编辑框测量按文本、字体、段落样式及宽度缓存，最多8个宽度；编辑器与内联按钮分帧创建。
+
+`7b3dbca` / `41183087326` 中编辑区冷挂载已降为183.980 ms，但整轮仍在消息列表更新时
+失败：最长353.158 ms、158.375 MiB、9线程。`09ec379` / `41183181171` 仍为309.842 ms、
+164.188 MiB、7线程。当前稳定ID与用户滚动意图修正还不能据此宣称通过。
+`be19670` 的四张标题栏截图已检查并保存在 `S:\Codex\Outputs\Relic-native-visual\titlebar-be19670\macos\`，
+底部距离0或1 pt；`09ec379` 的窗口适配测试另发现宽浅色底部28 pt留距，失败图保存在
+`S:\Codex\Outputs\Relic-native-visual\window-09ec379\macos\`，须由当前修正重新验证。
+
 2026-10-31 追加验证：`2b5f3f1` 的 [Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41180176413)
 通过297项 macOS 测试。但随后加入长 Markdown 的真实可见文本检查后，`149dfa8` 和 `e7af7eb`
 确实失败，不能用旧的绿色结果代替新检查。`868e7d0` 的失败整窗图证明消息区为空，即使
