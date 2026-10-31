@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+2b5f3f1 / 41180176219 completes the first 5,500-message history through real
+scrolling: 23 pages, oldest ID 1, top and bottom gaps both 0 pt. It then FAILS
+the second history's End-position assertion. No 250 ms violation: max 199.357 ms,
+231.063 MiB, 10 threads. Native apps 41180176413 passes 297 Mac tests, including
+the new actual Home-triggered HTTP paging test. Current End/send/follow actions
+also bind the explicit `end` row identity so later lazy Markdown layout retains
+that target. The real keyboard test now uses a fixture-scale long Markdown row.
+Readiness additionally requires an actual visible conversation row for nonempty
+data, and final pressure receipts retain UI-work gauges even on functional errors.
+
 6c908a7 passes Native apps 41179607619 (296 macOS tests), four Python jobs
 41179607585 and chrome 41179607550 (four bottom gaps 0 pt). Strict pressure
 41179607578 no longer exceeds 250 ms: maximum 147.828 ms, 203.438 MiB, 10 threads.

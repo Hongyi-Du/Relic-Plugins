@@ -17,16 +17,19 @@ import AppKit
         let markdown = views.filter { $0.kind == "markdown" }
         return Observation(markdown: markdown.count, pendingMarkdown: markdown.filter { !$0.ready }.count,
             inspectors: views.filter { $0.kind == "inspector" }.count, expectInspector: expectInspector,
-            dialogs: views.filter { $0.kind == "dialog" }.count, expectDialog: expectDialog)
+            dialogs: views.filter { $0.kind == "dialog" }.count, expectDialog: expectDialog,
+            conversationRows: views.filter { $0.kind == "conversation-row" }.count)
     }
     struct Observation {
         let markdown: Int, pendingMarkdown: Int, inspectors: Int
         let expectInspector: Bool
         var dialogs = 0, expectDialog = false
+        var conversationRows = 0
         var ready: Bool { pendingMarkdown == 0 && (!expectInspector || inspectors == 1) && dialogs == (expectDialog ? 1 : 0) }
         var record: [String: Any] { ["visible_markdown": markdown, "unprepared_visible_markdown": pendingMarkdown,
             "visible_inspectors": inspectors, "inspector_expected": expectInspector,
-            "visible_dialogs": dialogs, "dialog_expected": expectDialog, "ready": ready] }
+            "visible_dialogs": dialogs, "dialog_expected": expectDialog, "ready": ready,
+            "visible_conversation_rows": conversationRows] }
     }
     final class Probe: NSView {
         var kind = "", ready = false
