@@ -14,8 +14,29 @@ messages/transcript steps nor visible live output, and must exercise the actual
 `renderStream` branch with `.notice` and `margin-top:40px`. The long conversation
 must contain more than 200 messages and verify the same initial viewport and
 history window on both clients. These are additional reference states, not
-exclusions or accepted differences. Native capture case routing will be added
-against the shared scene names when their fixture setup is available.
+exclusions or accepted differences. Native capture already routes the two group
+cases through the standard group selection and `empty-private` through the
+standard private selection. All three still require the shared scene-reset
+endpoint to acknowledge and actually prepare their data.
+
+## 2026-10-31: actual native fill destination receipts
+
+CI `41150748585` proved the original shadow fill's draw CGContext data pointer
+equals the actual `NSBitmapImageRep.bitmapData` destination (the rejected 16-bit
+replacement was removed because 121 pixels differed). The native capture now
+records each original `cacheDisplay` call in `*.native-raster.json`:
+`bitmaps[].native_fill_destinations[]` contains `actual_fill`,
+`sequence_before_cache`, `sequence_after_cache`, `new_draw_during_cache`,
+`same_destination_buffer`, and `draw_destination_bound`. Binding requires both
+a new actual draw during that specific call and identical buffer addresses.
+The bitmap entry records its actual view/window identities and data address.
+`final_png_attribution_proven` and `occlusion_proven` remain false. The expanded
+test also compares the complete observed/unobserved PNG bytes; fresh CI is pending.
+
+Please retain these receipts in the shared fill diagnostic without promoting
+them to final-pixel or occlusion proof. The remaining proof must still bind the
+actual source path/clip, composition operation, layer order and screenshot pixels.
+This gives that work the real draw destination rather than an inferred color match.
 
 ## 2026-10-31: measure the actual accent swatch selection (resolved in d019ebf)
 
