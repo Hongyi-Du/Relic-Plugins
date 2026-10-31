@@ -62,6 +62,7 @@ public sealed partial class MainWindow
                     if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
                         PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
                     if (completed.Task.IsCompletedSuccessfully) pings++;
+                    PerformanceTrace.RecordCollection();
                     await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                         max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
                         pending_since_unix_ms = completed.Task.IsCompletedSuccessfully ? 0 : pendingSince,

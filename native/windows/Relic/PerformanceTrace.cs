@@ -19,6 +19,19 @@ internal static class PerformanceTrace
         while (records.TryDequeue(out var record)) batch.Add(record);
         return batch.ToArray();
     }
+    private static long lastCollection;
+    internal static void RecordCollection()
+    {
+        if (!Enabled) return;
+        var info = GC.GetGCMemoryInfo();
+        if (info.Index == lastCollection) return;
+        lastCollection = info.Index;
+        records.Enqueue(new { name = "gc.collection", index = info.Index,
+            generation = info.Generation, concurrent = info.Concurrent,
+            pauses_ms = info.PauseDurations.ToArray().Select(pause => pause.TotalMilliseconds).ToArray(),
+            heap_bytes = info.HeapSizeBytes, finalizers_pending = info.FinalizationPendingCount,
+            unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+    }
     internal readonly struct Scope(string name) : IDisposable
     {
         private readonly long start = Enabled ? Stopwatch.GetTimestamp() : 0;

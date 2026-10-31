@@ -31,6 +31,7 @@ public sealed partial class MainWindow
         : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Relic", "native-ui.json");
     private void SaveViewState()
     {
+        using var timing = PerformanceTrace.Measure("SaveViewState");
         if (!ready) return;
         RememberChat();
         var state = new JsonObject { ["org"] = org, ["member"] = member, ["pane"] = pane == "thread" ? previousPane : pane,
@@ -77,6 +78,7 @@ public sealed partial class MainWindow
     }
     private void LayoutColumns()
     {
+        using var timing = PerformanceTrace.Measure("LayoutColumns");
         if (columns.ColumnDefinitions.Count < 3) return;
         var available = root.ActualWidth;
         if (available <= 0) return;
@@ -107,6 +109,7 @@ public sealed partial class MainWindow
     private Task TogglePanel() { panelOpen = !panelOpen; LayoutColumns(); DrawToolbar(); SaveViewState(); return Task.CompletedTask; }
     private async Task SetPane(string value)
     {
+        using var timing = PerformanceTrace.Measure("SetPane");
         pane = value; panelOpen = true; LayoutColumns(); DrawToolbar(); DrawDetail(); SaveViewState();
         if (pane == "workspace") await Workspace();
     }
