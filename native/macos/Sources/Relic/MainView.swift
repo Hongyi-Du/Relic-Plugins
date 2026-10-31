@@ -231,6 +231,7 @@ struct RightPane: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 2) {
                         ForEach(Array((Choices.panes + (m.threadID.isEmpty ? [] : [("thread", "panel.thread")])).enumerated()), id: \.offset) { index, pane in
+                            ProgressiveRow(estimatedHeight: 28, estimatedWidth: 70) {
                             Button { m.setPane(pane.0) } label: {
                                 HStack(spacing: 5) {
                                     ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
@@ -239,6 +240,7 @@ struct RightPane: View {
                                 }.padding(.horizontal, 9).frame(height: 28)
                             }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityLabel(m.t(pane.1)).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
                                 .environment(\.nativeElementParent, "relic-tab/" + pane.0)
+                            }
                         }
                     }
                 }.scrollIndicators(.hidden).frame(height: 28)
