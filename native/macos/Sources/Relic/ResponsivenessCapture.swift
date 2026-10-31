@@ -99,7 +99,7 @@ import RelicCore
             case "tasks", "protocols": m.openDetails(action["name"].text)
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
-            await settle(); m.sheet = nil; await settle()
+            try await settleConversation(m); m.sheet = nil; try await settleConversation(m)
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {

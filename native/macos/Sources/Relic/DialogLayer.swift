@@ -43,6 +43,7 @@ struct DialogLayer: View {
                 .offset(x: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).x : 0,
                         y: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).y : 0)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { if RenderReadiness.enabled { RenderReadiness(kind: "dialog") } }
             .onExitCommand { m.sheet = nil }
     }
     private var panel: some View {

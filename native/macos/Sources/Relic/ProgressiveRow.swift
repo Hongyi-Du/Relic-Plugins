@@ -9,6 +9,7 @@ import SwiftUI
     private var activeTrace: Int?
     private var waiting: [(UUID, CheckedContinuation<Bool, Never>, String)] = []
     var waitingCount: Int { waiting.count }
+    var isIdle: Bool { active == nil && waiting.isEmpty }
     func acquire(_ id: UUID, label: String = "row") async -> Bool {
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
