@@ -24,6 +24,7 @@ struct Sidebar: View {
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if revealMembers {
                     HStack {
                         ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
                         if !m.organizations.isEmpty { ReferenceLabel(String(m.organizations.count), size: 12, color: RelicStyle.muted, lines: 0) }
@@ -34,6 +35,7 @@ struct Sidebar: View {
                         SidebarOutlineRow(row: row)
                     }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
+                    }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
             }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
                 .modifier(RecordedSurface(background: .clear, kind: "region"))
