@@ -14,8 +14,7 @@ namespace Relic;
 // Raw surface pixels do not establish their contribution to the desktop PNG.
 internal sealed class NativeLabelReadback
 {
-    internal static bool Enabled => Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true"
-        && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"));
+    internal static bool Enabled => CaptureDiagnostics;
 
     internal long LayoutRevision { get; }
     internal long SurfaceRevision { get; }

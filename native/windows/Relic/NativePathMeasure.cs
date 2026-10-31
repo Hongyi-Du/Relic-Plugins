@@ -34,6 +34,7 @@ internal static class NativePathMeasure
     internal static NativePathMeasurement Shape(string text, string families, double size, ushort weight, string locale,
         bool measureIntrinsicWidths = false)
     {
+        using var timing = PerformanceTrace.Measure("NativePath.shape");
         IntPtr format = IntPtr.Zero, layout = IntPtr.Zero;
         try
         {

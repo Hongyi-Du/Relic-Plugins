@@ -28,9 +28,9 @@ public sealed partial class MainWindow : Window
     private readonly Grid root = new();
     private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();
     private readonly NativeRegionGrid composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
-    private readonly VirtualRows side = new() { Spacing = 2, Padding = new Thickness(8) };
-    private readonly VirtualRows detail = new() { Spacing = 14, Padding = new Thickness(16) };
-    private readonly VirtualRows stream = new() { Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly VirtualRows side = new() { TraceName = "sidebar", Spacing = 2, Padding = new Thickness(8) };
+    private readonly VirtualRows detail = new() { TraceName = "inspector", Spacing = 14, Padding = new Thickness(16) };
+    private readonly VirtualRows stream = new() { TraceName = "conversation", Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComposerInput editor = new();
     private readonly TextBox search = new();
     private readonly StackPanel sideTools = new() { Padding = new Thickness(8, 10, 8, 6) };
@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
+    private TaskCompletionSource? refreshCompletion;
     private string renderedView = "";
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
@@ -212,8 +213,9 @@ public sealed partial class MainWindow : Window
     private async Task Refresh()
     {
         if (api == null || closing) return;
-        if (refreshing) { pending = true; return; }
+        if (refreshing) { pending = true; if (refreshCompletion != null) await refreshCompletion.Task; return; }
         refreshing = true; pending = false;
+        var completed = refreshCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             var selectedOrg = org; var selectedMember = member;
@@ -266,16 +268,16 @@ public sealed partial class MainWindow : Window
                 Detail: !JsonNode.DeepEquals(oldSnap, nextSnap) || !JsonNode.DeepEquals(oldThread, nextThread)), lifetime.Token);
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             var viewChanged = renderedView != org + "/" + member;
-            if (viewChanged) DrawMenu();
-            if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
-            if (changes.Side || viewChanged) DrawSide();
-            if (changes.Chat || changes.Side || viewChanged) DrawChat();
-            if (changes.Detail || viewChanged) DrawDetail();
+            using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
+            using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
+            using (PerformanceTrace.Measure("DrawSide")) if (changes.Side || viewChanged) DrawSide();
+            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || changes.Side || viewChanged) DrawChat();
+            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || viewChanged) DrawDetail();
             renderedView = org + "/" + member;
             if (pane == "workspace" && changes.Detail) await Workspace();
             if (refreshChart != null && changes.Detail) await refreshChart();
         }
-        finally { refreshing = false; if (pending) Schedule(); }
+        finally { refreshing = false; completed.TrySetResult(); if (pending) Schedule(); }
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
@@ -290,6 +292,9 @@ public sealed partial class MainWindow : Window
         SaveViewState();
         LayoutColumns();
         await Refresh();
+        if (org != id || member != who) return;
+        if (renderedView != id + "/" + who) await Refresh();
+        if (org != id || member != who) return;
         if (different && digestOpen) await LoadDigest(false);
         ScrollToLatest();
     }

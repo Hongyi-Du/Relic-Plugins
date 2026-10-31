@@ -24,7 +24,7 @@ public sealed class NativeLabel : Panel
     private readonly string text, familyList, locale;
     private readonly float baseFontSize, baseLineHeight;
     private readonly bool scaleText;
-    private readonly Windows.UI.ViewManagement.UISettings textSettings = new();
+    private readonly Windows.UI.ViewManagement.UISettings textSettings = CreateTextSettings();
     private double textScale;
     private float fontSize => (float)(baseFontSize * textScale);
     private float lineHeight => (float)(baseLineHeight * textScale);
@@ -47,10 +47,17 @@ public sealed class NativeLabel : Panel
     private JsonObject? lineSpacingConfiguration;
     private string? failure;
 
+    private static Windows.UI.ViewManagement.UISettings CreateTextSettings()
+    {
+        using var timing = PerformanceTrace.Measure("NativeLabel.UISettings.create");
+        return new();
+    }
+
     public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
         bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false, bool primaryFontLineSpacing = false,
         bool scaleText = true)
     {
+        using var timing = PerformanceTrace.Measure("NativeLabel.construct");
         this.text = text; this.familyList = familyList; baseFontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; baseLineHeight = checked((float)lineHeight);
         this.scaleText = scaleText; textScale = scaleText ? textSettings.TextScaleFactor : 1;
@@ -259,6 +266,7 @@ public sealed class NativeLabel : Panel
 
     private void Attach()
     {
+        using var timing = PerformanceTrace.Measure("NativeLabel.attach");
         DetachSubscriptions();
         if (scaleText) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
         observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
@@ -345,6 +353,7 @@ public sealed class NativeLabel : Panel
     {
         if (layout == IntPtr.Zero)
         {
+            using var timing = PerformanceTrace.Measure("NativeLabel.layout.create");
             try
             {
                 // CreateTextFormat accepts one family. The remaining ordered list
@@ -352,18 +361,22 @@ public sealed class NativeLabel : Panel
                 // No precomputed coverage is used as drawn-font evidence.
                 var family = familyList.Split(',')[0].Trim().Trim('"');
                 if (family.Length == 0) throw new InvalidOperationException("NativeLabel requires an explicit primary font family");
-                var factory = NativeLabelDevice.Shared.WriteFactory;
+                IntPtr factory;
+                using (PerformanceTrace.Measure("NativeLabel.shared-device.acquire")) factory = NativeLabelDevice.Shared.WriteFactory;
                 Check(Method<CreateFormat>(factory, 15)(factory, family, IntPtr.Zero, weight, 0, 5, fontSize, locale, out format));
                 // The message header's ordinary inline text retains normal
                 // word breaks without emergency word splitting. Menus and
                 // sidebar previews keep their single-line production mode.
                 // DWRITE_WORD_WRAPPING_WHOLE_WORD=3; NO_WRAP=1.
                 Check(Method<SetUInt>(format, 5)(format, wrapWholeWords ? 3u : 1u));
-                Check(Method<CreateLayout>(factory, 18)(factory, text, checked((uint)text.Length), format, width, Math.Max(height, 1000), out layout));
-                fallbackConfiguration = NativeLabelFallback.Apply(factory, layout, familyList);
+                using (PerformanceTrace.Measure("NativeLabel.DirectWrite.CreateTextLayout"))
+                    Check(Method<CreateLayout>(factory, 18)(factory, text, checked((uint)text.Length), format, width, Math.Max(height, 1000), out layout));
+                using (PerformanceTrace.Measure("NativeLabel.fallback.apply"))
+                    fallbackConfiguration = NativeLabelFallback.Apply(factory, layout, familyList);
                 // Retain the natural metrics from this exact layout before
                 // applying the requested production line-spacing policy.
-                var lines = ReadLines();
+                LineMetrics[] lines;
+                using (PerformanceTrace.Measure("NativeLabel.DirectWrite.GetLineMetrics")) lines = ReadLines();
                 if (lines.Length > 0)
                 {
                     var baseline = lines[0].Baseline + (lineHeight - lines[0].Height) / 2;
@@ -479,6 +492,7 @@ public sealed class NativeLabel : Panel
     }
     protected override LayoutSize MeasureOverride(LayoutSize availableSize)
     {
+        using var timing = PerformanceTrace.Measure("NativeLabel.measure");
         try
         {
             EnsureLayout((float)(double.IsFinite(availableSize.Width) ? Math.Max(0, availableSize.Width) : 1000000), wrapWholeWords ? 1000000 : lineHeight);
@@ -493,6 +507,7 @@ public sealed class NativeLabel : Panel
     }
     protected override LayoutSize ArrangeOverride(LayoutSize finalSize)
     {
+        using var timing = PerformanceTrace.Measure("NativeLabel.arrange");
         arrangedWidth = finalSize.Width; arrangedHeight = finalSize.Height;
         // Fractional DIP dimensions keep native geometry. Whole surface pixels
         // occupy exactly pixels / rasterizationScale DIPs, without squeezing the
@@ -513,6 +528,7 @@ public sealed class NativeLabel : Panel
     private void EnsureSurface(int width, int height)
     {
         if (surfaceInterop != IntPtr.Zero && pixelWidth == width && pixelHeight == height) return;
+        using var timing = PerformanceTrace.Measure("NativeLabel.surface.create");
         Release(ref surfaceInterop); surface = new SurfaceImageSource(width, height, false);
         // CsWinRT returns the real projected object's native IInspectable.
         var inspectable = WinRT.MarshalInspectable<object>.FromManaged(surface);
@@ -528,6 +544,7 @@ public sealed class NativeLabel : Panel
     private void Render()
     {
         if (rendering || arrangedWidth <= 0 || arrangedHeight <= 0 || layout == IntPtr.Zero) return;
+        using var timing = PerformanceTrace.Measure("NativeLabel.render");
         rendering = true; InvalidateDraw(); readback = null; IntPtr context = IntPtr.Zero, brush = IntPtr.Zero;
         var began = false; var clipped = false;
         try
@@ -541,7 +558,10 @@ public sealed class NativeLabel : Panel
             EnsureLayout((float)arrangedWidth, (float)arrangedHeight);
             EnsureSurface(checked((int)Math.Ceiling(arrangedWidth * scale)), checked((int)Math.Ceiling(arrangedHeight * scale)));
             var update = new NativeLabelInterop.Rect { Right = pixelWidth, Bottom = pixelHeight }; var iid = DeviceContext;
-            Check(Method<BeginSurface>(surfaceInterop, 4)(surfaceInterop, ref update, ref iid, out context, out var offset)); began = true;
+            NativeLabelInterop.Point offset;
+            using (PerformanceTrace.Measure("NativeLabel.surface.BeginDraw"))
+                Check(Method<BeginSurface>(surfaceInterop, 4)(surfaceInterop, ref update, ref iid, out context, out offset));
+            began = true;
             var transform = new NativeLabelInterop.Matrix { M11 = 1, M22 = 1, Dx = (float)(offset.X / scale), Dy = (float)(offset.Y / scale) };
             Method<SetDpi>(context, 51)(context, (float)(96 * scale), (float)(96 * scale));
             Method<SetTransform>(context, 30)(context, ref transform);
@@ -558,7 +578,9 @@ public sealed class NativeLabel : Panel
             var trimming = CaptureDiagnostics ? ReadTrimming() : null;
             using var renderer = new NativeLabelRenderer(context, brush, (float)scale, transform, trimmingSign);
             drawOrdinal++;
-            var drawResult = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
+            int drawResult;
+            using (PerformanceTrace.Measure("NativeLabel.DirectWrite.Draw"))
+                drawResult = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
             if (renderer.CallbackFailure != null) throw new InvalidOperationException(renderer.CallbackFailure);
             Check(drawResult);
             TextMetrics metrics = default; JsonArray? lines = null, hitTest = null;
@@ -578,7 +600,10 @@ public sealed class NativeLabel : Panel
                 readback = NativeLabelReadback.Observe(context, offset, pixelWidth, pixelHeight, layoutRevision, surfaceRevision, drawOrdinal);
             // BeginDraw/EndDraw belong to the XAML surface, not the shared D2D
             // context. A run callback alone is never treated as committed paint.
-            var endResult = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop); began = false;
+            int endResult;
+            using (PerformanceTrace.Measure("NativeLabel.surface.EndDraw"))
+                endResult = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop);
+            began = false;
             readback?.ObserveEndDraw(endResult); Check(endResult);
             if (CaptureDiagnostics) receipt = new JsonObject
             {

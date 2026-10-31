@@ -53,6 +53,8 @@ public sealed partial class MainWindow
                         max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
                         pending_since_unix_ms = completed.Task.IsCompletedSuccessfully ? 0 : pendingSince,
                         action = Volatile.Read(ref performanceAction) });
+                    foreach (var timing in PerformanceTrace.Drain())
+                        System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"), JsonSerializer.Serialize(timing) + "\n");
                     if (completed.Task.IsCompletedSuccessfully) break;
                 }
                 await Task.Delay(40, token);
